@@ -1029,52 +1029,33 @@ function buildCSVSheet_(outputDoc, typeRules) {
   var omData = omSheet.getRange(2, 1, lastRow - 1, 100).getValues()
     .filter(function(row) { return String(row[0]).trim() !== ''; });
 
-  // Type sort order — rows within a combined CSV sheet are sorted by this.
-  var TYPE_SORT = { 'new': 0, 'po': 1, 'cpo-el': 2, 'cpo': 3 };
-  function typeSortIndex(vehicleType) {
-    var t = String(vehicleType).toLowerCase().trim();
-    return TYPE_SORT.hasOwnProperty(t) ? TYPE_SORT[t] : 99;
-  }
+  var isSingleRule = typeRules.length === 1;
 
-  // Group rows by the csv_schema of their matched rule.
-  // Track schema key order of first appearance so sheet order is deterministic.
-  var schemaGroups  = {};   // { schemaKey: [ {row, typeSort} ] }
-  var schemaOrder   = [];   // schema keys in first-seen order
+  var groups = {};
+  typeRules.forEach(function(rule) { groups[rule.match] = []; });
 
   omData.forEach(function(row) {
     var vehicleType = String(row[6]);
-    var rule        = matchRule_(vehicleType, typeRules);
-    var schemaKey   = rule.csv_schema || 'SCP';
-
-    if (!schemaGroups.hasOwnProperty(schemaKey)) {
-      schemaGroups[schemaKey] = [];
-      schemaOrder.push(schemaKey);
-    }
-    schemaGroups[schemaKey].push({ row: row, typeSort: typeSortIndex(vehicleType) });
+    var rule = matchRule_(vehicleType, typeRules);
+    groups[rule.match].push(row);
   });
 
-  var uniqueSchemas    = schemaOrder.length;
-  var isSingleSchema   = uniqueSchemas === 1;
-
-  schemaOrder.forEach(function(schemaKey) {
-    var entries    = schemaGroups[schemaKey];
-    var fieldCodes = getCsvSchema_(schemaKey) || getCsvSchema_('SCP');
-    var sheetName  = isSingleSchema
+  typeRules.forEach(function(rule) {
+    var rows        = groups[rule.match] || [];
+    var fieldCodes  = getCsvSchema_(rule.csv_schema) || getCsvSchema_('SCP');
+    var sheetName   = isSingleRule
       ? 'CSV'
-      : 'CSV_' + String(schemaKey).replace(/[^a-zA-Z0-9]/g, '_').toUpperCase();
+      : 'CSV_' + String(rule.match).replace(/[^a-zA-Z0-9]/g, '_').toUpperCase();
 
-    // Sort by type order within each combined sheet.
-    entries.sort(function(a, b) { return a.typeSort - b.typeSort; });
-
-    var dataRows = entries.map(function(entry) {
+    var dataRows = rows.map(function(row) {
       return fieldCodes.map(function(code) {
         var col = FIELD_TO_COL[code];
-        return col ? entry.row[col - 1] : '';
+        return col ? row[col - 1] : '';
       });
     });
 
     writeCSVSheet_(outputDoc, sheetName, fieldCodes, dataRows);
-    Logger.log('CSV sheet "' + sheetName + '" written: ' + dataRows.length + ' rows, schema: ' + schemaKey);
+    Logger.log('CSV sheet "' + sheetName + '" written: ' + dataRows.length + ' rows, schema: ' + rule.csv_schema);
   });
 }
 
@@ -2086,37 +2067,46 @@ function clearRunProgress(runId) {
 // ============================================================================
 
 /**
- * Returns the most recent order ID from the dealer's VIN log tab.
- * Reads col A (ORDER_ID) directly — not the RUN_LOG — so manually-submitted
- * orders are always reflected here immediately after writing.
+ * Returns the most recent order ID and committed_at timestamp from the
+ * dealer's VIN log tab. Reads cols A (ORDER_ID) and C (committed_at)
+ * directly — not the RUN_LOG — so manually-submitted orders are always
+ * reflected here immediately after writing.
  *
  * Scans from the bottom of col A upward and returns the first non-blank,
- * non-header value it finds.
+ * non-header value it finds, along with the corresponding col C timestamp.
  *
  * @param {string} dealerKey - must match a tab name in SF_VIN_LOGS exactly
- * @returns {{ latestOrderId: string|null }}
+ * @returns {{ latestOrderId: string|null, committedAt: string|null }}
  */
 function getLatestOrderId(dealerKey) {
   var logSS = SpreadsheetApp.openById(VIN_LOGS_ID);
   var sheet = logSS.getSheetByName(dealerKey);
 
-  if (!sheet) return { latestOrderId: null };
+  if (!sheet) return { latestOrderId: null, committedAt: null };
 
   var lastRow = sheet.getLastRow();
-  if (lastRow < 2) return { latestOrderId: null };
+  if (lastRow < 2) return { latestOrderId: null, committedAt: null };
 
-  // Read col A from row 2 downward (skip header row 1)
-  var values = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  // Read cols A–C from row 2 downward (skip header row 1)
+  var values = sheet.getRange(2, 1, lastRow - 1, 3).getValues();
 
-  // Scan from the bottom to find the most recent non-blank entry
+  // Scan from the bottom to find the most recent non-blank ORDER_ID entry
   for (var i = values.length - 1; i >= 0; i--) {
     var val = String(values[i][0]).trim();
     if (val !== '' && val !== 'ORDER_ID') {
-      return { latestOrderId: val };
+      var rawTs = values[i][2];
+      var committedAt = null;
+      if (rawTs instanceof Date) {
+        committedAt = Utilities.formatDate(rawTs, 'America/Chicago', 'yyyy-MM-dd HH:mm');
+      } else {
+        var tsStr = String(rawTs).trim();
+        committedAt = tsStr !== '' ? tsStr : null;
+      }
+      return { latestOrderId: val, committedAt: committedAt };
     }
   }
 
-  return { latestOrderId: null };
+  return { latestOrderId: null, committedAt: null };
 }
 
 
