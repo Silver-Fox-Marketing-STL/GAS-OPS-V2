@@ -1364,17 +1364,7 @@ function writeBillingSheet_(outputDoc) {
   rows.push(['', 'Total Produced (Net New)', totalNetNew, '']);
   rows.push(BLANK);
 
-  // Section 4 — Duplicate Detail Table
-  if (dupeDetails.length > 0) {
-    rows.push(['', '── DUPLICATE DETAIL ──', '', '', '', '', '', '']);
-    rows.push(['', 'Year', 'Make', 'Model', 'Stock', 'VIN', 'URL', 'Prior Order #s']);
-    dupeDetails.forEach(function(d) {
-      rows.push(['', d.year, d.make, d.model, d.stock, d.vin, d.url, d.orderNums]);
-    });
-  } else {
-    rows.push(['', '── DUPLICATE DETAIL ──', '', '']);
-    rows.push(['', 'No duplicates in this order.', '', '']);
-  }
+  // Section 4 — Duplicate Detail Table is written separately to the right (see below)
 
   // ── 8. Write to BILLING ──────────────────────────────────────────────────
   billingSheet.clearContents();
@@ -1392,6 +1382,25 @@ function writeBillingSheet_(outputDoc) {
   });
 
   billingSheet.getRange(1, 1, paddedRows.length, maxCols).setValues(paddedRows);
+
+  // ── Section 4 — Duplicate Detail Table (column F, row 2) ────────────────
+  var DUPE_START_ROW = 2;
+  var DUPE_START_COL = 6; // Column F
+  if (dupeDetails.length > 0) {
+    var dupeData = [
+      ['── DUPLICATE DETAIL ──', '', '', '', '', '', ''],
+      ['Year', 'Make', 'Model', 'Stock', 'VIN', 'URL', 'Prior Order #s']
+    ];
+    dupeDetails.forEach(function(d) {
+      dupeData.push([d.year, d.make, d.model, d.stock, d.vin, d.url, d.orderNums]);
+    });
+    billingSheet.getRange(DUPE_START_ROW, DUPE_START_COL, dupeData.length, 7).setValues(dupeData);
+  } else {
+    billingSheet.getRange(DUPE_START_ROW, DUPE_START_COL, 2, 1).setValues([
+      ['── DUPLICATE DETAIL ──'],
+      ['No duplicates in this order.']
+    ]);
+  }
 
   Logger.log('writeBillingSheet_: ' + totalOrdered + ' ordered, ' +
              totalMatched + ' matched, ' + totalDupes + ' dupes.');
