@@ -1029,33 +1029,52 @@ function buildCSVSheet_(outputDoc, typeRules) {
   var omData = omSheet.getRange(2, 1, lastRow - 1, 100).getValues()
     .filter(function(row) { return String(row[0]).trim() !== ''; });
 
-  var isSingleRule = typeRules.length === 1;
+  // Type sort order — rows within a combined CSV sheet are sorted by this.
+  var TYPE_SORT = { 'new': 0, 'po': 1, 'cpo-el': 2, 'cpo': 3 };
+  function typeSortIndex(vehicleType) {
+    var t = String(vehicleType).toLowerCase().trim();
+    return TYPE_SORT.hasOwnProperty(t) ? TYPE_SORT[t] : 99;
+  }
 
-  var groups = {};
-  typeRules.forEach(function(rule) { groups[rule.match] = []; });
+  // Group rows by the csv_schema of their matched rule.
+  // Track schema key order of first appearance so sheet order is deterministic.
+  var schemaGroups  = {};   // { schemaKey: [ {row, typeSort} ] }
+  var schemaOrder   = [];   // schema keys in first-seen order
 
   omData.forEach(function(row) {
     var vehicleType = String(row[6]);
-    var rule = matchRule_(vehicleType, typeRules);
-    groups[rule.match].push(row);
+    var rule        = matchRule_(vehicleType, typeRules);
+    var schemaKey   = rule.csv_schema || 'SCP';
+
+    if (!schemaGroups.hasOwnProperty(schemaKey)) {
+      schemaGroups[schemaKey] = [];
+      schemaOrder.push(schemaKey);
+    }
+    schemaGroups[schemaKey].push({ row: row, typeSort: typeSortIndex(vehicleType) });
   });
 
-  typeRules.forEach(function(rule) {
-    var rows        = groups[rule.match] || [];
-    var fieldCodes  = getCsvSchema_(rule.csv_schema) || getCsvSchema_('SCP');
-    var sheetName   = isSingleRule
-      ? 'CSV'
-      : 'CSV_' + String(rule.match).replace(/[^a-zA-Z0-9]/g, '_').toUpperCase();
+  var uniqueSchemas    = schemaOrder.length;
+  var isSingleSchema   = uniqueSchemas === 1;
 
-    var dataRows = rows.map(function(row) {
+  schemaOrder.forEach(function(schemaKey) {
+    var entries    = schemaGroups[schemaKey];
+    var fieldCodes = getCsvSchema_(schemaKey) || getCsvSchema_('SCP');
+    var sheetName  = isSingleSchema
+      ? 'CSV'
+      : 'CSV_' + String(schemaKey).replace(/[^a-zA-Z0-9]/g, '_').toUpperCase();
+
+    // Sort by type order within each combined sheet.
+    entries.sort(function(a, b) { return a.typeSort - b.typeSort; });
+
+    var dataRows = entries.map(function(entry) {
       return fieldCodes.map(function(code) {
         var col = FIELD_TO_COL[code];
-        return col ? row[col - 1] : '';
+        return col ? entry.row[col - 1] : '';
       });
     });
 
     writeCSVSheet_(outputDoc, sheetName, fieldCodes, dataRows);
-    Logger.log('CSV sheet "' + sheetName + '" written: ' + dataRows.length + ' rows, schema: ' + rule.csv_schema);
+    Logger.log('CSV sheet "' + sheetName + '" written: ' + dataRows.length + ' rows, schema: ' + schemaKey);
   });
 }
 
