@@ -353,11 +353,11 @@
             : 'Pre-filled ' + result.vins.length + ' net-new VIN' +
               (result.vins.length === 1 ? '' : 's') + '. Review and click Run.',
             result.vins.length === 0 ? 'info' : 'success');
-          btn.disabled = false; btn.textContent = '&#x21BA; Pre-fill from CAO';
+          btn.disabled = false; btn.textContent = '↺ Pre-fill from CAO';
         })
         .withFailureHandler(function(e) {
           setStatus('CAO error: ' + e.message, 'error');
-          btn.disabled = false; btn.textContent = '&#x21BA; Pre-fill from CAO';
+          btn.disabled = false; btn.textContent = '↺ Pre-fill from CAO';
         })
         .getCaoVins(key);
     }
