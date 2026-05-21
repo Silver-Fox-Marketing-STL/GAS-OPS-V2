@@ -16,6 +16,13 @@
       margin-top: 14px;
     }
     label:first-of-type { margin-top: 0; }
+    .user-select-wrap select {
+      border-color: #1a73e8;
+    }
+    .user-select-wrap select:focus {
+      outline: none;
+      box-shadow: 0 0 0 2px rgba(26,115,232,0.25);
+    }
     select, textarea, input[type="text"] {
       width: 100%;
       padding: 8px;
@@ -55,39 +62,6 @@
       color: #aaa;
       margin-left: 2px;
     }
-
-    /* ── VIN log status strip ────────────────────────────────────────────── */
-    #vinLogStatus {
-      display: none;
-      margin-top: 6px;
-      padding: 7px 10px;
-      background: #f8f9fa;
-      border: 1px solid #dadce0;
-      border-radius: 4px;
-      font-size: 11px;
-      color: #555;
-      align-items: center;
-      gap: 8px;
-    }
-    #vinLogStatus.visible { display: flex; }
-    #vinLogStatus.loading { color: #aaa; }
-    #vinLogStatus .vls-text { flex: 1; line-height: 1.5; }
-    #vinLogStatus .vls-text b { color: #333; }
-    #vinLogStatus .vls-text .vls-ts { color: #888; }
-    #vinLogStatus .vls-text .vls-empty { color: #aaa; font-style: italic; }
-    #vinLogUpdaterBtn {
-      flex-shrink: 0;
-      padding: 4px 9px;
-      font-size: 11px;
-      font-weight: bold;
-      background: #fff;
-      color: #555;
-      border: 1px solid #ccc;
-      border-radius: 3px;
-      cursor: pointer;
-      white-space: nowrap;
-    }
-    #vinLogUpdaterBtn:hover { background: #f0f0f0; border-color: #aaa; }
 
     /* ── CAO row ─────────────────────────────────────────────────────────── */
     .cao-row { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
@@ -210,16 +184,17 @@
 </head>
 <body>
 
+  <div class="user-select-wrap">
+    <label for="userSelect">Running as</label>
+    <select id="userSelect">
+      <option value="">-- Loading... --</option>
+    </select>
+  </div>
+
   <label for="dealerSelect">Dealer</label>
   <select id="dealerSelect">
     <option value="">-- Loading dealers... --</option>
   </select>
-
-  <!-- VIN log status strip — shown after dealer is selected -->
-  <div id="vinLogStatus">
-    <span class="vls-text" id="vlsText">Loading...</span>
-    <button id="vinLogUpdaterBtn" onclick="openVinLogUpdater()">&#128221; Update VIN Log</button>
-  </div>
 
   <label for="dealId">Pipedrive Deal ID</label>
   <input type="text" id="dealId" placeholder="e.g. 44021" />
@@ -301,7 +276,30 @@
       })
       .getActiveDealersForUI();
 
+    // ── Load user profiles dropdown ───────────────────────────────────────────
+    google.script.run
+      .withSuccessHandler(function(result) {
+        // result = { profiles: [...], lastUser: '...' }
+        var sel = document.getElementById('userSelect');
+        sel.innerHTML = '<option value="">-- Select user --</option>';
+        result.profiles.forEach(function(u) {
+          var opt = document.createElement('option');
+          opt.value = u.key; opt.text = u.name;
+          sel.appendChild(opt);
+        });
+        if (result.lastUser) sel.value = result.lastUser;
+        updateButtons();
+      })
+      .withFailureHandler(function(e) {
+        document.getElementById('userSelect').innerHTML = '<option value="">Error loading users</option>';
+        setStatus('Could not load user profiles: ' + e.message, 'error');
+      })
+      .getUserProfilesForModal();
+
     // ── Input listeners ───────────────────────────────────────────────────────
+    document.getElementById('userSelect').addEventListener('change', function() {
+      updateButtons();
+    });
     document.getElementById('vinInput').addEventListener('input', function() {
       updateVinCount(); updateButtons(); hideCaoSummary();
     });
@@ -310,7 +308,6 @@
       document.getElementById('vinInput').value = '';
       updateVinCount();
       hidePostRunActions();
-      loadVinLogStatus(this.value);
     });
     document.getElementById('dealId').addEventListener('input', function() {
       updateButtons();
@@ -329,11 +326,12 @@
     }
 
     function updateButtons() {
+      var hasUser   = document.getElementById('userSelect').value !== '';
       var hasDealer = document.getElementById('dealerSelect').value !== '';
       var hasDealId = document.getElementById('dealId').value.trim() !== '';
       var hasVins   = getVins().length > 0;
       document.getElementById('caoBtn').disabled = !hasDealer;
-      document.getElementById('runBtn').disabled = !(hasDealer && hasDealId && hasVins);
+      document.getElementById('runBtn').disabled = !(hasUser && hasDealer && hasDealId && hasVins);
     }
 
     // ── CAO pre-fill ──────────────────────────────────────────────────────────
@@ -475,6 +473,8 @@
 
     // ── Run handler ───────────────────────────────────────────────────────────
     function runSelected() {
+      var userSel = document.getElementById('userSelect');
+      var userKey = userSel.value;
       var sel    = document.getElementById('dealerSelect');
       var key    = sel.value;
       var name   = sel.options[sel.selectedIndex].text;
@@ -482,6 +482,7 @@
       var vins   = getVins();
       var runBtn = document.getElementById('runBtn');
 
+      if (!userKey)          { setStatus('Please select a user.', 'error'); return; }
       if (!key)              { setStatus('Please select a dealer.', 'error'); return; }
       if (!dealId)           { setStatus('Please enter a Pipedrive Deal ID.', 'error'); return; }
       if (vins.length === 0) { setStatus('Please enter at least one VIN.', 'error'); return; }
@@ -515,44 +516,7 @@
           runBtn.disabled = false;
           runBtn.textContent = 'Run Dealer';
         })
-        .pasteVinsAndRun(key, vins, dealId, runId, bypass);
-    }
-
-    // ── VIN log status strip ──────────────────────────────────────────────────
-    function loadVinLogStatus(dealerKey) {
-      var strip = document.getElementById('vinLogStatus');
-      var text  = document.getElementById('vlsText');
-
-      if (!dealerKey) {
-        strip.classList.remove('visible', 'loading');
-        return;
-      }
-
-      strip.classList.add('visible', 'loading');
-      text.innerHTML = 'Checking VIN log...';
-
-      google.script.run
-        .withSuccessHandler(function(result) {
-          strip.classList.remove('loading');
-          if (result && result.latestOrderId) {
-            var ts = result.committedAt
-              ? '<span class="vls-ts"> &mdash; ' + result.committedAt + '</span>'
-              : '';
-            text.innerHTML = 'Last log entry: <b>Order #' + result.latestOrderId + '</b>' + ts;
-          } else {
-            text.innerHTML = '<span class="vls-empty">No entries in VIN log yet</span>';
-          }
-        })
-        .withFailureHandler(function(e) {
-          strip.classList.remove('loading');
-          text.innerHTML = '<span class="vls-empty">Could not load VIN log status</span>';
-        })
-        .getLatestOrderId(dealerKey);
-    }
-
-    function openVinLogUpdater() {
-      google.script.host.close();
-      google.script.run.openVINLogUpdater();
+        .pasteVinsAndRun(key, vins, dealId, runId, bypass, userKey);
     }
 
     function setStatus(msg, type) {
