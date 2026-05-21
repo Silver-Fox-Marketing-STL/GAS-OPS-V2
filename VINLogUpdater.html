@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      font-size: 13px;
+      color: #333;
+    }
+    label {
+      display: block;
+      font-weight: bold;
+      margin-bottom: 4px;
+      margin-top: 14px;
+    }
+    label:first-of-type { margin-top: 0; }
+    select, input[type="text"] {
+      width: 100%;
+      padding: 8px;
+      font-size: 13px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    input[type="text"]:focus, textarea:focus {
+      outline: none;
+      border-color: #1a73e8;
+      box-shadow: 0 0 0 2px rgba(26,115,232,0.15);
+    }
+    textarea {
+      width: 100%;
+      padding: 8px;
+      font-size: 12px;
+      font-family: monospace;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      resize: vertical;
+    }
+
+    /* ── Latest order number pill ──────────────────────────────────────────── */
+    #latestOrderRow {
+      display: none;
+      margin-top: 8px;
+      font-size: 11px;
+      color: #555;
+    }
+    #latestOrderRow span {
+      display: inline-block;
+      background: #f1f3f4;
+      border: 1px solid #dadce0;
+      border-radius: 10px;
+      padding: 2px 9px;
+      font-weight: bold;
+      color: #333;
+      margin-left: 4px;
+    }
+
+    /* ── Runs table ────────────────────────────────────────────────────────── */
+    #runsSection { display: none; margin-top: 16px; }
+    #runsSection h3 {
+      font-size: 12px;
+      font-weight: bold;
+      color: #555;
+      margin: 0 0 8px 0;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    #runsTable {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    #runsTable th {
+      text-align: left;
+      padding: 6px 8px;
+      background: #f1f3f4;
+      border-bottom: 1px solid #dadce0;
+      font-weight: bold;
+      color: #555;
+      font-size: 11px;
+    }
+    #runsTable td {
+      padding: 7px 8px;
+      border-bottom: 1px solid #f0f0f0;
+      vertical-align: middle;
+    }
+    #runsTable tr:hover td { background: #fafafa; cursor: pointer; }
+    #runsTable tr.selected td { background: #e8f0fe; }
+    .status-badge {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: bold;
+      text-transform: uppercase;
+    }
+    .status-pending     { background: #fff3cd; color: #856404; }
+    .status-committed   { background: #d1e7dd; color: #0f5132; }
+    .status-rolled_back { background: #f8d7da; color: #842029; }
+
+    /* ── Action panel ──────────────────────────────────────────────────────── */
+    #actionPanel {
+      display: none;
+      margin-top: 14px;
+      padding: 12px;
+      background: #f8f9fa;
+      border: 1px solid #dadce0;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    #actionPanel .run-detail {
+      margin-bottom: 10px;
+      line-height: 1.8;
+      color: #444;
+    }
+    #actionPanel .run-detail strong { color: #222; }
+    .action-btns { display: flex; gap: 10px; margin-top: 10px; }
+    .btn-commit {
+      flex: 1; padding: 9px; background: #1a73e8; color: white;
+      border: none; font-size: 13px; font-weight: bold; cursor: pointer; border-radius: 4px;
+    }
+    .btn-commit:hover    { background: #1557b0; }
+    .btn-commit:disabled { background: #aaa; cursor: default; }
+    .btn-rollback {
+      flex: 1; padding: 9px; background: #fff; color: #c0392b;
+      border: 1.5px solid #c0392b; font-size: 13px; font-weight: bold;
+      cursor: pointer; border-radius: 4px;
+    }
+    .btn-rollback:hover    { background: #fce8e6; }
+    .btn-rollback:disabled { background: #f5f5f5; color: #aaa; border-color: #ccc; cursor: default; }
+
+    /* ── Manual entry section ──────────────────────────────────────────────── */
+    #manualSection { display: none; margin-top: 20px; }
+    #manualToggle {
+      display: none;
+      width: 100%;
+      padding: 8px 12px;
+      background: #fff;
+      border: 1px solid #dadce0;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #555;
+      cursor: pointer;
+      text-align: left;
+      margin-top: 16px;
+    }
+    #manualToggle:hover { background: #f8f9fa; }
+    #manualToggle .arrow { float: right; transition: transform 0.2s; }
+    #manualToggle.open .arrow { transform: rotate(180deg); }
+
+    #manualPanel {
+      display: none;
+      margin-top: 8px;
+      padding: 14px;
+      background: #f8f9fa;
+      border: 1px solid #dadce0;
+      border-radius: 4px;
+    }
+    #manualPanel .panel-title {
+      font-size: 12px;
+      font-weight: bold;
+      color: #555;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 12px;
+    }
+    #manualPanel label {
+      font-size: 12px;
+      margin-top: 10px;
+    }
+    #manualPanel label:first-of-type { margin-top: 0; }
+    #manualPanel .hint {
+      font-size: 11px;
+      color: #888;
+      margin-top: 3px;
+    }
+    #manualOrderId {
+      font-family: monospace;
+      letter-spacing: 0.5px;
+    }
+    #manualVins {
+      min-height: 80px;
+      max-height: 160px;
+    }
+    #vinCount {
+      font-size: 11px;
+      color: #888;
+      margin-top: 4px;
+      text-align: right;
+    }
+    .btn-manual-submit {
+      width: 100%;
+      margin-top: 12px;
+      padding: 9px;
+      background: #188038;
+      color: white;
+      border: none;
+      font-size: 13px;
+      font-weight: bold;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    .btn-manual-submit:hover    { background: #136d31; }
+    .btn-manual-submit:disabled { background: #aaa; cursor: default; }
+
+    /* ── Bottom buttons ────────────────────────────────────────────────────── */
+    .btn-row { display: flex; gap: 10px; margin-top: 18px; }
+    .btn-secondary {
+      padding: 9px 18px; background: #fff; color: #555;
+      border: 1px solid #ccc; font-size: 13px; cursor: pointer; border-radius: 4px;
+    }
+    .btn-secondary:hover { background: #f5f5f5; }
+
+    /* ── Status ────────────────────────────────────────────────────────────── */
+    #status {
+      margin-top: 12px; font-size: 12px; min-height: 18px;
+      padding: 6px 8px; border-radius: 4px;
+    }
+    #status.error   { background: #fce8e6; color: #c0392b; }
+    #status.success { background: #e6f4ea; color: #1e7e34; }
+    #status.info    { background: #e8f0fe; color: #1a73e8; }
+    #status.empty   { background: none; color: #555; }
+
+    .empty-msg { color: #888; font-size: 12px; padding: 12px 0; text-align: center; }
+    .loading   { color: #888; font-size: 12px; padding: 12px 0; }
+
+    /* ── Divider ───────────────────────────────────────────────────────────── */
+    .divider {
+      border: none;
+      border-top: 1px solid #e0e0e0;
+      margin: 18px 0 0 0;
+    }
+  </style>
+</head>
+<body>
+
+  <label for="dealerSelect">Dealer</label>
+  <select id="dealerSelect">
+    <option value="">-- Loading dealers... --</option>
+  </select>
+
+  <!-- Latest order number (shown after dealer loads) -->
+  <div id="latestOrderRow">
+    Most recent order in log: <span id="latestOrderSpan">—</span>
+  </div>
+
+  <!-- Runs list (shown after dealer selected) -->
+  <div id="runsSection">
+    <h3>Order Runs</h3>
+    <div id="runsContainer"><div class="loading">Loading runs...</div></div>
+  </div>
+
+  <!-- Action panel (shown after run selected) -->
+  <div id="actionPanel">
+    <div class="run-detail" id="runDetail"></div>
+    <div class="action-btns">
+      <button class="btn-commit"   id="commitBtn"   onclick="commitRun()">Commit to VIN Log</button>
+      <button class="btn-rollback" id="rollbackBtn" onclick="rollbackRun()">Rollback</button>
+    </div>
+  </div>
+
+  <!-- Manual entry toggle button (shown after dealer selected) -->
+  <button id="manualToggle" onclick="toggleManualPanel()">
+    ＋ Manually add VINs to log <span class="arrow">▼</span>
+  </button>
+
+  <!-- Manual entry panel -->
+  <div id="manualPanel">
+    <div class="panel-title">Manual VIN Entry</div>
+
+    <label for="manualOrderId">Order Number</label>
+    <input type="text" id="manualOrderId" placeholder="e.g. 47350" />
+    <div class="hint">Enter the Pipedrive deal ID or order number for this entry.</div>
+
+    <label for="manualVins">VINs</label>
+    <textarea id="manualVins" placeholder="One VIN or stock number per line" oninput="updateVinCount()"></textarea>
+    <div id="vinCount">0 VINs</div>
+
+    <button class="btn-manual-submit" id="manualSubmitBtn" onclick="submitManual()">
+      Add to VIN Log
+    </button>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn-secondary" onclick="google.script.host.close()">Close</button>
+  </div>
+
+  <div id="status" class="empty"></div>
+
+  <script>
+    var selectedRun = null;
+    var manualPanelOpen = false;
+
+    // ── Load dealer dropdown ────────────────────────────────────────────────
+    google.script.run
+      .withSuccessHandler(function(dealers) {
+        var sel = document.getElementById('dealerSelect');
+        sel.innerHTML = '<option value="">-- Select a dealer --</option>';
+        dealers.forEach(function(d) {
+          var opt = document.createElement('option');
+          opt.value = d.key; opt.text = d.name;
+          sel.appendChild(opt);
+        });
+      })
+      .withFailureHandler(function(e) {
+        document.getElementById('dealerSelect').innerHTML = '<option value="">Error loading dealers</option>';
+        setStatus('Could not load dealer list: ' + e.message, 'error');
+      })
+      .getActiveDealersForUI();
+
+    document.getElementById('dealerSelect').addEventListener('change', function() {
+      var key = this.value;
+      selectedRun = null;
+      hideActionPanel();
+      setStatus('', 'empty');
+      resetManualPanel();
+
+      if (!key) {
+        document.getElementById('runsSection').style.display = 'none';
+        document.getElementById('latestOrderRow').style.display = 'none';
+        document.getElementById('manualToggle').style.display = 'none';
+        return;
+      }
+
+      loadRuns(key);
+      loadLatestOrderId(key);
+
+      document.getElementById('manualToggle').style.display = 'block';
+    });
+
+    // ── Latest order number ─────────────────────────────────────────────────
+    function loadLatestOrderId(dealerKey) {
+      var row = document.getElementById('latestOrderRow');
+      var span = document.getElementById('latestOrderSpan');
+      row.style.display = 'block';
+      span.textContent = '…';
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          if (result && result.latestOrderId) {
+            span.textContent = result.latestOrderId;
+            // Pre-fill the manual order field with the next suggested number.
+            // Only pre-fill if it looks purely numeric (Pipedrive sequential IDs).
+            // Pipedrive IDs are non-sequential so we don't auto-increment those —
+            // for numeric-looking values we suggest +1 as a convenience hint only.
+            var val = String(result.latestOrderId).trim();
+            var asNum = parseInt(val, 10);
+            if (!isNaN(asNum) && String(asNum) === val) {
+              document.getElementById('manualOrderId').value = String(asNum + 1);
+              document.getElementById('manualOrderId').placeholder = 'e.g. ' + String(asNum + 1);
+            } else {
+              document.getElementById('manualOrderId').value = '';
+              document.getElementById('manualOrderId').placeholder = val + ' (copy or enter new)';
+            }
+          } else {
+            span.textContent = 'none';
+            document.getElementById('manualOrderId').value = '';
+          }
+        })
+        .withFailureHandler(function(e) {
+          span.textContent = '—';
+          setStatus('Could not read latest order ID: ' + e.message, 'error');
+        })
+        .getLatestOrderId(dealerKey);
+    }
+
+    // ── Load runs for selected dealer ───────────────────────────────────────
+    function loadRuns(dealerKey) {
+      var section = document.getElementById('runsSection');
+      section.style.display = 'block';
+      document.getElementById('runsContainer').innerHTML = '<div class="loading">Loading runs...</div>';
+
+      google.script.run
+        .withSuccessHandler(function(runs) { renderRunsTable(runs); })
+        .withFailureHandler(function(e) {
+          document.getElementById('runsContainer').innerHTML =
+            '<div class="empty-msg">Error loading runs: ' + e.message + '</div>';
+        })
+        .getRunsForDealer(dealerKey);
+    }
+
+    function renderRunsTable(runs) {
+      var container = document.getElementById('runsContainer');
+      if (!runs || runs.length === 0) {
+        container.innerHTML = '<div class="empty-msg">No runs found for this dealer.</div>';
+        return;
+      }
+
+      var html = '<table id="runsTable"><thead><tr>' +
+        '<th>Timestamp</th><th>Deal ID</th><th>VINs</th><th>Status</th>' +
+        '</tr></thead><tbody>';
+
+      runs.forEach(function(run, idx) {
+        var statusClass = 'status-' + (run.status || 'pending');
+        var statusLabel = run.status || 'pending';
+        html += '<tr data-idx="' + idx + '" onclick="selectRun(' + idx + ', this)">' +
+          '<td>' + run.timestamp + '</td>' +
+          '<td>' + (run.dealId || '<em style="color:#aaa">—</em>') + '</td>' +
+          '<td>' + run.vinCount + '</td>' +
+          '<td><span class="status-badge ' + statusClass + '">' + statusLabel + '</span></td>' +
+          '</tr>';
+      });
+
+      html += '</tbody></table>';
+      container.innerHTML = html;
+      container._runs = runs;
+    }
+
+    function selectRun(idx, row) {
+      var prev = document.querySelector('#runsTable tr.selected');
+      if (prev) prev.classList.remove('selected');
+      row.classList.add('selected');
+      selectedRun = document.getElementById('runsContainer')._runs[idx];
+      showActionPanel(selectedRun);
+    }
+
+    // ── Action panel ────────────────────────────────────────────────────────
+    function showActionPanel(run) {
+      var panel       = document.getElementById('actionPanel');
+      var detail      = document.getElementById('runDetail');
+      var commitBtn   = document.getElementById('commitBtn');
+      var rollbackBtn = document.getElementById('rollbackBtn');
+      var status      = run.status || 'pending';
+
+      detail.innerHTML =
+        '<strong>Timestamp:</strong> ' + run.timestamp + '<br>' +
+        '<strong>Deal ID:</strong> '   + (run.dealId || '—') + '<br>' +
+        '<strong>VINs:</strong> '      + run.vinCount + ' vehicle' + (run.vinCount === 1 ? '' : 's');
+
+      if (run.vinCount === 0) {
+        detail.innerHTML += '<br><em style="color:#c0392b">No VINs recorded for this run.</em>';
+      }
+
+      if (status === 'pending') {
+        commitBtn.disabled   = (run.vinCount === 0);
+        rollbackBtn.disabled = true;
+      } else if (status === 'committed') {
+        commitBtn.disabled   = true;
+        rollbackBtn.disabled = false;
+      } else if (status === 'rolled_back') {
+        commitBtn.disabled   = false;
+        rollbackBtn.disabled = true;
+      }
+
+      panel.style.display = 'block';
+      setStatus('', 'empty');
+    }
+
+    function hideActionPanel() {
+      document.getElementById('actionPanel').style.display = 'none';
+      selectedRun = null;
+    }
+
+    // ── Commit ──────────────────────────────────────────────────────────────
+    function commitRun() {
+      if (!selectedRun) return;
+      if (!selectedRun.dealId) {
+        setStatus('This run has no Deal ID. Cannot commit without a Deal ID.', 'error');
+        return;
+      }
+
+      var dealerKey = document.getElementById('dealerSelect').value;
+      var btn = document.getElementById('commitBtn');
+      btn.disabled = true; btn.textContent = 'Committing...';
+      setStatus('Writing ' + selectedRun.vinCount + ' VINs to log...', 'info');
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          setStatus('Committed ' + result.committed + ' VINs to the ' +
+            document.getElementById('dealerSelect').options[
+              document.getElementById('dealerSelect').selectedIndex].text +
+            ' VIN log.', 'success');
+          btn.textContent = 'Commit to VIN Log';
+          loadRuns(dealerKey);
+          loadLatestOrderId(dealerKey); // refresh latest order number
+        })
+        .withFailureHandler(function(e) {
+          setStatus('Commit failed: ' + e.message, 'error');
+          btn.disabled = false; btn.textContent = 'Commit to VIN Log';
+        })
+        .commitRunToVINLog(dealerKey, selectedRun.rowIndex, selectedRun.dealId, selectedRun.producedVins);
+    }
+
+    // ── Rollback ────────────────────────────────────────────────────────────
+    function rollbackRun() {
+      if (!selectedRun) return;
+
+      var dealerKey  = document.getElementById('dealerSelect').value;
+      var dealerName = document.getElementById('dealerSelect').options[
+        document.getElementById('dealerSelect').selectedIndex].text;
+      var btn = document.getElementById('rollbackBtn');
+
+      btn.disabled = true; btn.textContent = 'Rolling back...';
+      setStatus('Looking up committed_at timestamp...', 'info');
+
+      google.script.run
+        .withSuccessHandler(function(committedAt) {
+          if (!committedAt) {
+            setStatus('Could not find committed entries for this run in the VIN log.', 'error');
+            btn.disabled = false; btn.textContent = 'Rollback';
+            return;
+          }
+          setStatus('Removing entries from VIN log...', 'info');
+
+          google.script.run
+            .withSuccessHandler(function(result) {
+              setStatus('Rolled back ' + result.removed + ' entries from the ' +
+                dealerName + ' VIN log.', 'success');
+              btn.textContent = 'Rollback';
+              loadRuns(dealerKey);
+              loadLatestOrderId(dealerKey);
+            })
+            .withFailureHandler(function(e) {
+              setStatus('Rollback failed: ' + e.message, 'error');
+              btn.disabled = false; btn.textContent = 'Rollback';
+            })
+            .rollbackRunFromVINLog(dealerKey, selectedRun.rowIndex, selectedRun.dealId, committedAt);
+        })
+        .withFailureHandler(function(e) {
+          setStatus('Error fetching committed_at: ' + e.message, 'error');
+          btn.disabled = false; btn.textContent = 'Rollback';
+        })
+        .getCommittedAt(dealerKey, selectedRun.dealId);
+    }
+
+    // ── Manual entry ────────────────────────────────────────────────────────
+    function toggleManualPanel() {
+      manualPanelOpen = !manualPanelOpen;
+      var toggle = document.getElementById('manualToggle');
+      var panel  = document.getElementById('manualPanel');
+      toggle.classList.toggle('open', manualPanelOpen);
+      panel.style.display = manualPanelOpen ? 'block' : 'none';
+    }
+
+    function resetManualPanel() {
+      manualPanelOpen = false;
+      document.getElementById('manualToggle').classList.remove('open');
+      document.getElementById('manualPanel').style.display = 'none';
+      document.getElementById('manualOrderId').value = '';
+      document.getElementById('manualVins').value = '';
+      document.getElementById('vinCount').textContent = '0 VINs';
+    }
+
+    function updateVinCount() {
+      var raw  = document.getElementById('manualVins').value;
+      var vins = parseVins(raw);
+      var n    = vins.length;
+      document.getElementById('vinCount').textContent = n + ' VIN' + (n === 1 ? '' : 's');
+    }
+
+    function parseVins(raw) {
+      return raw.split(/[\n,]+/)
+        .map(function(v) { return v.trim().toUpperCase(); })
+        .filter(function(v) { return v !== ''; });
+    }
+
+    function submitManual() {
+      var dealerKey = document.getElementById('dealerSelect').value;
+      if (!dealerKey) { setStatus('Select a dealer first.', 'error'); return; }
+
+      var orderId = document.getElementById('manualOrderId').value.trim();
+      if (!orderId) { setStatus('Enter an order number before submitting.', 'error'); return; }
+
+      var vins = parseVins(document.getElementById('manualVins').value);
+      if (vins.length === 0) { setStatus('Enter at least one VIN or stock number.', 'error'); return; }
+
+      var btn = document.getElementById('manualSubmitBtn');
+      btn.disabled = true; btn.textContent = 'Adding ' + vins.length + ' VIN' + (vins.length === 1 ? '' : 's') + '...';
+      setStatus('Writing to VIN log...', 'info');
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          setStatus('Added ' + result.committed + ' VIN' + (result.committed === 1 ? '' : 's') +
+            ' to the VIN log under order ' + orderId + '.', 'success');
+          btn.disabled = false; btn.textContent = 'Add to VIN Log';
+          // Clear the textarea but keep the order number in case user wants to add more
+          document.getElementById('manualVins').value = '';
+          document.getElementById('vinCount').textContent = '0 VINs';
+          loadLatestOrderId(dealerKey); // refresh latest order display
+        })
+        .withFailureHandler(function(e) {
+          setStatus('Failed: ' + e.message, 'error');
+          btn.disabled = false; btn.textContent = 'Add to VIN Log';
+        })
+        .manualCommitToVINLog(dealerKey, orderId, vins);
+    }
+
+    function setStatus(msg, type) {
+      var el = document.getElementById('status');
+      el.textContent = msg; el.className = type || 'empty';
+    }
+  </script>
+</body>
+</html>

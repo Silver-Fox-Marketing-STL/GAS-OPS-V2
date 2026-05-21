@@ -1,0 +1,987 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: Arial, sans-serif;
+      font-size: 13px;
+      color: #333;
+      background: #fff;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── Top bar ─────────────────────────────────────────────────────────────── */
+    .top-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 16px;
+      border-bottom: 1px solid #e0e0e0;
+      flex-shrink: 0;
+    }
+    .top-bar label { font-weight: bold; white-space: nowrap; }
+    #dealerSelect {
+      flex: 1;
+      padding: 6px 8px;
+      font-size: 13px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    #dealerSelect:focus { outline: none; border-color: #1a73e8; }
+
+    /* ── Tabs ────────────────────────────────────────────────────────────────── */
+    .tab-bar {
+      display: flex;
+      border-bottom: 2px solid #e0e0e0;
+      flex-shrink: 0;
+    }
+    .tab-btn {
+      padding: 9px 20px;
+      font-size: 13px;
+      font-weight: bold;
+      color: #888;
+      background: none;
+      border: none;
+      border-bottom: 3px solid transparent;
+      margin-bottom: -2px;
+      cursor: pointer;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .tab-btn:hover { color: #1a73e8; }
+    .tab-btn.active { color: #1a73e8; border-bottom-color: #1a73e8; }
+
+    /* ── Tab panels ──────────────────────────────────────────────────────────── */
+    .tab-panel { display: none; flex: 1; overflow: hidden; flex-direction: column; }
+    .tab-panel.active { display: flex; }
+
+    /* ── Section within panel ────────────────────────────────────────────────── */
+    .panel-scroll { flex: 1; overflow-y: auto; padding: 14px 16px; }
+
+    /* ── Status bar ──────────────────────────────────────────────────────────── */
+    #status {
+      font-size: 12px;
+      padding: 5px 16px;
+      height: 28px;
+      line-height: 18px;
+      flex-shrink: 0;
+      border-top: 1px solid #e0e0e0;
+    }
+    #status.empty   { background: none; }
+    #status.info    { background: #e8f0fe; color: #1a73e8; }
+    #status.success { background: #e6f4ea; color: #1e7e34; }
+    #status.error   { background: #fce8e6; color: #c0392b; }
+
+    /* ── Loading overlay ─────────────────────────────────────────────────────── */
+    #loadingOverlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(255,255,255,0.85);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      color: #888;
+      z-index: 100;
+    }
+    #loadingOverlay.hidden { display: none; }
+
+    /* ── Empty / placeholder states ──────────────────────────────────────────── */
+    .placeholder {
+      color: #aaa;
+      font-size: 12px;
+      font-style: italic;
+      padding: 16px 0;
+      text-align: center;
+    }
+
+    /* ── Section header ──────────────────────────────────────────────────────── */
+    .section-label {
+      font-size: 11px;
+      font-weight: bold;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: #888;
+      margin-bottom: 8px;
+      margin-top: 18px;
+    }
+    .section-label:first-child { margin-top: 0; }
+
+    /* ════════════════════════════════════════════════════════════════════════════
+       TYPE RULES TAB
+    ════════════════════════════════════════════════════════════════════════════ */
+
+    /* ── Rule card ───────────────────────────────────────────────────────────── */
+    .rule-card {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border: 1px solid #e0e0e0;
+      border-radius: 5px;
+      background: #fafafa;
+      margin-bottom: 6px;
+    }
+    .rule-card.catch-all { border-color: #bbb; background: #f1f3f4; }
+    .rule-order-btns {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .btn-reorder {
+      width: 22px; height: 18px;
+      background: #fff;
+      border: 1px solid #ccc;
+      border-radius: 3px;
+      font-size: 9px;
+      cursor: pointer;
+      color: #555;
+      display: flex; align-items: center; justify-content: center;
+      padding: 0;
+    }
+    .btn-reorder:hover:not(:disabled) { background: #e8f0fe; border-color: #1a73e8; color: #1a73e8; }
+    .btn-reorder:disabled { opacity: 0.3; cursor: default; }
+    .rule-fields {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 90px 1fr 1fr;
+      gap: 6px;
+      align-items: center;
+    }
+    .rule-field { display: flex; flex-direction: column; gap: 2px; }
+    .rule-field-label { font-size: 10px; color: #999; font-weight: bold; text-transform: uppercase; }
+    .rule-field-val {
+      font-size: 12px;
+      font-family: monospace;
+      color: #222;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .rule-badge {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: bold;
+      background: #e8f0fe;
+      color: #1a73e8;
+    }
+    .rule-badge.catch { background: #f1f3f4; color: #888; }
+    .btn-delete-rule {
+      padding: 4px 9px;
+      background: #fff;
+      border: 1px solid #ccc;
+      border-radius: 3px;
+      font-size: 11px;
+      color: #c0392b;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .btn-delete-rule:hover { background: #fce8e6; border-color: #c0392b; }
+
+    /* ── Add rule form ───────────────────────────────────────────────────────── */
+    .add-rule-form {
+      display: grid;
+      grid-template-columns: 110px 1fr 1fr auto;
+      gap: 8px;
+      align-items: flex-end;
+      padding: 10px 12px;
+      border: 1px solid #dadce0;
+      border-radius: 5px;
+      background: #f8f9fa;
+      margin-top: 10px;
+    }
+    .add-rule-form .form-field { display: flex; flex-direction: column; gap: 3px; }
+    .add-rule-form label { font-size: 11px; font-weight: bold; color: #555; }
+    .add-rule-form select,
+    .add-rule-form input[type="text"] {
+      padding: 6px 8px;
+      font-size: 12px;
+      font-family: monospace;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      width: 100%;
+    }
+    .add-rule-form select:focus,
+    .add-rule-form input[type="text"]:focus { outline: none; border-color: #1a73e8; }
+    .field-hint-small { font-size: 10px; color: #aaa; margin-top: 2px; }
+
+    /* ── Save button row ─────────────────────────────────────────────────────── */
+    .save-row {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      padding: 12px 16px;
+      border-top: 1px solid #e0e0e0;
+      flex-shrink: 0;
+    }
+    .btn-primary {
+      padding: 8px 20px;
+      background: #1a73e8;
+      color: white;
+      border: none;
+      font-size: 13px;
+      font-weight: bold;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    .btn-primary:hover    { background: #1557b0; }
+    .btn-primary:disabled { background: #aaa; cursor: default; }
+    .btn-secondary {
+      padding: 8px 16px;
+      background: #fff;
+      color: #555;
+      border: 1px solid #ccc;
+      font-size: 13px;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    .btn-secondary:hover { background: #f5f5f5; }
+
+    /* ── Order matters note ──────────────────────────────────────────────────── */
+    .order-note {
+      font-size: 11px;
+      color: #888;
+      font-style: italic;
+      margin-top: 6px;
+      margin-bottom: 2px;
+    }
+
+    /* ════════════════════════════════════════════════════════════════════════════
+       FILTERING RULES TAB
+    ════════════════════════════════════════════════════════════════════════════ */
+
+    /* ── Toggle row ──────────────────────────────────────────────────────────── */
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 0;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    .toggle-row:last-child { border-bottom: none; }
+    .toggle-switch {
+      position: relative;
+      width: 36px; height: 20px;
+      flex-shrink: 0;
+    }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider {
+      position: absolute;
+      inset: 0;
+      background: #ccc;
+      border-radius: 20px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .toggle-slider:before {
+      content: '';
+      position: absolute;
+      width: 14px; height: 14px;
+      left: 3px; top: 3px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+    .toggle-switch input:checked + .toggle-slider { background: #1a73e8; }
+    .toggle-switch input:checked + .toggle-slider:before { transform: translateX(16px); }
+    .toggle-label { font-size: 13px; color: #333; }
+    .toggle-desc  { font-size: 11px; color: #aaa; margin-left: auto; }
+
+    /* ── Pill buttons ────────────────────────────────────────────────────────── */
+    .pill-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      padding: 6px 0;
+    }
+    .pill {
+      padding: 5px 13px;
+      border: 1.5px solid #ccc;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: bold;
+      cursor: pointer;
+      color: #666;
+      background: #fff;
+      transition: all 0.15s;
+      user-select: none;
+    }
+    .pill:hover { border-color: #1a73e8; color: #1a73e8; }
+    .pill.active { background: #1a73e8; border-color: #1a73e8; color: #fff; }
+    .pill.type-new.active    { background: #1e7e34; border-color: #1e7e34; }
+    .pill.type-po.active     { background: #e67e00; border-color: #e67e00; }
+    .pill.type-cpo.active    { background: #6f42c1; border-color: #6f42c1; }
+    .pill.type-cpoel.active  { background: #1a73e8; border-color: #1a73e8; }
+    .pill-hint { font-size: 11px; color: #aaa; margin-top: 4px; }
+
+    /* ── Price range ─────────────────────────────────────────────────────────── */
+    .price-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 6px;
+    }
+    .price-field { display: flex; flex-direction: column; gap: 3px; }
+    .price-field label { font-size: 11px; font-weight: bold; color: #555; }
+    .price-field input[type="number"] {
+      padding: 6px 8px;
+      font-size: 13px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      width: 100%;
+    }
+    .price-field input[type="number"]:focus { outline: none; border-color: #1a73e8; }
+
+    /* ── Seasoning table ─────────────────────────────────────────────────────── */
+    .seasoning-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      margin-top: 6px;
+    }
+    .seasoning-table thead th {
+      background: #f1f3f4;
+      padding: 6px 10px;
+      text-align: left;
+      font-size: 11px;
+      font-weight: bold;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      color: #666;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    .seasoning-table tbody td {
+      padding: 6px 8px;
+      border-bottom: 1px solid #f0f0f0;
+      vertical-align: middle;
+    }
+    .seasoning-table tbody tr:last-child td { border-bottom: none; }
+    .seasoning-table select,
+    .seasoning-table input[type="number"] {
+      padding: 5px 7px;
+      font-size: 12px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      width: 100%;
+    }
+    .seasoning-table select:focus,
+    .seasoning-table input[type="number"]:focus { outline: none; border-color: #1a73e8; }
+    .btn-remove-season {
+      padding: 3px 8px;
+      background: #fff;
+      border: 1px solid #ccc;
+      border-radius: 3px;
+      font-size: 11px;
+      color: #c0392b;
+      cursor: pointer;
+    }
+    .btn-remove-season:hover { background: #fce8e6; border-color: #c0392b; }
+    .btn-add-season {
+      margin-top: 8px;
+      padding: 5px 12px;
+      background: #fff;
+      border: 1px solid #1a73e8;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #1a73e8;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    .btn-add-season:hover { background: #e8f0fe; }
+
+    /* ── Add rule button ─────────────────────────────────────────────────────── */
+    .btn-add-rule {
+      padding: 6px 14px;
+      background: #1a73e8;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: bold;
+      cursor: pointer;
+      white-space: nowrap;
+      align-self: flex-end;
+    }
+    .btn-add-rule:hover { background: #1557b0; }
+  </style>
+</head>
+<body>
+
+  <div id="loadingOverlay">Loading dealer data…</div>
+
+  <!-- ── Dealer selector ────────────────────────────────────────────────────── -->
+  <div class="top-bar">
+    <label for="dealerSelect">Dealer</label>
+    <select id="dealerSelect" onchange="onDealerChange()">
+      <option value="">-- Select a dealer --</option>
+    </select>
+  </div>
+
+  <!-- ── Tab bar ────────────────────────────────────────────────────────────── -->
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab('type')">Type Rules</button>
+    <button class="tab-btn"        onclick="switchTab('filter')">Filtering Rules</button>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════════════════════
+       TYPE RULES PANEL
+  ════════════════════════════════════════════════════════════════════════════ -->
+  <div class="tab-panel active" id="panel-type">
+    <div class="panel-scroll">
+      <div class="section-label">Current Rules</div>
+      <div class="order-note">Rules are evaluated in order — first match wins. Use arrows to reorder. The catch-all (*) must always be last.</div>
+      <div id="rulesList" style="margin-top: 8px;">
+        <div class="placeholder">Select a dealer to load rules.</div>
+      </div>
+
+      <div class="section-label" style="margin-top: 20px;">Add Rule</div>
+      <div class="add-rule-form">
+        <div class="form-field">
+          <label for="newMatch">Match Type</label>
+          <select id="newMatch">
+            <option value="New">New</option>
+            <option value="PO">PO</option>
+            <option value="CPO">CPO</option>
+            <option value="CPO-EL">CPO-EL</option>
+            <option value="*">* (catch-all)</option>
+          </select>
+          <div class="field-hint-small">Post-normalization type</div>
+        </div>
+        <div class="form-field">
+          <label for="newSchema">CSV Schema</label>
+          <select id="newSchema">
+            <option value="">-- Loading… --</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label for="newUtm">UTM Medium</label>
+          <input type="text" id="newUtm" placeholder="e.g. VDP_ShortCut" />
+        </div>
+        <button class="btn-add-rule" onclick="addTypeRule()">+ Add</button>
+      </div>
+    </div>
+    <div class="save-row">
+      <div id="typeUnsaved" style="font-size:11px;color:#e67e00;align-self:center;display:none;">Unsaved changes</div>
+      <button class="btn-primary" id="saveTypeBtn" onclick="saveTypeRules()" disabled>Save Type Rules</button>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════════════════════
+       FILTERING RULES PANEL
+  ════════════════════════════════════════════════════════════════════════════ -->
+  <div class="tab-panel" id="panel-filter">
+    <div class="panel-scroll">
+
+      <!-- Toggles -->
+      <div class="section-label">Flags</div>
+      <div class="toggle-row">
+        <label class="toggle-switch">
+          <input type="checkbox" id="reqStock" onchange="markFilterDirty()">
+          <span class="toggle-slider"></span>
+        </label>
+        <span class="toggle-label">Require Stock Number</span>
+        <span class="toggle-desc">Reject vehicles where stock is blank or *</span>
+      </div>
+      <div class="toggle-row">
+        <label class="toggle-switch">
+          <input type="checkbox" id="reqPrice" onchange="markFilterDirty()">
+          <span class="toggle-slider"></span>
+        </label>
+        <span class="toggle-label">Require Price</span>
+        <span class="toggle-desc">Reject blank, *, callforprice, or ≤ 0</span>
+      </div>
+
+      <!-- Allowed types -->
+      <div class="section-label" style="margin-top: 18px;">Allowed Types</div>
+      <div class="pill-group" id="allowedTypes">
+        <div class="pill type-new"  data-type="New"    onclick="togglePill(this)">New</div>
+        <div class="pill type-po"   data-type="PO"     onclick="togglePill(this)">PO</div>
+        <div class="pill type-cpo"  data-type="CPO"    onclick="togglePill(this)">CPO</div>
+        <div class="pill type-cpoel" data-type="CPO-EL" onclick="togglePill(this)">CPO-EL</div>
+      </div>
+      <div class="pill-hint">All selected = all types allowed. Deselect all to allow everything (no restriction).</div>
+
+      <!-- Excluded statuses -->
+      <div class="section-label" style="margin-top: 18px;">Exclude Status</div>
+      <div class="pill-group" id="excludeStatus">
+        <div class="pill" data-status="ONLOT"  onclick="toggleStatusPill(this)">ONLOT</div>
+        <div class="pill" data-status="OFFLOT" onclick="toggleStatusPill(this)">OFFLOT</div>
+      </div>
+      <div class="pill-hint">Selected statuses will be excluded. Typically only OFFLOT is excluded.</div>
+
+      <!-- Price range -->
+      <div class="section-label" style="margin-top: 18px;">Price Range</div>
+      <div class="price-row">
+        <div class="price-field">
+          <label for="minPrice">Minimum Price ($)</label>
+          <input type="number" id="minPrice" placeholder="No floor" min="0" oninput="markFilterDirty()" />
+        </div>
+        <div class="price-field">
+          <label for="maxPrice">Maximum Price ($)</label>
+          <input type="number" id="maxPrice" placeholder="No ceiling" min="0" oninput="markFilterDirty()" />
+        </div>
+      </div>
+
+      <!-- Seasoning -->
+      <div class="section-label" style="margin-top: 18px;">Seasoning (Days on Lot)</div>
+      <table class="seasoning-table">
+        <thead>
+          <tr>
+            <th style="width:120px">Type</th>
+            <th>Days Required</th>
+            <th style="width:60px"></th>
+          </tr>
+        </thead>
+        <tbody id="seasoningBody">
+          <tr id="seasoningEmpty"><td colspan="3" class="placeholder">No seasoning rules configured.</td></tr>
+        </tbody>
+      </table>
+      <button class="btn-add-season" onclick="addSeasoningRow()">+ Add Seasoning Rule</button>
+
+    </div>
+    <div class="save-row">
+      <div id="filterUnsaved" style="font-size:11px;color:#e67e00;align-self:center;display:none;">Unsaved changes</div>
+      <button class="btn-primary" id="saveFilterBtn" onclick="saveFilterRules()" disabled>Save Filtering Rules</button>
+    </div>
+  </div>
+
+  <!-- ── Status bar ─────────────────────────────────────────────────────────── -->
+  <div id="status" class="empty"></div>
+
+  <script>
+    var currentDealerKey = null;
+    var availableSchemas = [];
+    var typeRules        = [];   // live working copy
+    var typeDirty        = false;
+    var filterDirty      = false;
+
+    // ── Init ───────────────────────────────────────────────────────────────────
+    window.onload = function() {
+      google.script.run
+        .withSuccessHandler(function(data) {
+          // data = { dealers: [{key, name}], schemas: ['SCP', 'SCP_NEW', ...] }
+          availableSchemas = data.schemas;
+          populateDealerDropdown(data.dealers);
+          populateSchemaDropdown(data.schemas);
+          document.getElementById('loadingOverlay').classList.add('hidden');
+        })
+        .withFailureHandler(function(e) {
+          document.getElementById('loadingOverlay').textContent = 'Error loading data: ' + e.message;
+        })
+        .getRulesEditorBootstrap();
+    };
+
+    // ── Tab switching ──────────────────────────────────────────────────────────
+    function switchTab(name) {
+      document.querySelectorAll('.tab-btn').forEach(function(b, i) {
+        b.classList.toggle('active', (i === 0 ? 'type' : 'filter') === name);
+      });
+      document.getElementById('panel-type').classList.toggle('active',   name === 'type');
+      document.getElementById('panel-filter').classList.toggle('active', name === 'filter');
+    }
+
+    // ── Dealer dropdown ────────────────────────────────────────────────────────
+    function populateDealerDropdown(dealers) {
+      var sel = document.getElementById('dealerSelect');
+      sel.innerHTML = '<option value="">-- Select a dealer --</option>';
+      dealers.forEach(function(d) {
+        var opt = document.createElement('option');
+        opt.value = d.key;
+        opt.textContent = d.name;
+        sel.appendChild(opt);
+      });
+    }
+
+    function onDealerChange() {
+      var key = document.getElementById('dealerSelect').value;
+      if (!key) {
+        currentDealerKey = null;
+        resetTypePanel();
+        resetFilterPanel();
+        disableSaveButtons();
+        return;
+      }
+      currentDealerKey = key;
+      loadDealerRules(key);
+    }
+
+    // ── Load dealer rules ──────────────────────────────────────────────────────
+    function loadDealerRules(key) {
+      setStatus('Loading rules for ' + key + '…', 'info');
+      document.getElementById('loadingOverlay').classList.remove('hidden');
+
+      google.script.run
+        .withSuccessHandler(function(data) {
+          document.getElementById('loadingOverlay').classList.add('hidden');
+          // Type rules
+          typeRules = data.typeRules || [];
+          renderTypeRules();
+          typeDirty = false;
+          updateTypeDirty();
+
+          // Filtering rules
+          applyFilteringRulesToUI(data.filteringRules || {});
+          filterDirty = false;
+          updateFilterDirty();
+
+          document.getElementById('saveTypeBtn').disabled   = false;
+          document.getElementById('saveFilterBtn').disabled = false;
+          setStatus('Loaded rules for ' + data.dealerName + '.', 'success');
+        })
+        .withFailureHandler(function(e) {
+          document.getElementById('loadingOverlay').classList.add('hidden');
+          setStatus('Error loading rules: ' + e.message, 'error');
+        })
+        .getDealerRulesData(key);
+    }
+
+    // ════════════════════════════════════════════════════════════════════════════
+    // TYPE RULES
+    // ════════════════════════════════════════════════════════════════════════════
+
+    function populateSchemaDropdown(schemas) {
+      var sel = document.getElementById('newSchema');
+      sel.innerHTML = '';
+      schemas.forEach(function(s) {
+        var opt = document.createElement('option');
+        opt.value = s; opt.textContent = s;
+        sel.appendChild(opt);
+      });
+    }
+
+    function renderTypeRules() {
+      var container = document.getElementById('rulesList');
+      container.innerHTML = '';
+
+      if (!typeRules || typeRules.length === 0) {
+        container.innerHTML = '<div class="placeholder">No type rules configured. Add one below.</div>';
+        return;
+      }
+
+      typeRules.forEach(function(rule, idx) {
+        var isCatchAll = rule.match === '*';
+        var card = document.createElement('div');
+        card.className = 'rule-card' + (isCatchAll ? ' catch-all' : '');
+
+        // Reorder buttons
+        var reorderDiv = document.createElement('div');
+        reorderDiv.className = 'rule-order-btns';
+
+        var upBtn = document.createElement('button');
+        upBtn.className = 'btn-reorder';
+        upBtn.textContent = '▲';
+        upBtn.title = 'Move up';
+        upBtn.disabled = idx === 0;
+        upBtn.onclick = (function(i) { return function() { moveRule(i, -1); }; })(idx);
+
+        var downBtn = document.createElement('button');
+        downBtn.className = 'btn-reorder';
+        downBtn.textContent = '▼';
+        downBtn.title = 'Move down';
+        downBtn.disabled = idx === typeRules.length - 1;
+        downBtn.onclick = (function(i) { return function() { moveRule(i, 1); }; })(idx);
+
+        reorderDiv.appendChild(upBtn);
+        reorderDiv.appendChild(downBtn);
+
+        // Fields display
+        var fieldsDiv = document.createElement('div');
+        fieldsDiv.className = 'rule-fields';
+
+        fieldsDiv.innerHTML =
+          '<div class="rule-field">' +
+            '<div class="rule-field-label">Match</div>' +
+            '<div class="rule-field-val"><span class="rule-badge' + (isCatchAll ? ' catch' : '') + '">' +
+              escHtml(rule.match) + '</span></div>' +
+          '</div>' +
+          '<div class="rule-field">' +
+            '<div class="rule-field-label">CSV Schema</div>' +
+            '<div class="rule-field-val">' + escHtml(rule.csv_schema || '—') + '</div>' +
+          '</div>' +
+          '<div class="rule-field">' +
+            '<div class="rule-field-label">UTM Medium</div>' +
+            '<div class="rule-field-val">' + escHtml(rule.utm || '—') + '</div>' +
+          '</div>';
+
+        // Delete button (always show, including catch-all — user may want to rebuild)
+        var delBtn = document.createElement('button');
+        delBtn.className = 'btn-delete-rule';
+        delBtn.textContent = 'Remove';
+        delBtn.onclick = (function(i) { return function() { removeTypeRule(i); }; })(idx);
+
+        card.appendChild(reorderDiv);
+        card.appendChild(fieldsDiv);
+        card.appendChild(delBtn);
+        container.appendChild(card);
+      });
+    }
+
+    function addTypeRule() {
+      var match  = document.getElementById('newMatch').value;
+      var schema = document.getElementById('newSchema').value;
+      var utm    = document.getElementById('newUtm').value.trim();
+
+      if (!schema) { setStatus('Please select a CSV Schema.', 'error'); return; }
+      if (!utm)    { setStatus('Please enter a UTM Medium value.', 'error'); return; }
+
+      // Warn if catch-all already exists and user is adding another non-catch-all after it
+      var catchAllIdx = typeRules.findIndex(function(r) { return r.match === '*'; });
+      if (match !== '*' && catchAllIdx !== -1) {
+        // Insert before the catch-all
+        typeRules.splice(catchAllIdx, 0, { match: match, csv_schema: schema, utm: utm });
+      } else {
+        typeRules.push({ match: match, csv_schema: schema, utm: utm });
+      }
+
+      document.getElementById('newUtm').value = '';
+      renderTypeRules();
+      markTypeDirty();
+      setStatus('Rule added. Click "Save Type Rules" to apply.', 'info');
+    }
+
+    function removeTypeRule(idx) {
+      typeRules.splice(idx, 1);
+      renderTypeRules();
+      markTypeDirty();
+    }
+
+    function moveRule(idx, dir) {
+      var target = idx + dir;
+      if (target < 0 || target >= typeRules.length) return;
+      var tmp = typeRules[idx];
+      typeRules[idx] = typeRules[target];
+      typeRules[target] = tmp;
+      renderTypeRules();
+      markTypeDirty();
+    }
+
+    function saveTypeRules() {
+      if (!currentDealerKey) return;
+      var btn = document.getElementById('saveTypeBtn');
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+
+      google.script.run
+        .withSuccessHandler(function() {
+          typeDirty = false;
+          updateTypeDirty();
+          btn.disabled = false;
+          btn.textContent = 'Save Type Rules';
+          setStatus('Type rules saved successfully.', 'success');
+        })
+        .withFailureHandler(function(e) {
+          btn.disabled = false;
+          btn.textContent = 'Save Type Rules';
+          setStatus('Save failed: ' + e.message, 'error');
+        })
+        .saveDealerTypeRules(currentDealerKey, JSON.stringify(typeRules));
+    }
+
+    function markTypeDirty() {
+      typeDirty = true;
+      updateTypeDirty();
+    }
+
+    function updateTypeDirty() {
+      document.getElementById('typeUnsaved').style.display = typeDirty ? 'block' : 'none';
+    }
+
+    function resetTypePanel() {
+      typeRules = [];
+      document.getElementById('rulesList').innerHTML =
+        '<div class="placeholder">Select a dealer to load rules.</div>';
+      typeDirty = false;
+      updateTypeDirty();
+    }
+
+    // ════════════════════════════════════════════════════════════════════════════
+    // FILTERING RULES
+    // ════════════════════════════════════════════════════════════════════════════
+
+    function applyFilteringRulesToUI(fr) {
+      // Toggles
+      document.getElementById('reqStock').checked = !!fr.require_stock;
+      document.getElementById('reqPrice').checked = !!fr.require_price;
+
+      // Allowed types
+      var allowed = fr.allowed_types || [];
+      document.querySelectorAll('#allowedTypes .pill').forEach(function(pill) {
+        pill.classList.toggle('active', allowed.indexOf(pill.dataset.type) !== -1);
+      });
+
+      // Excluded statuses
+      var excluded = fr.exclude_status || [];
+      document.querySelectorAll('#excludeStatus .pill').forEach(function(pill) {
+        pill.classList.toggle('active', excluded.indexOf(pill.dataset.status) !== -1);
+      });
+
+      // Price
+      document.getElementById('minPrice').value = (fr.min_price != null) ? fr.min_price : '';
+      document.getElementById('maxPrice').value = (fr.max_price != null) ? fr.max_price : '';
+
+      // Seasoning
+      var tbody = document.getElementById('seasoningBody');
+      tbody.innerHTML = '<tr id="seasoningEmpty"><td colspan="3" class="placeholder">No seasoning rules configured.</td></tr>';
+      if (fr.seasoning && fr.seasoning.length > 0) {
+        fr.seasoning.forEach(function(s) {
+          addSeasoningRow(s.type, s.days);
+        });
+      }
+    }
+
+    function collectFilteringRules() {
+      var allowed = [];
+      document.querySelectorAll('#allowedTypes .pill.active').forEach(function(p) {
+        allowed.push(p.dataset.type);
+      });
+
+      var excluded = [];
+      document.querySelectorAll('#excludeStatus .pill.active').forEach(function(p) {
+        excluded.push(p.dataset.status);
+      });
+
+      var minP = document.getElementById('minPrice').value;
+      var maxP = document.getElementById('maxPrice').value;
+
+      var seasoning = [];
+      document.querySelectorAll('#seasoningBody tr[data-season-row]').forEach(function(row) {
+        var type = row.querySelector('.season-type').value;
+        var days = parseInt(row.querySelector('.season-days').value, 10);
+        if (type && !isNaN(days) && days >= 0) {
+          seasoning.push({ type: type, days: days });
+        }
+      });
+
+      var rules = {
+        require_stock: document.getElementById('reqStock').checked,
+        require_price: document.getElementById('reqPrice').checked
+      };
+      if (allowed.length > 0) rules.allowed_types  = allowed;
+      if (excluded.length > 0) rules.exclude_status = excluded;
+      if (minP !== '' && minP !== null) rules.min_price = parseFloat(minP);
+      if (maxP !== '' && maxP !== null) rules.max_price = parseFloat(maxP);
+      if (seasoning.length > 0) rules.seasoning = seasoning;
+
+      return rules;
+    }
+
+    function togglePill(pill) {
+      pill.classList.toggle('active');
+      markFilterDirty();
+    }
+
+    function toggleStatusPill(pill) {
+      pill.classList.toggle('active');
+      markFilterDirty();
+    }
+
+    var seasonRowCounter = 0;
+    function addSeasoningRow(type, days) {
+      var emptyRow = document.getElementById('seasoningEmpty');
+      if (emptyRow) emptyRow.remove();
+
+      seasonRowCounter++;
+      var id = 'season_' + seasonRowCounter;
+      var tr = document.createElement('tr');
+      tr.setAttribute('data-season-row', id);
+
+      var typeOptions = ['New', 'PO', 'CPO', 'CPO-EL'].map(function(t) {
+        return '<option value="' + t + '"' + (t === type ? ' selected' : '') + '>' + t + '</option>';
+      }).join('');
+
+      tr.innerHTML =
+        '<td><select class="season-type" onchange="markFilterDirty()">' + typeOptions + '</select></td>' +
+        '<td><input type="number" class="season-days" min="0" value="' +
+          (days != null ? days : 0) + '" oninput="markFilterDirty()" /></td>' +
+        '<td><button class="btn-remove-season" onclick="removeSeasoningRow(this)">Remove</button></td>';
+
+      document.getElementById('seasoningBody').appendChild(tr);
+      markFilterDirty();
+    }
+
+    function removeSeasoningRow(btn) {
+      var row = btn.closest('tr');
+      row.remove();
+      var tbody = document.getElementById('seasoningBody');
+      if (tbody.querySelectorAll('tr[data-season-row]').length === 0) {
+        var emptyRow = document.createElement('tr');
+        emptyRow.id = 'seasoningEmpty';
+        emptyRow.innerHTML = '<td colspan="3" class="placeholder">No seasoning rules configured.</td>';
+        tbody.appendChild(emptyRow);
+      }
+      markFilterDirty();
+    }
+
+    function saveFilterRules() {
+      if (!currentDealerKey) return;
+      var rules = collectFilteringRules();
+      var btn = document.getElementById('saveFilterBtn');
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+
+      google.script.run
+        .withSuccessHandler(function() {
+          filterDirty = false;
+          updateFilterDirty();
+          btn.disabled = false;
+          btn.textContent = 'Save Filtering Rules';
+          setStatus('Filtering rules saved successfully.', 'success');
+        })
+        .withFailureHandler(function(e) {
+          btn.disabled = false;
+          btn.textContent = 'Save Filtering Rules';
+          setStatus('Save failed: ' + e.message, 'error');
+        })
+        .saveDealerFilterRules(currentDealerKey, JSON.stringify(rules));
+    }
+
+    function markFilterDirty() {
+      filterDirty = true;
+      updateFilterDirty();
+    }
+
+    function updateFilterDirty() {
+      document.getElementById('filterUnsaved').style.display = filterDirty ? 'block' : 'none';
+    }
+
+    function resetFilterPanel() {
+      document.getElementById('reqStock').checked = false;
+      document.getElementById('reqPrice').checked = false;
+      document.querySelectorAll('#allowedTypes .pill').forEach(function(p) { p.classList.remove('active'); });
+      document.querySelectorAll('#excludeStatus .pill').forEach(function(p) { p.classList.remove('active'); });
+      document.getElementById('minPrice').value = '';
+      document.getElementById('maxPrice').value = '';
+      var tbody = document.getElementById('seasoningBody');
+      tbody.innerHTML = '<tr id="seasoningEmpty"><td colspan="3" class="placeholder">No seasoning rules configured.</td></tr>';
+      filterDirty = false;
+      updateFilterDirty();
+    }
+
+    // ── Shared helpers ─────────────────────────────────────────────────────────
+    function disableSaveButtons() {
+      document.getElementById('saveTypeBtn').disabled   = true;
+      document.getElementById('saveFilterBtn').disabled = true;
+    }
+
+    function setStatus(msg, type) {
+      var el = document.getElementById('status');
+      el.textContent = msg;
+      el.className = type || 'empty';
+    }
+
+    function escHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+  </script>
+</body>
+</html>

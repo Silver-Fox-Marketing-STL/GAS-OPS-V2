@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      font-size: 13px;
+      color: #333;
+    }
+    label {
+      display: block;
+      font-weight: bold;
+      margin-bottom: 4px;
+      margin-top: 14px;
+    }
+    label:first-of-type { margin-top: 0; }
+    select, textarea, input[type="text"] {
+      width: 100%;
+      padding: 8px;
+      font-size: 13px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    textarea {
+      height: 150px;
+      resize: vertical;
+      font-family: monospace;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .vin-count  { font-size: 11px; color: #888; margin-top: 4px; min-height: 16px; }
+    .field-hint { font-size: 11px; color: #888; margin-top: 3px; }
+    .bypass-label {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin-top: 8px;
+      font-weight: normal;
+      font-size: 12px;
+      color: #555;
+      cursor: pointer;
+      user-select: none;
+    }
+    .bypass-label input[type="checkbox"] {
+      width: auto;
+      margin: 0;
+      cursor: pointer;
+      accent-color: #e67e00;
+    }
+    .bypass-label:has(input:checked) { color: #e67e00; }
+    .bypass-hint {
+      font-size: 11px;
+      color: #aaa;
+      margin-left: 2px;
+    }
+
+    /* ── CAO row ─────────────────────────────────────────────────────────── */
+    .cao-row { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+    .cao-row label { margin: 0; flex: 1; }
+    #caoBtn {
+      padding: 6px 12px; font-size: 12px; font-weight: bold;
+      background: #fff; color: #1a73e8; border: 1.5px solid #1a73e8;
+      border-radius: 4px; cursor: pointer; white-space: nowrap; width: auto; margin: 0;
+    }
+    #caoBtn:hover    { background: #e8f0fe; }
+    #caoBtn:disabled { background: #f5f5f5; color: #aaa; border-color: #ccc; cursor: default; }
+
+    /* ── CAO summary ─────────────────────────────────────────────────────── */
+    #caoSummary {
+      display: none; margin-top: 8px; padding: 8px 10px;
+      background: #f8f9fa; border: 1px solid #dadce0; border-radius: 4px;
+      font-size: 11px; line-height: 1.7;
+    }
+    #caoSummary .summary-row { display: flex; justify-content: space-between; }
+    #caoSummary .summary-row span:last-child { font-weight: bold; color: #333; }
+    #caoSummary .summary-divider { border: none; border-top: 1px solid #e0e0e0; margin: 4px 0; }
+    #caoSummary .summary-net { color: #1a73e8; }
+    #caoSummary .rejection-detail { color: #888; font-size: 10.5px; margin-top: 2px; }
+
+    /* ── Run / Cancel buttons ────────────────────────────────────────────── */
+    .btn-row { display: flex; gap: 10px; margin-top: 16px; }
+    .btn-primary {
+      flex: 1; padding: 10px; background: #1a73e8; color: white;
+      border: none; font-size: 14px; font-weight: bold; cursor: pointer; border-radius: 4px;
+    }
+    .btn-primary:hover    { background: #1557b0; }
+    .btn-primary:disabled { background: #aaa; cursor: default; }
+    .btn-secondary {
+      padding: 10px 18px; background: #fff; color: #555;
+      border: 1px solid #ccc; font-size: 13px; cursor: pointer; border-radius: 4px;
+    }
+    .btn-secondary:hover { background: #f5f5f5; }
+
+    /* ── Progress section ────────────────────────────────────────────────── */
+    #progressSection {
+      display: none; margin-top: 16px; padding: 12px;
+      background: #f8f9fa; border: 1px solid #dadce0; border-radius: 4px;
+    }
+    #progressStep {
+      font-size: 12px; color: #444; margin-bottom: 8px;
+      min-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .progress-track {
+      height: 6px; background: #e0e0e0; border-radius: 3px; overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%; background: #1a73e8; border-radius: 3px;
+      width: 0%; transition: width 0.5s ease, background 0.3s ease;
+    }
+    .progress-fill.done  { background: #1e7e34; }
+    .progress-fill.error { background: #c0392b; }
+    .progress-meta {
+      display: flex; justify-content: space-between;
+      margin-top: 5px; font-size: 11px; color: #888;
+    }
+    #progressPercent { font-weight: bold; color: #555; }
+
+    /* ── Post-run actions ────────────────────────────────────────────────── */
+    #postRunActions {
+      display: none;
+      margin-top: 12px;
+    }
+    .post-run-row {
+      display: flex;
+      gap: 10px;
+    }
+    /* Drive folder button — styled as a link-button */
+    #driveFolderBtn {
+      flex: 1;
+      display: block;
+      padding: 9px 12px;
+      background: #fff;
+      color: #1a73e8;
+      border: 1.5px solid #1a73e8;
+      border-radius: 4px;
+      font-size: 13px;
+      font-weight: bold;
+      text-align: center;
+      text-decoration: none;
+      cursor: pointer;
+      line-height: 1.4;
+    }
+    #driveFolderBtn:hover { background: #e8f0fe; }
+    /* VIN log button */
+    #vinLogBtn {
+      flex: 1;
+      padding: 9px 12px;
+      background: #1e7e34;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 13px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    #vinLogBtn:hover    { background: #155724; }
+    #vinLogBtn:disabled { background: #aaa; cursor: default; }
+    #vinLogBtn.committed {
+      background: #fff;
+      color: #1e7e34;
+      border: 1.5px solid #1e7e34;
+      cursor: default;
+    }
+
+    /* ── Status bar ──────────────────────────────────────────────────────── */
+    #status {
+      margin-top: 12px; font-size: 12px; min-height: 18px;
+      padding: 6px 8px; border-radius: 4px;
+    }
+    #status.error   { background: #fce8e6; color: #c0392b; }
+    #status.success { background: #e6f4ea; color: #1e7e34; }
+    #status.info    { background: #e8f0fe; color: #1a73e8; }
+    #status.empty   { background: none; color: #555; }
+  </style>
+</head>
+<body>
+
+  <label for="dealerSelect">Dealer</label>
+  <select id="dealerSelect">
+    <option value="">-- Loading dealers... --</option>
+  </select>
+
+  <label for="dealId">Pipedrive Deal ID</label>
+  <input type="text" id="dealId" placeholder="e.g. 44021" />
+  <div class="field-hint">Required. Enter the Pipedrive deal number for this order.</div>
+
+  <div class="cao-row">
+    <label for="vinInput">VINs / Stock Numbers</label>
+    <button id="caoBtn" onclick="prefillFromCAO()" disabled>&#x21BA; Pre-fill from CAO</button>
+  </div>
+
+  <textarea id="vinInput" placeholder="Paste VINs here, one per line..."></textarea>
+  <div class="vin-count" id="vinCount"></div>
+
+  <label class="bypass-label">
+    <input type="checkbox" id="bypassFilters" />
+    Bypass filtering rules
+    <span class="bypass-hint">Use if a vehicle is being incorrectly filtered out</span>
+  </label>
+
+  <div id="caoSummary">
+    <div class="summary-row"><span>Total inventory</span><span id="sTotal">—</span></div>
+    <div class="summary-row"><span>After filters</span><span id="sFiltered">—</span></div>
+    <div id="rejectionRows"></div>
+    <hr class="summary-divider">
+    <div class="summary-row"><span>Already printed</span><span id="sPrinted">—</span></div>
+    <hr class="summary-divider">
+    <div class="summary-row summary-net"><span><b>Net new (pre-filled)</b></span><span id="sNetNew">—</span></div>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn-primary" id="runBtn" onclick="runSelected()" disabled>Run Dealer</button>
+    <button class="btn-secondary" id="cancelBtn" onclick="google.script.host.close()">Cancel</button>
+  </div>
+
+  <!-- Progress bar — shown during run -->
+  <div id="progressSection">
+    <div id="progressStep">Starting...</div>
+    <div class="progress-track">
+      <div class="progress-fill" id="progressFill"></div>
+    </div>
+    <div class="progress-meta">
+      <span id="progressElapsed"></span>
+      <span id="progressPercent">0%</span>
+    </div>
+  </div>
+
+  <!-- Post-run actions — shown after successful completion -->
+  <div id="postRunActions">
+    <div class="post-run-row">
+      <a id="driveFolderBtn" href="#" target="_blank">&#128194; Open Output Folder</a>
+      <button id="vinLogBtn" onclick="addToVINLog()">&#10003; Add to VIN Log</button>
+    </div>
+  </div>
+
+  <div id="status" class="empty"></div>
+
+  <script>
+    var pollInterval   = null;
+    var runStartTime   = null;
+    var currentRunId   = null;
+    var lastRunResult  = null; // {outputFolderUrl, runLogRowIndex, dealerName, producedVinCount}
+    var lastDealerKey  = null; // dealer key used for the last run
+
+    // ── Load dealer dropdown ──────────────────────────────────────────────────
+    google.script.run
+      .withSuccessHandler(function(dealers) {
+        var sel = document.getElementById('dealerSelect');
+        sel.innerHTML = '<option value="">-- Select a dealer --</option>';
+        dealers.forEach(function(d) {
+          var opt = document.createElement('option');
+          opt.value = d.key; opt.text = d.name;
+          sel.appendChild(opt);
+        });
+        updateButtons();
+      })
+      .withFailureHandler(function(e) {
+        document.getElementById('dealerSelect').innerHTML = '<option value="">Error loading dealers</option>';
+        setStatus('Could not load dealer list: ' + e.message, 'error');
+      })
+      .getActiveDealersForUI();
+
+    // ── Input listeners ───────────────────────────────────────────────────────
+    document.getElementById('vinInput').addEventListener('input', function() {
+      updateVinCount(); updateButtons(); hideCaoSummary();
+    });
+    document.getElementById('dealerSelect').addEventListener('change', function() {
+      updateButtons(); hideCaoSummary();
+      document.getElementById('vinInput').value = '';
+      updateVinCount();
+      hidePostRunActions();
+    });
+    document.getElementById('dealId').addEventListener('input', function() {
+      updateButtons();
+      hidePostRunActions();
+    });
+
+    function getVins() {
+      return document.getElementById('vinInput').value
+        .split('\n').map(function(v) { return v.trim(); }).filter(function(v) { return v !== ''; });
+    }
+
+    function updateVinCount() {
+      var count = getVins().length;
+      document.getElementById('vinCount').textContent =
+        count > 0 ? count + ' VIN' + (count === 1 ? '' : 's') + ' entered' : '';
+    }
+
+    function updateButtons() {
+      var hasDealer = document.getElementById('dealerSelect').value !== '';
+      var hasDealId = document.getElementById('dealId').value.trim() !== '';
+      var hasVins   = getVins().length > 0;
+      document.getElementById('caoBtn').disabled = !hasDealer;
+      document.getElementById('runBtn').disabled = !(hasDealer && hasDealId && hasVins);
+    }
+
+    // ── CAO pre-fill ──────────────────────────────────────────────────────────
+    function prefillFromCAO() {
+      var key = document.getElementById('dealerSelect').value;
+      if (!key) return;
+      var btn = document.getElementById('caoBtn');
+      btn.disabled = true; btn.textContent = '⟳ Loading...';
+      setStatus('Pulling inventory and applying filters...', 'info');
+      hideCaoSummary();
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          document.getElementById('vinInput').value = result.vins.join('\n');
+          updateVinCount(); updateButtons();
+          showCaoSummary(result.summary);
+          setStatus(result.vins.length === 0
+            ? 'No net-new vehicles found after filters and dedup.'
+            : 'Pre-filled ' + result.vins.length + ' net-new VIN' +
+              (result.vins.length === 1 ? '' : 's') + '. Review and click Run.',
+            result.vins.length === 0 ? 'info' : 'success');
+          btn.disabled = false; btn.textContent = '&#x21BA; Pre-fill from CAO';
+        })
+        .withFailureHandler(function(e) {
+          setStatus('CAO error: ' + e.message, 'error');
+          btn.disabled = false; btn.textContent = '&#x21BA; Pre-fill from CAO';
+        })
+        .getCaoVins(key);
+    }
+
+    function showCaoSummary(s) {
+      document.getElementById('sTotal').textContent    = s.totalInventory;
+      document.getElementById('sFiltered').textContent = s.afterFiltering;
+      document.getElementById('sPrinted').textContent  = s.alreadyPrinted;
+      document.getElementById('sNetNew').textContent   = s.netNew;
+      var b = s.rejectionBreakdown;
+      var labels = {
+        no_stock: 'Missing stock number', no_price: 'Missing or invalid price', type: 'Type not allowed',
+        status: 'Status excluded', price_low: 'Below min price',
+        price_high: 'Above max price', seasoning: 'Not yet seasoned'
+      };
+      var rows = '';
+      var totalRejected = s.totalInventory - s.afterFiltering;
+      if (totalRejected > 0) {
+        rows += '<div class="rejection-detail">Filtered out (' + totalRejected + '):</div>';
+        Object.keys(labels).forEach(function(k) {
+          if (b[k] > 0) rows += '<div class="summary-row rejection-detail"><span>&nbsp;&nbsp;' +
+            labels[k] + '</span><span>' + b[k] + '</span></div>';
+        });
+      }
+      document.getElementById('rejectionRows').innerHTML = rows;
+      document.getElementById('caoSummary').style.display = 'block';
+    }
+
+    function hideCaoSummary() {
+      document.getElementById('caoSummary').style.display = 'none';
+    }
+
+    // ── Progress polling ──────────────────────────────────────────────────────
+    function startPolling(runId) {
+      currentRunId = runId;
+      runStartTime = Date.now();
+      document.getElementById('progressSection').style.display = 'block';
+      updateProgressUI({ message: 'Starting...', percent: 0, done: false, error: null });
+
+      pollInterval = setInterval(function() {
+        var elapsed = Math.round((Date.now() - runStartTime) / 1000);
+        document.getElementById('progressElapsed').textContent = elapsed + 's';
+
+        google.script.run
+          .withSuccessHandler(function(progress) {
+            updateProgressUI(progress);
+            if (progress.done) stopPolling();
+          })
+          .withFailureHandler(function() { /* non-fatal, skip tick */ })
+          .getRunProgress(runId);
+      }, 1500);
+    }
+
+    function stopPolling() {
+      if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+      if (currentRunId) {
+        google.script.run.clearRunProgress(currentRunId);
+        currentRunId = null;
+      }
+    }
+
+    function updateProgressUI(progress) {
+      var fill = document.getElementById('progressFill');
+      document.getElementById('progressStep').textContent = progress.message || 'Running...';
+      document.getElementById('progressPercent').textContent = (progress.percent || 0) + '%';
+      fill.style.width = (progress.percent || 0) + '%';
+      fill.classList.remove('done', 'error');
+      if (progress.done && !progress.error) fill.classList.add('done');
+      if (progress.error)                   fill.classList.add('error');
+    }
+
+    // ── Post-run actions ──────────────────────────────────────────────────────
+    function showPostRunActions(result) {
+      document.getElementById('driveFolderBtn').href = result.outputFolderUrl;
+      document.getElementById('postRunActions').style.display = 'block';
+
+      // Reset VIN log button to default state
+      var vinBtn = document.getElementById('vinLogBtn');
+      vinBtn.disabled = false;
+      vinBtn.textContent = '✓ Add to VIN Log';
+      vinBtn.className = '';
+    }
+
+    function hidePostRunActions() {
+      document.getElementById('postRunActions').style.display = 'none';
+      lastRunResult = null;
+    }
+
+    function addToVINLog() {
+      if (!lastRunResult || !lastDealerKey) {
+        setStatus('No run result available.', 'error');
+        return;
+      }
+      var vinBtn = document.getElementById('vinLogBtn');
+      vinBtn.disabled = true;
+      vinBtn.textContent = 'Adding...';
+      setStatus('', 'empty');
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          vinBtn.textContent = '✓ Added ' + result.committed + ' VINs';
+          vinBtn.className = 'committed';
+          setStatus(result.committed + ' VINs committed to the ' +
+            lastRunResult.dealerName + ' VIN log.', 'success');
+        })
+        .withFailureHandler(function(e) {
+          vinBtn.disabled = false;
+          vinBtn.textContent = '✓ Add to VIN Log';
+          setStatus('VIN log error: ' + e.message, 'error');
+        })
+        .commitLatestRun(lastDealerKey, lastRunResult.runLogRowIndex);
+    }
+
+    // ── Run handler ───────────────────────────────────────────────────────────
+    function runSelected() {
+      var sel    = document.getElementById('dealerSelect');
+      var key    = sel.value;
+      var name   = sel.options[sel.selectedIndex].text;
+      var dealId = document.getElementById('dealId').value.trim();
+      var vins   = getVins();
+      var runBtn = document.getElementById('runBtn');
+
+      if (!key)              { setStatus('Please select a dealer.', 'error'); return; }
+      if (!dealId)           { setStatus('Please enter a Pipedrive Deal ID.', 'error'); return; }
+      if (vins.length === 0) { setStatus('Please enter at least one VIN.', 'error'); return; }
+
+      var runId  = String(Date.now());
+      lastDealerKey = key;
+      lastRunResult = null;
+      hidePostRunActions();
+
+      runBtn.disabled = true;
+      runBtn.textContent = 'Running...';
+      document.getElementById('cancelBtn').textContent = 'Close';
+      setStatus('', 'empty');
+      startPolling(runId);
+
+      var bypass = document.getElementById('bypassFilters').checked;
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          stopPolling();
+          lastRunResult = result;
+          updateProgressUI({ message: 'Complete!', percent: 100, done: true, error: null });
+          setStatus('Done! ' + name + ' order complete.', 'success');
+          runBtn.textContent = 'Run Dealer';
+          if (result) showPostRunActions(result);
+        })
+        .withFailureHandler(function(e) {
+          stopPolling();
+          updateProgressUI({ message: 'Error: ' + e.message, percent: 0, done: true, error: e.message });
+          setStatus('Error: ' + e.message, 'error');
+          runBtn.disabled = false;
+          runBtn.textContent = 'Run Dealer';
+        })
+        .pasteVinsAndRun(key, vins, dealId, runId, bypass);
+    }
+
+    function setStatus(msg, type) {
+      var el = document.getElementById('status');
+      el.textContent = msg; el.className = type || 'empty';
+    }
+  </script>
+</body>
+</html>
