@@ -263,6 +263,33 @@ var NORMALIZATION_MAPS = {
 };
 
 
+// ── CONFIG SPREADSHEET CACHE ─────────────────────────────────────────────────
+// SF_DEALER_CONFIG is opened independently by getDealerConfig_, getCsvSchema_,
+// getActiveDealersForUI, getQRBasePathForUser_, getUserProfiles, and several
+// other functions — each call to SpreadsheetApp.openById() is a network round
+// trip. This cache holds the Spreadsheet object for the lifetime of one script
+// execution so every call after the first is free.
+var _configSS_ = null;
+
+function getConfigSS_() {
+  if (!_configSS_) _configSS_ = SpreadsheetApp.openById(CONFIG_SHEET_ID);
+  return _configSS_;
+}
+
+
+// ── RECALC DELAY HELPER ───────────────────────────────────────────────────────
+// Replaces the fixed Utilities.sleep() calls after ORDERMATCH and LINKBUILDER
+// formula writes. Scales the wait time to the number of rows being evaluated
+// rather than always sleeping the worst-case maximum.
+//   rowCount  — number of data rows the formula must process
+//   msPerRow  — estimated milliseconds per row
+//   minMs     — floor (always wait at least this long for Sheets to register the write)
+//   maxMs     — ceiling (never wait longer than this)
+function calcRecalcDelay_(rowCount, msPerRow, minMs, maxMs) {
+  return Math.max(minMs, Math.min(maxMs, rowCount * msPerRow));
+}
+
+
 // ============================================================================
 // SECTION 2: BOOLEAN HELPER
 // ============================================================================
@@ -378,7 +405,7 @@ function importScraperData(mappedData) {
 
 // Called by the sidebar to populate the dropdown
 function getActiveDealersForUI() {
-  var data = SpreadsheetApp.openById(CONFIG_SHEET_ID)
+  var data = getConfigSS_()
     .getSheetByName('DEALERS').getDataRange().getValues();
   var dealers = [];
   for (var i = 1; i < data.length; i++) {
@@ -426,7 +453,8 @@ function pasteVinsAndRun(dealerKey, vins, dealId, runId, bypassFilters, userKey)
   range.setNumberFormat('@');
   SpreadsheetApp.flush();
 
-  return runDealer(dealerKey, String(dealId).trim(), runId || null, bypassFilters === true, qrBasePath);
+  // Pass the already-resolved config so runDealer doesn't re-open SF_DEALER_CONFIG.
+  return runDealer(dealerKey, String(dealId).trim(), runId || null, bypassFilters === true, qrBasePath, config);
 }
 
 /**
@@ -436,15 +464,18 @@ function pasteVinsAndRun(dealerKey, vins, dealId, runId, bypassFilters, userKey)
  * @param {string|null} runId          - Progress tracking ID (optional; from modal)
  * @param {boolean}     bypassFilters  - If true, skip filtering rules for this run
  * @param {string}      qrBasePath     - Local folder path for QR PNGs (from USER_PROFILES)
+ * @param {Array|null}  preloadedConfig - Config row already loaded by pasteVinsAndRun;
+ *                                        skips a redundant getDealerConfig_ call when provided.
  */
-function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath) {
+function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloadedConfig) {
   var startTime = new Date();
   var errors    = [];
 
   try {
-    // 1. Load dealer config
+    // 1. Load dealer config (use preloaded if available — avoids re-opening SF_DEALER_CONFIG
+    //    when called from pasteVinsAndRun, which already resolved config for the ORDERS write)
     setProgress_(runId, 'Loading dealer config...', 5);
-    var config = getDealerConfig_(dealerKey);
+    var config = preloadedConfig || getDealerConfig_(dealerKey);
     if (!config) throw new Error('Dealer key not found: ' + dealerKey);
     if (!isTrue_(config[CFG.ACTIVE])) throw new Error('Dealer is marked inactive: ' + dealerKey);
     Logger.log('Starting run for: ' + config[CFG.NAME]);
@@ -545,7 +576,9 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath) {
     setProgress_(runId, 'Running ORDERMATCH query...', 38);
     writeOrderMatchFormula_(outputDoc, vins, isTrue_(config[CFG.USE_STOCK]));
     SpreadsheetApp.flush();
-    Utilities.sleep(3000);
+    // Wait scales with order size: ~40ms/row, 1000ms floor, 3500ms ceiling.
+    // A 10-VIN order waits ~1s instead of the previous fixed 3s.
+    Utilities.sleep(calcRecalcDelay_(vins.length, 40, 1000, 3500));
     var matchedRows = readOrderMatchResults_(outputDoc);
     Logger.log('Matched rows: ' + matchedRows.length);
 
@@ -620,7 +653,7 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath) {
 // ============================================================================
 
 function getDealerConfig_(dealerKey) {
-  var data = SpreadsheetApp.openById(CONFIG_SHEET_ID)
+  var data = getConfigSS_()
     .getSheetByName('DEALERS').getDataRange().getValues();
   for (var i = 1; i < data.length; i++) {
     if (data[i][CFG.KEY] === dealerKey) return data[i];
@@ -629,7 +662,7 @@ function getDealerConfig_(dealerKey) {
 }
 
 function getActiveDealerKeys_() {
-  var data = SpreadsheetApp.openById(CONFIG_SHEET_ID)
+  var data = getConfigSS_()
     .getSheetByName('DEALERS').getDataRange().getValues();
   return data.slice(1)
     .filter(function(r) { return isTrue_(r[CFG.ACTIVE]); })
@@ -637,7 +670,7 @@ function getActiveDealerKeys_() {
 }
 
 function getCsvSchema_(schemaKey) {
-  var data = SpreadsheetApp.openById(CONFIG_SHEET_ID)
+  var data = getConfigSS_()
     .getSheetByName('CSV_SCHEMAS').getDataRange().getValues();
   for (var i = 1; i < data.length; i++) {
     if (data[i][0] === schemaKey) {
@@ -724,29 +757,52 @@ function pasteScraperData_(outputDoc, data) {
 // SECTION 5.5: SCRAPER DATA NORMALIZATION
 // ============================================================================
 
-function normalizeCell_(value, map) {
-  var str   = String(value).trim();
-  var lower = str.toLowerCase();
-  for (var i = 0; i < map.length; i++) {
-    if (lower === map[i][0].toLowerCase()) return map[i][1];
-  }
-  return str;
+/**
+ * Builds a case-insensitive lookup object from a norm map array.
+ * Called once per map at the top of normalizeScraperData_ so we pay the
+ * O(n) setup cost once rather than O(n) per cell lookup.
+ *
+ * @param {Array<Array<string>>} map - array of [input, output] pairs
+ * @returns {Object} lowercase-keyed lookup: { 'raw value': 'normalized value' }
+ */
+function buildNormLookup_(map) {
+  var lookup = {};
+  map.forEach(function(pair) {
+    lookup[String(pair[0]).toLowerCase()] = pair[1];
+  });
+  return lookup;
+}
+
+/**
+ * Normalizes a single cell value against a pre-built lookup object.
+ * O(1) vs. the previous O(n) linear scan.
+ *
+ * @param {*}      value  - raw cell value
+ * @param {Object} lookup - built by buildNormLookup_
+ * @returns {string}
+ */
+function normalizeCell_(value, lookup) {
+  var str = String(value).trim();
+  var key = str.toLowerCase();
+  return lookup.hasOwnProperty(key) ? lookup[key] : str;
 }
 
 function normalizeScraperData_(rows) {
-  var maps      = loadNormalizationMaps_();
-  var globalMap = maps.global;
-  var colMaps   = {};
-  colMaps[NORM_COL.TYPE]   = maps.type;
-  colMaps[NORM_COL.TRIM]   = maps.trim;
-  colMaps[NORM_COL.STATUS] = maps.status;
-  colMaps[NORM_COL.PRICE]  = maps.price;
+  var maps = loadNormalizationMaps_();
+
+  // Build lookup objects once — O(map_size) — instead of scanning arrays per cell.
+  var globalLookup = buildNormLookup_(maps.global);
+  var colLookups   = {};
+  colLookups[NORM_COL.TYPE]   = buildNormLookup_(maps.type);
+  colLookups[NORM_COL.TRIM]   = buildNormLookup_(maps.trim);
+  colLookups[NORM_COL.STATUS] = buildNormLookup_(maps.status);
+  colLookups[NORM_COL.PRICE]  = buildNormLookup_(maps.price);
 
   for (var r = 0; r < rows.length; r++) {
     for (var c = 0; c < rows[r].length; c++) {
-      var val = normalizeCell_(rows[r][c], globalMap);
-      if (colMaps[c]) {
-        val = normalizeCell_(val, colMaps[c]);
+      var val = normalizeCell_(rows[r][c], globalLookup);
+      if (colLookups[c]) {
+        val = normalizeCell_(val, colLookups[c]);
       }
       rows[r][c] = (val === '') ? '*' : val;
     }
@@ -803,23 +859,23 @@ function applyDataTransforms_(outputDoc, transformsJson) {
   if (lastRow < 2) return;
 
   var MODEL_COL = 6; var TRIM_COL = 7;
-  var models = sheet.getRange(2, MODEL_COL, lastRow - 1, 1).getValues();
-  var trims  = sheet.getRange(2, TRIM_COL,  lastRow - 1, 1).getValues();
+  // Read model (col 6) and trim (col 7) together in a single API call.
+  var modelAndTrim = sheet.getRange(2, MODEL_COL, lastRow - 1, 2).getValues();
 
   (rules.replacements || []).forEach(function(rule) {
-    for (var i = 0; i < models.length; i++) {
-      if (rule.col === 'model' && rule.find && String(models[i][0]) === rule.find) {
-        if (rule.model_replace) models[i][0] = rule.model_replace;
-        if (rule.trim_prepend)  trims[i][0]  = rule.trim_prepend + ' ' + String(trims[i][0]);
+    for (var i = 0; i < modelAndTrim.length; i++) {
+      if (rule.col === 'model' && rule.find && String(modelAndTrim[i][0]) === rule.find) {
+        if (rule.model_replace) modelAndTrim[i][0] = rule.model_replace;
+        if (rule.trim_prepend)  modelAndTrim[i][1]  = rule.trim_prepend + ' ' + String(modelAndTrim[i][1]);
       }
       if (rule.col === 'trim' && rule.remove) {
-        rule.remove.forEach(function(s) { trims[i][0] = String(trims[i][0]).replace(s, '').trim(); });
+        rule.remove.forEach(function(s) { modelAndTrim[i][1] = String(modelAndTrim[i][1]).replace(s, '').trim(); });
       }
     }
   });
 
-  sheet.getRange(2, MODEL_COL, lastRow - 1, 1).setValues(models);
-  sheet.getRange(2, TRIM_COL,  lastRow - 1, 1).setValues(trims);
+  // Write both columns back in a single API call.
+  sheet.getRange(2, MODEL_COL, lastRow - 1, 2).setValues(modelAndTrim);
 }
 
 
@@ -849,9 +905,14 @@ function readOrderMatchResults_(outputDoc) {
 // ============================================================================
 
 function buildLinks_(outputDoc, config, typeRules) {
+  // Capture matched row count before writing formulas so we can scale the sleep.
+  var omSheet = outputDoc.getSheetByName('ORDERMATCH');
+  var numRows = Math.max(0, omSheet.getLastRow() - 1);
+
   writeLinkBuilderFormulas_(outputDoc, config, typeRules);
   SpreadsheetApp.flush();
-  Utilities.sleep(2000);
+  // Wait scales with row count: ~30ms/row, 700ms floor, 2000ms ceiling.
+  Utilities.sleep(calcRecalcDelay_(numRows, 30, 700, 2000));
 
   var sheet   = outputDoc.getSheetByName('LINKBUILDER');
   var lastRow = sheet.getLastRow();
@@ -932,7 +993,7 @@ function clearQRFolder_(folderId) {
 }
 
 function eraseAllQRFolders() {
-  var data    = SpreadsheetApp.openById(CONFIG_SHEET_ID)
+  var data    = getConfigSS_()
     .getSheetByName('DEALERS').getDataRange().getValues();
   var cleared = 0;
   for (var i = 1; i < data.length; i++) {
@@ -1470,7 +1531,7 @@ function handleError_(e) {
 // ============================================================================
 
 function auditConfigPlaceholders() {
-  var data = SpreadsheetApp.openById(CONFIG_SHEET_ID)
+  var data = getConfigSS_()
     .getSheetByName('DEALERS').getDataRange().getValues();
   var incomplete = [];
   for (var i = 1; i < data.length; i++) {
@@ -1503,7 +1564,7 @@ function openNormManager() {
 }
 
 function getNormMapsSheet_() {
-  return SpreadsheetApp.openById(CONFIG_SHEET_ID).getSheetByName(NORM_MAPS_TAB);
+  return getConfigSS_().getSheetByName(NORM_MAPS_TAB);
 }
 
 function loadNormalizationMaps_() {
@@ -2179,7 +2240,7 @@ function openRulesEditor() {
  * @returns {{ dealers: Array<{key:string, name:string}>, schemas: string[] }}
  */
 function getRulesEditorBootstrap() {
-  var configSS = SpreadsheetApp.openById(CONFIG_SHEET_ID);
+  var configSS = getConfigSS_();
  
   // Active dealers
   var dealerData = configSS.getSheetByName('DEALERS').getDataRange().getValues();
@@ -2247,7 +2308,7 @@ function saveDealerTypeRules(dealerKey, typeRulesJson) {
   try { JSON.parse(typeRulesJson); }
   catch (e) { throw new Error('Invalid type_rules JSON: ' + e.message); }
  
-  var sheet = SpreadsheetApp.openById(CONFIG_SHEET_ID)
+  var sheet = getConfigSS_()
     .getSheetByName('DEALERS');
   var data = sheet.getDataRange().getValues();
  
@@ -2274,7 +2335,7 @@ function saveDealerFilterRules(dealerKey, filteringRulesJson) {
   try { JSON.parse(filteringRulesJson); }
   catch (e) { throw new Error('Invalid filtering_rules JSON: ' + e.message); }
  
-  var sheet = SpreadsheetApp.openById(CONFIG_SHEET_ID)
+  var sheet = getConfigSS_()
     .getSheetByName('DEALERS');
   var data = sheet.getDataRange().getValues();
  
@@ -2312,7 +2373,7 @@ var USER_PROFILES_TAB = 'USER_PROFILES';
  * @returns {Array<{key:string, name:string}>}
  */
 function getUserProfiles() {
-  var data = SpreadsheetApp.openById(CONFIG_SHEET_ID)
+  var data = getConfigSS_()
     .getSheetByName(USER_PROFILES_TAB);
   if (!data) throw new Error('USER_PROFILES tab not found in SF_DEALER_CONFIG.');
 
@@ -2348,7 +2409,7 @@ function getUserProfilesForModal() {
  * @returns {string} The local base path, guaranteed to end with a path separator.
  */
 function getQRBasePathForUser_(userKey) {
-  var sheet = SpreadsheetApp.openById(CONFIG_SHEET_ID)
+  var sheet = getConfigSS_()
     .getSheetByName(USER_PROFILES_TAB);
   if (!sheet) throw new Error('USER_PROFILES tab not found in SF_DEALER_CONFIG.');
 
