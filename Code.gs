@@ -35,51 +35,30 @@ var CONFIG_SHEET_ID    = '1csQdjcNey_mgcVqY99GOJ2PNCGRTyoZTbaUyJ3IZkJ8';   // SF
 var TEMPLATE_ID        = '14Nk1FL-dfffIoWh9o8Q_EFCNlMXN3jUnlzzZ750QVTc';   // SF_UNIVERSAL_TEMPLATE
 var OUTPUT_FOLDER_ID   = '1iRDDlqgQPn9R67AEIUJcF8JmyiOyn8DI';              // Output docs folder
 var VIN_LOGS_ID        = '12Xf6dyZXWXp4JwbytGo6lRUShwuGeN0yS3zhbco4-Lk';  // SF_VIN_LOGS (master)
-// QR local base paths are now per-user. See USER_PROFILES tab in SF_DEALER_CONFIG
-// and Section 28 (User Profiles) below. QR_LOCAL_BASE_PATH global has been removed.
+var QR_LOCAL_BASE_PATH = 'C:\\Users\\Nick_Workstation\\Documents\\QRS\\';
 
 // Column indices in the DEALERS tab of SF_DEALER_CONFIG (0-indexed)
-// Current layout (23 columns, A–W):
-// A=dealer_key, B=dealer_name, C=orders_col, D=qr_folder_id, E=output_folder_id,
-// F=use_stock_not_vin, G=linkbuilder_col, H=utm_base_url_override, I=data_transforms,
-// J=scraper_location_name, K=qr_local_prefix, L=active, M=notes,
-// N=pipedrive_prefix, O=type_rules, [P–V unused/deprecated], W=filtering_rules
 var CFG = {
-  KEY:               0,   // dealer_key
-  NAME:              1,   // dealer_name
-  ORDERS_COL:        2,   // orders_col (A, B, C, ... AO)
-  QR_FOLDER_ID:      3,   // qr_folder_id
-  OUTPUT_FOLDER:     4,   // output_folder_id (per-dealer override; falls back to OUTPUT_FOLDER_ID)
-  USE_STOCK:         5,   // use_stock_not_vin (boolean)
-  LINKBUILDER_COL:   6,   // linkbuilder_col (B or C)
-  UTM_BASE_URL:      7,   // utm_base_url_override (Serra Honda style fixed base URL)
-  TRANSFORMS:        8,   // data_transforms (JSON string or empty)
-  SCRAPER_LOCATION:  9,   // scraper_location_name (exact value in SCRAPERDATA Location col)
-  QR_PREFIX:         10,  // qr_local_prefix (e.g. "Auffenberg_Hyundai")
-  ACTIVE:            11,  // active (boolean)
-  NOTES:             12,  // notes
-  PIPEDRIVE_PREFIX:  13,  // pipedrive_prefix ("PIPEDRIVE" or blank)
-  TYPE_RULES:        14,  // type_rules (JSON array — primary output config)
-  FILTER_RULES:      22   // filtering_rules (JSON object — col W)
+  KEY:               0,
+  NAME:              1,
+  ORDERS_COL:        2,
+  QR_FOLDER_ID:      3,
+  OUTPUT_FOLDER:     4,
+  USE_STOCK:         5,
+  LINKBUILDER_COL:   6,
+  UTM_BASE_URL:      7,
+  TRANSFORMS:        8,
+  SCRAPER_LOCATION:  9,
+  QR_PREFIX:         10,
+  ACTIVE:            11,
+  NOTES:             12,
+  PIPEDRIVE_PREFIX:  13,
+  TYPE_RULES:        14,
+  FILTER_RULES:      22
 };
 
-// ── NORMALIZATION ─────────────────────────────────────────────────────────────
-
-// Column indices for normalization (0-indexed, matching SCRAPERDATA columns A–U)
 var NORM_COL = { TYPE: 2, TRIM: 6, STATUS: 8, PRICE: 9 };
 
-// Normalization maps: ordered arrays of [input, output] pairs.
-// NOTE: These are fallback values only. The live source of truth is the
-// NORM_MAPS tab in SF_DEALER_CONFIG, managed via SilverFox V2 → Manage
-// Normalization Maps. These hardcoded values are only used if that sheet
-// tab is missing or a specific map within it has no entries.
-//   global  — runs on every column before column-specific maps.
-//   type    — col C (index 2). ORDER SENSITIVE: specific strings before substrings.
-//   trim    — col G (index 6).
-//   status  — col I (index 8).
-//   price   — col J (index 9).
-// Matching is case-insensitive exact (full cell value). Cells with no match
-// are returned trimmed but otherwise unchanged.
 var NORMALIZATION_MAPS = {
   global: [
     ['&amp;',     '&'],
@@ -87,7 +66,6 @@ var NORMALIZATION_MAPS = {
     ['N/A',       '*']
   ],
   type: [
-    // Order matters: longer/more-specific strings must appear before substrings.
     ['Certified Used',      'CPO'],
     ['Certified Pre-Owned', 'CPO'],
     ['Certified',           'CPO'],
@@ -263,45 +241,10 @@ var NORMALIZATION_MAPS = {
 };
 
 
-// ── CONFIG SPREADSHEET CACHE ─────────────────────────────────────────────────
-// SF_DEALER_CONFIG is opened independently by getDealerConfig_, getCsvSchema_,
-// getActiveDealersForUI, getQRBasePathForUser_, getUserProfiles, and several
-// other functions — each call to SpreadsheetApp.openById() is a network round
-// trip. This cache holds the Spreadsheet object for the lifetime of one script
-// execution so every call after the first is free.
-var _configSS_ = null;
-
-function getConfigSS_() {
-  if (!_configSS_) _configSS_ = SpreadsheetApp.openById(CONFIG_SHEET_ID);
-  return _configSS_;
-}
-
-
-// ── RECALC DELAY HELPER ───────────────────────────────────────────────────────
-// Replaces the fixed Utilities.sleep() calls after ORDERMATCH and LINKBUILDER
-// formula writes. Scales the wait time to the number of rows being evaluated
-// rather than always sleeping the worst-case maximum.
-//   rowCount  — number of data rows the formula must process
-//   msPerRow  — estimated milliseconds per row
-//   minMs     — floor (always wait at least this long for Sheets to register the write)
-//   maxMs     — ceiling (never wait longer than this)
-function calcRecalcDelay_(rowCount, msPerRow, minMs, maxMs) {
-  return Math.max(minMs, Math.min(maxMs, rowCount * msPerRow));
-}
-
-
 // ============================================================================
 // SECTION 2: BOOLEAN HELPER
 // ============================================================================
 
-/**
- * Safely evaluates a config value as boolean.
- * Handles Google Sheets returning true/false as actual booleans instead of
- * strings when the cell contains TRUE/FALSE.
- *
- * @param {*} val - Value from getValues() — may be boolean true/false or string 'TRUE'/'FALSE'
- * @returns {boolean}
- */
 function isTrue_(val) {
   return val === true || String(val).toUpperCase() === 'TRUE';
 }
@@ -327,7 +270,6 @@ function onOpen() {
   menu.addItem('View Run Log', 'openRunLog');
   menu.addSeparator();
   menu.addItem('Manage Normalization Maps...', 'openNormManager');
-  menu.addItem('Edit Dealer Rules...', 'openRulesEditor');
   menu.addToUi();
 }
 
@@ -340,19 +282,11 @@ function promptRunDealer() {
 
 function openScraperImport() {
   var html = HtmlService.createHtmlOutputFromFile('ScraperImport')
-    .setWidth(620)
-    .setHeight(580);
-  SpreadsheetApp.getUi().showModalDialog(html, 'Import Scraper Data');
+    .setTitle('Import Scraper Data')
+    .setWidth(340);
+  SpreadsheetApp.getUi().showSidebar(html);
 }
 
-/**
- * Receives pre-mapped data from the ScraperImport sidebar, normalizes it,
- * and writes it into SCRAPERDATA, replacing all existing data.
- *
- * @param {Array<Array<string>>} mappedData - 2D array already aligned to the
- *   21 SCRAPERDATA columns. Unmatched columns contain empty strings.
- * @returns {{rowCount: number, colCount: number}}
- */
 function importScraperData(mappedData) {
   if (!mappedData || mappedData.length === 0) {
     throw new Error('No data received.');
@@ -361,35 +295,24 @@ function importScraperData(mappedData) {
   var ss    = SpreadsheetApp.openById(MASTER_SHEET_ID);
   var sheet = ss.getSheetByName('SCRAPERDATA');
 
-  // Clear all existing data below the header row
   var lastRow = sheet.getLastRow();
   if (lastRow > 1) {
     sheet.getRange(2, 1, lastRow - 1, 21).clearContent();
   }
 
-  // Normalize scraper data (type, trim, status, price + global passes)
   normalizeScraperData_(mappedData);
-
-  // Compute review stats from normalized data before writing to sheet
   var review = computeImportReview_(mappedData);
 
-  // Force plain text on columns that Sheets auto-converts, causing QUERY
-  // mixed-type issues. Must be set BEFORE setValues so the format is
-  // applied at write time, preventing numeric-looking strings from being
-  // stored as numbers.
-  sheet.getRange(2, 1, mappedData.length, 2).setNumberFormat('@');  // VIN (col A) + Stock (col B)
-  sheet.getRange(2, 10, mappedData.length, 1).setNumberFormat('@'); // Price (col J)
-  sheet.getRange(2, 14, mappedData.length, 1).setNumberFormat('@'); // Date In Stock (col N)
+  sheet.getRange(2, 1, mappedData.length, 2).setNumberFormat('@');
+  sheet.getRange(2, 10, mappedData.length, 1).setNumberFormat('@');
+  sheet.getRange(2, 14, mappedData.length, 1).setNumberFormat('@');
 
-  // Write new data starting at row 2
   sheet.getRange(2, 1, mappedData.length, 21).setValues(mappedData);
 
-  // Re-apply text format after setValues — belt-and-suspenders for numeric-looking values
-  sheet.getRange(2, 1, mappedData.length, 2).setNumberFormat('@');  // VIN + Stock
-  sheet.getRange(2, 10, mappedData.length, 1).setNumberFormat('@'); // Price
-  sheet.getRange(2, 14, mappedData.length, 1).setNumberFormat('@'); // Date In Stock
+  sheet.getRange(2, 1, mappedData.length, 2).setNumberFormat('@');
+  sheet.getRange(2, 10, mappedData.length, 1).setNumberFormat('@');
+  sheet.getRange(2, 14, mappedData.length, 1).setNumberFormat('@');
 
-  // Count how many columns actually had data (non-empty in at least one row)
   var colCount = 0;
   for (var c = 0; c < 21; c++) {
     for (var r = 0; r < mappedData.length; r++) {
@@ -397,15 +320,12 @@ function importScraperData(mappedData) {
     }
   }
 
-  // Update the scraper timestamp
   fillScraperDateTime();
-
   return { rowCount: mappedData.length, colCount: colCount, review: review };
 }
 
-// Called by the sidebar to populate the dropdown
 function getActiveDealersForUI() {
-  var data = getConfigSS_()
+  var data = SpreadsheetApp.openById(CONFIG_SHEET_ID)
     .getSheetByName('DEALERS').getDataRange().getValues();
   var dealers = [];
   for (var i = 1; i < data.length; i++) {
@@ -416,27 +336,10 @@ function getActiveDealersForUI() {
   return dealers;
 }
 
-/**
- * Called by the Run Dealer modal. Writes VINs to ORDERS sheet then runs.
- * @param {string}      dealerKey
- * @param {Array}       vins
- * @param {string}      dealId         - Pipedrive Deal ID (required)
- * @param {string|null} runId          - Progress tracking ID generated by modal (optional)
- * @param {boolean}     bypassFilters  - If true, skip filtering rules during run
- * @param {string}      userKey        - Key from USER_PROFILES tab; determines local QR base path
- */
-function pasteVinsAndRun(dealerKey, vins, dealId, runId, bypassFilters, userKey) {
+function pasteVinsAndRun(dealerKey, vins, dealId, runId, bypassFilters) {
   var config = getDealerConfig_(dealerKey);
   if (!config) throw new Error('Dealer key not found: ' + dealerKey);
   if (!dealId || String(dealId).trim() === '') throw new Error('Pipedrive Deal ID is required.');
-
-  // Resolve QR base path from USER_PROFILES. Throw early so the user sees a
-  // clear message before the run starts rather than getting a blank @QR column.
-  if (!userKey || String(userKey).trim() === '') throw new Error('Please select a user before running.');
-  var qrBasePath = getQRBasePathForUser_(String(userKey).trim());
-
-  // Persist the selection so the dropdown pre-selects on next open.
-  saveLastSelectedUser(userKey);
 
   var colLetter = config[CFG.ORDERS_COL];
   var ss    = SpreadsheetApp.getActiveSpreadsheet();
@@ -453,43 +356,27 @@ function pasteVinsAndRun(dealerKey, vins, dealId, runId, bypassFilters, userKey)
   range.setNumberFormat('@');
   SpreadsheetApp.flush();
 
-  // Pass the already-resolved config so runDealer doesn't re-open SF_DEALER_CONFIG.
-  return runDealer(dealerKey, String(dealId).trim(), runId || null, bypassFilters === true, qrBasePath, config);
+  return runDealer(dealerKey, String(dealId).trim(), runId || null, bypassFilters === true);
 }
 
-/**
- * Main entry point. Example: runDealer('AUFFENBERG_HYUNDAI', '44001')
- * @param {string}      dealerKey
- * @param {string}      dealId         - Pipedrive Deal ID
- * @param {string|null} runId          - Progress tracking ID (optional; from modal)
- * @param {boolean}     bypassFilters  - If true, skip filtering rules for this run
- * @param {string}      qrBasePath     - Local folder path for QR PNGs (from USER_PROFILES)
- * @param {Array|null}  preloadedConfig - Config row already loaded by pasteVinsAndRun;
- *                                        skips a redundant getDealerConfig_ call when provided.
- */
-function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloadedConfig) {
+function runDealer(dealerKey, dealId, runId, bypassFilters) {
   var startTime = new Date();
   var errors    = [];
 
   try {
-    // 1. Load dealer config (use preloaded if available — avoids re-opening SF_DEALER_CONFIG
-    //    when called from pasteVinsAndRun, which already resolved config for the ORDERS write)
     setProgress_(runId, 'Loading dealer config...', 5);
-    var config = preloadedConfig || getDealerConfig_(dealerKey);
+    var config = getDealerConfig_(dealerKey);
     if (!config) throw new Error('Dealer key not found: ' + dealerKey);
     if (!isTrue_(config[CFG.ACTIVE])) throw new Error('Dealer is marked inactive: ' + dealerKey);
     Logger.log('Starting run for: ' + config[CFG.NAME]);
 
-    // 2. Load type rules
     var typeRules = getTypeRules_(config);
     Logger.log('Type rules: ' + JSON.stringify(typeRules));
 
-    // 3. Load VINs from ORDERS sheet
     var vins = getOrderVINs_(config[CFG.ORDERS_COL]);
     if (!vins || vins.length === 0) throw new Error('No VINs found in ORDERS column ' + config[CFG.ORDERS_COL]);
     Logger.log('VINs to process: ' + vins.length);
 
-    // 4. Copy universal template to output folder
     setProgress_(runId, 'Copying output template...', 10);
     var outputFolderId = config[CFG.OUTPUT_FOLDER] || OUTPUT_FOLDER_ID;
     var outputDoc = copyTemplateToFolder_(TEMPLATE_ID, outputFolderId);
@@ -497,37 +384,27 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     outputDoc.rename(outputDocName);
     Logger.log('Output doc created: ' + outputDoc.getId());
 
-    // 5. Write config cache to output doc
     writeConfigCache_(outputDoc, config);
 
-    // 6. Paste VINs into ORDER tab of output doc
     setProgress_(runId, 'Pasting ' + vins.length + ' VIN' + (vins.length === 1 ? '' : 's') + ' into order...', 18);
     pasteOrderVINs_(outputDoc, vins);
 
-    // 7. Paste dealer's scraper data into SCRAPERDATA tab of output doc
     setProgress_(runId, 'Loading scraper data for ' + config[CFG.NAME] + '...', 24);
     var scraperData = getDealerScraperData_(config[CFG.SCRAPER_LOCATION]);
     setProgress_(runId, 'Pasting ' + scraperData.length + ' inventory rows...', 30);
     pasteScraperData_(outputDoc, scraperData);
 
-    // 8. Apply data transforms if configured
     if (config[CFG.TRANSFORMS]) {
       setProgress_(runId, 'Applying data transforms...', 34);
       applyDataTransforms_(outputDoc, config[CFG.TRANSFORMS]);
     }
 
-    // 8.5 Apply filtering rules to VIN list (skipped if bypassFilters is true)
     if (!bypassFilters) {
       var filterRules = getDealerFilterRules_(config);
-      var useStock_   = isTrue_(config[CFG.USE_STOCK]);
-
-      // Build a lookup from VIN/stock identifier → scraper row so we can apply
-      // applyFilteringRules_ (which expects SCRAPERDATA-format rows) to each
-      // ordered VIN without re-reading the sheet.
       var scraperLookup = {};
       scraperData.forEach(function(row) {
-        var v = String(row[0]).trim(); // VIN
-        var s = String(row[1]).trim(); // Stock
+        var v = String(row[0]).trim();
+        var s = String(row[1]).trim();
         if (v) scraperLookup[v] = row;
         if (s) scraperLookup[s] = row;
       });
@@ -537,11 +414,7 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
 
       vins.forEach(function(identifier) {
         var scraperRow = scraperLookup[String(identifier).trim()];
-        if (!scraperRow) {
-          // Not found in scraper — pass through; ORDERMATCH will return no match
-          passedVins.push(identifier);
-          return;
-        }
+        if (!scraperRow) { passedVins.push(identifier); return; }
         var result = applyFilteringRules_([scraperRow], filterRules);
         if (result.passed.length > 0) {
           passedVins.push(identifier);
@@ -552,41 +425,32 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
 
       if (rejectedVins.length > 0) {
         Logger.log('Output filter removed ' + rejectedVins.length + ' VIN(s): ' + rejectedVins.join(', '));
-        setProgress_(runId,
-          'Filtered out ' + rejectedVins.length + ' vehicle' +
+        setProgress_(runId, 'Filtered out ' + rejectedVins.length + ' vehicle' +
           (rejectedVins.length === 1 ? '' : 's') + ' with missing data...', 37);
       }
 
       vins = passedVins;
 
       if (vins.length === 0) {
-        throw new Error(
-          'All ' + rejectedVins.length + ' vehicle' +
+        throw new Error('All ' + rejectedVins.length + ' vehicle' +
           (rejectedVins.length === 1 ? '' : 's') +
-          ' were removed by filtering rules (' +
-          rejectedVins.join('; ') + '). ' +
-          'Check filtering rules or enable "Bypass filtering rules" in the Run Dealer modal.'
-        );
+          ' were removed by filtering rules (' + rejectedVins.join('; ') + '). ' +
+          'Check filtering rules or enable "Bypass filtering rules" in the Run Dealer modal.');
       }
     } else {
       Logger.log('Filtering rules bypassed for this run.');
     }
 
-    // 9. Write ORDERMATCH QUERY formula, then wait for recalculation
     setProgress_(runId, 'Running ORDERMATCH query...', 38);
     writeOrderMatchFormula_(outputDoc, vins, isTrue_(config[CFG.USE_STOCK]));
     SpreadsheetApp.flush();
-    // Wait scales with order size: ~40ms/row, 1000ms floor, 3500ms ceiling.
-    // A 10-VIN order waits ~1s instead of the previous fixed 3s.
-    Utilities.sleep(calcRecalcDelay_(vins.length, 40, 1000, 3500));
+    Utilities.sleep(3000);
     var matchedRows = readOrderMatchResults_(outputDoc);
     Logger.log('Matched rows: ' + matchedRows.length);
 
-    // 10. Copy VIN log into LOG tab of output doc
     setProgress_(runId, 'Copying VIN log (' + matchedRows.length + ' matched)...', 50);
     copyVINLogToOutput_(outputDoc, dealerKey);
 
-    // 11. Build LINKBUILDER, generate QR codes in parallel
     setProgress_(runId, 'Building link formulas...', 56);
     var links    = buildLinks_(outputDoc, config, typeRules);
     setProgress_(runId, 'Generating ' + links.length + ' QR code' + (links.length === 1 ? '' : 's') + ' (parallel)...', 64);
@@ -594,11 +458,9 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     generateQRCodesParallel_(links, qrFolder, config[CFG.QR_PREFIX]);
     Logger.log('QR codes generated: ' + links.length);
 
-    // 12. Write QR paths into ORDERMATCH col J
     setProgress_(runId, links.length + ' QR codes complete. Writing paths...', 82);
-    writeQRPaths_(outputDoc, config[CFG.QR_PREFIX], links.length, qrBasePath);
+    writeQRPaths_(outputDoc, config[CFG.QR_PREFIX], links.length);
 
-    // 13. Build CSV sheet(s) based on type rules
     setProgress_(runId, 'Building CSV output...', 88);
     buildCSVSheet_(outputDoc, typeRules);
 
@@ -611,7 +473,6 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     SpreadsheetApp.flush();
     var billingTotals = readBillingTotals_(outputDoc);
 
-    // 16. Read produced VINs from ORDERMATCH col E (VIN column)
     setProgress_(runId, 'Reading produced VINs...', 95);
     var omSheet     = outputDoc.getSheetByName('ORDERMATCH');
     var omLastRow   = omSheet.getLastRow();
@@ -622,13 +483,11 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
         .filter(function(v) { return v !== ''; });
     }
 
-    // 17. Write run log entry
     setProgress_(runId, 'Writing run log...', 97);
     var duration       = Math.round((new Date() - startTime) / 1000);
     var runLogRowIndex = writeRunLog_(config, dealId, vins.length, matchedRows.length,
                                      billingTotals, outputDoc.getId(), duration, errors, producedVins);
 
-    // 18. Done
     setProgressDone_(runId, 'Complete! ' + producedVins.length + ' VIN' +
                      (producedVins.length === 1 ? '' : 's') + ' produced in ' + duration + 's.');
 
@@ -653,7 +512,7 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
 // ============================================================================
 
 function getDealerConfig_(dealerKey) {
-  var data = getConfigSS_()
+  var data = SpreadsheetApp.openById(CONFIG_SHEET_ID)
     .getSheetByName('DEALERS').getDataRange().getValues();
   for (var i = 1; i < data.length; i++) {
     if (data[i][CFG.KEY] === dealerKey) return data[i];
@@ -662,7 +521,7 @@ function getDealerConfig_(dealerKey) {
 }
 
 function getActiveDealerKeys_() {
-  var data = getConfigSS_()
+  var data = SpreadsheetApp.openById(CONFIG_SHEET_ID)
     .getSheetByName('DEALERS').getDataRange().getValues();
   return data.slice(1)
     .filter(function(r) { return isTrue_(r[CFG.ACTIVE]); })
@@ -670,7 +529,7 @@ function getActiveDealerKeys_() {
 }
 
 function getCsvSchema_(schemaKey) {
-  var data = getConfigSS_()
+  var data = SpreadsheetApp.openById(CONFIG_SHEET_ID)
     .getSheetByName('CSV_SCHEMAS').getDataRange().getValues();
   for (var i = 1; i < data.length; i++) {
     if (data[i][0] === schemaKey) {
@@ -694,18 +553,12 @@ function getOrderVINs_(colLetter) {
     .filter(function(v) { return v !== '' && v !== 'undefined'; });
 }
 
-/**
- * Returns SCRAPERDATA rows matching scraperLocationName (col T, index 19).
- * Two-pass approach: read col T only first to find the matching row span,
- * then do one contiguous read of exactly those rows.
- */
 function getDealerScraperData_(scraperLocationName) {
   var sheet   = SpreadsheetApp.openById(MASTER_SHEET_ID).getSheetByName('SCRAPERDATA');
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
 
   var locationCol = sheet.getRange(2, 20, lastRow - 1, 1).getValues();
-
   var firstMatch = -1;
   var lastMatch  = -1;
   for (var i = 0; i < locationCol.length; i++) {
@@ -740,15 +593,15 @@ function pasteScraperData_(outputDoc, data) {
   if (data.length > 0) {
     var cleanData = data.map(function(row) {
       var r = row.slice();
-      r[0] = String(r[0]); // VIN
-      r[1] = String(r[1]); // Stock
+      r[0] = String(r[0]);
+      r[1] = String(r[1]);
       return r;
     });
     sheet.getRange(2, 1, cleanData.length, 2).setNumberFormat('@');
     sheet.getRange(2, 1, cleanData.length, 21).setValues(cleanData);
     sheet.getRange(2, 1, cleanData.length, 2).setNumberFormat('@');
-    sheet.getRange(2, 10, cleanData.length, 1).setNumberFormat('@'); // Price
-    sheet.getRange(2, 14, cleanData.length, 1).setNumberFormat('@'); // Date In Stock
+    sheet.getRange(2, 10, cleanData.length, 1).setNumberFormat('@');
+    sheet.getRange(2, 14, cleanData.length, 1).setNumberFormat('@');
   }
 }
 
@@ -757,53 +610,28 @@ function pasteScraperData_(outputDoc, data) {
 // SECTION 5.5: SCRAPER DATA NORMALIZATION
 // ============================================================================
 
-/**
- * Builds a case-insensitive lookup object from a norm map array.
- * Called once per map at the top of normalizeScraperData_ so we pay the
- * O(n) setup cost once rather than O(n) per cell lookup.
- *
- * @param {Array<Array<string>>} map - array of [input, output] pairs
- * @returns {Object} lowercase-keyed lookup: { 'raw value': 'normalized value' }
- */
-function buildNormLookup_(map) {
-  var lookup = {};
-  map.forEach(function(pair) {
-    lookup[String(pair[0]).toLowerCase()] = pair[1];
-  });
-  return lookup;
-}
-
-/**
- * Normalizes a single cell value against a pre-built lookup object.
- * O(1) vs. the previous O(n) linear scan.
- *
- * @param {*}      value  - raw cell value
- * @param {Object} lookup - built by buildNormLookup_
- * @returns {string}
- */
-function normalizeCell_(value, lookup) {
-  var str = String(value).trim();
-  var key = str.toLowerCase();
-  return lookup.hasOwnProperty(key) ? lookup[key] : str;
+function normalizeCell_(value, map) {
+  var str   = String(value).trim();
+  var lower = str.toLowerCase();
+  for (var i = 0; i < map.length; i++) {
+    if (lower === map[i][0].toLowerCase()) return map[i][1];
+  }
+  return str;
 }
 
 function normalizeScraperData_(rows) {
-  var maps = loadNormalizationMaps_();
-
-  // Build lookup objects once — O(map_size) — instead of scanning arrays per cell.
-  var globalLookup = buildNormLookup_(maps.global);
-  var colLookups   = {};
-  colLookups[NORM_COL.TYPE]   = buildNormLookup_(maps.type);
-  colLookups[NORM_COL.TRIM]   = buildNormLookup_(maps.trim);
-  colLookups[NORM_COL.STATUS] = buildNormLookup_(maps.status);
-  colLookups[NORM_COL.PRICE]  = buildNormLookup_(maps.price);
+  var maps      = loadNormalizationMaps_();
+  var globalMap = maps.global;
+  var colMaps   = {};
+  colMaps[NORM_COL.TYPE]   = maps.type;
+  colMaps[NORM_COL.TRIM]   = maps.trim;
+  colMaps[NORM_COL.STATUS] = maps.status;
+  colMaps[NORM_COL.PRICE]  = maps.price;
 
   for (var r = 0; r < rows.length; r++) {
     for (var c = 0; c < rows[r].length; c++) {
-      var val = normalizeCell_(rows[r][c], globalLookup);
-      if (colLookups[c]) {
-        val = normalizeCell_(val, colLookups[c]);
-      }
+      var val = normalizeCell_(rows[r][c], globalMap);
+      if (colMaps[c]) val = normalizeCell_(val, colMaps[c]);
       rows[r][c] = (val === '') ? '*' : val;
     }
   }
@@ -811,37 +639,23 @@ function normalizeScraperData_(rows) {
 }
 
 function computeImportReview_(rows) {
-  var TYPE_COL     = 2;
-  var STATUS_COL   = 8;
-  var LOCATION_COL = 19;
-
-  var total              = 0;
-  var typeCounts         = {};
-  var statusCounts       = {};
-  var locationTypeCounts = {};
+  var TYPE_COL = 2, STATUS_COL = 8, LOCATION_COL = 19;
+  var total = 0, typeCounts = {}, statusCounts = {}, locationTypeCounts = {};
 
   for (var i = 0; i < rows.length; i++) {
     var vin = String(rows[i][0]).trim();
     if (vin === '' || vin === '*') continue;
-
     var type     = String(rows[i][TYPE_COL]).trim();
     var status   = String(rows[i][STATUS_COL]).trim();
     var location = String(rows[i][LOCATION_COL]).trim();
-
     total++;
     typeCounts[type]     = (typeCounts[type]     || 0) + 1;
     statusCounts[status] = (statusCounts[status] || 0) + 1;
-
     if (!locationTypeCounts[location]) locationTypeCounts[location] = {};
     locationTypeCounts[location][type] = (locationTypeCounts[location][type] || 0) + 1;
   }
 
-  return {
-    total:              total,
-    typeCounts:         typeCounts,
-    statusCounts:       statusCounts,
-    locationTypeCounts: locationTypeCounts
-  };
+  return { total: total, typeCounts: typeCounts, statusCounts: statusCounts, locationTypeCounts: locationTypeCounts };
 }
 
 
@@ -858,24 +672,24 @@ function applyDataTransforms_(outputDoc, transformsJson) {
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return;
 
-  var MODEL_COL = 6; var TRIM_COL = 7;
-  // Read model (col 6) and trim (col 7) together in a single API call.
-  var modelAndTrim = sheet.getRange(2, MODEL_COL, lastRow - 1, 2).getValues();
+  var MODEL_COL = 6, TRIM_COL = 7;
+  var models = sheet.getRange(2, MODEL_COL, lastRow - 1, 1).getValues();
+  var trims  = sheet.getRange(2, TRIM_COL,  lastRow - 1, 1).getValues();
 
   (rules.replacements || []).forEach(function(rule) {
-    for (var i = 0; i < modelAndTrim.length; i++) {
-      if (rule.col === 'model' && rule.find && String(modelAndTrim[i][0]) === rule.find) {
-        if (rule.model_replace) modelAndTrim[i][0] = rule.model_replace;
-        if (rule.trim_prepend)  modelAndTrim[i][1]  = rule.trim_prepend + ' ' + String(modelAndTrim[i][1]);
+    for (var i = 0; i < models.length; i++) {
+      if (rule.col === 'model' && rule.find && String(models[i][0]) === rule.find) {
+        if (rule.model_replace) models[i][0] = rule.model_replace;
+        if (rule.trim_prepend)  trims[i][0]  = rule.trim_prepend + ' ' + String(trims[i][0]);
       }
       if (rule.col === 'trim' && rule.remove) {
-        rule.remove.forEach(function(s) { modelAndTrim[i][1] = String(modelAndTrim[i][1]).replace(s, '').trim(); });
+        rule.remove.forEach(function(s) { trims[i][0] = String(trims[i][0]).replace(s, '').trim(); });
       }
     }
   });
 
-  // Write both columns back in a single API call.
-  sheet.getRange(2, MODEL_COL, lastRow - 1, 2).setValues(modelAndTrim);
+  sheet.getRange(2, MODEL_COL, lastRow - 1, 1).setValues(models);
+  sheet.getRange(2, TRIM_COL,  lastRow - 1, 1).setValues(trims);
 }
 
 
@@ -905,14 +719,9 @@ function readOrderMatchResults_(outputDoc) {
 // ============================================================================
 
 function buildLinks_(outputDoc, config, typeRules) {
-  // Capture matched row count before writing formulas so we can scale the sleep.
-  var omSheet = outputDoc.getSheetByName('ORDERMATCH');
-  var numRows = Math.max(0, omSheet.getLastRow() - 1);
-
   writeLinkBuilderFormulas_(outputDoc, config, typeRules);
   SpreadsheetApp.flush();
-  // Wait scales with row count: ~30ms/row, 700ms floor, 2000ms ceiling.
-  Utilities.sleep(calcRecalcDelay_(numRows, 30, 700, 2000));
+  Utilities.sleep(2000);
 
   var sheet   = outputDoc.getSheetByName('LINKBUILDER');
   var lastRow = sheet.getLastRow();
@@ -993,7 +802,7 @@ function clearQRFolder_(folderId) {
 }
 
 function eraseAllQRFolders() {
-  var data    = getConfigSS_()
+  var data    = SpreadsheetApp.openById(CONFIG_SHEET_ID)
     .getSheetByName('DEALERS').getDataRange().getValues();
   var cleared = 0;
   for (var i = 1; i < data.length; i++) {
@@ -1010,11 +819,11 @@ function eraseAllQRFolders() {
 // SECTION 10: QR PATH WRITING
 // ============================================================================
 
-function writeQRPaths_(outputDoc, qrPrefix, count, basePath) {
+function writeQRPaths_(outputDoc, qrPrefix, count) {
   var sheet = outputDoc.getSheetByName('ORDERMATCH');
   var paths = [];
   for (var i = 1; i <= count; i++) {
-    paths.push([basePath + qrPrefix + '_QR_Code_' + i + '.PNG']);
+    paths.push([QR_LOCAL_BASE_PATH + qrPrefix + '_QR_Code_' + i + '.PNG']);
   }
   if (paths.length > 0) {
     var range = sheet.getRange(2, 10, paths.length, 1);
@@ -1047,12 +856,11 @@ function matchRule_(vehicleType, rules) {
 }
 
 function buildUtmFormula_(linkRef, typeRef, rules) {
-  var base = '?utm_source=SilverFox&utm_medium=';
-
+  var base        = '?utm_source=SilverFox&utm_medium=';
   var defaultRule = rules[rules.length - 1];
   var defaultExpr = linkRef + '&"' + base + defaultRule.utm + '"';
+  var inner       = defaultExpr;
 
-  var inner = defaultExpr;
   for (var i = rules.length - 2; i >= 0; i--) {
     var rule = rules[i];
     if (rule.match === '*') continue;
@@ -1070,27 +878,13 @@ function buildUtmFormula_(linkRef, typeRef, rules) {
 // ============================================================================
 
 var FIELD_TO_COL = {
-  'YEAR':               1,
-  'MAKE':               2,
-  'MODEL':              3,
-  'TRIM':               4,
-  'VIN':                5,
-  'STOCK':              6,
-  'TYPE':               7,
-  'PRICE_RAW':          8,
-  '@QR':                10,
-  '@QR2':               10,
-  'YEARMAKE':           11,
-  'YEARMODEL':          12,
-  'QRYEARMODEL':        12,
-  'MAKE_MODEL_COMBINED':13,
-  'QRSTOCK':            14,
-  'MISC':               15,
-  'PRICE_FMT':          16,
-  'NEWYEARMAKE':        17,
-  'TYPEVIN':            18,
-  'YEARMODELSTOCK':     19,
-  'PRICE_PLUS_2000':    20
+  'YEAR':               1,  'MAKE':               2,  'MODEL':              3,
+  'TRIM':               4,  'VIN':                5,  'STOCK':              6,
+  'TYPE':               7,  'PRICE_RAW':          8,  '@QR':                10,
+  '@QR2':               10, 'YEARMAKE':           11, 'YEARMODEL':          12,
+  'QRYEARMODEL':        12, 'MAKE_MODEL_COMBINED':13, 'QRSTOCK':            14,
+  'MISC':               15, 'PRICE_FMT':          16, 'NEWYEARMAKE':        17,
+  'TYPEVIN':            18, 'YEARMODELSTOCK':     19, 'PRICE_PLUS_2000':    20
 };
 
 function buildCSVSheet_(outputDoc, typeRules) {
@@ -1102,30 +896,24 @@ function buildCSVSheet_(outputDoc, typeRules) {
     .filter(function(row) { return String(row[0]).trim() !== ''; });
 
   var isSingleRule = typeRules.length === 1;
-
   var groups = {};
   typeRules.forEach(function(rule) { groups[rule.match] = []; });
 
   omData.forEach(function(row) {
-    var vehicleType = String(row[6]);
-    var rule = matchRule_(vehicleType, typeRules);
+    var rule = matchRule_(String(row[6]), typeRules);
     groups[rule.match].push(row);
   });
 
   typeRules.forEach(function(rule) {
     var rows        = groups[rule.match] || [];
     var fieldCodes  = getCsvSchema_(rule.csv_schema) || getCsvSchema_('SCP');
-    var sheetName   = isSingleRule
-      ? 'CSV'
-      : 'CSV_' + String(rule.match).replace(/[^a-zA-Z0-9]/g, '_').toUpperCase();
-
-    var dataRows = rows.map(function(row) {
+    var sheetName   = isSingleRule ? 'CSV' : 'CSV_' + String(rule.match).replace(/[^a-zA-Z0-9]/g, '_').toUpperCase();
+    var dataRows    = rows.map(function(row) {
       return fieldCodes.map(function(code) {
         var col = FIELD_TO_COL[code];
         return col ? row[col - 1] : '';
       });
     });
-
     writeCSVSheet_(outputDoc, sheetName, fieldCodes, dataRows);
     Logger.log('CSV sheet "' + sheetName + '" written: ' + dataRows.length + ' rows, schema: ' + rule.csv_schema);
   });
@@ -1167,25 +955,14 @@ function writeRunLog_(config, dealId, totalOrdered, totalMatched, billing, outpu
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('RUN_LOG');
   var producedVinsCSV = Array.isArray(producedVins) ? producedVins.join(',') : '';
   sheet.appendRow([
-    Utilities.formatDate(new Date(), 'America/Chicago', 'yyyy-MM-dd HH:mm:ss'),  // A: run_timestamp
-    config[CFG.KEY],          // B: dealer_key
-    config[CFG.NAME],         // C: dealer_name
-    dealId || '',             // D: order_id (Pipedrive Deal ID)
-    totalOrdered,             // E: total_ordered
-    totalMatched,             // F: total_matched
-    billing.totalNew      || 0, // G: total_new
-    billing.totalUsed     || 0, // H: total_used
-    billing.newDupes      || 0, // I: new_dupes
-    billing.usedDupes     || 0, // J: used_dupes
-    billing.totalDupes    || 0, // K: total_dupes
-    billing.totalProduced || 0, // L: total_produced
-    '',                       // M: qr_codes_generated
-    outputDocId,              // N: output_doc_id
-    durationSec,              // O: run_duration_sec
-    errors.join('; ') || '', // P: errors
-    '',                       // Q: notes
-    producedVinsCSV,          // R: produced_vins
-    ''                        // S: vin_log_status (blank = pending)
+    Utilities.formatDate(new Date(), 'America/Chicago', 'yyyy-MM-dd HH:mm:ss'),
+    config[CFG.KEY], config[CFG.NAME], dealId || '',
+    totalOrdered, totalMatched,
+    billing.totalNew      || 0, billing.totalUsed     || 0,
+    billing.newDupes      || 0, billing.usedDupes     || 0,
+    billing.totalDupes    || 0, billing.totalProduced || 0,
+    '', outputDocId, durationSec,
+    errors.join('; ') || '', '', producedVinsCSV, ''
   ]);
   return sheet.getLastRow();
 }
@@ -1197,20 +974,14 @@ function writeRunLog_(config, dealId, totalOrdered, totalMatched, billing, outpu
 
 /**
  * Builds the BILLING sheet in the output doc from scratch.
- * Called during runDealer() after buildCSVSheet_(), before readBillingTotals_().
  *
- * Reads:
- *   ORDER tab    — col A rows 2+ (what was submitted)
- *   ORDERMATCH   — cols A–I rows 2+ (what was matched + vehicle details)
- *   LOG          — cols A–B rows 2+ (VIN log history for dupe detection)
- *
- * Writes four sections to BILLING:
- *   Section 1 — Order Summary (ordered / matched / not found)
- *   Section 2 — Matched by Type, gross counts
- *   Section 3 — Duplicates by Type + totals
- *   Section 4 — Duplicate detail table (one row per dupe vehicle)
- *
- * @param {Spreadsheet} outputDoc
+ * CHANGELOG (this session):
+ *   - Sections 2 & 3 are now STATIC: all four canonical types (New, PO, CPO,
+ *     CPO-EL) always get a row. Types with zero matches show 0. Row positions
+ *     are consistent across every run regardless of what types appear.
+ *   - Row padding fix: all rows are padded to maxCols before setValues() to
+ *     prevent "data has N but range has M" errors when duplicate detail rows
+ *     (8 cols) coexist with summary rows (4 cols).
  */
 function writeBillingSheet_(outputDoc) {
   var billingSheet = outputDoc.getSheetByName('BILLING');
@@ -1223,15 +994,13 @@ function writeBillingSheet_(outputDoc) {
     return;
   }
 
-  // ── 1. Read ORDER tab (col A, rows 2+) ──────────────────────────────────
+  // ── 1. Read ORDER tab ────────────────────────────────────────────────────
   var orderVals = orderSheet.getRange('A2:A').getValues()
     .map(function(r) { return String(r[0] || '').trim().toUpperCase(); })
     .filter(function(v) { return v !== ''; });
   var totalOrdered = orderVals.length;
 
-  // ── 2. Read ORDERMATCH (cols A–I, rows 2+) ───────────────────────────────
-  // ORDERMATCH col layout (1-based): A=Year B=Make C=Model D=Trim E=VIN
-  //   F=Stock G=Type H=Price I=URL
+  // ── 2. Read ORDERMATCH ───────────────────────────────────────────────────
   var omAll  = omSheet.getDataRange().getValues();
   var omRows = [];
   for (var i = 1; i < omAll.length; i++) {
@@ -1249,19 +1018,12 @@ function writeBillingSheet_(outputDoc) {
     });
   }
 
-  // ── 3. Identify "not found" identifiers ─────────────────────────────────
-  var matchedVins   = {};
-  var matchedStocks = {};
-  omRows.forEach(function(v) {
-    matchedVins[v.vin]     = true;
-    matchedStocks[v.stock] = true;
-  });
+  // ── 3. Not found ─────────────────────────────────────────────────────────
+  var matchedVins = {}, matchedStocks = {};
+  omRows.forEach(function(v) { matchedVins[v.vin] = true; matchedStocks[v.stock] = true; });
+  var notFoundList = orderVals.filter(function(id) { return !matchedVins[id] && !matchedStocks[id]; });
 
-  var notFoundList = orderVals.filter(function(id) {
-    return !matchedVins[id] && !matchedStocks[id];
-  });
-
-  // ── 4. Read LOG (cols A–B, rows 2+) → map identifier → [ORDER_IDs] ──────
+  // ── 4. Read LOG → dupe map ───────────────────────────────────────────────
   var logAll = logSheet.getDataRange().getValues();
   var logMap = {};
   for (var j = 1; j < logAll.length; j++) {
@@ -1272,38 +1034,32 @@ function writeBillingSheet_(outputDoc) {
     if (logMap[identifier].indexOf(orderId) === -1) logMap[identifier].push(orderId);
   }
 
-  // ── 5. Classify vehicles and find duplicates ─────────────────────────────
-  var TYPE_ORDER   = ['New', 'PO', 'CPO', 'CPO-EL'];
-  var typeGroups   = {};
-  var dupeDetails  = [];
+  // ── 5. Classify vehicles + find dupes ────────────────────────────────────
+  var TYPE_ORDER  = ['New', 'PO', 'CPO', 'CPO-EL'];
+  var typeGroups  = {};
+  var dupeDetails = [];
 
   omRows.forEach(function(vehicle) {
     var type = vehicle.type || 'Unknown';
     if (!typeGroups[type]) typeGroups[type] = { total: 0, dupes: 0 };
     typeGroups[type].total++;
 
-    var vinOrders   = logMap[vehicle.vin]   || [];
-    var stockOrders = logMap[vehicle.stock] || [];
-    var allOrders   = [];
-    vinOrders.concat(stockOrders).forEach(function(o) {
+    var allOrders = [];
+    (logMap[vehicle.vin] || []).concat(logMap[vehicle.stock] || []).forEach(function(o) {
       if (allOrders.indexOf(o) === -1) allOrders.push(o);
     });
 
     if (allOrders.length > 0) {
       typeGroups[type].dupes++;
       dupeDetails.push({
-        year:      vehicle.year,
-        make:      vehicle.make,
-        model:     vehicle.model,
-        stock:     vehicle.stock,
-        vin:       vehicle.vin,
-        url:       vehicle.url,
+        year: vehicle.year, make: vehicle.make, model: vehicle.model,
+        stock: vehicle.stock, vin: vehicle.vin, url: vehicle.url,
         orderNums: allOrders.join(', ')
       });
     }
   });
 
-  // ── 6. Compute summary totals ────────────────────────────────────────────
+  // ── 6. Totals ────────────────────────────────────────────────────────────
   var totalMatched = omRows.length;
   var totalDupes   = 0;
   Object.keys(typeGroups).forEach(function(t) { totalDupes += typeGroups[t].dupes; });
@@ -1313,28 +1069,25 @@ function writeBillingSheet_(outputDoc) {
     return TYPE_ORDER.indexOf(t) === -1;
   });
 
-  // ── 7. Build output rows ─────────────────────────────────────────────────
-  // Col A = blank margin (matches existing style)
-  // Col B = label, Col C = value, Col D = notes / detail
+  // ── 7. Build rows ────────────────────────────────────────────────────────
   var BLANK = ['', '', '', ''];
   var rows  = [];
 
   // Section 1 — Order Summary
   rows.push(['', '── ORDER SUMMARY ──', '', '']);
-  rows.push(['', 'Total Ordered',            totalOrdered,          '']);
-  rows.push(['', 'Total Matched in Scraper', totalMatched,          '']);
+  rows.push(['', 'Total Ordered',            totalOrdered, '']);
+  rows.push(['', 'Total Matched in Scraper', totalMatched, '']);
   rows.push(['', 'Not Found in Scraper',     notFoundList.length,
              notFoundList.length > 0 ? notFoundList.join(', ') : '—']);
   rows.push(BLANK);
 
-  // Section 2 — Matched by Type (gross)
+  // Section 2 — Matched by Type (gross) — STATIC: always all 4 types, 0 if absent
   rows.push(['', '── BY TYPE (GROSS) ──', '', '']);
   var typeCheckSum = 0;
   TYPE_ORDER.forEach(function(t) {
-    if (typeGroups[t]) {
-      rows.push(['', t, typeGroups[t].total, '']);
-      typeCheckSum += typeGroups[t].total;
-    }
+    var total = typeGroups[t] ? typeGroups[t].total : 0;
+    rows.push(['', t, total, '']);
+    typeCheckSum += total;
   });
   unexpectedTypes.forEach(function(t) {
     rows.push(['', t + ' ⚠ (unexpected type)', typeGroups[t].total, 'Check NORM_MAPS']);
@@ -1344,37 +1097,40 @@ function writeBillingSheet_(outputDoc) {
              typeCheckSum === totalMatched ? '✓' : '⚠ mismatch — check ORDERMATCH']);
   rows.push(BLANK);
 
-  // Section 3 — Duplicates by Type
+  // Section 3 — Duplicates by Type — STATIC: always all 4 types, 0 if absent
   rows.push(['', '── DUPLICATES BY TYPE ──', '', '']);
-  if (totalDupes === 0) {
-    rows.push(['', 'No duplicates', '—', '']);
-  } else {
-    TYPE_ORDER.forEach(function(t) {
-      if (typeGroups[t] && typeGroups[t].dupes > 0) {
-        rows.push(['', t + ' Dupes', typeGroups[t].dupes, '']);
-      }
-    });
-    unexpectedTypes.forEach(function(t) {
-      if (typeGroups[t] && typeGroups[t].dupes > 0) {
-        rows.push(['', t + ' Dupes ⚠', typeGroups[t].dupes, '']);
-      }
-    });
-  }
+  TYPE_ORDER.forEach(function(t) {
+    var dupes = typeGroups[t] ? typeGroups[t].dupes : 0;
+    rows.push(['', t + ' Dupes', dupes, '']);
+  });
+  unexpectedTypes.forEach(function(t) {
+    if (typeGroups[t] && typeGroups[t].dupes > 0) {
+      rows.push(['', t + ' Dupes ⚠', typeGroups[t].dupes, '']);
+    }
+  });
   rows.push(['', 'Total Duplicates',        totalDupes,  '']);
   rows.push(['', 'Total Produced (Net New)', totalNetNew, '']);
   rows.push(BLANK);
 
-  // Section 4 — Duplicate Detail Table is written separately to the right (see below)
+  // Section 4 — Duplicate Detail Table
+  if (dupeDetails.length > 0) {
+    rows.push(['', '── DUPLICATE DETAIL ──', '', '', '', '', '', '']);
+    rows.push(['', 'Year', 'Make', 'Model', 'Stock', 'VIN', 'URL', 'Prior Order #s']);
+    dupeDetails.forEach(function(d) {
+      rows.push(['', d.year, d.make, d.model, d.stock, d.vin, d.url, d.orderNums]);
+    });
+  } else {
+    rows.push(['', '── DUPLICATE DETAIL ──', '', '']);
+    rows.push(['', 'No duplicates in this order.', '', '']);
+  }
 
-  // ── 8. Write to BILLING ──────────────────────────────────────────────────
+  // ── 8. Write — pad all rows to maxCols first ─────────────────────────────
   billingSheet.clearContents();
   if (rows.length === 0) return;
 
-  // Find the widest row
   var maxCols = 4;
   rows.forEach(function(r) { if (r.length > maxCols) maxCols = r.length; });
 
-  // Pad every row to exactly maxCols — setValues requires uniform row length
   var paddedRows = rows.map(function(r) {
     var padded = r.slice();
     while (padded.length < maxCols) padded.push('');
@@ -1383,61 +1139,35 @@ function writeBillingSheet_(outputDoc) {
 
   billingSheet.getRange(1, 1, paddedRows.length, maxCols).setValues(paddedRows);
 
-  // ── Section 4 — Duplicate Detail Table (column F, row 2) ────────────────
-  var DUPE_START_ROW = 2;
-  var DUPE_START_COL = 6; // Column F
-  if (dupeDetails.length > 0) {
-    var dupeData = [
-      ['── DUPLICATE DETAIL ──', '', '', '', '', '', ''],
-      ['Year', 'Make', 'Model', 'Stock', 'VIN', 'URL', 'Prior Order #s']
-    ];
-    dupeDetails.forEach(function(d) {
-      dupeData.push([d.year, d.make, d.model, d.stock, d.vin, d.url, d.orderNums]);
-    });
-    billingSheet.getRange(DUPE_START_ROW, DUPE_START_COL, dupeData.length, 7).setValues(dupeData);
-  } else {
-    billingSheet.getRange(DUPE_START_ROW, DUPE_START_COL, 2, 1).setValues([
-      ['── DUPLICATE DETAIL ──'],
-      ['No duplicates in this order.']
-    ]);
-  }
-
   Logger.log('writeBillingSheet_: ' + totalOrdered + ' ordered, ' +
              totalMatched + ' matched, ' + totalDupes + ' dupes.');
 }
 
 /**
- * Reads summary totals back from the BILLING sheet for the run log.
- * Reads by finding labelled rows rather than hard-coded cell addresses,
- * so the layout can evolve without breaking this reader.
+ * Reads summary totals from BILLING by label (not hard-coded cell addresses).
  */
 function readBillingTotals_(outputDoc) {
-  var sheet = outputDoc.getSheetByName('BILLING');
+  var sheet    = outputDoc.getSheetByName('BILLING');
   var defaults = { totalOrdered: 0, totalMatched: 0, totalNew: 0, totalUsed: 0,
                    newDupes: 0, usedDupes: 0, totalDupes: 0, totalProduced: 0 };
   try {
-    var data = sheet.getDataRange().getValues();
-    var result = {};
+    var data     = sheet.getDataRange().getValues();
+    var result   = {};
     var labelMap = {
-      'Total Ordered':             'totalOrdered',
-      'Total Matched in Scraper':  'totalMatched',
-      'New':                       'totalNew',
-      'PO':                        'totalUsed',    // PO = used for billing purposes
-      'New Dupes':                 'newDupes',
-      'PO Dupes':                  'usedDupes',
-      'Total Duplicates':          'totalDupes',
-      'Total Produced (Net New)':  'totalProduced'
+      'Total Ordered':            'totalOrdered',
+      'Total Matched in Scraper': 'totalMatched',
+      'New':                      'totalNew',
+      'PO':                       'totalUsed',
+      'New Dupes':                'newDupes',
+      'PO Dupes':                 'usedDupes',
+      'Total Duplicates':         'totalDupes',
+      'Total Produced (Net New)': 'totalProduced'
     };
     data.forEach(function(row) {
       var label = String(row[1] || '').trim();
-      if (labelMap[label] !== undefined) {
-        result[labelMap[label]] = Number(row[2]) || 0;
-      }
+      if (labelMap[label] !== undefined) result[labelMap[label]] = Number(row[2]) || 0;
     });
-    // Fill any missing keys with defaults
-    Object.keys(defaults).forEach(function(k) {
-      if (result[k] === undefined) result[k] = defaults[k];
-    });
+    Object.keys(defaults).forEach(function(k) { if (result[k] === undefined) result[k] = defaults[k]; });
     return result;
   } catch(e) {
     Logger.log('readBillingTotals_ error: ' + e.message);
@@ -1486,13 +1216,8 @@ function writeConfigCache_(outputDoc, config) {
     'type_rules', 'data_transforms', 'utm_base_url_override', 'run_timestamp'
   ]]);
   sheet.getRange('A7:H7').setValues([[
-    config[CFG.KEY],
-    config[CFG.NAME],
-    config[CFG.USE_STOCK],
-    config[CFG.LINKBUILDER_COL],
-    config[CFG.TYPE_RULES],
-    config[CFG.TRANSFORMS],
-    config[CFG.UTM_BASE_URL],
+    config[CFG.KEY], config[CFG.NAME], config[CFG.USE_STOCK], config[CFG.LINKBUILDER_COL],
+    config[CFG.TYPE_RULES], config[CFG.TRANSFORMS], config[CFG.UTM_BASE_URL],
     Utilities.formatDate(new Date(), 'America/Chicago', 'yyyy-MM-dd HH:mm:ss')
   ]]);
 }
@@ -1540,16 +1265,16 @@ function handleError_(e) {
 // ============================================================================
 
 function auditConfigPlaceholders() {
-  var data = getConfigSS_()
+  var data = SpreadsheetApp.openById(CONFIG_SHEET_ID)
     .getSheetByName('DEALERS').getDataRange().getValues();
   var incomplete = [];
   for (var i = 1; i < data.length; i++) {
     if (!isTrue_(data[i][CFG.ACTIVE])) continue;
     var missing = [];
-    if (!data[i][CFG.QR_FOLDER_ID]    || data[i][CFG.QR_FOLDER_ID]    === '[QR_FOLDER_ID]')  missing.push('qr_folder_id');
-    if (!data[i][CFG.SCRAPER_LOCATION] || data[i][CFG.SCRAPER_LOCATION] === '')               missing.push('scraper_location_name');
-    if (!data[i][CFG.TYPE_RULES]       || data[i][CFG.TYPE_RULES]       === '')               missing.push('type_rules');
-    if (!data[i][CFG.FILTER_RULES]     || data[i][CFG.FILTER_RULES]     === '')               missing.push('filtering_rules');
+    if (!data[i][CFG.QR_FOLDER_ID]     || data[i][CFG.QR_FOLDER_ID]     === '[QR_FOLDER_ID]') missing.push('qr_folder_id');
+    if (!data[i][CFG.SCRAPER_LOCATION]  || data[i][CFG.SCRAPER_LOCATION]  === '')              missing.push('scraper_location_name');
+    if (!data[i][CFG.TYPE_RULES]        || data[i][CFG.TYPE_RULES]        === '')              missing.push('type_rules');
+    if (!data[i][CFG.FILTER_RULES]      || data[i][CFG.FILTER_RULES]      === '')              missing.push('filtering_rules');
     if (missing.length > 0) incomplete.push(data[i][CFG.KEY] + ': ' + missing.join(', '));
   }
   var msg = incomplete.length === 0
@@ -1573,7 +1298,7 @@ function openNormManager() {
 }
 
 function getNormMapsSheet_() {
-  return getConfigSS_().getSheetByName(NORM_MAPS_TAB);
+  return SpreadsheetApp.openById(CONFIG_SHEET_ID).getSheetByName(NORM_MAPS_TAB);
 }
 
 function loadNormalizationMaps_() {
@@ -1595,9 +1320,7 @@ function loadNormalizationMaps_() {
   }
 
   Object.keys(NORMALIZATION_MAPS).forEach(function(key) {
-    if (!maps[key] || maps[key].length === 0) {
-      maps[key] = NORMALIZATION_MAPS[key];
-    }
+    if (!maps[key] || maps[key].length === 0) maps[key] = NORMALIZATION_MAPS[key];
   });
 
   return maps;
@@ -1610,11 +1333,7 @@ function getNormEntries(mapName) {
   var entries = [];
   for (var i = 1; i < data.length; i++) {
     if (String(data[i][0]).trim().toLowerCase() === mapName.toLowerCase()) {
-      entries.push({
-        sheetRow: i + 1,
-        input:    String(data[i][1]),
-        output:   String(data[i][2])
-      });
+      entries.push({ sheetRow: i + 1, input: String(data[i][1]), output: String(data[i][2]) });
     }
   }
   return entries;
@@ -1624,19 +1343,13 @@ function addNormEntry(mapName, rawVal, normVal) {
   rawVal  = String(rawVal).trim();
   normVal = String(normVal).trim();
   if (!rawVal || !normVal) throw new Error('Both raw and normalized values are required.');
-
   var sheet = getNormMapsSheet_();
   if (!sheet) throw new Error('NORM_MAPS tab not found.');
-
   var data    = sheet.getDataRange().getValues();
   var lastRow = 1;
   for (var i = data.length - 1; i >= 1; i--) {
-    if (String(data[i][0]).trim().toLowerCase() === mapName.toLowerCase()) {
-      lastRow = i + 1;
-      break;
-    }
+    if (String(data[i][0]).trim().toLowerCase() === mapName.toLowerCase()) { lastRow = i + 1; break; }
   }
-
   sheet.insertRowAfter(lastRow);
   sheet.getRange(lastRow + 1, 1, 1, 3).setValues([[mapName, rawVal, normVal]]);
   return getNormEntries(mapName);
@@ -1646,7 +1359,7 @@ function updateNormEntry(sheetRow, newInput, newOutput) {
   newInput  = String(newInput).trim();
   newOutput = String(newOutput).trim();
   if (!newInput || !newOutput) throw new Error('Both values are required.');
-  var sheet = getNormMapsSheet_();
+  var sheet   = getNormMapsSheet_();
   if (!sheet) throw new Error('NORM_MAPS tab not found.');
   var mapName = String(sheet.getRange(sheetRow, 1).getValue()).trim().toLowerCase();
   sheet.getRange(sheetRow, 2, 1, 2).setValues([[newInput, newOutput]]);
@@ -1666,22 +1379,16 @@ function moveNormEntry(sheetRow, direction) {
   if (!sheet) throw new Error('NORM_MAPS tab not found.');
   var mapName = String(sheet.getRange(sheetRow, 1).getValue()).trim().toLowerCase();
   var entries = getNormEntries(mapName);
-
-  var idx = -1;
-  for (var i = 0; i < entries.length; i++) {
-    if (entries[i].sheetRow === sheetRow) { idx = i; break; }
-  }
+  var idx     = -1;
+  for (var i = 0; i < entries.length; i++) { if (entries[i].sheetRow === sheetRow) { idx = i; break; } }
   if (idx === -1) throw new Error('Entry not found.');
-
   var targetIdx = direction === 'up' ? idx - 1 : idx + 1;
   if (targetIdx < 0 || targetIdx >= entries.length) return entries;
-
   var targetRow  = entries[targetIdx].sheetRow;
   var thisVals   = sheet.getRange(sheetRow,  2, 1, 2).getValues();
   var targetVals = sheet.getRange(targetRow, 2, 1, 2).getValues();
   sheet.getRange(sheetRow,  2, 1, 2).setValues(targetVals);
   sheet.getRange(targetRow, 2, 1, 2).setValues(thisVals);
-
   return getNormEntries(mapName);
 }
 
@@ -1691,27 +1398,13 @@ function moveNormEntry(sheetRow, direction) {
 // ============================================================================
 
 function getDealerFilterRules_(config) {
-  var defaults = {
-    allowedTypes:  null,
-    excludeStatus: [],
-    requireStock:  false,
-    requirePrice:  false,
-    minPrice:      null,
-    maxPrice:      null,
-    seasoning:     []
-  };
-
+  var defaults = { allowedTypes: null, excludeStatus: [], requireStock: false,
+                   requirePrice: false, minPrice: null, maxPrice: null, seasoning: [] };
   var raw = config[CFG.FILTER_RULES];
   if (!raw || String(raw).trim() === '' || String(raw).trim() === '{}') return defaults;
-
   var parsed;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (e) {
-    Logger.log('filtering_rules parse error for ' + config[CFG.KEY] + ': ' + e.message);
-    return defaults;
-  }
-
+  try { parsed = JSON.parse(raw); }
+  catch (e) { Logger.log('filtering_rules parse error for ' + config[CFG.KEY] + ': ' + e.message); return defaults; }
   return {
     allowedTypes:  Array.isArray(parsed.allowed_types)   ? parsed.allowed_types  : null,
     excludeStatus: Array.isArray(parsed.exclude_status)  ? parsed.exclude_status : [],
@@ -1724,9 +1417,8 @@ function getDealerFilterRules_(config) {
 }
 
 function applyFilteringRules_(vehicles, filterRules) {
-  var passed   = [];
-  var rejected = [];
-  var today    = new Date();
+  var passed = [], rejected = [];
+  var today  = new Date();
   today.setHours(0, 0, 0, 0);
 
   var seasoningMap = {};
@@ -1742,74 +1434,46 @@ function applyFilteringRules_(vehicles, filterRules) {
     var price  = parseFloat(row[9]);
     var dateIn = row[13];
 
-    if (filterRules.requireStock) {
-      if (stock === '' || stock === '*') {
-        rejected.push({ row: row, reason: 'no_stock', detail: vin });
-        return;
-      }
+    if (filterRules.requireStock && (stock === '' || stock === '*')) {
+      rejected.push({ row: row, reason: 'no_stock', detail: vin }); return;
     }
-
-    if (filterRules.requirePrice) {
-      if (isNaN(price) || price <= 0) {
-        rejected.push({ row: row, reason: 'no_price', detail: vin });
-        return;
-      }
+    if (filterRules.requirePrice && (isNaN(price) || price <= 0)) {
+      rejected.push({ row: row, reason: 'no_price', detail: vin }); return;
     }
-
     if (filterRules.allowedTypes !== null) {
       var typeAllowed = filterRules.allowedTypes.some(function(t) {
         return String(t).toLowerCase() === type.toLowerCase();
       });
-      if (!typeAllowed) {
-        rejected.push({ row: row, reason: 'type', detail: type });
-        return;
-      }
+      if (!typeAllowed) { rejected.push({ row: row, reason: 'type', detail: type }); return; }
     }
-
     if (filterRules.excludeStatus.length > 0) {
       var statusExcluded = filterRules.excludeStatus.some(function(s) {
         return String(s).toLowerCase() === status.toLowerCase();
       });
-      if (statusExcluded) {
-        rejected.push({ row: row, reason: 'status', detail: status });
-        return;
-      }
+      if (statusExcluded) { rejected.push({ row: row, reason: 'status', detail: status }); return; }
+    }
+    if (filterRules.minPrice !== null && !isNaN(price) && price < filterRules.minPrice) {
+      rejected.push({ row: row, reason: 'price_low', detail: '$' + price }); return;
+    }
+    if (filterRules.maxPrice !== null && !isNaN(price) && price > filterRules.maxPrice) {
+      rejected.push({ row: row, reason: 'price_high', detail: '$' + price }); return;
     }
 
-    if (filterRules.minPrice !== null && !isNaN(price)) {
-      if (price < filterRules.minPrice) {
-        rejected.push({ row: row, reason: 'price_low', detail: '$' + price + ' < $' + filterRules.minPrice });
-        return;
-      }
-    }
-
-    if (filterRules.maxPrice !== null && !isNaN(price)) {
-      if (price > filterRules.maxPrice) {
-        rejected.push({ row: row, reason: 'price_high', detail: '$' + price + ' > $' + filterRules.maxPrice });
-        return;
-      }
-    }
-
-    var typeLower    = type.toLowerCase();
-    var requiredDays = null;
+    var typeLower = type.toLowerCase(), requiredDays = null;
     if (seasoningMap.hasOwnProperty(typeLower)) {
       requiredDays = seasoningMap[typeLower];
     } else {
-      Object.keys(seasoningMap).forEach(function(ruleType) {
-        if (typeLower.indexOf(ruleType) !== -1) requiredDays = seasoningMap[ruleType];
+      Object.keys(seasoningMap).forEach(function(rt) {
+        if (typeLower.indexOf(rt) !== -1) requiredDays = seasoningMap[rt];
       });
     }
-
     if (requiredDays !== null && requiredDays > 0) {
       var dateObj = parseDateInStock_(dateIn);
       if (dateObj !== null) {
         var daysOnLot = Math.floor((today - dateObj) / 86400000);
         if (daysOnLot < requiredDays) {
-          rejected.push({
-            row:    row,
-            reason: 'seasoning',
-            detail: daysOnLot + ' day' + (daysOnLot === 1 ? '' : 's') + ' on lot, need ' + requiredDays
-          });
+          rejected.push({ row: row, reason: 'seasoning',
+            detail: daysOnLot + ' day' + (daysOnLot === 1 ? '' : 's') + ' on lot, need ' + requiredDays });
           return;
         }
       }
@@ -1823,21 +1487,16 @@ function applyFilteringRules_(vehicles, filterRules) {
 
 function parseDateInStock_(val) {
   if (!val || val === '*' || val === '') return null;
-  if (val instanceof Date) {
-    return isNaN(val.getTime()) ? null : val;
-  }
+  if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
   var str = String(val).trim();
   if (str === '' || str === '*') return null;
-
   var d = new Date(str);
   if (!isNaN(d.getTime())) return d;
-
   var parts = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (parts) {
     d = new Date(parseInt(parts[3]), parseInt(parts[1]) - 1, parseInt(parts[2]));
     if (!isNaN(d.getTime())) return d;
   }
-
   return null;
 }
 
@@ -1849,7 +1508,6 @@ function parseDateInStock_(val) {
 function getCaoVins(dealerKey) {
   var config = getDealerConfig_(dealerKey);
   if (!config) throw new Error('Dealer key not found: ' + dealerKey);
-
   var locationName = config[CFG.SCRAPER_LOCATION];
   if (!locationName || String(locationName).trim() === '') {
     throw new Error('No scraper_location_name configured for ' + dealerKey + '.');
@@ -1857,18 +1515,10 @@ function getCaoVins(dealerKey) {
 
   var allVehicles    = getDealerScraperData_(locationName);
   var totalInventory = allVehicles.length;
-
   var emptyBreakdown = { no_stock: 0, no_price: 0, type: 0, status: 0, price_low: 0, price_high: 0, seasoning: 0 };
 
   if (totalInventory === 0) {
-    return {
-      vins: [],
-      summary: {
-        totalInventory: 0, afterFiltering: 0,
-        alreadyPrinted: 0, netNew: 0,
-        rejectionBreakdown: emptyBreakdown
-      }
-    };
+    return { vins: [], summary: { totalInventory: 0, afterFiltering: 0, alreadyPrinted: 0, netNew: 0, rejectionBreakdown: emptyBreakdown } };
   }
 
   var filterRules  = getDealerFilterRules_(config);
@@ -1876,34 +1526,22 @@ function getCaoVins(dealerKey) {
   var filtered     = filterResult.passed;
 
   var breakdown = { no_stock: 0, no_price: 0, type: 0, status: 0, price_low: 0, price_high: 0, seasoning: 0 };
-  filterResult.rejected.forEach(function(r) {
-    if (breakdown.hasOwnProperty(r.reason)) breakdown[r.reason]++;
-  });
+  filterResult.rejected.forEach(function(r) { if (breakdown.hasOwnProperty(r.reason)) breakdown[r.reason]++; });
 
-  var loggedVins   = getLoggedVins_(dealerKey);
-  var useStock     = isTrue_(config[CFG.USE_STOCK]);
-  var netNew       = [];
-  var printedCount = 0;
+  var loggedVins = getLoggedVins_(dealerKey);
+  var useStock   = isTrue_(config[CFG.USE_STOCK]);
+  var netNew     = [], printedCount = 0;
 
   filtered.forEach(function(row) {
-    var vin   = String(row[0]).trim();
-    var stock = String(row[1]).trim();
-    if (loggedVins[vin] || loggedVins[stock]) {
-      printedCount++;
-    } else {
-      netNew.push(useStock ? stock : vin);
-    }
+    var vin = String(row[0]).trim(), stock = String(row[1]).trim();
+    if (loggedVins[vin] || loggedVins[stock]) { printedCount++; }
+    else { netNew.push(useStock ? stock : vin); }
   });
 
   return {
     vins: netNew,
-    summary: {
-      totalInventory:     totalInventory,
-      afterFiltering:     filtered.length,
-      alreadyPrinted:     printedCount,
-      netNew:             netNew.length,
-      rejectionBreakdown: breakdown
-    }
+    summary: { totalInventory: totalInventory, afterFiltering: filtered.length,
+               alreadyPrinted: printedCount, netNew: netNew.length, rejectionBreakdown: breakdown }
   };
 }
 
@@ -1911,20 +1549,13 @@ function getLoggedVins_(dealerKey) {
   var logSS  = SpreadsheetApp.openById(VIN_LOGS_ID);
   var sheet  = logSS.getSheetByName(dealerKey);
   var logged = {};
-
-  if (!sheet) {
-    Logger.log('No VIN log tab found for: ' + dealerKey + '. Treating as empty log.');
-    return logged;
-  }
-
+  if (!sheet) { Logger.log('No VIN log tab found for: ' + dealerKey + '. Treating as empty log.'); return logged; }
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return logged;
-
   sheet.getRange(2, 2, lastRow - 1, 1).getValues().forEach(function(r) {
     var v = String(r[0]).trim();
     if (v !== '') logged[v] = true;
   });
-
   return logged;
 }
 
@@ -1944,62 +1575,37 @@ function getRunsForDealer(dealerKey) {
   var sheet   = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('RUN_LOG');
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
-
   var data = sheet.getRange(2, 1, lastRow - 1, 19).getValues();
   var runs = [];
-
   for (var i = 0; i < data.length; i++) {
     var row = data[i];
     if (String(row[1]).trim() !== dealerKey) continue;
-
     var rawTimestamp    = row[0];
     var dealId          = String(row[3]).trim();
     var producedVinsCSV = String(row[17]).trim();
     var status          = String(row[18]).trim();
-
     var vins = producedVinsCSV
       ? producedVinsCSV.split(',').map(function(v) { return v.trim(); }).filter(function(v) { return v !== ''; })
       : [];
-
     var timestampStr = rawTimestamp instanceof Date
       ? Utilities.formatDate(rawTimestamp, 'America/Chicago', 'yyyy-MM-dd HH:mm:ss')
       : String(rawTimestamp).trim();
-
-    runs.push({
-      rowIndex:     i + 2,
-      timestamp:    timestampStr,
-      dealId:       dealId,
-      vinCount:     vins.length,
-      status:       status || 'pending',
-      producedVins: vins
-    });
+    runs.push({ rowIndex: i + 2, timestamp: timestampStr, dealId: dealId,
+                vinCount: vins.length, status: status || 'pending', producedVins: vins });
   }
-
   runs.reverse();
   return runs;
 }
 
 function commitRunToVINLog(dealerKey, runRowIndex, dealId, producedVins) {
-  if (!producedVins || producedVins.length === 0) {
-    throw new Error('No VINs to commit for this run.');
-  }
-
+  if (!producedVins || producedVins.length === 0) throw new Error('No VINs to commit for this run.');
   var logSS    = SpreadsheetApp.openById(VIN_LOGS_ID);
   var logSheet = logSS.getSheetByName(dealerKey);
   if (!logSheet) throw new Error('No VIN log tab found for: ' + dealerKey);
-
   var committedAt = Utilities.formatDate(new Date(), 'America/Chicago', 'yyyy-MM-dd HH:mm:ss');
-  var appendData  = producedVins.map(function(vin) {
-    return [dealId, vin, committedAt];
-  });
-
+  var appendData  = producedVins.map(function(vin) { return [dealId, vin, committedAt]; });
   logSheet.getRange(logSheet.getLastRow() + 1, 1, appendData.length, 3).setValues(appendData);
-
-  SpreadsheetApp.getActiveSpreadsheet()
-    .getSheetByName('RUN_LOG')
-    .getRange(runRowIndex, 19)
-    .setValue('committed');
-
+  SpreadsheetApp.getActiveSpreadsheet().getSheetByName('RUN_LOG').getRange(runRowIndex, 19).setValue('committed');
   return { committed: producedVins.length };
 }
 
@@ -2007,53 +1613,34 @@ function rollbackRunFromVINLog(dealerKey, runRowIndex, dealId, committedAt) {
   var logSS    = SpreadsheetApp.openById(VIN_LOGS_ID);
   var logSheet = logSS.getSheetByName(dealerKey);
   if (!logSheet) throw new Error('No VIN log tab found for: ' + dealerKey);
-
   var lastRow = logSheet.getLastRow();
   if (lastRow < 2) return { removed: 0 };
-
-  var data     = logSheet.getRange(2, 1, lastRow - 1, 3).getValues();
+  var data = logSheet.getRange(2, 1, lastRow - 1, 3).getValues();
   var toDelete = [];
-
   for (var i = 0; i < data.length; i++) {
-    var rowDealId      = String(data[i][0]).trim();
-    var rowCommittedAt = String(data[i][2]).trim();
-    if (data[i][2] instanceof Date) {
-      rowCommittedAt = Utilities.formatDate(data[i][2], 'America/Chicago', 'yyyy-MM-dd HH:mm:ss');
-    }
-    if (rowDealId === String(dealId).trim() && rowCommittedAt === String(committedAt).trim()) {
-      toDelete.push(i + 2);
-    }
+    var rowDealId = String(data[i][0]).trim();
+    var rowCAt    = data[i][2] instanceof Date
+      ? Utilities.formatDate(data[i][2], 'America/Chicago', 'yyyy-MM-dd HH:mm:ss')
+      : String(data[i][2]).trim();
+    if (rowDealId === String(dealId).trim() && rowCAt === String(committedAt).trim()) toDelete.push(i + 2);
   }
-
-  for (var d = toDelete.length - 1; d >= 0; d--) {
-    logSheet.deleteRow(toDelete[d]);
-  }
-
-  SpreadsheetApp.getActiveSpreadsheet()
-    .getSheetByName('RUN_LOG')
-    .getRange(runRowIndex, 19)
-    .setValue('rolled_back');
-
+  for (var d = toDelete.length - 1; d >= 0; d--) logSheet.deleteRow(toDelete[d]);
+  SpreadsheetApp.getActiveSpreadsheet().getSheetByName('RUN_LOG').getRange(runRowIndex, 19).setValue('rolled_back');
   return { removed: toDelete.length };
 }
 
 function commitLatestRun(dealerKey, runRowIndex) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('RUN_LOG');
   var row   = sheet.getRange(runRowIndex, 1, 1, 19).getValues()[0];
-
   var dealId          = String(row[3]).trim();
   var producedVinsCSV = String(row[17]).trim();
   var status          = String(row[18]).trim();
-
   if (status === 'committed') throw new Error('This run has already been committed to the VIN log.');
-
   var producedVins = producedVinsCSV
     ? producedVinsCSV.split(',').map(function(v) { return v.trim(); }).filter(Boolean)
     : [];
-
   if (producedVins.length === 0) throw new Error('No produced VINs found for this run.');
   if (!dealId)                   throw new Error('No Deal ID on this run log entry.');
-
   return commitRunToVINLog(dealerKey, runRowIndex, dealId, producedVins);
 }
 
@@ -2061,19 +1648,15 @@ function getCommittedAt(dealerKey, dealId) {
   var logSS    = SpreadsheetApp.openById(VIN_LOGS_ID);
   var logSheet = logSS.getSheetByName(dealerKey);
   if (!logSheet) return null;
-
   var lastRow = logSheet.getLastRow();
   if (lastRow < 2) return null;
-
   var data = logSheet.getRange(2, 1, lastRow - 1, 3).getValues();
   for (var i = data.length - 1; i >= 0; i--) {
-    var rowDealId = String(data[i][0]).trim();
-    if (rowDealId === String(dealId).trim()) {
+    if (String(data[i][0]).trim() === String(dealId).trim()) {
       var ts = data[i][2];
-      if (ts instanceof Date) {
-        return Utilities.formatDate(ts, 'America/Chicago', 'yyyy-MM-dd HH:mm:ss');
-      }
-      return String(ts).trim() || null;
+      return ts instanceof Date
+        ? Utilities.formatDate(ts, 'America/Chicago', 'yyyy-MM-dd HH:mm:ss')
+        : String(ts).trim() || null;
     }
   }
   return null;
@@ -2085,19 +1668,13 @@ function getCommittedAt(dealerKey, dealId) {
 // ============================================================================
 
 function addCommittedAtHeaders() {
-  var ss      = SpreadsheetApp.openById(VIN_LOGS_ID);
-  var sheets  = ss.getSheets();
-  var skip    = ['README', 'Sheet1'];
-  var updated = 0;
-
+  var ss = SpreadsheetApp.openById(VIN_LOGS_ID), sheets = ss.getSheets(), skip = ['README', 'Sheet1'], updated = 0;
   sheets.forEach(function(sheet) {
     var name = sheet.getName();
-    if (skip.indexOf(name) !== -1) return;
-    if (name.charAt(0) === '_') return;
+    if (skip.indexOf(name) !== -1 || name.charAt(0) === '_') return;
     sheet.getRange('C1').setValue('committed_at');
     updated++;
   });
-
   SpreadsheetApp.getUi().alert('Done. Added committed_at header to ' + updated + ' VIN log tabs.');
 }
 
@@ -2148,286 +1725,163 @@ function clearRunProgress(runId) {
 // ============================================================================
 
 /**
- * Returns the most recent order ID from the dealer's VIN log tab.
- * Reads col A (ORDER_ID) directly — not the RUN_LOG — so manually-submitted
- * orders are always reflected here immediately after writing.
+ * Returns the most recent ORDER_ID from col A of the dealer's VIN log.
+ * Reads the log directly — not the RUN_LOG — so manually-submitted orders
+ * are always reflected immediately.
  *
- * Scans from the bottom of col A upward and returns the first non-blank,
- * non-header value it finds.
- *
- * @param {string} dealerKey - must match a tab name in SF_VIN_LOGS exactly
+ * @param {string} dealerKey
  * @returns {{ latestOrderId: string|null }}
  */
 function getLatestOrderId(dealerKey) {
   var logSS = SpreadsheetApp.openById(VIN_LOGS_ID);
   var sheet = logSS.getSheetByName(dealerKey);
-
   if (!sheet) return { latestOrderId: null };
-
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return { latestOrderId: null };
-
-  // Read col A from row 2 downward (skip header row 1)
   var values = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
-
-  // Scan from the bottom to find the most recent non-blank entry
   for (var i = values.length - 1; i >= 0; i--) {
     var val = String(values[i][0]).trim();
-    if (val !== '' && val !== 'ORDER_ID') {
-      return { latestOrderId: val };
-    }
+    if (val !== '' && val !== 'ORDER_ID') return { latestOrderId: val };
   }
-
   return { latestOrderId: null };
 }
 
-
 /**
- * Manually appends a list of VINs/stock numbers to a dealer's VIN log.
- * Used by the VINLogUpdater modal's manual entry panel.
+ * Manually appends VINs to a dealer's VIN log without touching the RUN_LOG.
+ * Writes: col A = orderId, col B = VIN (uppercased), col C = committed_at timestamp.
  *
- * Does NOT touch the RUN_LOG — this is a direct write to SF_VIN_LOGS only.
- * The committed_at timestamp is written to col C so the entry is
- * distinguishable from V1 legacy entries (which have no col C value).
- *
- * @param {string}   dealerKey - must match a tab name in SF_VIN_LOGS exactly
- * @param {string}   orderId   - order number / Pipedrive deal ID for col A
- * @param {string[]} vins      - array of VIN or stock number strings
+ * @param {string}   dealerKey
+ * @param {string}   orderId
+ * @param {string[]} vins
  * @returns {{ committed: number }}
  */
 function manualCommitToVINLog(dealerKey, orderId, vins) {
   if (!dealerKey) throw new Error('No dealer key provided.');
   if (!orderId || String(orderId).trim() === '') throw new Error('Order number is required.');
   if (!vins || vins.length === 0) throw new Error('No VINs provided.');
-
   var logSS  = SpreadsheetApp.openById(VIN_LOGS_ID);
   var sheet  = logSS.getSheetByName(dealerKey);
   if (!sheet) throw new Error('No VIN log tab found for: ' + dealerKey);
-
-  // Deduplicate the incoming list (case-insensitive)
-  var seen    = {};
-  var cleaned = [];
+  var seen = {}, cleaned = [];
   vins.forEach(function(v) {
     var upper = String(v).trim().toUpperCase();
-    if (upper !== '' && !seen[upper]) {
-      seen[upper] = true;
-      cleaned.push(upper);
-    }
+    if (upper !== '' && !seen[upper]) { seen[upper] = true; cleaned.push(upper); }
   });
-
   if (cleaned.length === 0) throw new Error('No valid VINs after deduplication.');
-
   var committedAt = Utilities.formatDate(new Date(), 'America/Chicago', 'yyyy-MM-dd HH:mm:ss');
-  var appendData  = cleaned.map(function(vin) {
-    return [String(orderId).trim(), vin, committedAt];
-  });
-
-  var startRow = sheet.getLastRow() + 1;
-  sheet.getRange(startRow, 1, appendData.length, 3).setValues(appendData);
-
-  Logger.log('manualCommitToVINLog: wrote ' + cleaned.length + ' VINs to ' +
-             dealerKey + ' under order ' + orderId);
-
+  var appendData  = cleaned.map(function(vin) { return [String(orderId).trim(), vin, committedAt]; });
+  sheet.getRange(sheet.getLastRow() + 1, 1, appendData.length, 3).setValues(appendData);
+  Logger.log('manualCommitToVINLog: wrote ' + cleaned.length + ' VINs to ' + dealerKey + ' under order ' + orderId);
   return { committed: cleaned.length };
 }
+
 
 // ============================================================================
 // SECTION 27: DEALER RULES EDITOR
 // ============================================================================
- 
+
 function openRulesEditor() {
   var html = HtmlService.createHtmlOutputFromFile('RulesEditor')
     .setWidth(680)
     .setHeight(660);
   SpreadsheetApp.getUi().showModalDialog(html, 'Edit Dealer Rules');
 }
- 
-/**
- * Bootstrap call — loads everything the modal needs in a single round trip.
- * Returns active dealers and all CSV schema keys from SF_DEALER_CONFIG.
- *
- * @returns {{ dealers: Array<{key:string, name:string}>, schemas: string[] }}
- */
+
 function getRulesEditorBootstrap() {
-  var configSS = getConfigSS_();
- 
-  // Active dealers
+  var configSS   = SpreadsheetApp.openById(CONFIG_SHEET_ID);
   var dealerData = configSS.getSheetByName('DEALERS').getDataRange().getValues();
-  var dealers = [];
+  var dealers    = [];
   for (var i = 1; i < dealerData.length; i++) {
-    if (isTrue_(dealerData[i][CFG.ACTIVE])) {
-      dealers.push({ key: dealerData[i][CFG.KEY], name: dealerData[i][CFG.NAME] });
-    }
+    if (isTrue_(dealerData[i][CFG.ACTIVE])) dealers.push({ key: dealerData[i][CFG.KEY], name: dealerData[i][CFG.NAME] });
   }
- 
-  // CSV schema keys (col A, skipping header row)
   var schemaData = configSS.getSheetByName('CSV_SCHEMAS').getDataRange().getValues();
-  var schemas = [];
+  var schemas    = [];
   for (var j = 1; j < schemaData.length; j++) {
     var key = String(schemaData[j][0]).trim();
     if (key !== '') schemas.push(key);
   }
- 
   return { dealers: dealers, schemas: schemas };
 }
- 
-/**
- * Loads the current type_rules and filtering_rules for a given dealer.
- * Returns raw parsed objects (not re-serialized) so the modal can inspect
- * and bind them directly.
- *
- * @param   {string} dealerKey
- * @returns {{ dealerName:string, typeRules:Array, filteringRules:Object }}
- */
+
 function getDealerRulesData(dealerKey) {
   var config = getDealerConfig_(dealerKey);
   if (!config) throw new Error('Dealer key not found: ' + dealerKey);
- 
-  // Type rules — return empty array on parse failure (same tolerance as getTypeRules_)
-  var rawType = config[CFG.TYPE_RULES];
   var typeRules = [];
-  if (rawType && String(rawType).trim() !== '') {
-    try { typeRules = JSON.parse(rawType); }
-    catch (e) { Logger.log('getDealerRulesData: type_rules parse error for ' + dealerKey + ': ' + e.message); }
+  if (config[CFG.TYPE_RULES] && String(config[CFG.TYPE_RULES]).trim() !== '') {
+    try { typeRules = JSON.parse(config[CFG.TYPE_RULES]); } catch(e) {}
   }
- 
-  // Filtering rules — return empty object on parse failure
-  var rawFilter = config[CFG.FILTER_RULES];
   var filteringRules = {};
+  var rawFilter = config[CFG.FILTER_RULES];
   if (rawFilter && String(rawFilter).trim() !== '' && String(rawFilter).trim() !== '{}') {
-    try { filteringRules = JSON.parse(rawFilter); }
-    catch (e) { Logger.log('getDealerRulesData: filtering_rules parse error for ' + dealerKey + ': ' + e.message); }
+    try { filteringRules = JSON.parse(rawFilter); } catch(e) {}
   }
- 
-  return {
-    dealerName:    config[CFG.NAME],
-    typeRules:     typeRules,
-    filteringRules: filteringRules
-  };
+  return { dealerName: config[CFG.NAME], typeRules: typeRules, filteringRules: filteringRules };
 }
- 
-/**
- * Writes a new type_rules JSON string to col O of the dealer's DEALERS row.
- *
- * @param {string} dealerKey
- * @param {string} typeRulesJson  - JSON.stringify'd array from the modal
- */
+
 function saveDealerTypeRules(dealerKey, typeRulesJson) {
-  // Validate JSON before writing
-  try { JSON.parse(typeRulesJson); }
-  catch (e) { throw new Error('Invalid type_rules JSON: ' + e.message); }
- 
-  var sheet = getConfigSS_()
-    .getSheetByName('DEALERS');
-  var data = sheet.getDataRange().getValues();
- 
+  try { JSON.parse(typeRulesJson); } catch(e) { throw new Error('Invalid type_rules JSON: ' + e.message); }
+  var sheet = SpreadsheetApp.openById(CONFIG_SHEET_ID).getSheetByName('DEALERS');
+  var data  = sheet.getDataRange().getValues();
   for (var i = 1; i < data.length; i++) {
     if (data[i][CFG.KEY] === dealerKey) {
-      // CFG.TYPE_RULES is 0-indexed; Sheets columns are 1-indexed
       sheet.getRange(i + 1, CFG.TYPE_RULES + 1).setValue(typeRulesJson);
       Logger.log('saveDealerTypeRules: wrote type_rules for ' + dealerKey);
       return;
     }
   }
- 
   throw new Error('Dealer key not found in DEALERS tab: ' + dealerKey);
 }
- 
-/**
- * Writes a new filtering_rules JSON string to col W of the dealer's DEALERS row.
- *
- * @param {string} dealerKey
- * @param {string} filteringRulesJson  - JSON.stringify'd object from the modal
- */
+
 function saveDealerFilterRules(dealerKey, filteringRulesJson) {
-  // Validate JSON before writing
-  try { JSON.parse(filteringRulesJson); }
-  catch (e) { throw new Error('Invalid filtering_rules JSON: ' + e.message); }
- 
-  var sheet = getConfigSS_()
-    .getSheetByName('DEALERS');
-  var data = sheet.getDataRange().getValues();
- 
+  try { JSON.parse(filteringRulesJson); } catch(e) { throw new Error('Invalid filtering_rules JSON: ' + e.message); }
+  var sheet = SpreadsheetApp.openById(CONFIG_SHEET_ID).getSheetByName('DEALERS');
+  var data  = sheet.getDataRange().getValues();
   for (var i = 1; i < data.length; i++) {
     if (data[i][CFG.KEY] === dealerKey) {
-      // CFG.FILTER_RULES is 0-indexed; Sheets columns are 1-indexed
       sheet.getRange(i + 1, CFG.FILTER_RULES + 1).setValue(filteringRulesJson);
       Logger.log('saveDealerFilterRules: wrote filtering_rules for ' + dealerKey);
       return;
     }
   }
- 
   throw new Error('Dealer key not found in DEALERS tab: ' + dealerKey);
 }
+
+
 // ============================================================================
 // SECTION 28: USER PROFILES
 // ============================================================================
 //
 // Manages the USER_PROFILES tab in SF_DEALER_CONFIG.
-// Tab layout (1-indexed columns):
-//   A = user_key       (e.g. "nick")
-//   B = display_name   (e.g. "Nick")
-//   C = qr_local_base_path  (e.g. "C:\Users\Nick_Workstation\Documents\QRS\")
-//
-// To add a new user: append a row to the USER_PROFILES tab.
-// No code changes required.
+// Tab columns: A=user_key, B=display_name, C=qr_local_base_path
+// To add a user: append a row. No code changes required.
 // ============================================================================
 
 var USER_PROFILES_TAB = 'USER_PROFILES';
 
-/**
- * Returns all rows from the USER_PROFILES tab as an array of objects.
- * Called by DealerSelector.html to populate the "Running as:" dropdown.
- *
- * @returns {Array<{key:string, name:string}>}
- */
 function getUserProfiles() {
-  var data = getConfigSS_()
-    .getSheetByName(USER_PROFILES_TAB);
-  if (!data) throw new Error('USER_PROFILES tab not found in SF_DEALER_CONFIG.');
-
-  var rows = data.getDataRange().getValues();
+  var sheet = SpreadsheetApp.openById(CONFIG_SHEET_ID).getSheetByName(USER_PROFILES_TAB);
+  if (!sheet) throw new Error('USER_PROFILES tab not found in SF_DEALER_CONFIG.');
+  var rows = sheet.getDataRange().getValues();
   var profiles = [];
-  for (var i = 1; i < rows.length; i++) {  // skip header row
-    var key  = String(rows[i][0]).trim();
-    var name = String(rows[i][1]).trim();
+  for (var i = 1; i < rows.length; i++) {
+    var key = String(rows[i][0]).trim(), name = String(rows[i][1]).trim();
     if (key !== '') profiles.push({ key: key, name: name });
   }
   return profiles;
 }
 
-/**
- * Combined bootstrap call for the Run Dealer modal — returns the user
- * profiles list AND the last-used user key in a single round trip.
- * Called once on modal open.
- *
- * @returns {{ profiles: Array<{key:string, name:string}>, lastUser: string }}
- */
 function getUserProfilesForModal() {
-  return {
-    profiles: getUserProfiles(),
-    lastUser: getLastSelectedUser()
-  };
+  return { profiles: getUserProfiles(), lastUser: getLastSelectedUser() };
 }
 
-/**
- * Looks up the qr_local_base_path for a given user_key.
- * Internal — called by pasteVinsAndRun, not exposed to the modal directly.
- *
- * @param   {string} userKey
- * @returns {string} The local base path, guaranteed to end with a path separator.
- */
 function getQRBasePathForUser_(userKey) {
-  var sheet = getConfigSS_()
-    .getSheetByName(USER_PROFILES_TAB);
+  var sheet = SpreadsheetApp.openById(CONFIG_SHEET_ID).getSheetByName(USER_PROFILES_TAB);
   if (!sheet) throw new Error('USER_PROFILES tab not found in SF_DEALER_CONFIG.');
-
   var rows = sheet.getDataRange().getValues();
   for (var i = 1; i < rows.length; i++) {
     if (String(rows[i][0]).trim() === userKey) {
       var path = String(rows[i][2]).trim();
-      if (!path) throw new Error('User "' + userKey + '" has no qr_local_base_path set in USER_PROFILES.');
-      // Ensure the path ends with a separator so filenames concatenate correctly.
+      if (!path) throw new Error('User "' + userKey + '" has no qr_local_base_path set.');
       if (path.slice(-1) !== '\\' && path.slice(-1) !== '/') {
         path = path + (path.indexOf('\\') !== -1 ? '\\' : '/');
       }
@@ -2437,29 +1891,16 @@ function getQRBasePathForUser_(userKey) {
   throw new Error('User key "' + userKey + '" not found in USER_PROFILES tab.');
 }
 
-/**
- * Returns the user_key that was last used to run a dealer order on this
- * Google account. Returns an empty string if no prior selection exists.
- * Called by DealerSelector.html on open to pre-select the dropdown.
- *
- * @returns {string}
- */
 function getLastSelectedUser() {
   return PropertiesService.getUserProperties().getProperty('last_selected_user') || '';
 }
 
-/**
- * Persists the user_key selection to this Google account's user properties.
- * Called by pasteVinsAndRun after a successful validation so the dropdown
- * auto-selects the right person on the next modal open.
- *
- * @param {string} userKey
- */
 function saveLastSelectedUser(userKey) {
   if (userKey && String(userKey).trim() !== '') {
     PropertiesService.getUserProperties().setProperty('last_selected_user', String(userKey).trim());
   }
 }
+
 
 // ============================================================================
 // END OF SCRIPT
