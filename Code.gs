@@ -869,7 +869,7 @@ function buildUtmFormula_(linkRef, typeRef, rules) {
     inner = 'IF(' + condition + ',' + trueExpr + ',' + inner + ')';
   }
 
-  return '=IF(' + linkRef + '="",' + '"",'+  inner + ')';
+  return '=IF(' + linkRef + '="","",'+  inner + ')';
 }
 
 
@@ -914,9 +914,37 @@ function buildCSVSheet_(outputDoc, typeRules) {
         return col ? row[col - 1] : '';
       });
     });
-    writeCSVSheet_(outputDoc, sheetName, fieldCodes, dataRows);
+    var displayHeaders = dedupFieldCodeHeaders_(fieldCodes);
+    writeCSVSheet_(outputDoc, sheetName, displayHeaders, dataRows);
     Logger.log('CSV sheet "' + sheetName + '" written: ' + dataRows.length + ' rows, schema: ' + rule.csv_schema);
   });
+}
+
+/**
+ * Takes an array of field code names (as they appear in the schema) and returns
+ * a parallel array of display header names for the CSV sheet.
+ *
+ * Duplicate field codes are suffixed with an incrementing number starting at 2.
+ * Example: ['YEARMODELSTOCK', 'TYPEVIN', 'YEARMODELSTOCK', 'TYPEVIN', 'YEARMODELSTOCK']
+ *       -> ['YEARMODELSTOCK', 'TYPEVIN', 'YEARMODELSTOCK2', 'TYPEVIN2', 'YEARMODELSTOCK3']
+ *
+ * The data lookup (FIELD_TO_COL) always uses the original field code names,
+ * so data values are unaffected — only the header row in the output sheet changes.
+ */
+function dedupFieldCodeHeaders_(fieldCodes) {
+  var seen    = {};
+  var headers = [];
+  for (var i = 0; i < fieldCodes.length; i++) {
+    var code = fieldCodes[i];
+    if (!seen[code]) {
+      seen[code] = 1;
+      headers.push(code);
+    } else {
+      seen[code]++;
+      headers.push(code + seen[code]);
+    }
+  }
+  return headers;
 }
 
 function writeCSVSheet_(outputDoc, sheetName, headers, rows) {
