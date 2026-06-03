@@ -63,6 +63,39 @@
       margin-left: 2px;
     }
 
+    /* ── VIN log status row ──────────────────────────────────────────────── */
+    #vinLogStatusRow {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      margin-top: 7px;
+      font-size: 11px;
+      color: #555;
+    }
+    #vinLogStatusRow .log-label { flex: 1; }
+    #vinLogStatusRow .log-label span {
+      display: inline-block;
+      background: #f1f3f4;
+      border: 1px solid #dadce0;
+      border-radius: 10px;
+      padding: 2px 9px;
+      font-weight: bold;
+      color: #333;
+      margin-left: 4px;
+    }
+    #openVinLogBtn {
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: bold;
+      background: #fff;
+      color: #1a73e8;
+      border: 1.5px solid #1a73e8;
+      border-radius: 4px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    #openVinLogBtn:hover { background: #e8f0fe; }
+
     /* ── CAO row ─────────────────────────────────────────────────────────── */
     .cao-row { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
     .cao-row label { margin: 0; flex: 1; }
@@ -196,6 +229,12 @@
     <option value="">-- Loading dealers... --</option>
   </select>
 
+  <!-- VIN log status row (shown after dealer selected) -->
+  <div id="vinLogStatusRow">
+    <span class="log-label">Most recent order in log: <span id="vinLogOrderSpan">—</span></span>
+    <button id="openVinLogBtn" onclick="openVinLogUpdater()">&#x1F4CB; Update VIN Log</button>
+  </div>
+
   <label for="dealId">Pipedrive Deal ID</label>
   <input type="text" id="dealId" placeholder="e.g. 44021" />
   <div class="field-hint">Required. Enter the Pipedrive deal number for this order.</div>
@@ -304,10 +343,17 @@
       updateVinCount(); updateButtons(); hideCaoSummary();
     });
     document.getElementById('dealerSelect').addEventListener('change', function() {
+      var key = this.value;
       updateButtons(); hideCaoSummary();
       document.getElementById('vinInput').value = '';
       updateVinCount();
       hidePostRunActions();
+
+      if (!key) {
+        document.getElementById('vinLogStatusRow').style.display = 'none';
+        return;
+      }
+      loadVinLogStatus(key);
     });
     document.getElementById('dealId').addEventListener('input', function() {
       updateButtons();
@@ -332,6 +378,27 @@
       var hasVins   = getVins().length > 0;
       document.getElementById('caoBtn').disabled = !hasDealer;
       document.getElementById('runBtn').disabled = !(hasUser && hasDealer && hasDealId && hasVins);
+    }
+
+    // ── VIN log status ────────────────────────────────────────────────────────
+    function loadVinLogStatus(dealerKey) {
+      var row  = document.getElementById('vinLogStatusRow');
+      var span = document.getElementById('vinLogOrderSpan');
+      row.style.display = 'flex';
+      span.textContent = '…';
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          span.textContent = (result && result.latestOrderId) ? result.latestOrderId : 'none';
+        })
+        .withFailureHandler(function() {
+          span.textContent = '—';
+        })
+        .getLatestOrderId(dealerKey);
+    }
+
+    function openVinLogUpdater() {
+      google.script.run.openVINLogUpdater();
     }
 
     // ── CAO pre-fill ──────────────────────────────────────────────────────────
