@@ -1232,11 +1232,12 @@ function writeRunLog_(config, dealId, totalOrdered, totalMatched, billing, outpu
  *   ORDERMATCH   — cols A–I rows 2+ (what was matched + vehicle details)
  *   LOG          — cols A–B rows 2+ (VIN log history for dupe detection)
  *
- * Writes four sections to BILLING:
+ * Writes five sections to BILLING:
  *   Section 1 — Order Summary (ordered / matched / not found)
  *   Section 2 — Matched by Type, gross counts
  *   Section 3 — Duplicates by Type + totals
  *   Section 4 — Duplicate detail table (one row per dupe vehicle)
+ *   Section 5 — Produced VIN list (one VIN per row, col B)
  *
  * @param {Spreadsheet} outputDoc
  */
@@ -1380,6 +1381,22 @@ function writeBillingSheet_(outputDoc) {
   });
   rows.push(['', 'Total Duplicates', totalDupes, '']);
   rows.push(BLANK);
+
+  // ── Produced VINs ─────────────────────────────────────────────────────────
+  // Every matched/produced vehicle's VIN (ORDERMATCH col E), one per row in col B.
+  // Includes VIN-log duplicates, since those are still printed/produced.
+  var producedVinList = omRows
+    .map(function(v) { return v.vin; })
+    .filter(function(v) { return v !== ''; });
+
+  rows.push(['', '── PRODUCED VINS (' + producedVinList.length + ') ──', '', '']);
+  if (producedVinList.length === 0) {
+    rows.push(['', 'No vehicles produced.', '', '']);
+  } else {
+    producedVinList.forEach(function(vin) {
+      rows.push(['', vin, '', '']);
+    });
+  }
 
   // ── 8. Write to BILLING ──────────────────────────────────────────────────
   billingSheet.clearContents();
