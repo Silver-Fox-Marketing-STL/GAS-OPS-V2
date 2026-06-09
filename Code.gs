@@ -2893,7 +2893,64 @@ function refreshDashboard_(ss, importTimestamp, locationDetail) {
       totals.total, totals.onlot, totals.offlot, ''
     ]]);
 
-    Logger.log('refreshDashboard_: wrote ' + n + ' locations, totals row at row ' + totalsRow + '.');
+    // ── Clear stale rows between TOTALS and Run Log section ─────────────────
+    // Only clear the gap rows (totalsRow+1 up to the Run Log start),
+    // never the Run Log content itself.
+    var runLogStart = totalsRow + 2;  // one blank spacer row, then Run Log begins
+    var staleStart  = totalsRow + 1;
+    var staleCount  = DASHBOARD_MAX_LOCATIONS - n - 1;  // rows that may hold old location data
+    if (staleCount > 0) {
+      dashboard.getRange(staleStart, 1, staleCount, 10).clearContent();
+    }
+
+    // ── Rewrite Run Log section at dynamic position ──────────────────────────
+    // Section headers and formula rows are rewritten here so they always
+    // sit immediately below the location table regardless of how many
+    // locations exist.
+    dashboard.getRange(runLogStart, 1, 1, 10).setValues([
+      ['RUN LOG SUMMARY', '', '', '', '', '', '', '', '', '']
+    ]);
+    dashboard.getRange(runLogStart + 1, 1, 1, 10).setValues([
+      ['Total Runs', 'Total VINs Produced', 'Avg VINs / Run', 'Committed Runs', 'Pending Commits', 'Rolled Back', '', '', '', '']
+    ]);
+    dashboard.getRange(runLogStart + 2, 1, 1, 6).setFormulas([[
+      '=COUNTA(RUN_LOG!B2:B)',
+      '=SUMPRODUCT(IFERROR(VALUE(RUN_LOG!P2:P1000),0))',
+      '=IFERROR(IF(A' + (runLogStart + 2) + '=0,"",ROUND(B' + (runLogStart + 2) + '/A' + (runLogStart + 2) + ',1)),"")',
+      '=COUNTIF(RUN_LOG!W2:W,"committed")',
+      '=COUNTIF(RUN_LOG!W2:W,"")',
+      '=COUNTIF(RUN_LOG!W2:W,"rolled_back")'
+    ]]);
+
+    var mrRow = runLogStart + 4;
+    dashboard.getRange(mrRow, 1, 1, 10).setValues([
+      ['MOST RECENT RUN', '', '', '', '', '', '', '', '', '']
+    ]);
+    dashboard.getRange(mrRow + 1, 1, 1, 7).setValues([
+      ['Date', 'Dealer', 'Order ID', 'VINs Ordered', 'VINs Produced', 'Duration (sec)', 'VIN Log Status']
+    ]);
+    dashboard.getRange(mrRow + 2, 1, 1, 7).setFormulas([[
+      '=IFERROR(TEXT(INDEX(RUN_LOG!A:A,COUNTA(RUN_LOG!A:A)),"M/D/YYYY"),"")',
+      '=IFERROR(INDEX(RUN_LOG!C:C,COUNTA(RUN_LOG!A:A)),"")',
+      '=IFERROR(INDEX(RUN_LOG!D:D,COUNTA(RUN_LOG!A:A)),"")',
+      '=IFERROR(INDEX(RUN_LOG!E:E,COUNTA(RUN_LOG!A:A)),"")',
+      '=IFERROR(INDEX(RUN_LOG!P:P,COUNTA(RUN_LOG!A:A)),"")',
+      '=IFERROR(INDEX(RUN_LOG!S:S,COUNTA(RUN_LOG!A:A)),"")',
+      '=IFERROR(IF(INDEX(RUN_LOG!W:W,COUNTA(RUN_LOG!A:A))="","Pending",INDEX(RUN_LOG!W:W,COUNTA(RUN_LOG!A:A))),"")'
+    ]]);
+
+    var rbd = mrRow + 4;
+    dashboard.getRange(rbd, 1, 1, 10).setValues([
+      ['RUNS BY DEALER', '', '', '', '', '', '', '', '', '']
+    ]);
+    dashboard.getRange(rbd + 1, 1, 1, 9).setValues([
+      ['Dealer', 'Runs', 'VINs Ordered', 'VINs Produced', 'New', 'PO', 'CPO', 'CPO-EL', 'Avg Match Rate']
+    ]);
+    dashboard.getRange(rbd + 2, 1, 1, 1).setFormulas([[
+      '=IFERROR(QUERY(RUN_LOG!A:W,"SELECT C, COUNT(A), SUM(E), SUM(P), SUM(G), SUM(H), SUM(I), SUM(J) WHERE C <> \'\' GROUP BY C ORDER BY COUNT(A) DESC LABEL C \'\', COUNT(A) \'\', SUM(E) \'\', SUM(P) \'\', SUM(G) \'\', SUM(H) \'\', SUM(I) \'\', SUM(J) \'\'",1),"No data")'
+    ]]);
+
+    Logger.log('refreshDashboard_: wrote ' + n + ' locations, totals at row ' + totalsRow + ', run log at row ' + runLogStart + '.');
   } catch (e) {
     Logger.log('refreshDashboard_: failed (non-fatal): ' + e.message);
   }
