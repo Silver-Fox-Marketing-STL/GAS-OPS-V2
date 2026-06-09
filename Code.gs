@@ -407,6 +407,9 @@ function importScraperData(mappedData) {
   // Run health check against historical IMPORT_STATS baselines
   var healthIssues = checkImportHealth_(ss, importTimestamp, review.locationDetail);
 
+  // Refresh DASHBOARD sheet with latest location data (non-fatal)
+  refreshDashboard_(ss, importTimestamp, review.locationDetail);
+
   return { rowCount: mappedData.length, colCount: colCount, review: review, healthIssues: healthIssues };
 }
 
@@ -2786,6 +2789,114 @@ function avg_(arr, field) {
   var sum = 0;
   arr.forEach(function(row) { sum += (row[field] || 0); });
   return sum / arr.length;
+}
+
+
+// ============================================================================
+// SECTION 30: DASHBOARD REFRESH
+// ============================================================================
+//
+// refreshDashboard_ — rewrites the per-location inventory table in the
+//   DASHBOARD sheet (rows 6–47 + totals row 47) using the locationDetail
+//   object from the current import. Called automatically at the end of
+//   importScraperData() so the dashboard always reflects the latest import.
+//
+// Dashboard layout (fixed, must match sheet structure):
+//   Row 1  — Title banner
+//   Row 2  — Last import timestamp
+//   Row 3  — Spacer
+//   Row 4  — Section header: INVENTORY SNAPSHOT
+//   Row 5  — Column headers (frozen)
+//   Rows 6–(5+N) — One row per location, sorted alphabetically
+//   Row (6+N) — TOTALS row
+//   Row (7+N) — Spacer
+//   Row (8+N) — RUN LOG SUMMARY section (formula-driven, not touched here)
+// ============================================================================
+
+var DASHBOARD_LOCATION_START_ROW = 6;   // first data row (1-indexed)
+var DASHBOARD_MAX_LOCATIONS      = 60;  // maximum locations we'll ever write
+
+/**
+ * Rewrites the location table and timestamp in the DASHBOARD sheet.
+ * Sorts locations alphabetically. Clears any stale rows beyond the
+ * current location count. Non-fatal — a failure here never breaks an import.
+ *
+ * @param {Spreadsheet} ss              - SF_SYSTEM_MASTER spreadsheet object
+ * @param {string}      importTimestamp - formatted timestamp string
+ * @param {Object}      locationDetail  - per-location detail map from computeImportReview_
+ */
+function refreshDashboard_(ss, importTimestamp, locationDetail) {
+  try {
+    var dashboard = ss.getSheetByName('DASHBOARD');
+    if (!dashboard) {
+      Logger.log('refreshDashboard_: DASHBOARD sheet not found, skipping.');
+      return;
+    }
+
+    // ── Update timestamp in B2 ───────────────────────────────────────────────
+    dashboard.getRange(2, 2).setValue(importTimestamp);
+
+    // ── Build sorted location rows ───────────────────────────────────────────
+    var locations = Object.keys(locationDetail).sort(function(a, b) {
+      return a.toLowerCase() < b.toLowerCase() ? -1 : 1;
+    });
+
+    var dataRows = locations.map(function(loc) {
+      var d = locationDetail[loc];
+      var noPriceStock = d.no_price + ' / ' + d.no_stock;
+      return [
+        loc,            // A: Location
+        d.new,          // B: New
+        d.po,           // C: PO
+        d.cpo,          // D: CPO
+        d.cpo_el,       // E: CPO-EL
+        d.other_types,  // F: Other
+        d.total,        // G: Total
+        d.onlot,        // H: ONLOT
+        d.offlot,       // I: OFFLOT
+        noPriceStock    // J: No Price / No Stock
+      ];
+    });
+
+    var n = dataRows.length;
+
+    // ── Write location rows ──────────────────────────────────────────────────
+    if (n > 0) {
+      dashboard.getRange(DASHBOARD_LOCATION_START_ROW, 1, n, 10).setValues(dataRows);
+    }
+
+    // ── Clear any stale rows from a prior import with more locations ─────────
+    var clearStart = DASHBOARD_LOCATION_START_ROW + n;
+    var clearCount = DASHBOARD_MAX_LOCATIONS - n;
+    if (clearCount > 0) {
+      dashboard.getRange(clearStart, 1, clearCount, 10).clearContent();
+    }
+
+    // ── Write TOTALS row immediately after the last location row ────────────
+    var totalsRow = DASHBOARD_LOCATION_START_ROW + n;
+    var totals = locations.reduce(function(acc, loc) {
+      var d = locationDetail[loc];
+      acc.new    += d.new;
+      acc.po     += d.po;
+      acc.cpo    += d.cpo;
+      acc.cpo_el += d.cpo_el;
+      acc.other  += d.other_types;
+      acc.total  += d.total;
+      acc.onlot  += d.onlot;
+      acc.offlot += d.offlot;
+      return acc;
+    }, { new: 0, po: 0, cpo: 0, cpo_el: 0, other: 0, total: 0, onlot: 0, offlot: 0 });
+
+    dashboard.getRange(totalsRow, 1, 1, 10).setValues([[
+      'TOTALS',
+      totals.new, totals.po, totals.cpo, totals.cpo_el, totals.other,
+      totals.total, totals.onlot, totals.offlot, ''
+    ]]);
+
+    Logger.log('refreshDashboard_: wrote ' + n + ' locations, totals row at row ' + totalsRow + '.');
+  } catch (e) {
+    Logger.log('refreshDashboard_: failed (non-fatal): ' + e.message);
+  }
 }
 
 
