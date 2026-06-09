@@ -256,6 +256,42 @@
       color: #333;
       border-left: 1px solid #ddd;
     }
+    /* ── Health issues section ───────────────────────────────────────────────── */
+    .health-section {
+      margin-top: 14px;
+      border: 1px solid #f5c6cb;
+      border-radius: 5px;
+      overflow: hidden;
+    }
+    .health-section.clean {
+      border-color: #c3e6cb;
+    }
+    .health-section-title {
+      padding: 7px 12px;
+      font-size: 11px;
+      font-weight: bold;
+      background: #fce8e6;
+      color: #c0392b;
+    }
+    .health-section.clean .health-section-title {
+      background: #e6f4ea;
+      color: #1e7e34;
+    }
+    .health-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 6px 12px;
+      font-size: 11px;
+      border-top: 1px solid #f5e6e6;
+    }
+    .health-section.clean .health-item {
+      border-top-color: #d4edda;
+    }
+    .health-icon { flex-shrink: 0; font-size: 13px; line-height: 1.4; }
+    .health-location { font-weight: bold; color: #333; }
+    .health-msg { color: #555; }
+
   </style>
 </head>
 <body>
@@ -333,6 +369,8 @@
         <div class="review-section-title">Breakdown by Location</div>
         <div id="reviewTable"></div>
       </div>
+
+      <div id="healthSection" style="display:none;"></div>
     </div>
 
     <div class="modal-footer">
@@ -522,6 +560,32 @@
       html += '</table></div>';
       document.getElementById('reviewTable').innerHTML = html;
 
+      // ── Health issues ─────────────────────────────────────────────────────
+      var healthEl = document.getElementById('healthSection');
+      var issues   = result.healthIssues || [];
+      if (issues.length === 0) {
+        healthEl.style.display = 'block';
+        healthEl.innerHTML =
+          '<div class="health-section clean">' +
+            '<div class="health-section-title">&#10003; Data Health: No issues detected</div>' +
+          '</div>';
+      } else {
+        var hHtml = '<div class="health-section">' +
+          '<div class="health-section-title">&#9888; Data Health: ' + issues.length +
+          ' issue' + (issues.length === 1 ? '' : 's') + ' detected</div>';
+        issues.forEach(function(issue) {
+          var icon = issue.severity === 'error' ? '\uD83D\uDD34' : '\uD83D\uDFE1';
+          hHtml += '<div class="health-item">' +
+            '<span class="health-icon">' + icon + '</span>' +
+            '<span><span class="health-location">' + escHtml(issue.location) + '</span>' +
+            ' &mdash; <span class="health-msg">' + escHtml(issue.message) + '</span></span>' +
+          '</div>';
+        });
+        hHtml += '</div>';
+        healthEl.style.display = 'block';
+        healthEl.innerHTML = hHtml;
+      }
+
       document.getElementById('importForm').style.display  = 'none';
       document.getElementById('reviewPanel').style.display = 'flex';
     }
@@ -546,6 +610,8 @@
       old.parentNode.replaceChild(clone, old);
 
       document.getElementById('reviewPanel').style.display = 'none';
+      document.getElementById('healthSection').style.display = 'none';
+      document.getElementById('healthSection').innerHTML     = '';
       document.getElementById('importForm').style.display  = 'flex';
     }
 
