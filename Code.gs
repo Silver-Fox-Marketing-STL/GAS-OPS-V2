@@ -2833,103 +2833,95 @@ function refreshDashboard_(ss, importTimestamp, locationDetail) {
       return;
     }
 
-    // ── Update timestamp in B2 ───────────────────────────────────────────────
-    dashboard.getRange(2, 2).setValue(importTimestamp);
+    // ── Color helpers ────────────────────────────────────────────────────────
+    function bg(r, g, b) {
+      return SpreadsheetApp.newColor().setRgbColor(
+        '#' + ('0' + Math.round(r).toString(16)).slice(-2) +
+              ('0' + Math.round(g).toString(16)).slice(-2) +
+              ('0' + Math.round(b).toString(16)).slice(-2)
+      ).build();
+    }
+    var C_DARK    = bg(38,  38,  38);
+    var C_ORANGE  = bg(192, 101, 36);
+    var C_ORANGE2 = bg(210, 120, 50);
+    var C_DGRAY   = bg(80,  80,  80);
+    var C_STRIPE  = bg(255, 248, 242);
+    var C_WHITE   = bg(255, 255, 255);
+    var C_LGRAY   = bg(245, 245, 245);
 
-    // ── Build sorted location rows ───────────────────────────────────────────
+    // ── Row positions (1-indexed) ────────────────────────────────────────────
+    var R_TITLE      = 1;
+    var R_TIMESTAMP  = 2;
+    var R_INV_HDR    = 4;
+    var R_COL_HDR    = 5;
+    var R_DATA_START = 6;
+
     var locations = Object.keys(locationDetail).sort(function(a, b) {
       return a.toLowerCase() < b.toLowerCase() ? -1 : 1;
     });
+    var n = locations.length;
 
-    var dataRows = locations.map(function(loc) {
-      var d = locationDetail[loc];
-      var noPriceStock = d.no_price + ' / ' + d.no_stock;
-      return [
-        loc,            // A: Location
-        d.new,          // B: New
-        d.po,           // C: PO
-        d.cpo,          // D: CPO
-        d.cpo_el,       // E: CPO-EL
-        d.other_types,  // F: Other
-        d.total,        // G: Total
-        d.onlot,        // H: ONLOT
-        d.offlot,       // I: OFFLOT
-        noPriceStock    // J: No Price / No Stock
-      ];
-    });
+    var R_TOTALS     = R_DATA_START + n;
+    var R_RL_HDR     = R_TOTALS + 2;
+    var R_RL_COLS    = R_RL_HDR  + 1;
+    var R_RL_DATA    = R_RL_HDR  + 2;
+    var R_MR_HDR     = R_RL_HDR  + 4;
+    var R_MR_COLS    = R_MR_HDR  + 1;
+    var R_MR_DATA    = R_MR_HDR  + 2;
+    var R_RBD_HDR    = R_MR_HDR  + 4;
+    var R_RBD_COLS   = R_RBD_HDR + 1;
+    var R_RBD_DATA   = R_RBD_HDR + 2;
 
-    var n = dataRows.length;
+    // ── Clear everything from data start downward ────────────────────────────
+    var clearRows = DASHBOARD_MAX_LOCATIONS + 30;
+    dashboard.getRange(R_DATA_START, 1, clearRows, 10).clearContent();
+    dashboard.getRange(R_DATA_START, 1, clearRows, 10).clearFormat();
 
-    // ── Write location rows ──────────────────────────────────────────────────
-    if (n > 0) {
-      dashboard.getRange(DASHBOARD_LOCATION_START_ROW, 1, n, 10).setValues(dataRows);
-    }
+    // ── Write timestamp ──────────────────────────────────────────────────────
+    dashboard.getRange(R_TIMESTAMP, 2).setValue(importTimestamp);
 
-    // ── Clear any stale rows from a prior import with more locations ─────────
-    var clearStart = DASHBOARD_LOCATION_START_ROW + n;
-    var clearCount = DASHBOARD_MAX_LOCATIONS - n;
-    if (clearCount > 0) {
-      dashboard.getRange(clearStart, 1, clearCount, 10).clearContent();
-    }
-
-    // ── Write TOTALS row immediately after the last location row ────────────
-    var totalsRow = DASHBOARD_LOCATION_START_ROW + n;
-    var totals = locations.reduce(function(acc, loc) {
-      var d = locationDetail[loc];
-      acc.new    += d.new;
-      acc.po     += d.po;
-      acc.cpo    += d.cpo;
-      acc.cpo_el += d.cpo_el;
-      acc.other  += d.other_types;
-      acc.total  += d.total;
-      acc.onlot  += d.onlot;
-      acc.offlot += d.offlot;
-      return acc;
-    }, { new: 0, po: 0, cpo: 0, cpo_el: 0, other: 0, total: 0, onlot: 0, offlot: 0 });
-
-    dashboard.getRange(totalsRow, 1, 1, 10).setValues([[
-      'TOTALS',
-      totals.new, totals.po, totals.cpo, totals.cpo_el, totals.other,
-      totals.total, totals.onlot, totals.offlot, ''
+    // ── Write column headers ─────────────────────────────────────────────────
+    dashboard.getRange(R_COL_HDR, 1, 1, 10).setValues([[
+      'Location', 'New', 'PO', 'CPO', 'CPO-EL', 'Other', 'Total', 'ONLOT', 'OFFLOT', 'No Price / No Stock'
     ]]);
 
-    // ── Clear stale rows between TOTALS and Run Log section ─────────────────
-    // Only clear the gap rows (totalsRow+1 up to the Run Log start),
-    // never the Run Log content itself.
-    var runLogStart = totalsRow + 2;  // one blank spacer row, then Run Log begins
-    var staleStart  = totalsRow + 1;
-    var staleCount  = DASHBOARD_MAX_LOCATIONS - n - 1;  // rows that may hold old location data
-    if (staleCount > 0) {
-      dashboard.getRange(staleStart, 1, staleCount, 10).clearContent();
-    }
+    // ── Write location data rows ─────────────────────────────────────────────
+    var dataRows = locations.map(function(loc) {
+      var d = locationDetail[loc];
+      return [loc, d.new, d.po, d.cpo, d.cpo_el, d.other_types, d.total, d.onlot, d.offlot, d.no_price + ' / ' + d.no_stock];
+    });
+    if (n > 0) dashboard.getRange(R_DATA_START, 1, n, 10).setValues(dataRows);
 
-    // ── Rewrite Run Log section at dynamic position ──────────────────────────
-    // Section headers and formula rows are rewritten here so they always
-    // sit immediately below the location table regardless of how many
-    // locations exist.
-    dashboard.getRange(runLogStart, 1, 1, 10).setValues([
-      ['RUN LOG SUMMARY', '', '', '', '', '', '', '', '', '']
-    ]);
-    dashboard.getRange(runLogStart + 1, 1, 1, 10).setValues([
-      ['Total Runs', 'Total VINs Produced', 'Avg VINs / Run', 'Committed Runs', 'Pending Commits', 'Rolled Back', '', '', '', '']
-    ]);
-    dashboard.getRange(runLogStart + 2, 1, 1, 6).setFormulas([[
+    // ── Compute and write totals ─────────────────────────────────────────────
+    var tot = locations.reduce(function(acc, loc) {
+      var d = locationDetail[loc];
+      acc.new += d.new; acc.po += d.po; acc.cpo += d.cpo; acc.cpo_el += d.cpo_el;
+      acc.other += d.other_types; acc.total += d.total; acc.onlot += d.onlot; acc.offlot += d.offlot;
+      return acc;
+    }, { new:0, po:0, cpo:0, cpo_el:0, other:0, total:0, onlot:0, offlot:0 });
+    dashboard.getRange(R_TOTALS, 1, 1, 10).setValues([[
+      'TOTALS', tot.new, tot.po, tot.cpo, tot.cpo_el, tot.other, tot.total, tot.onlot, tot.offlot, ''
+    ]]);
+
+    // ── Write Run Log section content ────────────────────────────────────────
+    dashboard.getRange(R_RL_HDR,  1).setValue('RUN LOG SUMMARY');
+    dashboard.getRange(R_RL_COLS, 1, 1, 6).setValues([[
+      'Total Runs', 'Total VINs Produced', 'Avg VINs / Run', 'Committed Runs', 'Pending Commits', 'Rolled Back'
+    ]]);
+    dashboard.getRange(R_RL_DATA, 1, 1, 6).setFormulas([[
       '=COUNTA(RUN_LOG!B2:B)',
       '=SUMPRODUCT(IFERROR(VALUE(RUN_LOG!P2:P1000),0))',
-      '=IFERROR(IF(A' + (runLogStart + 2) + '=0,"",ROUND(B' + (runLogStart + 2) + '/A' + (runLogStart + 2) + ',1)),"")',
+      '=IFERROR(IF(A' + R_RL_DATA + '=0,"",ROUND(B' + R_RL_DATA + '/A' + R_RL_DATA + ',1)),"")',
       '=COUNTIF(RUN_LOG!W2:W,"committed")',
       '=COUNTIF(RUN_LOG!W2:W,"")',
       '=COUNTIF(RUN_LOG!W2:W,"rolled_back")'
     ]]);
 
-    var mrRow = runLogStart + 4;
-    dashboard.getRange(mrRow, 1, 1, 10).setValues([
-      ['MOST RECENT RUN', '', '', '', '', '', '', '', '', '']
-    ]);
-    dashboard.getRange(mrRow + 1, 1, 1, 7).setValues([
-      ['Date', 'Dealer', 'Order ID', 'VINs Ordered', 'VINs Produced', 'Duration (sec)', 'VIN Log Status']
-    ]);
-    dashboard.getRange(mrRow + 2, 1, 1, 7).setFormulas([[
+    dashboard.getRange(R_MR_HDR,  1).setValue('MOST RECENT RUN');
+    dashboard.getRange(R_MR_COLS, 1, 1, 7).setValues([[
+      'Date', 'Dealer', 'Order ID', 'VINs Ordered', 'VINs Produced', 'Duration (sec)', 'VIN Log Status'
+    ]]);
+    dashboard.getRange(R_MR_DATA, 1, 1, 7).setFormulas([[
       '=IFERROR(TEXT(INDEX(RUN_LOG!A:A,COUNTA(RUN_LOG!A:A)),"M/D/YYYY"),"")',
       '=IFERROR(INDEX(RUN_LOG!C:C,COUNTA(RUN_LOG!A:A)),"")',
       '=IFERROR(INDEX(RUN_LOG!D:D,COUNTA(RUN_LOG!A:A)),"")',
@@ -2939,18 +2931,92 @@ function refreshDashboard_(ss, importTimestamp, locationDetail) {
       '=IFERROR(IF(INDEX(RUN_LOG!W:W,COUNTA(RUN_LOG!A:A))="","Pending",INDEX(RUN_LOG!W:W,COUNTA(RUN_LOG!A:A))),"")'
     ]]);
 
-    var rbd = mrRow + 4;
-    dashboard.getRange(rbd, 1, 1, 10).setValues([
-      ['RUNS BY DEALER', '', '', '', '', '', '', '', '', '']
-    ]);
-    dashboard.getRange(rbd + 1, 1, 1, 9).setValues([
-      ['Dealer', 'Runs', 'VINs Ordered', 'VINs Produced', 'New', 'PO', 'CPO', 'CPO-EL', 'Avg Match Rate']
-    ]);
-    dashboard.getRange(rbd + 2, 1, 1, 1).setFormulas([[
-      '=IFERROR(QUERY(RUN_LOG!A:W,"SELECT C, COUNT(A), SUM(E), SUM(P), SUM(G), SUM(H), SUM(I), SUM(J) WHERE C <> \'\' GROUP BY C ORDER BY COUNT(A) DESC LABEL C \'\', COUNT(A) \'\', SUM(E) \'\', SUM(P) \'\', SUM(G) \'\', SUM(H) \'\', SUM(I) \'\', SUM(J) \'\'",1),"No data")'
+    dashboard.getRange(R_RBD_HDR,  1).setValue('RUNS BY DEALER');
+    dashboard.getRange(R_RBD_COLS, 1, 1, 9).setValues([[
+      'Dealer', 'Runs', 'VINs Ordered', 'VINs Produced', 'New', 'PO', 'CPO', 'CPO-EL', 'Avg Match Rate'
     ]]);
+    dashboard.getRange(R_RBD_DATA, 1).setFormula(
+      '=IFERROR(QUERY(RUN_LOG!A:W,"SELECT C, COUNT(A), SUM(E), SUM(P), SUM(G), SUM(H), SUM(I), SUM(J) WHERE C <> \'\' GROUP BY C ORDER BY COUNT(A) DESC LABEL C \'\', COUNT(A) \'\', SUM(E) \'\', SUM(P) \'\', SUM(G) \'\', SUM(H) \'\', SUM(I) \'\', SUM(J) \'\'",1),"No data")'
+    );
 
-    Logger.log('refreshDashboard_: wrote ' + n + ' locations, totals at row ' + totalsRow + ', run log at row ' + runLogStart + '.');
+    // ── Apply formatting ─────────────────────────────────────────────────────
+    // Helper: apply background + text style to a range
+    function fmt(rng, bgColor, bold, fontSize, fontColor, align) {
+      var f = rng.setBackground(null);
+      if (bgColor)   f.setBackgroundObject(bgColor);
+      if (bold !== null) f.setFontWeight(bold ? 'bold' : 'normal');
+      if (fontSize)  f.setFontSize(fontSize);
+      if (fontColor) f.setFontColor(fontColor);
+      if (align)     f.setHorizontalAlignment(align);
+    }
+
+    // Title (rows 1-3 already formatted from sheet creation, just ensure timestamp)
+    dashboard.getRange(R_TIMESTAMP, 2).setNumberFormat('@');  // plain text timestamp
+
+    // Inventory section banner
+    var invHdrRange = dashboard.getRange(R_INV_HDR, 1, 1, 10);
+    invHdrRange.setBackgroundObject(C_ORANGE).setFontColor('#ffffff').setFontWeight('bold').setFontSize(11);
+
+    // Column headers
+    var colHdrRange = dashboard.getRange(R_COL_HDR, 1, 1, 10);
+    colHdrRange.setBackgroundObject(C_ORANGE2).setFontColor('#ffffff').setFontWeight('bold').setFontSize(10)
+               .setHorizontalAlignment('center');
+    dashboard.getRange(R_COL_HDR, 1).setHorizontalAlignment('left');
+
+    // Data rows — alternating, numbers centered, location left
+    if (n > 0) {
+      for (var i = 0; i < n; i++) {
+        var rowNum = R_DATA_START + i;
+        var rowBg  = (i % 2 === 0) ? C_WHITE : C_STRIPE;
+        var rowRange = dashboard.getRange(rowNum, 1, 1, 10);
+        rowRange.setBackgroundObject(rowBg).setFontSize(10).setHorizontalAlignment('center')
+                .setNumberFormat('#,##0');
+        dashboard.getRange(rowNum, 1).setHorizontalAlignment('left').setNumberFormat('@');
+        dashboard.getRange(rowNum, 10).setHorizontalAlignment('center').setNumberFormat('@');
+      }
+    }
+
+    // Totals row
+    var totRange = dashboard.getRange(R_TOTALS, 1, 1, 10);
+    totRange.setBackgroundObject(C_DARK).setFontColor('#ffffff').setFontWeight('bold').setFontSize(10)
+            .setHorizontalAlignment('center').setNumberFormat('#,##0');
+    dashboard.getRange(R_TOTALS, 1).setHorizontalAlignment('left');
+
+    // Run Log section banners
+    dashboard.getRange(R_RL_HDR, 1, 1, 10).setBackgroundObject(C_DGRAY).setFontColor('#ffffff')
+             .setFontWeight('bold').setFontSize(11);
+    dashboard.getRange(R_MR_HDR, 1, 1, 10).setBackgroundObject(C_DGRAY).setFontColor('#ffffff')
+             .setFontWeight('bold').setFontSize(10);
+    dashboard.getRange(R_RBD_HDR, 1, 1, 10).setBackgroundObject(C_DGRAY).setFontColor('#ffffff')
+             .setFontWeight('bold').setFontSize(10);
+
+    // Run Log column headers
+    [R_RL_COLS, R_MR_COLS, R_RBD_COLS].forEach(function(r) {
+      dashboard.getRange(r, 1, 1, 10).setBackgroundObject(C_ORANGE2).setFontColor('#ffffff')
+               .setFontWeight('bold').setFontSize(10).setHorizontalAlignment('center');
+      dashboard.getRange(r, 1).setHorizontalAlignment('left');
+    });
+
+    // Run Log KPI data row
+    dashboard.getRange(R_RL_DATA, 1, 1, 10).setBackgroundObject(C_STRIPE).setFontWeight('bold')
+             .setFontSize(11).setHorizontalAlignment('center').setNumberFormat('#,##0.#');
+
+    // Most Recent Run data row
+    dashboard.getRange(R_MR_DATA, 1, 1, 10).setBackgroundObject(C_STRIPE).setFontSize(10)
+             .setHorizontalAlignment('center');
+    dashboard.getRange(R_MR_DATA, 1).setHorizontalAlignment('left');
+
+    // Column widths (only set once — they don't change with location count)
+    dashboard.setColumnWidth(1, 260);
+    for (var c = 2; c <= 7; c++) dashboard.setColumnWidth(c, 72);
+    dashboard.setColumnWidth(8, 80);
+    dashboard.setColumnWidth(9, 80);
+    dashboard.setColumnWidth(10, 130);
+
+    // Freeze through column headers row
+    dashboard.setFrozenRows(R_COL_HDR);
+
+    Logger.log('refreshDashboard_: complete. ' + n + ' locations, totals at row ' + R_TOTALS + ', run log at ' + R_RL_HDR + '.');
   } catch (e) {
     Logger.log('refreshDashboard_: failed (non-fatal): ' + e.message);
   }
