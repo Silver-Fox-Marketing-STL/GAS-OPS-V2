@@ -4,7 +4,7 @@ Config-driven Google Apps Script that produces vehicle window banner graphics
 (Shortcuts / Shortcut Packs) for automotive dealers: imports scraper inventory,
 matches ordered VINs, generates QR codes, and builds CSVs for Adobe Illustrator
 variable data printing. One universal script + one universal template replaces
-V1's ~42 per-dealer functions. **42 configured dealers, 28 active** (June 2026).
+V1's ~42 per-dealer functions. **43 configured dealers, 29 active** (June 2026).
 
 Nick is the primary developer and is using this project to learn Git/programming —
 explain reasoning and use beginner-friendly guidance, but stay efficient.

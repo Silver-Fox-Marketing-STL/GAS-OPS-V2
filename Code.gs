@@ -1134,7 +1134,8 @@ var FIELD_TO_COL = {
   'NEWYEARMAKE':        17,
   'TYPEVIN':            18,
   'YEARMODELSTOCK':     19,
-  'PRICE_PLUS_2000':    20
+  'PRICE_PLUS_2000':    20,
+  'PRICE_TAGLINE':      21
 };
 
 function buildCSVSheet_(outputDoc, typeRules) {

@@ -85,10 +85,10 @@ Master raw inventory feed. All scraped vehicle data across all dealers.
 - VIN (col A) and Stock (col B) stored as plain text (`@` format) to prevent QUERY mixed-type issues
 
 ### ORDERS
-One column per dealer (A through AP, 42 dealers). VINs written here by the Run Dealer modal starting at row 2.
+One column per dealer (A through AQ, 43 dealers). VINs written here by the Run Dealer modal starting at row 2.
 
 **Current column mapping (corrected May 2026):**
-A: Joe Machens Nissan | B: CDJR of Columbia | C: Joe Machens Hyundai | D: Kia of Columbia | E: Auffenberg Hyundai | F: Honda of Frontenac | G: Porsche St. Louis | H: Pappas Toyota | I: Twin City Toyota | J: Bommarito Cadillac | K: Serra Honda | L: SoCo DCJR | M: Glendale CDJR | N: Dave Sinclair Lincoln | O: Suntrup Kia South | P: Rusty Drewing Chevrolet Buick GMC | Q: Pundmann Ford | R: BMW of Columbia | S: Tom Stehouwer Auto Sales | T: Rusty Drewing Cadillac | U: Joe Machens Toyota | V: Land Rover Rancho Mirage | W: Audi Rancho Mirage | X: indiGO Auto Group | Y: Jaguar Rancho Mirage | Z: Suntrup Hyundai South | AA: Volvo Cars West County | AB: Thoroughbred Ford | AC: Dave Sinclair Lincoln St. Peters | AD: Suntrup Buick GMC | AE: Columbia Honda | AF: Suntrup Ford Westport | AG: HW Kia of West County | AH: Frank Leta Honda | AI: BMW of West St. Louis | AJ: Suntrup Ford Kirkwood | AK: Mercedes-Benz of Creve Coeur | AL: AutoLoanPRO | AM: Nissan of Jefferson City | AN: Hyundai of Jefferson City | AO: Honda of Jefferson City | AP: Mazda of Columbia
+A: Joe Machens Nissan | B: CDJR of Columbia | C: Joe Machens Hyundai | D: Kia of Columbia | E: Auffenberg Hyundai | F: Honda of Frontenac | G: Porsche St. Louis | H: Pappas Toyota | I: Twin City Toyota | J: Bommarito Cadillac | K: Serra Honda | L: SoCo DCJR | M: Glendale CDJR | N: Dave Sinclair Lincoln | O: Suntrup Kia South | P: Rusty Drewing Chevrolet Buick GMC | Q: Pundmann Ford | R: BMW of Columbia | S: Tom Stehouwer Auto Sales | T: Rusty Drewing Cadillac | U: Joe Machens Toyota | V: Land Rover Rancho Mirage | W: Audi Rancho Mirage | X: indiGO Auto Group | Y: Jaguar Rancho Mirage | Z: Suntrup Hyundai South | AA: Volvo Cars West County | AB: Thoroughbred Ford | AC: Dave Sinclair Lincoln St. Peters | AD: Suntrup Buick GMC | AE: Columbia Honda | AF: Suntrup Ford Westport | AG: HW Kia of West County | AH: Frank Leta Honda | AI: BMW of West St. Louis | AJ: Suntrup Ford Kirkwood | AK: Mercedes-Benz of Creve Coeur | AL: AutoLoanPRO | AM: Nissan of Jefferson City | AN: Hyundai of Jefferson City | AO: Honda of Jefferson City | AP: Mazda of Columbia | AQ: Dean Team Brentwood
 
 ### TRANSCRIPTION
 `VIN_TO_CHECK` (col A) and `STATUS` (col B). Col B contains a live ARRAYFORMULA that checks each VIN in col A against SCRAPERDATA col A in real time — paste a VIN and it instantly returns "Found" or "Not Found" without running any script. Used to verify VINs before creating an order. Cols D–E hold an optional `DEALER_FILTER` input — leave blank to check against all dealers.
@@ -306,6 +306,7 @@ Defined in the `CSV_SCHEMAS` tab of SF_DEALER_CONFIG.
 | `SC` | Shortcut only — minimal 3-col output | `YEARMODELSTOCK, TYPEVIN, @QR` |
 | `SCWSB` | Shortcut Windshield without the Shortcut (Dave Sinclair Lincoln) | `NEWYEARMAKE, MODEL, TRIM, YEARMODELSTOCK, TYPEVIN, @QR, MISC` |
 | `GLENDALE_COMBINED` | Glendale CDJR — YEARMODEL + TRIM + price+$2,000, two graphics | `YEARMODEL, TRIM, PRICE_PLUS_2000, YEARMODELSTOCK, TYPEVIN, @QR, YEARMODELSTOCK, TYPEVIN, @QR2, MISC` |
+| `SCP_TAGLINE` | Dean Team Brentwood — SCP layout + price-tier tagline appended | `NEWYEARMAKE, MODEL, TRIM, YEARMODELSTOCK, TYPEVIN, @QR, YEARMODELSTOCK, TYPEVIN, @QR2, MISC, PRICE_TAGLINE` |
 
 Column headers in the output CSV must match Illustrator template variable names exactly. `@`-prefixed codes are image path variables.
 
@@ -341,6 +342,7 @@ The `FIELD_TO_COL` constant in Code.gs maps field code names to 1-based ORDERMAT
 | `TYPEVIN` | 18 | `"USED - 7FARW2H90NE035008"` |
 | `YEARMODELSTOCK` | 19 | `"2024 CR-V - 262617A"` |
 | `PRICE_PLUS_2000` | 20 | `"$30,995"` — price + $2,000 (**live**; used by GLENDALE_COMBINED) |
+| `PRICE_TAGLINE` | 21 | Price-tier tagline (**live**; used by SCP_TAGLINE): `≥15000` → `"as low as $300/mo"`, `10000–14999` → `"Below $15,000"`, `<10000` → `"Below $10,000"`, non-numeric → blank |
 
 `buildCSVSheet_` reads 100 columns from ORDERMATCH — new field codes can be added through column CV without changing the read range.
 
@@ -374,6 +376,7 @@ Copied at runtime for each dealer order. The copy becomes the output document.
 | R | 18 | TYPEVIN | `=ARRAYFORMULA(IF(ISBLANK(A2:A),"",IF(ISNUMBER(SEARCH("CPO-EL",G2:G)),"CPO-EL - ",IF(ISNUMBER(SEARCH("CPO",G2:G)),"CPO - ",IF(ISNUMBER(SEARCH("New",G2:G)),"NEW - ","USED - ")))&UPPER(E2:E)))` |
 | S | 19 | YEARMODELSTOCK | `=ARRAYFORMULA(IF(ISBLANK(A2:A),"",UPPER(A2:A&" "&C2:C&" - "&F2:F)))` |
 | T | 20 | PRICE_PLUS_2000 | `=ARRAYFORMULA(IF(ISBLANK(A2:A),"",IF(H2:H="*","*","$"&TEXT(H2:H+2000,"#,##0"))))` |
+| U | 21 | PRICE_TAGLINE | `=ARRAYFORMULA(IF(ISBLANK(A2:A),"",IF(NOT(ISNUMBER(H2:H)),"",IF(H2:H>=15000,"as low as $300/mo",IF(H2:H>=10000,"Below $15,000","Below $10,000")))))` |
 
 **Cols A–I are the QUERY spill zone.** Nothing should be written there in the template. Col J is the first script-written column. Cols K onward are ARRAYFORMULAs that auto-expand with QUERY output.
 

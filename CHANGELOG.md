@@ -10,6 +10,11 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## [Unreleased]
 
+### Added
+- **New dealer: Dean Team Brentwood** (`DEAN_TEAM_BRENTWOOD`) — 43rd dealer row in DEALERS. ORDERS col AQ (the ORDERS sheet was widened from 42 to 43 columns), used-only (`allowed_types: ["PO","CPO"]`, `require_stock`/`require_price` true), Pipedrive deal IDs, `scraper_location_name` = "Dean Team Brentwood", CAO order entry, VIN log tab created. Drive output + QR folders created under the global OUTPUT folder.
+- **New field code `PRICE_TAGLINE`** — mapped at ORDERMATCH col 21 (U). ARRAYFORMULA renders a price-tier tagline from `PRICE_RAW` (col H): `≥ $15,000` → "as low as $300/mo"; `$10,000–$14,999` → "Below $15,000"; `< $10,000` → "Below $10,000"; non-numeric → blank. Added to `FIELD_TO_COL`.
+- **New CSV schema `SCP_TAGLINE`** — the SCP layout plus `PRICE_TAGLINE` appended as col_11. Used by Dean Team Brentwood; leaves the shared `SCP` schema untouched.
+
 ### Pending merge — `feature/health-monitoring`
 - Data health monitoring system: new `IMPORT_STATS` and `ORDER_STATS` sheets in SF_SYSTEM_MASTER
 - `writeImportStats_` and `checkImportHealth_` functions (Code.gs Section 29)
