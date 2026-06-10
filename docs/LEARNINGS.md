@@ -87,3 +87,16 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
 - Non-critical writes (stats, dashboard) get their own try/catch so they can
   never fail a production run; the same isolation rule applies to the planned
   Pipedrive push.
+- **User-configurable rule engines should fail OPEN.** The `filtering_rules`
+  targeting `conditions` engine (`evaluateCondition_`) passes the vehicle on any
+  misconfiguration — unknown field/op, empty values, unparseable number — so a
+  non-programmer's typo in the Rules Editor can never silently empty a dealer's
+  inventory. The wrong direction (fail-closed) hides config errors as "no cars".
+- **Make/Model are RAW (un-normalized) in SCRAPERDATA** (only Type/Trim/Status/
+  Price are normalized). For targeting on make/model, prefer `contains` and list
+  keyword variants (`F-250` *and* `F250`) — exact-match (`in`) is brittle against
+  feed inconsistency. Numeric ops on price must strip `$`/`,` first (prices are text).
+- **One field→column map, surfaced to the UI.** `FILTER_FIELD_INDEX` is the single
+  source of truth for condition fields; `getRulesEditorBootstrap` returns its keys
+  so the Rules Editor dropdowns can't drift from the engine. Duplicating the list in
+  HTML would be a latent divergence bug.

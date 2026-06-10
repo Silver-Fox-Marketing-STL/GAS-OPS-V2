@@ -544,6 +544,35 @@
       </table>
       <button class="btn-add-season" onclick="addSeasoningRow()">+ Add Seasoning Rule</button>
 
+      <!-- Targeting Conditions -->
+      <div class="section-label" style="margin-top: 18px;">Targeting Conditions</div>
+      <div class="pill-hint">Field-based include/exclude. Applied to CAO auto-fill <em>and</em> manual runs (the Bypass checkbox overrides per run). Make/Model are raw text — list keyword variants like <code>F-250</code> and <code>F250</code>. Leave Applies-To empty to apply to all types.</div>
+      <table class="seasoning-table" id="conditionsTable">
+        <thead>
+          <tr>
+            <th style="width:110px">Field</th>
+            <th style="width:135px">Operator</th>
+            <th>Values (comma-separated)</th>
+            <th style="width:160px">Applies To</th>
+            <th style="width:60px"></th>
+          </tr>
+        </thead>
+        <tbody id="conditionsBody">
+          <tr id="conditionsEmpty"><td colspan="5" class="placeholder">No targeting conditions configured.</td></tr>
+        </tbody>
+      </table>
+      <button class="btn-add-season" onclick="addConditionRow()">+ Add Condition</button>
+
+      <!-- Exclude from CAO auto-fill -->
+      <div class="section-label" style="margin-top: 18px;">Exclude from CAO Auto-Fill</div>
+      <div class="pill-group" id="caoExcludeTypes">
+        <div class="pill type-new"  data-type="New"    onclick="togglePill(this)">New</div>
+        <div class="pill type-po"   data-type="PO"     onclick="togglePill(this)">PO</div>
+        <div class="pill type-cpo"  data-type="CPO"    onclick="togglePill(this)">CPO</div>
+        <div class="pill type-cpoel" data-type="CPO-EL" onclick="togglePill(this)">CPO-EL</div>
+      </div>
+      <div class="pill-hint">These types are skipped during CAO auto-fill but still print when entered manually. Keep them in <strong>Allowed Types</strong> so manual runs aren't blocked.</div>
+
     </div>
     <div class="save-row">
       <div id="filterUnsaved" style="font-size:11px;color:#e67e00;align-self:center;display:none;">Unsaved changes</div>
@@ -557,6 +586,9 @@
   <script>
     var currentDealerKey = null;
     var availableSchemas = [];
+    var availableFilterFields = [];
+    var availableFilterOps    = [];
+    var filterNumericFields   = [];
     var typeRules        = [];   // live working copy
     var typeDirty        = false;
     var filterDirty      = false;
@@ -565,8 +597,11 @@
     window.onload = function() {
       google.script.run
         .withSuccessHandler(function(data) {
-          // data = { dealers: [{key, name}], schemas: ['SCP', 'SCP_NEW', ...] }
-          availableSchemas = data.schemas;
+          // data = { dealers, schemas, filterFields, filterOps, filterNumericFields }
+          availableSchemas      = data.schemas;
+          availableFilterFields = data.filterFields || [];
+          availableFilterOps    = data.filterOps || [];
+          filterNumericFields   = data.filterNumericFields || [];
           populateDealerDropdown(data.dealers);
           populateSchemaDropdown(data.schemas);
           document.getElementById('loadingOverlay').classList.add('hidden');
@@ -833,6 +868,21 @@
           addSeasoningRow(s.type, s.days);
         });
       }
+
+      // Targeting conditions
+      var cbody = document.getElementById('conditionsBody');
+      cbody.innerHTML = '<tr id="conditionsEmpty"><td colspan="5" class="placeholder">No targeting conditions configured.</td></tr>';
+      if (fr.conditions && fr.conditions.length > 0) {
+        fr.conditions.forEach(function(c) {
+          addConditionRow(c.field, c.op, (c.values || []).join(', '), c.applies_to || []);
+        });
+      }
+
+      // Exclude from CAO auto-fill
+      var caoEx = fr.cao_exclude_types || [];
+      document.querySelectorAll('#caoExcludeTypes .pill').forEach(function(pill) {
+        pill.classList.toggle('active', caoEx.indexOf(pill.dataset.type) !== -1);
+      });
     }
 
     function collectFilteringRules() {
@@ -862,11 +912,44 @@
         require_stock: document.getElementById('reqStock').checked,
         require_price: document.getElementById('reqPrice').checked
       };
+      // Targeting conditions
+      var conditions = [];
+      document.querySelectorAll('#conditionsBody tr[data-cond-row]').forEach(function(row) {
+        var field = row.querySelector('.cond-field').value;
+        var op    = row.querySelector('.cond-op').value;
+        var vals  = row.querySelector('.cond-values').value
+                      .split(',').map(function(s){ return s.trim(); }).filter(function(s){ return s !== ''; });
+        if (!field || !op || vals.length === 0) return;  // skip incomplete rows
+
+        var values;
+        if (op === 'gte' || op === 'lte') {
+          var n = parseFloat(String(vals[0]).replace(/[$,]/g, ''));
+          if (isNaN(n)) return;  // skip invalid numeric threshold
+          values = [n];
+        } else {
+          values = vals;
+        }
+
+        var appliesTo = [];
+        row.querySelectorAll('.cond-applies .pill.active').forEach(function(p){ appliesTo.push(p.dataset.type); });
+
+        var cond = { field: field, op: op, values: values };
+        if (appliesTo.length > 0) cond.applies_to = appliesTo;
+        conditions.push(cond);
+      });
+
+      var caoExclude = [];
+      document.querySelectorAll('#caoExcludeTypes .pill.active').forEach(function(p) {
+        caoExclude.push(p.dataset.type);
+      });
+
       if (allowed.length > 0) rules.allowed_types  = allowed;
       if (excluded.length > 0) rules.exclude_status = excluded;
       if (minP !== '' && minP !== null) rules.min_price = parseFloat(minP);
       if (maxP !== '' && maxP !== null) rules.max_price = parseFloat(maxP);
       if (seasoning.length > 0) rules.seasoning = seasoning;
+      if (conditions.length > 0) rules.conditions = conditions;
+      if (caoExclude.length > 0) rules.cao_exclude_types = caoExclude;
 
       return rules;
     }
@@ -918,6 +1001,75 @@
       markFilterDirty();
     }
 
+    // ── Targeting conditions ─────────────────────────────────────────────────────
+    var condRowCounter = 0;
+    var OP_LABELS = {
+      in: 'is one of', not_in: 'is not one of', contains: 'contains',
+      not_contains: "doesn't contain", gte: 'at least (≥)', lte: 'at most (≤)'
+    };
+
+    function prettyFieldLabel_(f) {
+      return f.replace(/_/g, ' ').replace(/\b\w/g, function(c){ return c.toUpperCase(); });
+    }
+
+    function addConditionRow(field, op, valuesStr, appliesTo) {
+      var emptyRow = document.getElementById('conditionsEmpty');
+      if (emptyRow) emptyRow.remove();
+
+      condRowCounter++;
+      var tr = document.createElement('tr');
+      tr.setAttribute('data-cond-row', 'cond_' + condRowCounter);
+
+      var fields = availableFilterFields.length ? availableFilterFields
+        : ['type','year','make','model','trim','ext_color','status','price','body_style','fuel_type','msrp'];
+      var fieldOpts = fields.map(function(f) {
+        return '<option value="' + f + '"' + (f === field ? ' selected' : '') + '>' + prettyFieldLabel_(f) + '</option>';
+      }).join('');
+
+      var ops = availableFilterOps.length ? availableFilterOps
+        : ['in','not_in','contains','not_contains','gte','lte'];
+      var opOpts = ops.map(function(o) {
+        return '<option value="' + o + '"' + (o === op ? ' selected' : '') + '>' + (OP_LABELS[o] || o) + '</option>';
+      }).join('');
+
+      var applies = appliesTo || [];
+      var appliesPills = ['New','PO','CPO','CPO-EL'].map(function(t) {
+        var active = applies.indexOf(t) !== -1 ? ' active' : '';
+        return '<span class="pill' + active + '" data-type="' + t + '" ' +
+          'style="font-size:10px;padding:2px 6px;margin:1px;" onclick="toggleCondPill(this)">' + t + '</span>';
+      }).join('');
+
+      var valEsc = String(valuesStr || '').replace(/"/g, '&quot;');
+
+      tr.innerHTML =
+        '<td><select class="cond-field" onchange="markFilterDirty()">' + fieldOpts + '</select></td>' +
+        '<td><select class="cond-op" onchange="markFilterDirty()">' + opOpts + '</select></td>' +
+        '<td><input type="text" class="cond-values" value="' + valEsc + '" placeholder="e.g. Cadillac, F-250" oninput="markFilterDirty()" style="width:100%;box-sizing:border-box;" /></td>' +
+        '<td class="cond-applies"><div class="pill-group" style="gap:2px;flex-wrap:wrap;">' + appliesPills + '</div></td>' +
+        '<td><button class="btn-remove-season" onclick="removeConditionRow(this)">Remove</button></td>';
+
+      document.getElementById('conditionsBody').appendChild(tr);
+      markFilterDirty();
+    }
+
+    function toggleCondPill(span) {
+      span.classList.toggle('active');
+      markFilterDirty();
+    }
+
+    function removeConditionRow(btn) {
+      var row = btn.closest('tr');
+      row.remove();
+      var tbody = document.getElementById('conditionsBody');
+      if (tbody.querySelectorAll('tr[data-cond-row]').length === 0) {
+        var emptyRow = document.createElement('tr');
+        emptyRow.id = 'conditionsEmpty';
+        emptyRow.innerHTML = '<td colspan="5" class="placeholder">No targeting conditions configured.</td>';
+        tbody.appendChild(emptyRow);
+      }
+      markFilterDirty();
+    }
+
     function saveFilterRules() {
       if (!currentDealerKey) return;
       var rules = collectFilteringRules();
@@ -959,6 +1111,9 @@
       document.getElementById('maxPrice').value = '';
       var tbody = document.getElementById('seasoningBody');
       tbody.innerHTML = '<tr id="seasoningEmpty"><td colspan="3" class="placeholder">No seasoning rules configured.</td></tr>';
+      var cbody = document.getElementById('conditionsBody');
+      cbody.innerHTML = '<tr id="conditionsEmpty"><td colspan="5" class="placeholder">No targeting conditions configured.</td></tr>';
+      document.querySelectorAll('#caoExcludeTypes .pill').forEach(function(p) { p.classList.remove('active'); });
       filterDirty = false;
       updateFilterDirty();
     }

@@ -438,15 +438,24 @@
       var labels = {
         no_stock: 'Missing stock number', no_price: 'Missing or invalid price', type: 'Type not allowed',
         status: 'Status excluded', price_low: 'Below min price',
-        price_high: 'Above max price', seasoning: 'Not yet seasoned'
+        price_high: 'Above max price', seasoning: 'Not yet seasoned',
+        cao_excluded: 'Excluded from CAO (manual-only)'
       };
+      function rejectionLabel(k) {
+        if (labels[k]) return labels[k];
+        if (k.indexOf('cond:') === 0) {
+          return 'Condition: ' + k.slice(5).replace(/_/g, ' ').replace(/\b\w/g, function(c){ return c.toUpperCase(); });
+        }
+        return k;
+      }
       var rows = '';
       var totalRejected = s.totalInventory - s.afterFiltering;
       if (totalRejected > 0) {
         rows += '<div class="rejection-detail">Filtered out (' + totalRejected + '):</div>';
-        Object.keys(labels).forEach(function(k) {
+        // Iterate the actual breakdown so new targeting reasons (cond:*, cao_excluded) render too.
+        Object.keys(b).forEach(function(k) {
           if (b[k] > 0) rows += '<div class="summary-row rejection-detail"><span>&nbsp;&nbsp;' +
-            labels[k] + '</span><span>' + b[k] + '</span></div>';
+            rejectionLabel(k) + '</span><span>' + b[k] + '</span></div>';
         });
       }
       document.getElementById('rejectionRows').innerHTML = rows;

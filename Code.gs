@@ -548,7 +548,7 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
           passedVins.push(identifier);
           return;
         }
-        var result = applyFilteringRules_([scraperRow], filterRules);
+        var result = applyFilteringRules_([scraperRow], filterRules, 'run');
         if (result.passed.length > 0) {
           passedVins.push(identifier);
         } else {
@@ -1792,15 +1792,28 @@ function moveNormEntry(sheetRow, direction) {
 // SECTION 21: FILTERING RULES ENGINE
 // ============================================================================
 
+// Field name -> SCRAPERDATA 0-based column index. Single source of truth for the
+// targeting-conditions engine (evaluateCondition_) and surfaced to the Rules
+// Editor UI via getRulesEditorBootstrap so the dropdowns never drift from here.
+var FILTER_FIELD_INDEX = {
+  type: 2, year: 3, make: 4, model: 5, trim: 6, ext_color: 7,
+  status: 8, price: 9, body_style: 10, fuel_type: 11, msrp: 12
+};
+// Fields compared numerically (gte/lte). All others are string ops.
+var FILTER_NUMERIC_FIELDS = { price: true, msrp: true, year: true };
+var FILTER_OPS = ['in', 'not_in', 'contains', 'not_contains', 'gte', 'lte'];
+
 function getDealerFilterRules_(config) {
   var defaults = {
-    allowedTypes:  null,
-    excludeStatus: [],
-    requireStock:  false,
-    requirePrice:  false,
-    minPrice:      null,
-    maxPrice:      null,
-    seasoning:     []
+    allowedTypes:    null,
+    excludeStatus:   [],
+    requireStock:    false,
+    requirePrice:    false,
+    minPrice:        null,
+    maxPrice:        null,
+    seasoning:       [],
+    conditions:      [],
+    caoExcludeTypes: []
   };
 
   var raw = config[CFG.FILTER_RULES];
@@ -1815,17 +1828,20 @@ function getDealerFilterRules_(config) {
   }
 
   return {
-    allowedTypes:  Array.isArray(parsed.allowed_types)   ? parsed.allowed_types  : null,
-    excludeStatus: Array.isArray(parsed.exclude_status)  ? parsed.exclude_status : [],
-    requireStock:  parsed.require_stock === true,
-    requirePrice:  parsed.require_price === true,
-    minPrice:      (typeof parsed.min_price === 'number') ? parsed.min_price     : null,
-    maxPrice:      (typeof parsed.max_price === 'number') ? parsed.max_price     : null,
-    seasoning:     Array.isArray(parsed.seasoning)       ? parsed.seasoning      : []
+    allowedTypes:    Array.isArray(parsed.allowed_types)   ? parsed.allowed_types  : null,
+    excludeStatus:   Array.isArray(parsed.exclude_status)  ? parsed.exclude_status : [],
+    requireStock:    parsed.require_stock === true,
+    requirePrice:    parsed.require_price === true,
+    minPrice:        (typeof parsed.min_price === 'number') ? parsed.min_price     : null,
+    maxPrice:        (typeof parsed.max_price === 'number') ? parsed.max_price     : null,
+    seasoning:       Array.isArray(parsed.seasoning)       ? parsed.seasoning      : [],
+    conditions:      Array.isArray(parsed.conditions)        ? parsed.conditions        : [],
+    caoExcludeTypes: Array.isArray(parsed.cao_exclude_types) ? parsed.cao_exclude_types : []
   };
 }
 
-function applyFilteringRules_(vehicles, filterRules) {
+function applyFilteringRules_(vehicles, filterRules, phase) {
+  if (!phase) phase = 'run';  // 'cao' = CAO pre-fill, 'run' = order run
   var passed   = [];
   var rejected = [];
   var today    = new Date();
@@ -1917,10 +1933,97 @@ function applyFilteringRules_(vehicles, filterRules) {
       }
     }
 
+    // Targeting conditions — apply in BOTH phases (the Bypass checkbox is the
+    // per-run override). Run last so legacy rejection reasons keep precedence.
+    if (Array.isArray(filterRules.conditions) && filterRules.conditions.length > 0) {
+      var condFailed = false;
+      for (var ci = 0; ci < filterRules.conditions.length; ci++) {
+        var cond = filterRules.conditions[ci];
+        if (Array.isArray(cond.applies_to) && cond.applies_to.length > 0) {
+          var typeInScope = cond.applies_to.some(function(t) {
+            return String(t).toLowerCase() === typeLower;
+          });
+          if (!typeInScope) continue;  // condition not scoped to this type -> skip (pass)
+        }
+        var ev = evaluateCondition_(row, cond);
+        if (!ev.pass) {
+          rejected.push({ row: row, reason: ev.reason,
+            detail: cond.field + ' ' + cond.op + ' ' + JSON.stringify(cond.values) });
+          condFailed = true;
+          break;
+        }
+      }
+      if (condFailed) return;
+    }
+
+    // CAO-only: "manual-only" types are skipped during auto-fill but still print
+    // when entered manually (never applied at run time).
+    if (phase === 'cao' && Array.isArray(filterRules.caoExcludeTypes) &&
+        filterRules.caoExcludeTypes.length > 0) {
+      var caoExcluded = filterRules.caoExcludeTypes.some(function(t) {
+        return String(t).toLowerCase() === typeLower;
+      });
+      if (caoExcluded) {
+        rejected.push({ row: row, reason: 'cao_excluded', detail: type });
+        return;
+      }
+    }
+
     passed.push(row);
   });
 
   return { passed: passed, rejected: rejected };
+}
+
+// Evaluates one targeting condition against a single SCRAPERDATA row.
+// Returns { pass: bool, reason: string|null }. Fails OPEN on any misconfiguration
+// (unknown field/op, empty values, unparseable number) so a config typo can never
+// silently empty a dealer's inventory.
+function evaluateCondition_(row, condition) {
+  var ok = { pass: true, reason: null };
+  if (!condition || !condition.field || !condition.op) return ok;
+
+  var field = String(condition.field).toLowerCase();
+  if (!FILTER_FIELD_INDEX.hasOwnProperty(field)) {
+    Logger.log('evaluateCondition_: unknown field "' + condition.field + '" — skipping (fail-open).');
+    return ok;
+  }
+
+  var values = Array.isArray(condition.values) ? condition.values : [];
+  if (values.length === 0) return ok;  // empty values = no-op
+
+  var op     = String(condition.op).toLowerCase();
+  var cell   = String(row[FILTER_FIELD_INDEX[field]] || '').trim();
+  var reason = 'cond:' + field;
+  var fail   = { pass: false, reason: reason };
+
+  // Numeric operators — price-safe coercion (prices are stored as text; strip $ and ,).
+  if (op === 'gte' || op === 'lte') {
+    var num = parseFloat(cell.replace(/[$,]/g, ''));
+    if (isNaN(num)) return ok;  // missing/garbage number — fail-open
+    var threshold = parseFloat(String(values[0]).replace(/[$,]/g, ''));
+    if (isNaN(threshold)) return ok;
+    if (op === 'gte') return (num >= threshold) ? ok : fail;
+    return (num <= threshold) ? ok : fail;
+  }
+
+  // String operators — case-insensitive.
+  var cellLower = cell.toLowerCase();
+  var lowerVals = values.map(function(v) { return String(v).toLowerCase(); });
+
+  switch (op) {
+    case 'in':
+      return (lowerVals.indexOf(cellLower) !== -1) ? ok : fail;
+    case 'not_in':
+      return (lowerVals.indexOf(cellLower) === -1) ? ok : fail;
+    case 'contains':
+      return lowerVals.some(function(v) { return v !== '' && cellLower.indexOf(v) !== -1; }) ? ok : fail;
+    case 'not_contains':
+      return lowerVals.every(function(v) { return v === '' || cellLower.indexOf(v) === -1; }) ? ok : fail;
+    default:
+      Logger.log('evaluateCondition_: unknown op "' + condition.op + '" — skipping (fail-open).');
+      return ok;
+  }
 }
 
 function parseDateInStock_(val) {
@@ -1974,12 +2077,15 @@ function getCaoVins(dealerKey) {
   }
 
   var filterRules  = getDealerFilterRules_(config);
-  var filterResult = applyFilteringRules_(allVehicles, filterRules);
+  var filterResult = applyFilteringRules_(allVehicles, filterRules, 'cao');
   var filtered     = filterResult.passed;
 
+  // Seed the legacy reasons (stable UI order), then count any reason dynamically
+  // so new targeting reasons (cond:*, cao_excluded) flow through to the summary.
   var breakdown = { no_stock: 0, no_price: 0, type: 0, status: 0, price_low: 0, price_high: 0, seasoning: 0 };
   filterResult.rejected.forEach(function(r) {
-    if (breakdown.hasOwnProperty(r.reason)) breakdown[r.reason]++;
+    if (!breakdown.hasOwnProperty(r.reason)) breakdown[r.reason] = 0;
+    breakdown[r.reason]++;
   });
 
   var loggedVins   = getLoggedVins_(dealerKey);
@@ -2356,7 +2462,15 @@ function getRulesEditorBootstrap() {
     if (key !== '') schemas.push(key);
   }
 
-  return { dealers: dealers, schemas: schemas };
+  // Targeting-condition metadata so the Rules Editor builds its field/operator
+  // dropdowns from the engine's single source of truth (FILTER_FIELD_INDEX).
+  return {
+    dealers: dealers,
+    schemas: schemas,
+    filterFields:        Object.keys(FILTER_FIELD_INDEX),
+    filterOps:           FILTER_OPS,
+    filterNumericFields: Object.keys(FILTER_NUMERIC_FIELDS)
+  };
 }
 
 /**

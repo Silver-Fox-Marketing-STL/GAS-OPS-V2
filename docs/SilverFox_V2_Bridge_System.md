@@ -269,15 +269,37 @@ Live source of truth for all scraper data normalization rules. **Managed via Sil
 
 **`seasoning`:** Filters on SCRAPERDATA col N (Date In Stock). A vehicle passes if `today - dateInStock >= required days`. Vehicles with unparseable dates pass through.
 
-**Rejection reasons** (shown in CAO summary and logged during runs): `no_stock`, `no_price`, `type`, `status`, `price_low`, `price_high`, `seasoning`.
+**Rejection reasons** (shown in CAO summary and logged during runs): `no_stock`, `no_price`, `type`, `status`, `price_low`, `price_high`, `seasoning`, plus `cao_excluded` and one `cond:<field>` per targeting condition (e.g. `cond:make`). The CAO summary renders these dynamically.
+
+### Targeting conditions & CAO exclusions *(added June 2026)*
+
+Two optional keys extend the flat rules above with granular, field-based targeting — fully configurable in the **Edit Dealer Rules** modal (Filtering tab), no code per dealer.
+
+**`conditions`** — an array of generic field criteria, evaluated after all the flat rules (first rejection still wins). Each:
+```json
+{ "field": "make", "op": "contains", "values": ["Cadillac"], "applies_to": ["New"] }
+```
+- `field` — one of `type, year, make, model, trim, ext_color, status, price, body_style, fuel_type, msrp` (mapped to SCRAPERDATA indices by `FILTER_FIELD_INDEX` in Code.gs — the single source of truth, surfaced to the UI via `getRulesEditorBootstrap`).
+- `op` — `in`, `not_in`, `contains`, `not_contains` (string, case-insensitive), or `gte`, `lte` (numeric; price-safe — strips `$`/`,` before compare, since prices are stored as text).
+- `values` — array. `contains`/`not_contains` match **any** value (OR).
+- `applies_to` — optional array of types; the condition is only evaluated for those types (others skip = pass). Omit = all types.
+- **Fail-open:** unknown field/op, empty values, or an unparseable number → the condition passes (a config typo can never silently empty a dealer's inventory).
+- **Applied in both phases** (CAO + run time). The "Bypass filtering rules" checkbox is the per-run override.
+
+**`cao_exclude_types`** — array of types removed from CAO auto-fill **only**. They still print when entered manually (no bypass needed). This is the "manual-only type" mechanism. Keep the type in `allowed_types` so manual runs aren't blocked by the legacy gate.
+
+**Example dealers:**
+- *Bommarito Cadillac* — all used; New only if Cadillac: `{"conditions":[{"field":"make","op":"contains","values":["Cadillac"],"applies_to":["New"]}]}`
+- *Pundmann Ford* — exclude commercial + F-250: `{"conditions":[{"field":"model","op":"not_contains","values":["F-250","F250"]},{"field":"body_style","op":"not_contains","values":["commercial"]}]}`
+- *Dave Sinclair St. Peters* — CAO only used ≥ $35k, New manual-only: `{"cao_exclude_types":["New"],"conditions":[{"field":"price","op":"gte","values":[35000],"applies_to":["PO","CPO","CPO-EL"]}]}`
 
 ### Where filtering is applied
 
-**At CAO pre-fill time** (`getCaoVins`): applied to raw SCRAPERDATA rows, then VIN log dedup.
+**At CAO pre-fill time** (`getCaoVins`, phase `cao`): applied to raw SCRAPERDATA rows, then VIN log dedup. Both `conditions` and `cao_exclude_types` are active.
 
-**At run time, step 8.5** (`runDealer`): applied to the ordered VINs array before the ORDERMATCH QUERY is written. If all VINs are filtered, the run aborts with a descriptive error.
+**At run time, step 8.5** (`runDealer`, phase `run`): applied to the ordered VINs array before the ORDERMATCH QUERY is written. `conditions` are active; `cao_exclude_types` is **not** (so manual-only types print). If all VINs are filtered, the run aborts with a descriptive error.
 
-**Bypass:** The Run Dealer modal has a "Bypass filtering rules" checkbox. When enabled, step 8.5 is skipped entirely.
+**Bypass:** The Run Dealer modal has a "Bypass filtering rules" checkbox. When enabled, step 8.5 is skipped entirely — the per-run override for manual orders.
 
 ### Current filtering_rules by dealer category
 
