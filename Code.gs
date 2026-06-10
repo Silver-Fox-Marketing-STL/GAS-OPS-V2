@@ -400,7 +400,17 @@ function importScraperData(mappedData) {
   // Update the scraper timestamp
   fillScraperDateTime();
 
-  return { rowCount: mappedData.length, colCount: colCount, review: review };
+  // Write per-location stats row to IMPORT_STATS (append)
+  var importTimestamp = Utilities.formatDate(new Date(), 'America/Chicago', 'yyyy-MM-dd HH:mm:ss');
+  writeImportStats_(ss, importTimestamp, review.locationDetail);
+
+  // Run health check against historical IMPORT_STATS baselines
+  var healthIssues = checkImportHealth_(ss, importTimestamp, review.locationDetail);
+
+  // Refresh DASHBOARD sheet with latest location data (non-fatal)
+  refreshDashboard_(ss, importTimestamp, review.locationDetail);
+
+  return { rowCount: mappedData.length, colCount: colCount, review: review, healthIssues: healthIssues };
 }
 
 // Called by the sidebar to populate the dropdown
@@ -807,8 +817,11 @@ function normalizeScraperData_(rows) {
 }
 
 function computeImportReview_(rows) {
+  var VIN_COL      = 0;
+  var STOCK_COL    = 1;
   var TYPE_COL     = 2;
   var STATUS_COL   = 8;
+  var PRICE_COL    = 9;
   var LOCATION_COL = 19;
 
   var total              = 0;
@@ -816,12 +829,19 @@ function computeImportReview_(rows) {
   var statusCounts       = {};
   var locationTypeCounts = {};
 
+  // Per-location detail map used by writeImportStats_ and checkImportHealth_
+  // Structure: { locationName: { total, new, po, cpo, cpo_el, other_types,
+  //                               onlot, offlot, other_status, no_price, no_stock } }
+  var locationDetail = {};
+
   for (var i = 0; i < rows.length; i++) {
-    var vin = String(rows[i][0]).trim();
+    var vin = String(rows[i][VIN_COL]).trim();
     if (vin === '' || vin === '*') continue;
 
+    var stock    = String(rows[i][STOCK_COL]).trim();
     var type     = String(rows[i][TYPE_COL]).trim();
     var status   = String(rows[i][STATUS_COL]).trim();
+    var price    = String(rows[i][PRICE_COL]).trim();
     var location = String(rows[i][LOCATION_COL]).trim();
 
     total++;
@@ -830,13 +850,41 @@ function computeImportReview_(rows) {
 
     if (!locationTypeCounts[location]) locationTypeCounts[location] = {};
     locationTypeCounts[location][type] = (locationTypeCounts[location][type] || 0) + 1;
+
+    // Build per-location detail
+    if (!locationDetail[location]) {
+      locationDetail[location] = {
+        total: 0, new: 0, po: 0, cpo: 0, cpo_el: 0, other_types: 0,
+        onlot: 0, offlot: 0, other_status: 0, no_price: 0, no_stock: 0
+      };
+    }
+    var loc = locationDetail[location];
+    loc.total++;
+
+    // Type buckets
+    if      (type === 'New')    loc.new++;
+    else if (type === 'PO')     loc.po++;
+    else if (type === 'CPO')    loc.cpo++;
+    else if (type === 'CPO-EL') loc.cpo_el++;
+    else                        loc.other_types++;
+
+    // Status buckets
+    if      (status === 'ONLOT')  loc.onlot++;
+    else if (status === 'OFFLOT') loc.offlot++;
+    else                          loc.other_status++;
+
+    // Missing field flags
+    var priceNum = parseFloat(price);
+    if (price === '' || price === '*' || price === '0' || priceNum === 0) loc.no_price++;
+    if (stock === '' || stock === '*') loc.no_stock++;
   }
 
   return {
     total:              total,
     typeCounts:         typeCounts,
     statusCounts:       statusCounts,
-    locationTypeCounts: locationTypeCounts
+    locationTypeCounts: locationTypeCounts,
+    locationDetail:     locationDetail
   };
 }
 
@@ -1188,33 +1236,62 @@ function copyVINLogToOutput_(outputDoc, dealerKey) {
 // ============================================================================
 
 function writeRunLog_(config, dealId, totalOrdered, totalMatched, billing, outputDocId, durationSec, errors, producedVins) {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('RUN_LOG');
+  var ss              = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet           = ss.getSheetByName('RUN_LOG');
   var producedVinsCSV = Array.isArray(producedVins) ? producedVins.join(',') : '';
+  var timestamp       = Utilities.formatDate(new Date(), 'America/Chicago', 'yyyy-MM-dd HH:mm:ss');
+  var vinsProduced    = Array.isArray(producedVins) ? producedVins.length : 0;
+
   sheet.appendRow([
-    Utilities.formatDate(new Date(), 'America/Chicago', 'yyyy-MM-dd HH:mm:ss'),  // A: run_timestamp
-    config[CFG.KEY],              // B: dealer_key
-    config[CFG.NAME],             // C: dealer_name
-    dealId || '',                 // D: order_id (Pipedrive Deal ID)
-    totalOrdered,                 // E: total_ordered
-    totalMatched,                 // F: total_matched
-    billing.totalNew    || 0,     // G: total_new
-    billing.totalPO     || 0,     // H: total_po
-    billing.totalCPO    || 0,     // I: total_cpo
-    billing.totalCPOEL  || 0,     // J: total_cpo_el
-    billing.newDupes    || 0,     // K: new_dupes
-    billing.poDupes     || 0,     // L: po_dupes
-    billing.cpoDupes    || 0,     // M: cpo_dupes
-    billing.cpoElDupes  || 0,     // N: cpo_el_dupes
-    billing.totalDupes  || 0,     // O: total_dupes
-    totalMatched,                 // P: total_produced
-    '',                           // Q: qr_codes_generated
-    outputDocId,                  // R: output_doc_id
-    durationSec,                  // S: run_duration_sec
-    errors.join('; ') || '',      // T: errors
-    '',                           // U: notes
-    producedVinsCSV,              // V: produced_vins
-    ''                            // W: vin_log_status (blank = pending)
+    timestamp,                     // A: run_timestamp
+    config[CFG.KEY],               // B: dealer_key
+    config[CFG.NAME],              // C: dealer_name
+    dealId || '',                  // D: order_id (Pipedrive Deal ID)
+    totalOrdered,                  // E: total_ordered
+    totalMatched,                  // F: total_matched
+    billing.totalNew    || 0,      // G: total_new
+    billing.totalPO     || 0,      // H: total_po
+    billing.totalCPO    || 0,      // I: total_cpo
+    billing.totalCPOEL  || 0,      // J: total_cpo_el
+    billing.newDupes    || 0,      // K: new_dupes
+    billing.poDupes     || 0,      // L: po_dupes
+    billing.cpoDupes    || 0,      // M: cpo_dupes
+    billing.cpoElDupes  || 0,      // N: cpo_el_dupes
+    billing.totalDupes  || 0,      // O: total_dupes
+    totalMatched,                  // P: total_produced
+    '',                            // Q: qr_codes_generated
+    outputDocId,                   // R: output_doc_id
+    durationSec,                   // S: run_duration_sec
+    errors.join('; ') || '',       // T: errors
+    '',                            // U: notes
+    producedVinsCSV,               // V: produced_vins
+    ''                             // W: vin_log_status (blank = pending)
   ]);
+
+  // Also append a clean analytics row to ORDER_STATS
+  var matchRate = (totalOrdered > 0) ? (totalMatched / totalOrdered) : 0;
+  try {
+    var statsSheet = ss.getSheetByName('ORDER_STATS');
+    if (statsSheet) {
+      statsSheet.appendRow([
+        timestamp,                 // A: timestamp
+        config[CFG.KEY],           // B: dealer_key
+        config[CFG.NAME],          // C: dealer_name
+        dealId || '',              // D: order_id
+        totalOrdered,              // E: vins_ordered
+        totalMatched,              // F: vins_matched
+        vinsProduced,              // G: vins_produced
+        matchRate,                 // H: match_rate
+        billing.totalNew   || 0,   // I: new
+        billing.totalPO    || 0,   // J: po
+        billing.totalCPO   || 0,   // K: cpo
+        billing.totalCPOEL || 0    // L: cpo_el
+      ]);
+    }
+  } catch (e) {
+    Logger.log('writeRunLog_: ORDER_STATS append failed (non-fatal): ' + e.message);
+  }
+
   return sheet.getLastRow();
 }
 
@@ -2449,6 +2526,502 @@ function saveLastSelectedUser(userKey) {
     PropertiesService.getUserProperties().setProperty('last_selected_user', String(userKey).trim());
   }
 }
+
+// ============================================================================
+// SECTION 29: IMPORT HEALTH MONITORING
+// ============================================================================
+//
+// writeImportStats_ — appends one row per scraper location to IMPORT_STATS
+//   after every importScraperData() call.
+//
+// checkImportHealth_ — reads IMPORT_STATS history, computes per-location
+//   rolling averages, and returns an array of issue objects for display in
+//   the ScraperImport review panel and DASHBOARD sheet.
+//
+// Thresholds:
+//   HARD errors (flagged regardless of history):
+//     - total === 0 for a location that had data in a prior import
+//     - no_stock > 20% of total
+//     - no_price > 20% of total
+//
+//   Baseline warnings (require MIN_IMPORTS_FOR_BASELINE prior rows):
+//     - total dropped more than DROP_THRESHOLD below rolling average
+//     - new  dropped more than DROP_THRESHOLD below rolling average
+//     - po   dropped more than DROP_THRESHOLD below rolling average
+//     - unexpected type appeared (type that was 0 in all prior imports but >0 now)
+//
+// A location with fewer than MIN_IMPORTS_FOR_BASELINE prior rows returns
+// severity 'info' / "Building baseline" — not a warning.
+// ============================================================================
+
+var MIN_IMPORTS_FOR_BASELINE = 5;
+var DROP_THRESHOLD           = 0.40;  // 40% drop triggers a warning
+var MISSING_FIELD_THRESHOLD  = 0.20;  // 20% missing triggers a hard error
+
+/**
+ * Appends one row per scraper location to the IMPORT_STATS sheet.
+ * Called from importScraperData() after normalization and review computation.
+ *
+ * @param {Spreadsheet} ss              - SF_SYSTEM_MASTER spreadsheet object
+ * @param {string}      timestamp       - formatted timestamp string
+ * @param {Object}      locationDetail  - per-location detail map from computeImportReview_
+ */
+function writeImportStats_(ss, timestamp, locationDetail) {
+  try {
+    var sheet = ss.getSheetByName('IMPORT_STATS');
+    if (!sheet) {
+      Logger.log('writeImportStats_: IMPORT_STATS sheet not found, skipping.');
+      return;
+    }
+    var locations = Object.keys(locationDetail);
+    if (locations.length === 0) return;
+
+    var rows = locations.map(function(loc) {
+      var d = locationDetail[loc];
+      return [
+        timestamp,     // A: timestamp
+        loc,           // B: scraper_location
+        d.total,       // C: total
+        d.new,         // D: new
+        d.po,          // E: po
+        d.cpo,         // F: cpo
+        d.cpo_el,      // G: cpo_el
+        d.other_types, // H: other_types
+        d.onlot,       // I: onlot
+        d.offlot,      // J: offlot
+        d.other_status,// K: other_status
+        d.no_price,    // L: no_price
+        d.no_stock     // M: no_stock
+      ];
+    });
+
+    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, 13).setValues(rows);
+    Logger.log('writeImportStats_: wrote ' + rows.length + ' location rows.');
+  } catch (e) {
+    Logger.log('writeImportStats_: failed (non-fatal): ' + e.message);
+  }
+}
+
+/**
+ * Reads IMPORT_STATS history and checks current import data for anomalies.
+ * Returns an array of issue objects, empty if everything looks healthy.
+ *
+ * @param {Spreadsheet} ss              - SF_SYSTEM_MASTER spreadsheet object
+ * @param {string}      currentTs       - timestamp of the current import (to exclude it from history)
+ * @param {Object}      locationDetail  - per-location detail map from computeImportReview_
+ * @returns {Array<{location, severity, message}>}
+ *   severity: 'error' | 'warning' | 'info'
+ */
+function checkImportHealth_(ss, currentTs, locationDetail) {
+  var issues = [];
+
+  try {
+    var sheet = ss.getSheetByName('IMPORT_STATS');
+    if (!sheet) return issues;
+
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return issues;  // No history yet at all
+
+    // Read all historical rows (excluding the rows we JUST wrote, identified by currentTs)
+    var allData = sheet.getRange(2, 1, lastRow - 1, 13).getValues();
+
+    // Build per-location history: { locationName: [ {total, new, po, cpo, cpo_el, no_price, no_stock}, ... ] }
+    var history = {};
+    for (var i = 0; i < allData.length; i++) {
+      var row = allData[i];
+      var ts  = String(row[0]).trim();
+      var loc = String(row[1]).trim();
+      if (!loc || ts === currentTs) continue;  // skip blank rows and current import
+
+      if (!history[loc]) history[loc] = [];
+      history[loc].push({
+        total:      Number(row[2])  || 0,
+        new:        Number(row[3])  || 0,
+        po:         Number(row[4])  || 0,
+        cpo:        Number(row[5])  || 0,
+        cpo_el:     Number(row[6])  || 0,
+        other_types:Number(row[7])  || 0,
+        onlot:      Number(row[8])  || 0,
+        offlot:     Number(row[9])  || 0,
+        no_price:   Number(row[11]) || 0,
+        no_stock:   Number(row[12]) || 0
+      });
+    }
+
+    // Evaluate each location in the current import
+    var locations = Object.keys(locationDetail);
+    locations.forEach(function(loc) {
+      var cur  = locationDetail[loc];
+      var hist = history[loc] || [];
+
+      // ── HARD ERROR: total is zero ────────────────────────────────────────
+      if (cur.total === 0) {
+        if (hist.length > 0) {
+          // Only flag if we've seen this location before with actual data
+          var hadData = hist.some(function(h) { return h.total > 0; });
+          if (hadData) {
+            var lastAvg = avg_(hist, 'total');
+            issues.push({
+              location: loc,
+              severity: 'error',
+              message:  'Total inventory is ZERO (historical avg: ' + Math.round(lastAvg) + ')'
+            });
+          }
+        }
+        return;  // No further checks if zero
+      }
+
+      // ── HARD ERROR: missing stock > 20% ─────────────────────────────────
+      var noStockPct = cur.no_stock / cur.total;
+      if (noStockPct > MISSING_FIELD_THRESHOLD) {
+        issues.push({
+          location: loc,
+          severity: 'error',
+          message:  Math.round(noStockPct * 100) + '% of vehicles missing stock number (' + cur.no_stock + ' of ' + cur.total + ')'
+        });
+      }
+
+      // ── HARD ERROR: missing price > 20% ─────────────────────────────────
+      var noPricePct = cur.no_price / cur.total;
+      if (noPricePct > MISSING_FIELD_THRESHOLD) {
+        issues.push({
+          location: loc,
+          severity: 'error',
+          message:  Math.round(noPricePct * 100) + '% of vehicles missing price (' + cur.no_price + ' of ' + cur.total + ')'
+        });
+      }
+
+      // ── BASELINE CHECKS ─────────────────────────────────────────────────
+      if (hist.length < MIN_IMPORTS_FOR_BASELINE) {
+        // Not enough history yet — note this neutrally only if something looks off
+        // (We intentionally don't flood the panel with info notices for every new location)
+        return;
+      }
+
+      var avgTotal = avg_(hist, 'total');
+      var avgNew   = avg_(hist, 'new');
+      var avgPO    = avg_(hist, 'po');
+
+      // Total drop warning
+      if (avgTotal > 0) {
+        var totalDrop = (avgTotal - cur.total) / avgTotal;
+        if (totalDrop >= DROP_THRESHOLD) {
+          issues.push({
+            location: loc,
+            severity: 'warning',
+            message:  'Total inventory down ' + Math.round(totalDrop * 100) + '% vs avg (' +
+                      'avg: ' + Math.round(avgTotal) + ', now: ' + cur.total + ')'
+          });
+        }
+      }
+
+      // New count drop warning (only if avg New was meaningful — >5)
+      if (avgNew > 5) {
+        var newDrop = (avgNew - cur.new) / avgNew;
+        if (newDrop >= DROP_THRESHOLD) {
+          issues.push({
+            location: loc,
+            severity: 'warning',
+            message:  'New inventory down ' + Math.round(newDrop * 100) + '% vs avg (' +
+                      'avg: ' + Math.round(avgNew) + ', now: ' + cur.new + ')'
+          });
+        }
+      }
+
+      // PO count drop warning (only if avg PO was meaningful — >5)
+      if (avgPO > 5) {
+        var poDrop = (avgPO - cur.po) / avgPO;
+        if (poDrop >= DROP_THRESHOLD) {
+          issues.push({
+            location: loc,
+            severity: 'warning',
+            message:  'PO inventory down ' + Math.round(poDrop * 100) + '% vs avg (' +
+                      'avg: ' + Math.round(avgPO) + ', now: ' + cur.po + ')'
+          });
+        }
+      }
+
+      // Unexpected type: a type that was consistently zero now has vehicles
+      var avgOtherTypes = avg_(hist, 'other_types');
+      if (avgOtherTypes === 0 && cur.other_types > 0) {
+        issues.push({
+          location: loc,
+          severity: 'warning',
+          message:  cur.other_types + ' vehicle' + (cur.other_types === 1 ? '' : 's') +
+                    ' with unexpected/unnormalized type (historically zero)'
+        });
+      }
+    });
+
+    // Check for locations that had data historically but are now ABSENT from this import
+    var currentLocations = {};
+    locations.forEach(function(l) { currentLocations[l] = true; });
+    Object.keys(history).forEach(function(loc) {
+      if (currentLocations[loc]) return;  // present in this import, skip
+      var hist = history[loc];
+      if (hist.length < 2) return;        // not enough history to flag
+      var hadData = hist.some(function(h) { return h.total > 0; });
+      if (!hadData) return;
+      // Location had data in prior imports but is missing entirely from this one
+      issues.push({
+        location: loc,
+        severity: 'error',
+        message:  'Location missing from this import entirely (historical avg: ' +
+                  Math.round(avg_(hist, 'total')) + ' vehicles)'
+      });
+    });
+
+  } catch (e) {
+    Logger.log('checkImportHealth_: failed (non-fatal): ' + e.message);
+  }
+
+  return issues;
+}
+
+/**
+ * Computes the average of a numeric field across an array of history objects.
+ * @param {Array}  arr   - array of history row objects
+ * @param {string} field - key to average
+ * @returns {number}
+ */
+function avg_(arr, field) {
+  if (!arr || arr.length === 0) return 0;
+  var sum = 0;
+  arr.forEach(function(row) { sum += (row[field] || 0); });
+  return sum / arr.length;
+}
+
+
+// ============================================================================
+// SECTION 30: DASHBOARD REFRESH
+// ============================================================================
+//
+// refreshDashboard_ — rewrites the per-location inventory table in the
+//   DASHBOARD sheet (rows 6–47 + totals row 47) using the locationDetail
+//   object from the current import. Called automatically at the end of
+//   importScraperData() so the dashboard always reflects the latest import.
+//
+// Dashboard layout (fixed, must match sheet structure):
+//   Row 1  — Title banner
+//   Row 2  — Last import timestamp
+//   Row 3  — Spacer
+//   Row 4  — Section header: INVENTORY SNAPSHOT
+//   Row 5  — Column headers (frozen)
+//   Rows 6–(5+N) — One row per location, sorted alphabetically
+//   Row (6+N) — TOTALS row
+//   Row (7+N) — Spacer
+//   Row (8+N) — RUN LOG SUMMARY section (formula-driven, not touched here)
+// ============================================================================
+
+var DASHBOARD_LOCATION_START_ROW = 6;   // first data row (1-indexed)
+var DASHBOARD_MAX_LOCATIONS      = 60;  // maximum locations we'll ever write
+
+/**
+ * Rewrites the location table and timestamp in the DASHBOARD sheet.
+ * Sorts locations alphabetically. Clears any stale rows beyond the
+ * current location count. Non-fatal — a failure here never breaks an import.
+ *
+ * @param {Spreadsheet} ss              - SF_SYSTEM_MASTER spreadsheet object
+ * @param {string}      importTimestamp - formatted timestamp string
+ * @param {Object}      locationDetail  - per-location detail map from computeImportReview_
+ */
+function refreshDashboard_(ss, importTimestamp, locationDetail) {
+  try {
+    var dashboard = ss.getSheetByName('DASHBOARD');
+    if (!dashboard) {
+      Logger.log('refreshDashboard_: DASHBOARD sheet not found, skipping.');
+      return;
+    }
+
+    // ── Color helpers ────────────────────────────────────────────────────────
+    function bg(r, g, b) {
+      return SpreadsheetApp.newColor().setRgbColor(
+        '#' + ('0' + Math.round(r).toString(16)).slice(-2) +
+              ('0' + Math.round(g).toString(16)).slice(-2) +
+              ('0' + Math.round(b).toString(16)).slice(-2)
+      ).build();
+    }
+    var C_DARK    = bg(38,  38,  38);
+    var C_ORANGE  = bg(192, 101, 36);
+    var C_ORANGE2 = bg(210, 120, 50);
+    var C_DGRAY   = bg(80,  80,  80);
+    var C_STRIPE  = bg(255, 248, 242);
+    var C_WHITE   = bg(255, 255, 255);
+    var C_LGRAY   = bg(245, 245, 245);
+
+    // ── Row positions (1-indexed) ────────────────────────────────────────────
+    var R_TITLE      = 1;
+    var R_TIMESTAMP  = 2;
+    var R_INV_HDR    = 4;
+    var R_COL_HDR    = 5;
+    var R_DATA_START = 6;
+
+    var locations = Object.keys(locationDetail).sort(function(a, b) {
+      return a.toLowerCase() < b.toLowerCase() ? -1 : 1;
+    });
+    var n = locations.length;
+
+    var R_TOTALS     = R_DATA_START + n;
+    var R_RL_HDR     = R_TOTALS + 2;
+    var R_RL_COLS    = R_RL_HDR  + 1;
+    var R_RL_DATA    = R_RL_HDR  + 2;
+    var R_MR_HDR     = R_RL_HDR  + 4;
+    var R_MR_COLS    = R_MR_HDR  + 1;
+    var R_MR_DATA    = R_MR_HDR  + 2;
+    var R_RBD_HDR    = R_MR_HDR  + 4;
+    var R_RBD_COLS   = R_RBD_HDR + 1;
+    var R_RBD_DATA   = R_RBD_HDR + 2;
+
+    // ── Clear everything from data start downward ────────────────────────────
+    var clearRows = DASHBOARD_MAX_LOCATIONS + 30;
+    dashboard.getRange(R_DATA_START, 1, clearRows, 10).clearContent();
+    dashboard.getRange(R_DATA_START, 1, clearRows, 10).clearFormat();
+
+    // ── Write timestamp ──────────────────────────────────────────────────────
+    dashboard.getRange(R_TIMESTAMP, 2).setValue(importTimestamp);
+
+    // ── Write column headers ─────────────────────────────────────────────────
+    dashboard.getRange(R_COL_HDR, 1, 1, 10).setValues([[
+      'Location', 'New', 'PO', 'CPO', 'CPO-EL', 'Other', 'Total', 'ONLOT', 'OFFLOT', 'No Price / No Stock'
+    ]]);
+
+    // ── Write location data rows ─────────────────────────────────────────────
+    var dataRows = locations.map(function(loc) {
+      var d = locationDetail[loc];
+      return [loc, d.new, d.po, d.cpo, d.cpo_el, d.other_types, d.total, d.onlot, d.offlot, d.no_price + ' / ' + d.no_stock];
+    });
+    if (n > 0) dashboard.getRange(R_DATA_START, 1, n, 10).setValues(dataRows);
+
+    // ── Compute and write totals ─────────────────────────────────────────────
+    var tot = locations.reduce(function(acc, loc) {
+      var d = locationDetail[loc];
+      acc.new += d.new; acc.po += d.po; acc.cpo += d.cpo; acc.cpo_el += d.cpo_el;
+      acc.other += d.other_types; acc.total += d.total; acc.onlot += d.onlot; acc.offlot += d.offlot;
+      return acc;
+    }, { new:0, po:0, cpo:0, cpo_el:0, other:0, total:0, onlot:0, offlot:0 });
+    dashboard.getRange(R_TOTALS, 1, 1, 10).setValues([[
+      'TOTALS', tot.new, tot.po, tot.cpo, tot.cpo_el, tot.other, tot.total, tot.onlot, tot.offlot, ''
+    ]]);
+
+    // ── Write Run Log section content ────────────────────────────────────────
+    dashboard.getRange(R_RL_HDR,  1).setValue('RUN LOG SUMMARY');
+    dashboard.getRange(R_RL_COLS, 1, 1, 6).setValues([[
+      'Total Runs', 'Total VINs Produced', 'Avg VINs / Run', 'Committed Runs', 'Pending Commits', 'Rolled Back'
+    ]]);
+    dashboard.getRange(R_RL_DATA, 1, 1, 6).setFormulas([[
+      '=COUNTA(RUN_LOG!B2:B)',
+      '=SUMPRODUCT(IFERROR(VALUE(RUN_LOG!P2:P1000),0))',
+      '=IFERROR(IF(A' + R_RL_DATA + '=0,"",ROUND(B' + R_RL_DATA + '/A' + R_RL_DATA + ',1)),"")',
+      '=COUNTIF(RUN_LOG!W2:W,"committed")',
+      '=COUNTIF(RUN_LOG!W2:W,"")',
+      '=COUNTIF(RUN_LOG!W2:W,"rolled_back")'
+    ]]);
+
+    dashboard.getRange(R_MR_HDR,  1).setValue('MOST RECENT RUN');
+    dashboard.getRange(R_MR_COLS, 1, 1, 7).setValues([[
+      'Date', 'Dealer', 'Order ID', 'VINs Ordered', 'VINs Produced', 'Duration (sec)', 'VIN Log Status'
+    ]]);
+    dashboard.getRange(R_MR_DATA, 1, 1, 7).setFormulas([[
+      '=IFERROR(TEXT(INDEX(RUN_LOG!A:A,COUNTA(RUN_LOG!A:A)),"M/D/YYYY"),"")',
+      '=IFERROR(INDEX(RUN_LOG!C:C,COUNTA(RUN_LOG!A:A)),"")',
+      '=IFERROR(INDEX(RUN_LOG!D:D,COUNTA(RUN_LOG!A:A)),"")',
+      '=IFERROR(INDEX(RUN_LOG!E:E,COUNTA(RUN_LOG!A:A)),"")',
+      '=IFERROR(INDEX(RUN_LOG!P:P,COUNTA(RUN_LOG!A:A)),"")',
+      '=IFERROR(INDEX(RUN_LOG!S:S,COUNTA(RUN_LOG!A:A)),"")',
+      '=IFERROR(IF(INDEX(RUN_LOG!W:W,COUNTA(RUN_LOG!A:A))="","Pending",INDEX(RUN_LOG!W:W,COUNTA(RUN_LOG!A:A))),"")'
+    ]]);
+
+    dashboard.getRange(R_RBD_HDR,  1).setValue('RUNS BY DEALER');
+    dashboard.getRange(R_RBD_COLS, 1, 1, 9).setValues([[
+      'Dealer', 'Runs', 'VINs Ordered', 'VINs Produced', 'New', 'PO', 'CPO', 'CPO-EL', 'Avg Match Rate'
+    ]]);
+    dashboard.getRange(R_RBD_DATA, 1).setFormula(
+      '=IFERROR(QUERY(RUN_LOG!A:W,"SELECT C, COUNT(A), SUM(E), SUM(P), SUM(G), SUM(H), SUM(I), SUM(J) WHERE C <> \'\' GROUP BY C ORDER BY COUNT(A) DESC LABEL C \'\', COUNT(A) \'\', SUM(E) \'\', SUM(P) \'\', SUM(G) \'\', SUM(H) \'\', SUM(I) \'\', SUM(J) \'\'",1),"No data")'
+    );
+
+    // ── Apply formatting ─────────────────────────────────────────────────────
+    // Helper: apply background + text style to a range
+    function fmt(rng, bgColor, bold, fontSize, fontColor, align) {
+      var f = rng.setBackground(null);
+      if (bgColor)   f.setBackgroundObject(bgColor);
+      if (bold !== null) f.setFontWeight(bold ? 'bold' : 'normal');
+      if (fontSize)  f.setFontSize(fontSize);
+      if (fontColor) f.setFontColor(fontColor);
+      if (align)     f.setHorizontalAlignment(align);
+    }
+
+    // Title (rows 1-3 already formatted from sheet creation, just ensure timestamp)
+    dashboard.getRange(R_TIMESTAMP, 2).setNumberFormat('@');  // plain text timestamp
+
+    // Inventory section banner
+    var invHdrRange = dashboard.getRange(R_INV_HDR, 1, 1, 10);
+    invHdrRange.setBackgroundObject(C_ORANGE).setFontColor('#ffffff').setFontWeight('bold').setFontSize(11);
+
+    // Column headers
+    var colHdrRange = dashboard.getRange(R_COL_HDR, 1, 1, 10);
+    colHdrRange.setBackgroundObject(C_ORANGE2).setFontColor('#ffffff').setFontWeight('bold').setFontSize(10)
+               .setHorizontalAlignment('center');
+    dashboard.getRange(R_COL_HDR, 1).setHorizontalAlignment('left');
+
+    // Data rows — alternating, numbers centered, location left
+    if (n > 0) {
+      for (var i = 0; i < n; i++) {
+        var rowNum = R_DATA_START + i;
+        var rowBg  = (i % 2 === 0) ? C_WHITE : C_STRIPE;
+        var rowRange = dashboard.getRange(rowNum, 1, 1, 10);
+        rowRange.setBackgroundObject(rowBg).setFontSize(10).setHorizontalAlignment('center')
+                .setNumberFormat('#,##0');
+        dashboard.getRange(rowNum, 1).setHorizontalAlignment('left').setNumberFormat('@');
+        dashboard.getRange(rowNum, 10).setHorizontalAlignment('center').setNumberFormat('@');
+      }
+    }
+
+    // Totals row
+    var totRange = dashboard.getRange(R_TOTALS, 1, 1, 10);
+    totRange.setBackgroundObject(C_DARK).setFontColor('#ffffff').setFontWeight('bold').setFontSize(10)
+            .setHorizontalAlignment('center').setNumberFormat('#,##0');
+    dashboard.getRange(R_TOTALS, 1).setHorizontalAlignment('left');
+
+    // Run Log section banners
+    dashboard.getRange(R_RL_HDR, 1, 1, 10).setBackgroundObject(C_DGRAY).setFontColor('#ffffff')
+             .setFontWeight('bold').setFontSize(11);
+    dashboard.getRange(R_MR_HDR, 1, 1, 10).setBackgroundObject(C_DGRAY).setFontColor('#ffffff')
+             .setFontWeight('bold').setFontSize(10);
+    dashboard.getRange(R_RBD_HDR, 1, 1, 10).setBackgroundObject(C_DGRAY).setFontColor('#ffffff')
+             .setFontWeight('bold').setFontSize(10);
+
+    // Run Log column headers
+    [R_RL_COLS, R_MR_COLS, R_RBD_COLS].forEach(function(r) {
+      dashboard.getRange(r, 1, 1, 10).setBackgroundObject(C_ORANGE2).setFontColor('#ffffff')
+               .setFontWeight('bold').setFontSize(10).setHorizontalAlignment('center');
+      dashboard.getRange(r, 1).setHorizontalAlignment('left');
+    });
+
+    // Run Log KPI data row
+    dashboard.getRange(R_RL_DATA, 1, 1, 10).setBackgroundObject(C_STRIPE).setFontWeight('bold')
+             .setFontSize(11).setHorizontalAlignment('center').setNumberFormat('#,##0.#');
+
+    // Most Recent Run data row
+    dashboard.getRange(R_MR_DATA, 1, 1, 10).setBackgroundObject(C_STRIPE).setFontSize(10)
+             .setHorizontalAlignment('center');
+    dashboard.getRange(R_MR_DATA, 1).setHorizontalAlignment('left');
+
+    // Column widths (only set once — they don't change with location count)
+    dashboard.setColumnWidth(1, 260);
+    for (var c = 2; c <= 7; c++) dashboard.setColumnWidth(c, 72);
+    dashboard.setColumnWidth(8, 80);
+    dashboard.setColumnWidth(9, 80);
+    dashboard.setColumnWidth(10, 130);
+
+    // Freeze through column headers row
+    dashboard.setFrozenRows(R_COL_HDR);
+
+    Logger.log('refreshDashboard_: complete. ' + n + ' locations, totals at row ' + R_TOTALS + ', run log at ' + R_RL_HDR + '.');
+  } catch (e) {
+    Logger.log('refreshDashboard_: failed (non-fatal): ' + e.message);
+  }
+}
+
 
 // ============================================================================
 // END OF SCRIPT
