@@ -376,7 +376,7 @@ Copied at runtime for each dealer order. The copy becomes the output document.
 | R | 18 | TYPEVIN | `=ARRAYFORMULA(IF(ISBLANK(A2:A),"",IF(ISNUMBER(SEARCH("CPO-EL",G2:G)),"CPO-EL - ",IF(ISNUMBER(SEARCH("CPO",G2:G)),"CPO - ",IF(ISNUMBER(SEARCH("New",G2:G)),"NEW - ","USED - ")))&UPPER(E2:E)))` |
 | S | 19 | YEARMODELSTOCK | `=ARRAYFORMULA(IF(ISBLANK(A2:A),"",UPPER(A2:A&" "&C2:C&" - "&F2:F)))` |
 | T | 20 | PRICE_PLUS_2000 | `=ARRAYFORMULA(IF(ISBLANK(A2:A),"",IF(H2:H="*","*","$"&TEXT(H2:H+2000,"#,##0"))))` |
-| U | 21 | PRICE_TAGLINE | `=ARRAYFORMULA(IF(ISBLANK(A2:A),"",IF(NOT(ISNUMBER(H2:H)),"",IF(H2:H>=15000,"as low as $300/mo",IF(H2:H>=10000,"Below $15,000","Below $10,000")))))` |
+| U | 21 | PRICE_TAGLINE | `=ARRAYFORMULA(IF(ISBLANK(A2:A),"",IFERROR(IF(VALUE(H2:H)>=15000,"as low as $300/mo",IF(VALUE(H2:H)>=10000,"Below $15,000","Below $10,000")),"")))` *(PRICE_RAW is stored as text — `VALUE()` coerces before comparison; `IFERROR` blanks non-numeric prices)* |
 
 **Cols A–I are the QUERY spill zone.** Nothing should be written there in the template. Col J is the first script-written column. Cols K onward are ARRAYFORMULAs that auto-expand with QUERY output.
 

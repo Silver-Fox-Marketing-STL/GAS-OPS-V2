@@ -13,6 +13,9 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ### Added
 - **New dealer: Dean Team Brentwood** (`DEAN_TEAM_BRENTWOOD`) — 43rd dealer row in DEALERS. ORDERS col AQ (the ORDERS sheet was widened from 42 to 43 columns), used-only (`allowed_types: ["PO","CPO"]`, `require_stock`/`require_price` true), Pipedrive deal IDs, `scraper_location_name` = "Dean Team Brentwood", CAO order entry, VIN log tab created. Drive output + QR folders created under the global OUTPUT folder.
 - **New field code `PRICE_TAGLINE`** — mapped at ORDERMATCH col 21 (U). ARRAYFORMULA renders a price-tier tagline from `PRICE_RAW` (col H): `≥ $15,000` → "as low as $300/mo"; `$10,000–$14,999` → "Below $15,000"; `< $10,000` → "Below $10,000"; non-numeric → blank. Added to `FIELD_TO_COL`.
+
+### Fixed
+- **`PRICE_TAGLINE` returned blank for every row.** `PRICE_RAW` (ORDERMATCH col H) is stored as text, so the original `ISNUMBER(H2:H)` guard was always FALSE. Reworked the formula to coerce with `VALUE()` inside `IFERROR` (`IFERROR(IF(VALUE(H2:H)>=15000,…),"")`). A plain text-vs-number comparison was avoided because Sheets sorts any text above any number, which would bucket every text price into the top tier. Fixed in the SF_UNIVERSAL_TEMPLATE ORDERMATCH U2 cell (no code change).
 - **New CSV schema `SCP_TAGLINE`** — the SCP layout plus `PRICE_TAGLINE` appended as col_11. Used by Dean Team Brentwood; leaves the shared `SCP` schema untouched.
 
 ### Pending merge — `feature/health-monitoring`

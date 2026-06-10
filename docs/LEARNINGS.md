@@ -37,6 +37,13 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   Order checks CPO-EL → CPO → New → fallback, in formulas and in `type_rules`.
 - **`getValues()` returns real booleans** for TRUE/FALSE cells — compare with
   the `isTrue_()` helper, not string equality.
+- **`PRICE_RAW` (ORDERMATCH col H) is stored as text, not a number.** `ISNUMBER(H2:H)`
+  is FALSE for it, so any formula guarding on `ISNUMBER` blanks every row (this is
+  exactly how the first `PRICE_TAGLINE` formula failed). Arithmetic (`H2:H+2000` in
+  `PRICE_PLUS_2000`) works because `+` coerces text→number, but **comparisons don't
+  coerce** — and Sheets sorts any text *above* any number, so `H2:H>=15000` is TRUE
+  for every text price. For numeric comparison on a price, convert first:
+  `IFERROR(IF(VALUE(H2:H)>=15000, …), "")`.
 - **Merged cells break programmatic repositioning** — the DASHBOARD is written
   with zero merged cells for exactly this reason. `setRgbColor()` via
   `SpreadsheetApp.newColor()` handles hex backgrounds without Advanced Services.
