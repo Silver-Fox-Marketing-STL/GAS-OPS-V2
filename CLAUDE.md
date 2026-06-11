@@ -87,7 +87,12 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
 4. Glendale `model_trim_split` key is inert in `data_transforms` — implement or remove.
 5. Pipedrive integration — push completed runs as deal updates; isolate API calls
    in try/catch so failures never surface as run failures.
-6. Housekeeping: README `#ERROR!` cells, delete `VINLogMigration.gs`/`FolderSetup.gs`
+6. Trim cleanup — trims overflow the print template; full analysis + validated
+   auto-cleanup design (global `cleanTrim_` regex pass, feature-flag + dry-run
+   gated, plus residual exact-match rules) captured in the Bridge doc
+   ("Trim Normalization & Cleanup — Analysis & Deferred Design"). Approach decision
+   (A full / B phased / C exact-only) pending.
+7. Housekeeping: README `#ERROR!` cells, delete `VINLogMigration.gs`/`FolderSetup.gs`
    from Apps Script, `git rm test-write-access.txt`, fix stale "Scraper #N/A" notes
    on the active Jefferson City dealers, consider consolidating SCP_NEW (now
    identical to SCP).

@@ -480,6 +480,85 @@ Runs automatically in `importScraperData()` before writing to SCRAPERDATA. Also 
 
 ---
 
+## Trim Normalization & Cleanup — Analysis & Deferred Design *(June 2026)*
+
+**Status:** Analysis complete; **implementation deferred** by request. This section is the complete spec to implement later — no further investigation needed.
+
+### The problem
+Vehicle **Trim** strings from the scraper are often too long or carry extraneous labels (bed lengths, wheelbase measurements, body-style words, encoding artifacts), so they overflow the Illustrator print template and require manual editing before a graphic can be produced. Goal: auto-clean trims to minimize that manual work.
+
+### How trim is processed today
+- Normalization is **exact full-string match only**. `normalizeScraperData_()` applies a global exact-match lookup then a per-column exact-match lookup; `normalizeCell_(value, lookup)` returns the mapped value or the original. Trim is **column index 6** (`NORM_COL.TRIM`). There is **no substring/regex/token-stripping** in this path.
+- Cleaning a trim today therefore requires **one hand-authored exact rule per raw string** in the NORM_MAPS `trim` map (e.g. `"4WD Crew Cab 143.5\" SLE" → "Crew Cab SLE"`). ~120 such rules exist.
+- There **are 1,319 distinct raw trim values** across active inventory — so exact rules do not scale. Snapshot the current distinct values anytime via **Refresh Norm/Field Reference** (`refreshNormReference()`) → NORM_MAPS **col H**.
+- A separate, **per-dealer** literal substring `remove` exists in `applyDataTransforms_()` (Glendale only), but it runs on the *output doc* (1-based `TRIM_COL = 7`), single-occurrence `String.replace(s,'')`, and is not global.
+- Downstream: trim → ORDERMATCH col D (`TRIM`, uppercased) → CSV schemas (e.g. SCP col_3). Blank trims become `*`.
+
+### Analysis — what can be removed
+
+**Safe to auto-strip globally** (structural junk, universally unwanted on a graphic):
+
+| Category | Examples in the data | Notes |
+|---|---|---|
+| Encoding artifacts | `&quot;`→`"`, `%2F`→`/`, mojibake `â` | Decode **first**, before measurement matching. Do *not* blanket-strip a bare `â` (locale-fragile) — target the specific mojibake sequences. |
+| Bed / box length | `5.5' Box`, `5'7" Box`, `6'4 BOX`, `8' Box`, `5' Bed`, `64 Box`, `57 Box` | Very common on trucks. |
+| Wheelbase / cab / inch dims | `143.5"`, `147"`, `128.3"`, `193" WB 108" CA`, `60' CA`, `159' WB` | |
+| National-spec marker | `(Natl)` | |
+| Brand/legal symbols | `®`, `™` (`Platinum®`, `C 300 4MATIC®`, `PRO-4X®`) | |
+| Body-style words (narrow set) | `4dr`, `2dr`, `5dr`, `Sdn`, `Sedan`, `Wgn` | Anchor with `\b`. **Drop `HB`** from the auto set (high false-positive risk). |
+| BMW noise | `Sports Activity Vehicle` / `Sports Activity` | |
+
+**Context-dependent — do NOT blanket-strip** (often the meaningful differentiator; leave to exact-map rules or keep):
+
+| Category | Examples | Why keep |
+|---|---|---|
+| Drivetrain | `AWD`, `FWD`, `4WD`, `4x4`, `quattro`, `xDrive`, `4MOTION` | Meaningful; existing rules keep these. |
+| Engine specs | `3.6L V6`, `2.5 Turbo`, `EcoBoost`, `5.7L V8` | Sometimes the trim essence (Mazda "2.5 Turbo", Audi "45 TFSI"). |
+| Spelled door counts | `4-DOOR RUBICON`, `2-DOOR SPORT` | Door count is part of Jeep Wrangler / Bronco trims — do **not** remove the spelled `4-DOOR`/`2-DOOR`. |
+| Coupe/convertible body words | `Coupe`, `Convertible`, `Cabriolet`, `Fastback`, `Hardtop` | Meaningful (e.g. Porsche `Carrera GTS Cabriolet`, BMW `430i Convertible`). |
+| Package/option codes | `w/1LT`, `w/2LT`, `w/1FL`, `(2FL)`, `w/Knapheide…` | Mixed; per-string. |
+| Abbreviations | `Premium`→`Prem`, `Package`→`Pkg`, `w/Technology`→`w/Tech` | Replacement, not removal; per-string. |
+| Truck descriptors | `GVWR`, `Med Rf`/`Roof`, `CARGO VAN`, `9070 GVWR` | Per-string exact rules. |
+| Pure-noise singletons | `+`, `.`, `WB`, `2` | Map to `*`. But `S`/`L`/`M`/`T` are real trims — never auto-blank. |
+
+### Approach options (decision pending)
+- **A — Full auto-cleanup now:** implement the complete regex cleanup pass (all safe categories) + exact-map adds, behind a feature flag + dry-run. Most reduction; one round.
+- **B — Phased (recommended):** ship the zero-false-positive fixes first (decode `&quot;`/`%2F`, strip `(Natl)`, `®`/`™`), validate via dry-run, then enable the measurement/bed-length/body-word stripping in a second round. Safest path to the same end state.
+- **C — Exact-match rules only:** no code change; just keep adding raw→clean rules to the `trim` map. Zero behavior surprise, but does not scale to 1,300+ values.
+
+### Recommended design (validated; for when implemented)
+Add a **global `cleanTrim_(str)` regex pass** applied to the trim column inside `normalizeScraperData_()`, **after** the exact-match `trim` map (so existing exact rules fire first on the raw full string; `cleanTrim_` only cleans the unmapped long tail and is harmless/idempotent on already-clean values). Integration seam:
+
+```
+val = normalizeCell_(rows[r][c], globalLookup);
+if (colLookups[c]) val = normalizeCell_(val, colLookups[c]);
+if (c === NORM_COL.TRIM) val = cleanTrim_(val);   // <-- new
+rows[r][c] = (val === '') ? '*' : val;
+```
+
+**Ordered patterns** (case-insensitive, ES5-safe — no lookbehind): (1) decode artifacts → (2) bed/box → (3) wheelbase/inch/`WB`/`CA` dims → (4) `(Natl)` → (5) `®`/`™` → (6) narrow body words (anchored `\b`, no `HB`) → (7) `Sports Activity [Vehicle]` → (8) collapse whitespace + trim edge punctuation. **Decode (1) must precede measurement matching (2,3).**
+
+**Required guards (non-negotiable):**
+- **Never-empty:** if cleaning yields `""`, return the **original** pre-clean string (not `*`).
+- **Never-bare-residue:** if the result is just a measurement or a lone body word (e.g. `"4D Sedan"`→`"4D"`, `"2dr Cpe"`→`"Cpe"`), revert to original.
+- Anchor every body word with `\b`; drop `HB` from the auto set; do not bare-strip `â`.
+
+**Where patterns live:** a **hardcoded `TRIM_CLEANUP_PATTERNS` constant** in `Code.gs` (near `NORMALIZATION_MAPS`). Do **not** put live regex in a NORM_MAPS sheet — unvalidated regex with global blast radius is exactly the failure mode to avoid. The exact-match `trim` map stays the config-driven, user-editable override layer.
+
+**Rollout safety (this changes trim for ALL ~28 dealers at once):**
+- **Feature flag** `ENABLE_TRIM_CLEANUP` (default **off**) gating the `cleanTrim_` call — ship dark, validate, flip on, instant rollback without a code push.
+- **Dry-run harness** `dryRunCleanTrim_()` (read-only): run every current distinct trim (NORM_MAPS col H) through `cleanTrim_` in memory and write a `raw | cleaned | changed?` diff to a scratch sheet. Eyeball every changed row — hunt for results that shrank to ≤2 chars, equal a measurement, or lost a meaningful body word (Coupe/Convertible/4-DOOR/2-DOOR). Report the changed-count as a greediness sanity gate.
+
+**Do not double-process:** `cleanTrim_` belongs only in `normalizeScraperData_()` (index 6). The Glendale `applyDataTransforms_` `remove` (output doc, col 7) is a separate stage — confirm its rules don't conflict once the global pass is on.
+
+### Proposed exact-match `trim` rules to add (residuals the regex won't handle)
+`PROMASTER 1500 TRADESMAN CARGO VAN LOW ROOF 118' W → PROMASTER 1500 TRADESMAN` · `T-250 148" Med Rf 9070 GVWR RWD → T-250` · `2500 Standard Roof V6 144" 4WD → 2500 4WD` · `Work Truck w/Knapheide Bed Conversion → Work Truck` · `4dr Sdn LT w/1LT → LT` · `XtraCab V6 Manual 4WD → XtraCab 4WD` · `SEL w/Two-Tone Roof → SEL` · `2.5 Turbo Premium Plus Package AWD → Premium Plus AWD` · `Premium Plus 45 TFSI quattro → Premium Plus quattro` · `4dr Wgn 3.5L AWD EcoBoost → AWD EcoBoost` · `85TH ANNIVERSARY EDITION 4X4 → 85TH ANNIVERSARY 4X4` · noise singletons `+`, `.`, `WB`, `2` → `*` (never auto-blank `S`/`L`/`M`/`T`). *(Authored via Manage Normalization Maps; extend as the col-H reference surfaces more.)*
+
+### Code anchors (for the implementer)
+`Code.gs`: `NORM_COL`/constants ~69; `normalizeCell_` ~791 and `normalizeScraperData_` ~797 (integration seam); `applyDataTransforms_` ~897 (double-process check); `refreshNormReference()` ~1706 / `loadNormalizationMaps_` ~1682 (reference snapshot + exact-map adds + dry-run source).
+
+---
+
 ## Production Workflow — Step by Step
 
 1. **Check TRANSCRIPTION** — paste VINs in col A and confirm they show "Found" in real time before creating an order.
@@ -666,6 +745,7 @@ Use **SilverFox V2 → Edit Dealer Rules...**. Select a dealer from the dropdown
 ## Known Issues & Pending Work
 
 ### Active Issues
+- **Trim cleanup (analyzed; deferred):** Trim strings overflow the print template and need manual editing. Full analysis + a validated auto-cleanup design (global `cleanTrim_` regex pass behind a feature flag + dry-run, plus residual exact-match rules) is captured in **Trim Normalization & Cleanup — Analysis & Deferred Design** above. Decision on approach (A full / B phased / C exact-only) pending.
 - **Stock→VIN fallback (planned):** No dealer uses `use_stock_not_vin` — VIN is always the primary key. Desired behavior: if an ordered identifier isn't found in the SCRAPERDATA VIN column, check the Stock column and substitute the matching row's VIN. Not yet implemented.
 - **`model_trim_split` config key inert:** present in Glendale's `data_transforms` but ignored by `applyDataTransforms_`. Implement or remove.
 - **Stale dealer notes:** Hyundai of Jefferson City and Nissan of Jefferson City notes still say "Scraper #N/A — inactive" but both dealers are active with live scraper feeds. Notes-column cleanup.
