@@ -47,7 +47,7 @@ Code files live in GitHub: `Silver-Fox-Marketing-STL/GAS-OPS-V2` (branch `main`;
 ### Field Code System
 - **`FIELD_TO_COL` in Code.gs is the only thing that matters at runtime.** The FIELD_CODES tab and ORDERMATCH headers are documentation only.
 - **`buildCSVSheet_` reads 100 columns** from ORDERMATCH. Adding new columns up to col CV requires no changes.
-- **Current FIELD_TO_COL:** YEAR:1, MAKE:2, MODEL:3, TRIM:4, VIN:5, STOCK:6, TYPE:7, PRICE_RAW:8, @QR:10, @QR2:10, YEARMAKE:11, YEARMODEL/QRYEARMODEL:12, MAKE_MODEL_COMBINED:13, QRSTOCK:14, MISC:15, PRICE_FMT:16, NEWYEARMAKE:17, TYPEVIN:18, YEARMODELSTOCK:19, PRICE_PLUS_2000:20
+- **Current FIELD_TO_COL:** YEAR:1, MAKE:2, MODEL:3, TRIM:4, VIN:5, STOCK:6, TYPE:7, PRICE_RAW:8, @QR:10, @QR2:10, YEARMAKE:11, YEARMODEL/QRYEARMODEL:12, MAKE_MODEL_COMBINED:13, QRSTOCK:14, MISC:15, PRICE_FMT:16, NEWYEARMAKE:17, TYPEVIN:18, YEARMODELSTOCK:19, PRICE_PLUS_2000:20, PRICE_TAGLINE:21
 
 ### type_rules
 - Must use post-normalization values in `match` fields: `New`, `PO`, `CPO`, `CPO-EL`
@@ -63,7 +63,12 @@ Code files live in GitHub: `Silver-Fox-Marketing-STL/GAS-OPS-V2` (branch `main`;
 - Bypass checkbox in Run Dealer modal skips run-time filtering entirely
 - Every dealer has an explicit JSON entry — no implicit defaults anywhere in the sheet
 - Baseline for nearly all active dealers: `require_stock: true`, `exclude_status: ["OFFLOT"]`. Exceptions: SoCo DCJR has no `allowed_types`; BMW of West St. Louis omits `exclude_status`
-- `require_price: true` currently only for Glendale CDJR
+- `require_price: true` currently only for Glendale CDJR and Dean Team Brentwood
+- **Generalized targeting (added June 2026):** two optional keys configurable in the Rules Editor Filtering tab —
+  - **`conditions`**: array of `{field, op, values, applies_to?}`. `field` ∈ type/year/make/model/trim/ext_color/status/price/body_style/fuel_type/msrp (mapped by `FILTER_FIELD_INDEX`); `op` ∈ `in/not_in/contains/not_contains` (string, case-insensitive) or `gte/lte` (numeric, strips `$`/`,`); `applies_to` scopes to specific types. Evaluated by `evaluateCondition_` (fail-open on misconfig). Applied in **both** CAO and run phases — Bypass checkbox overrides.
+  - **`cao_exclude_types`**: types skipped during CAO auto-fill only; still print when entered manually ("manual-only type"). Keep the type in `allowed_types` so manual runs aren't blocked.
+  - `applyFilteringRules_(vehicles, filterRules, phase)` gained a `phase` param ('cao'/'run') gating `cao_exclude_types`. Rejection reasons now include `cond:<field>` and `cao_excluded` (CAO summary tallies them dynamically).
+  - **Pundmann Ford**: `conditions: [{field:"model", op:"not_contains", values:["F-250","F250"]}]` (excludes F-250s; "commercial" pending a feed definition).
 
 ### VIN Log Architecture (redesigned May 2026)
 - SF_VIN_LOGS tabs now have three columns: `ORDER_ID | VIN | committed_at`
@@ -116,6 +121,11 @@ Code files live in GitHub: `Silver-Fox-Marketing-STL/GAS-OPS-V2` (branch `main`;
 - Table scroll requires JS height calculation (`sizeTable()`) — GAS iframe CSS flex height propagation is broken.
 - All five maps support ▲▼ reordering. Changes write directly to NORM_MAPS sheet — no save step.
 
+### NORM_MAPS reference columns (E+) — performance fix (June 10, 2026)
+- The live `UNIQUE(SCRAPERDATA!…)` reference formulas in NORM_MAPS cols E+ were **removed**: at 10k+ SCRAPERDATA rows, recalculating these volatile full-column formulas made *programmatic* access to SF_DEALER_CONFIG (Apps Script `openById`/`getValues` AND the Sheets REST API) time out (~100s `Service Spreadsheets failed`), breaking every config-reading modal + `importScraperData`, while the browser UI stayed fine.
+- Replaced with on-demand **`refreshNormReference()`** (menu: **Refresh Norm/Field Reference**): scans SCRAPERDATA once and writes a STATIC sorted distinct-values list per column (Type/Make/Model/Trim/Status/Body Style/Fuel Type) to cols E+, with counts + a timestamp. Zero standing recalc cost. Also serves as the raw-value lookup for authoring targeting `conditions`.
+- **Do not** reintroduce volatile full-column formulas in this sheet. The script still reads only cols A–C.
+
 ### ScraperImport (converted from sidebar to modal, May 2026)
 - Now a modal at 620×580px. Was a sidebar at 340px.
 - Same logic throughout: CSV parser, column mapping, `importScraperData()` call, post-import review panel all unchanged.
@@ -165,6 +175,7 @@ Code files live in GitHub: `Silver-Fox-Marketing-STL/GAS-OPS-V2` (branch `main`;
 | R | 18 | TYPEVIN | ARRAYFORMULA — type prefix + VIN |
 | S | 19 | YEARMODELSTOCK | ARRAYFORMULA — YEAR MODEL - STOCK |
 | T | 20 | PRICE_PLUS_2000 | ARRAYFORMULA — `=ARRAYFORMULA(IF(ISBLANK(A2:A),"",IF(H2:H="*","*","$"&TEXT(H2:H+2000,"#,##0"))))` (live; GLENDALE_COMBINED) |
+| U | 21 | PRICE_TAGLINE | ARRAYFORMULA — price-tier tagline; `=ARRAYFORMULA(IF(ISBLANK(A2:A),"",IFERROR(IF(VALUE(H2:H)>=15000,"as low as $300/mo",IF(VALUE(H2:H)>=10000,"Below $15,000","Below $10,000")),"")))` (live; SCP_TAGLINE / Dean Team Brentwood). `VALUE()` coerces text price; `IFERROR` blanks non-numeric. |
 
 **TYPESTOCK formula (N2):**
 ```
@@ -213,6 +224,7 @@ Code files live in GitHub: `Silver-Fox-Marketing-STL/GAS-OPS-V2` (branch `main`;
 | Glendale CDJR | * → GLENDALE_COMBINED |
 | Dave Sinclair Lincoln | * → SCWSB (windshield-only schema) |
 | Mazda of Columbia | * → SCP (used-only via filtering_rules; Pipedrive IDs) |
+| Dean Team Brentwood | * → SCP_TAGLINE (SCP + PRICE_TAGLINE; used-only, `require_price`; Pipedrive IDs) |
 | Most others | * → SCP (catch-all) |
 
 ### scraper_location_name notes
@@ -227,10 +239,10 @@ Code files live in GitHub: `Silver-Fox-Marketing-STL/GAS-OPS-V2` (branch `main`;
 - Inactive legacy dealers: `{}` (empty JSON, no restrictions)
 
 ### ORDERS column mapping
-A–AP, 42 dealers. Mazda of Columbia added at AP (June 2026). B1 = "CDJR of Columbia".
+A–AQ, 43 dealers. Mazda of Columbia at AP, Dean Team Brentwood at AQ (June 2026; ORDERS widened 42→43 cols). B1 = "CDJR of Columbia".
 
 ### Dealer counts (verified June 10, 2026)
-42 configured rows in DEALERS; **28 active** (`active=TRUE`); 14 inactive (mostly "Scraper #N/A").
+43 configured rows in DEALERS; **29 active** (`active=TRUE`); 14 inactive (mostly "Scraper #N/A").
 
 ---
 
@@ -243,6 +255,9 @@ A–AP, 42 dealers. Mazda of Columbia added at AP (June 2026). B1 = "CDJR of Col
 4. **Stock→VIN fallback** — No dealer uses `use_stock_not_vin`; VIN is always the primary key. Planned: if an ordered identifier isn't in the VIN column, look it up in the Stock column and substitute the matching VIN. Not yet implemented.
 5. **`model_trim_split` config key inert** — present in Glendale's `data_transforms` JSON but ignored by `applyDataTransforms_` (only `replacements` is read). Implement or remove.
 6. **Stale dealer notes** — Hyundai/Nissan of Jefferson City notes say "Scraper #N/A — inactive" but both are active with live feeds.
+7. **Trim cleanup (analyzed; deferred)** — trims overflow the print template and need manual editing. Full analysis + validated auto-cleanup design (global `cleanTrim_` regex pass behind an `ENABLE_TRIM_CLEANUP` flag + `dryRunCleanTrim_` preview, plus residual exact-match rules) captured in the Bridge doc ("Trim Normalization & Cleanup — Analysis & Deferred Design"). Approach decision (A full / B phased / C exact-only) pending.
+8. **Bommarito Cadillac targeting (held)** — print all used, New only where Make=Cadillac. Verified non-Cadillac New exists (Mazda/VW). To be set in the Rules Editor: `conditions:[{field:"make",op:"in",values:["Cadillac"],applies_to:["New"]}]`.
+9. **Dave Sinclair St. Peters targeting (blocked)** — wants CAO used ≥ $35k + New manual-only. Blocked: used cars have **no price** in the feed, so the price floor can't function until the scraper provides used prices. The `cao_exclude_types:["New"]` half would work.
 
 ### Housekeeping
 - Fix `#ERROR!` cells in README tabs (cosmetic)
@@ -341,3 +356,5 @@ Full catalog in `SilverFox_Dealer_Account_Catalog.md`. Critical nuances:
 - **Dave Sinclair Lincoln** — unique template: SC windshield banner only, no Shortcut. Price column blank (site doesn't display pricing).
 - **CDJR of Columbia** — VIN log tab renamed to `CDJR_OF_COLUMBIA` ✓. `scraper_location_name` remains "Joe Machens Chrysler Dodge Jeep Ram" (matches live scraper feed — do not change until the scraper is updated).
 - **Mazda of Columbia** — added June 2026 (42nd dealer). ORDERS col AP. Used-only. Pipedrive deal IDs. * → SCP.
+- **Dean Team Brentwood** — added June 2026 (43rd dealer). ORDERS col AQ. Used-only, `require_price`. Pipedrive deal IDs. * → SCP_TAGLINE (SCP + `PRICE_TAGLINE` price-tier tagline).
+- **Pundmann Ford** — `conditions` exclude F-250 from CAO/runs (`model not_contains ["F-250","F250"]`). "Commercial vehicle" exclusion pending a feed definition (no `commercial` signal in the data).

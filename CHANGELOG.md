@@ -26,21 +26,15 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 - **`PRICE_TAGLINE` returned blank for every row.** `PRICE_RAW` (ORDERMATCH col H) is stored as text, so the original `ISNUMBER(H2:H)` guard was always FALSE. Reworked the formula to coerce with `VALUE()` inside `IFERROR` (`IFERROR(IF(VALUE(H2:H)>=15000,…),"")`). A plain text-vs-number comparison was avoided because Sheets sorts any text above any number, which would bucket every text price into the top tier. Fixed in the SF_UNIVERSAL_TEMPLATE ORDERMATCH U2 cell (no code change).
 - **New CSV schema `SCP_TAGLINE`** — the SCP layout plus `PRICE_TAGLINE` appended as col_11. Used by Dean Team Brentwood; leaves the shared `SCP` schema untouched.
 
-### Pending merge — `feature/health-monitoring`
-- Data health monitoring system: new `IMPORT_STATS` and `ORDER_STATS` sheets in SF_SYSTEM_MASTER
-- `writeImportStats_` and `checkImportHealth_` functions (Code.gs Section 29)
-- Health issue indicators in the `ScraperImport.html` review panel
-- `ORDER_STATS` side-write added to `writeRunLog_`
-- Note: local commits exist on the feature branch; large-file (`Code.gs`) pushes must be done via local `git push`, not the GitHub API
-
 ### Known issues
-- `getRunsForDealer` reads only 19 columns from the now 23-column RUN_LOG (A–W) — fix pending
 - `CDJR_OF_COLUMBIA` `scraper_location_name` intentionally remains `"Joe Machens Chrysler Dodge Jeep Ram"` to match the live scraper feed; update when the feed reflects the new dealer name
+- Dave Sinclair St. Peters: used cars have no price in the scraper feed, so a "used ≥ $35k" targeting rule cannot function until used prices are scraped
 
 ### Planned
 - **Trim cleanup (analyzed; deferred)** — docs-only for now: full analysis + a validated auto-cleanup design (global `cleanTrim_` regex pass behind an `ENABLE_TRIM_CLEANUP` flag + `dryRunCleanTrim_` preview, plus residual exact-match rules) written into the Bridge doc ("Trim Normalization & Cleanup — Analysis & Deferred Design"). Approach decision (A full / B phased / C exact-only) pending.
 - Pipedrive post-run API integration (architecture designed; `pushToPipedrive_()` to be isolated in its own try/catch; config expansion at columns P–V requires updating hardcoded `CFG.FILTER_RULES` index)
-- Unresolved order configurations: MBCC/Sprinter shared inventory, Glendale CDJR price+$2,000 field, Auffenberg Hybrid (Courtesy Loaners NEW→USED)
+- Unresolved order configurations: MBCC/Sprinter shared inventory, Auffenberg Hybrid (Courtesy Loaners NEW→USED)
+- Trim cleanup approach decision (A full / B phased / C exact-only) — see Bridge doc deferred-design section
 - Architecture hardening: IFERROR-wrapped ORDERMATCH formulas, self-describing field-to-column map, resumable runs (6-minute Apps Script ceiling), regression harness, scheduled config audits, extended per-run caching
 
 ---

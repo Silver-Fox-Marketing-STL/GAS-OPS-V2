@@ -57,7 +57,12 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
   (MBCC only). **Always check `CPO-EL` before `CPO`** — substring match.
 - ORDERMATCH cols A–I are the QUERY spill zone — never write there in the template.
   `FIELD_TO_COL` in Code.gs is the only runtime mapping; headers/FIELD_CODES tab
-  are documentation. `buildCSVSheet_` reads 100 cols.
+  are documentation. `buildCSVSheet_` reads 100 cols. `PRICE_TAGLINE` = col 21 (U).
+- `filtering_rules` `conditions[]` (field/op/values/applies_to) + `cao_exclude_types`:
+  `applyFilteringRules_(…, phase)` — `conditions` apply in **both** phases (Bypass
+  overrides), `cao_exclude_types` is **CAO-only**. `evaluateCondition_` **fails open**
+  on misconfig (a typo must never empty a dealer). Fields map via `FILTER_FIELD_INDEX`
+  (single source of truth, surfaced to the Rules Editor by `getRulesEditorBootstrap`).
 - VIN and Stock must be `String()`-converted **and** `@`-formatted before AND
   after `setValues()` (QUERY mixed-type bug).
 - VIN logs are never written automatically during a run — explicit commit/rollback

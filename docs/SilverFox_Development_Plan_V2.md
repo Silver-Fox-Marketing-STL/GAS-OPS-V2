@@ -160,6 +160,9 @@ V2 is the active bridge and the near-term production system. The goal is to make
 - [x] Produced VINs list in BILLING — fifth section in col B below the order summary, one VIN per row
 - [x] VIN Log status row in Run Dealer modal — most recent order ID via `getLatestOrderId` + Update VIN Log button
 - [x] `getRunsForDealer` updated to the 23-column RUN_LOG (was reading 19 columns against the pre-expansion schema)
+- [x] **Generalized targeting rules (v2.7, June 10)** — `filtering_rules` gains `conditions` (generic field criteria via `FILTER_FIELD_INDEX`/`evaluateCondition_`, fail-open) + `cao_exclude_types` (manual-only types); Rules Editor Targeting Conditions UI; applied in CAO + run phases
+- [x] **Dean Team Brentwood dealer + `PRICE_TAGLINE` field code + `SCP_TAGLINE` schema (v2.7)** — 43rd dealer; price-tier tagline at ORDERMATCH col 21 (U)
+- [x] **NORM_MAPS performance fix (v2.7)** — removed volatile `UNIQUE()` reference formulas (were timing out programmatic access to SF_DEALER_CONFIG at 10k+ rows); added on-demand `refreshNormReference()`
 
 #### Remaining V2 Tasks
 
@@ -425,9 +428,9 @@ This document should be updated at the start of each new phase and whenever a si
 - New dealer configuration requirements from `SilverFox_Dealer_Account_Catalog.md`
 - Appendix A as additional V2/V3 divergences are found or resolved during the rebuild
 
-### Branch & Merge Strategy (as of June 2026)
+### Branch & Merge Strategy (as of June 10, 2026)
 
-- Active development continues on **`feature/health-monitoring`** — it now carries all June work (health monitoring, dashboard, billing/modal additions) and is fully pushed to remote.
-- **`main`** remains the clean rollback target (`git checkout main && clasp push` reverts the deployed script).
-- **Merge-conflict caution:** `Code.gs` is a single ~3,000-line file, so any two branches that both touch it will conflict on merge. Until `feature/health-monitoring` is merged to `main`, branch new feature work **off `feature/health-monitoring`** (not off `main`) — or merge to `main` first and branch from there. Avoid parallel long-lived branches that both edit `Code.gs`.
-- Recommended next step: open a PR to merge `feature/health-monitoring` → `main` once the current bug-hunt round passes, restoring `main` as the single integration point before the next feature branch.
+- **`feature/health-monitoring` was merged into `main` (June 10, 2026).** `main` is now the **single deployed/integration branch**; all subsequent work (Dean Team Brentwood dealer, PRICE_TAGLINE, generalized targeting rules, NORM_MAPS performance fix, trim-cleanup docs) was committed directly to `main`.
+- Deploy flow: edit locally → commit/push to `main` → `clasp push`. Rollback = `git checkout <last good commit>` + `clasp push`.
+- **Merge-conflict caution:** `Code.gs` is a single ~3,000-line file, so any two branches that both touch it will conflict on merge. With `main` as the single integration point, prefer short-lived feature branches (or direct commits for small changes) and avoid parallel long-lived branches that both edit `Code.gs`.
+- The `feature/health-monitoring` branch still exists (not yet deleted) but is fully merged.
