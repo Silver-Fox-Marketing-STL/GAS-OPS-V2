@@ -46,7 +46,7 @@
       align-items: center;
       gap: 12px;
     }
-    #status {
+    .status-bar {
       flex: 1;
       font-size: 12px;
       padding: 6px 8px;
@@ -54,10 +54,43 @@
       min-height: 30px;
       line-height: 18px;
     }
-    #status.empty   { background: none; color: transparent; }
-    #status.info    { background: #e8f0fe; color: #1a73e8; }
-    #status.success { background: #e6f4ea; color: #1e7e34; }
-    #status.error   { background: #fce8e6; color: #c0392b; }
+    .status-bar.empty   { background: none; color: transparent; }
+    .status-bar.info    { background: #e8f0fe; color: #1a73e8; }
+    .status-bar.success { background: #e6f4ea; color: #1e7e34; }
+    .status-bar.error   { background: #fce8e6; color: #c0392b; }
+
+    /* ── Mode selector ───────────────────────────────────────────────────────── */
+    .mode-selector {
+      display: flex;
+      gap: 0;
+      margin-bottom: 14px;
+      border: 1px solid #dadce0;
+      border-radius: 5px;
+      overflow: hidden;
+    }
+    .mode-option {
+      flex: 1;
+      padding: 10px 14px;
+      cursor: pointer;
+      background: #fff;
+      border-left: 1px solid #dadce0;
+    }
+    .mode-option:first-child { border-left: none; }
+    .mode-option.active { background: #e8f0fe; }
+    .mode-option .mode-title {
+      font-weight: bold;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .mode-option.active .mode-title { color: #1a73e8; }
+    .mode-option .mode-desc {
+      font-size: 11px;
+      color: #888;
+      margin-top: 3px;
+      line-height: 1.4;
+    }
 
     /* ── File input ──────────────────────────────────────────────────────────── */
     label.field-label {
@@ -71,76 +104,49 @@
       padding: 4px 0;
     }
 
-    /* ── Column preview ──────────────────────────────────────────────────────── */
-    .preview-box {
-      margin-top: 14px;
+    /* ── Per-file cards ──────────────────────────────────────────────────────── */
+    #fileCards { margin-top: 14px; }
+    .file-card {
       border: 1px solid #dadce0;
       border-radius: 5px;
       overflow: hidden;
-      display: none;
+      margin-bottom: 10px;
     }
-    .preview-box-header {
+    .file-card.invalid { border-color: #e8a09a; }
+    .file-card-header {
       background: #f1f3f4;
       padding: 7px 12px;
-      font-size: 11px;
+      font-size: 12px;
       font-weight: bold;
-      text-transform: uppercase;
-      letter-spacing: 0.3px;
-      color: #666;
       border-bottom: 1px solid #e0e0e0;
       display: flex;
       justify-content: space-between;
       align-items: center;
+      gap: 10px;
     }
-    .preview-box-header .row-count {
-      font-size: 12px;
-      font-weight: bold;
-      color: #333;
-      text-transform: none;
-      letter-spacing: 0;
+    .file-card.invalid .file-card-header { background: #fce8e6; color: #c0392b; }
+    .file-card-header .file-meta {
+      font-weight: normal;
+      font-size: 11px;
+      color: #666;
+      white-space: nowrap;
     }
-    .preview-columns {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 0;
+    .file-card-body {
+      padding: 8px 12px;
+      font-size: 11px;
+      line-height: 1.7;
     }
-    .preview-col {
-      padding: 10px 12px;
-      font-size: 12px;
-      font-family: monospace;
-      line-height: 1.8;
-    }
-    .preview-col:first-child {
-      border-right: 1px solid #e0e0e0;
-    }
-    .preview-col-title {
-      font-size: 10px;
-      font-weight: bold;
-      text-transform: uppercase;
-      letter-spacing: 0.4px;
-      margin-bottom: 5px;
-      font-family: Arial, sans-serif;
-    }
+    .file-card-body .missing-line  { color: #c0392b; }
+    .file-card-body .ignored-line  { color: #999; }
+    .file-card-body .error-line    { color: #c0392b; font-weight: bold; }
     .match   { color: #1e7e34; }
     .nomatch { color: #c0392b; }
 
-    .ignored-cols {
-      padding: 8px 12px;
-      border-top: 1px solid #e0e0e0;
-      font-size: 11px;
-      font-family: monospace;
-      color: #999;
-      line-height: 1.7;
-      background: #fafafa;
-    }
-    .ignored-cols-title {
-      font-size: 10px;
+    .totals-line {
+      margin-top: 4px;
+      font-size: 12px;
       font-weight: bold;
-      text-transform: uppercase;
-      letter-spacing: 0.4px;
-      color: #aaa;
-      font-family: Arial, sans-serif;
-      margin-bottom: 3px;
+      color: #333;
     }
 
     /* ── Buttons ─────────────────────────────────────────────────────────────── */
@@ -171,6 +177,82 @@
       flex-shrink: 0;
     }
     .btn-secondary:hover { background: #e8f0fe; }
+
+    /* ════════════════════════════════════════════════════════════════════════════
+       CONFLICT PANEL
+    ════════════════════════════════════════════════════════════════════════════ */
+    #conflictPanel { display: none; }
+
+    .bulk-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      background: #fef7e0;
+      border: 1px solid #f0d97a;
+      border-radius: 5px;
+      margin-bottom: 14px;
+      font-size: 12px;
+    }
+    .bulk-bar .bulk-label { font-weight: bold; color: #b06000; flex: 1; }
+    .bulk-bar button { padding: 6px 14px; font-size: 12px; }
+
+    .conflict-card {
+      border: 1px solid #dadce0;
+      border-radius: 5px;
+      overflow: hidden;
+      margin-bottom: 12px;
+    }
+    .conflict-card-header {
+      background: #f1f3f4;
+      padding: 7px 12px;
+      font-size: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    .conflict-card-header .vin { font-weight: bold; font-family: monospace; font-size: 12px; }
+    .conflict-card-header .meta { font-size: 11px; color: #666; white-space: nowrap; }
+    .conflict-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    .conflict-table th {
+      background: #fafafa;
+      padding: 5px 10px;
+      text-align: left;
+      border-bottom: 1px solid #e0e0e0;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      color: #888;
+    }
+    .conflict-table td {
+      padding: 5px 10px;
+      border-bottom: 1px solid #f0f0f0;
+      text-align: left;
+      vertical-align: top;
+      word-break: break-word;
+    }
+    .conflict-table td.field-name { font-weight: bold; color: #555; width: 130px; white-space: nowrap; }
+    .conflict-choice {
+      display: flex;
+      gap: 22px;
+      padding: 8px 12px;
+      background: #fafafa;
+      border-top: 1px solid #e0e0e0;
+      font-size: 12px;
+    }
+    .conflict-choice label { cursor: pointer; display: flex; align-items: center; gap: 5px; }
+    .variant-note { font-size: 10.5px; color: #b06000; padding: 4px 12px 8px; background: #fafafa; }
+    .more-conflicts {
+      padding: 10px 12px;
+      background: #f1f3f4;
+      border-radius: 5px;
+      font-size: 12px;
+      color: #666;
+      text-align: center;
+      margin-bottom: 12px;
+    }
 
     /* ════════════════════════════════════════════════════════════════════════════
        REVIEW PANEL
@@ -209,6 +291,7 @@
     }
     .badge.status  { background: #fef7e0; color: #b06000; }
     .badge.warning { background: #fce8e6; color: #c0392b; }
+    .badge.neutral { background: #f1f3f4; color: #555; }
 
     .divider {
       border: none;
@@ -303,38 +386,59 @@
 
     <div class="modal-header">
       <h3>Import Scraper Data</h3>
-      <div class="subtitle">Replaces all existing data in SCRAPERDATA. Columns are matched by header name — order doesn't matter.</div>
+      <div class="subtitle" id="formSubtitle">Replace mode: clears all existing SCRAPERDATA and imports the selected file(s). Columns are matched per file by header name — order doesn't matter.</div>
     </div>
 
     <div class="modal-body">
-      <label class="field-label" for="fileInput">Select CSV File</label>
-      <input type="file" id="fileInput" accept=".csv" onchange="handleFileSelect()" />
 
-      <div class="preview-box" id="previewBox">
-        <div class="preview-box-header">
-          <span>Column Mapping</span>
-          <span class="row-count" id="rowCountLabel"></span>
+      <div class="mode-selector">
+        <div class="mode-option active" id="modeReplace" onclick="setMode('replace')">
+          <div class="mode-title"><input type="radio" name="importMode" id="modeReplaceRadio" checked> Main Import (Replace)</div>
+          <div class="mode-desc">Clears the current SCRAPERDATA and imports the selected file(s) as the new dataset.</div>
         </div>
-        <div class="preview-columns">
-          <div class="preview-col">
-            <div class="preview-col-title match">✓ Matched</div>
-            <div id="matchedList"></div>
-          </div>
-          <div class="preview-col">
-            <div class="preview-col-title nomatch">✗ Missing (will be blank)</div>
-            <div id="unmatchedList"></div>
-          </div>
-        </div>
-        <div class="ignored-cols" id="ignoredCols" style="display:none;">
-          <div class="ignored-cols-title">Ignored columns in file</div>
-          <div id="ignoredList"></div>
+        <div class="mode-option" id="modeMerge" onclick="setMode('merge')">
+          <div class="mode-title"><input type="radio" name="importMode" id="modeMergeRadio"> Merge with Existing</div>
+          <div class="mode-desc">Adds the selected file(s) to the current data. Same VIN + identical data is kept once; differing data is flagged for review. Health drop-checks are only meaningful on Replace.</div>
         </div>
       </div>
+
+      <label class="field-label" for="fileInput">Select CSV File(s)</label>
+      <input type="file" id="fileInput" accept=".csv" multiple onchange="handleFilesSelect()" />
+
+      <div id="fileCards"></div>
+      <div class="totals-line" id="totalsLine" style="display:none;"></div>
     </div>
 
     <div class="modal-footer">
-      <div id="status" class="empty">&nbsp;</div>
+      <div id="status" class="status-bar empty">&nbsp;</div>
       <button class="btn-primary" id="importBtn" onclick="runImport()" disabled>Import Data</button>
+    </div>
+
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════════════════════
+       CONFLICT RESOLUTION PANEL
+  ════════════════════════════════════════════════════════════════════════════ -->
+  <div id="conflictPanel" style="display:none;flex-direction:column;height:100vh;">
+
+    <div class="modal-header">
+      <h3 id="conflictTitle">Resolve Conflicting VINs</h3>
+      <div class="subtitle">The same VIN was found more than once with different data. Choose which version to keep for each — nothing has been written yet.</div>
+    </div>
+
+    <div class="modal-body">
+      <div class="bulk-bar">
+        <span class="bulk-label" id="bulkLabel"></span>
+        <button class="btn-secondary" onclick="bulkChoice('existing')">Keep All Existing</button>
+        <button class="btn-secondary" onclick="bulkChoice('new')">Keep All New</button>
+      </div>
+      <div id="conflictList"></div>
+    </div>
+
+    <div class="modal-footer">
+      <div id="statusConflict" class="status-bar empty">&nbsp;</div>
+      <button class="btn-secondary" onclick="cancelConflicts()">Cancel</button>
+      <button class="btn-primary" id="applyBtn" onclick="submitResolutions()" disabled>Apply &amp; Import</button>
     </div>
 
   </div>
@@ -351,6 +455,11 @@
           <h3>Import Complete</h3>
           <div class="total" id="reviewTotal"></div>
         </div>
+      </div>
+
+      <div class="review-section" id="importSummarySection" style="display:none;">
+        <div class="review-section-title">Import Summary</div>
+        <div class="badge-row" id="importSummaryBadges"></div>
       </div>
 
       <div class="review-section">
@@ -374,8 +483,8 @@
     </div>
 
     <div class="modal-footer">
-      <div id="statusReview" class="empty">&nbsp;</div>
-      <button class="btn-secondary" onclick="resetImport()">Import Another File</button>
+      <div id="statusReview" class="status-bar empty">&nbsp;</div>
+      <button class="btn-secondary" onclick="resetImport()">Import More Data</button>
     </div>
 
   </div>
@@ -389,132 +498,374 @@
       'Postal Code', 'Region', 'Country', 'Location', 'Vechile URL'
     ];
 
-    var parsedRows    = [];
-    var columnMapping = [];
+    var MAX_CONFLICT_CARDS = 200;   // detail cards rendered; bulk buttons cover the rest
 
-    // ── File select ───────────────────────────────────────────────────────────
-    function handleFileSelect() {
-      var file = document.getElementById('fileInput').files[0];
-      if (!file) return;
+    var parsedFiles   = [];         // [{name, rows, rowCount, matchedCount, missing, ignored, valid, error}]
+    var selectedMode  = 'replace';
+    var pendingPayload = null;      // {rows, fileNames} kept for the phase-2 call
+    var conflictState  = null;      // {conflicts, conflictsTotal, token, choices}
 
-      setStatus('Reading file...', 'info');
-      document.getElementById('importBtn').disabled = true;
-      document.getElementById('previewBox').style.display = 'none';
-      parsedRows    = [];
-      columnMapping = [];
-
-      var reader    = new FileReader();
-      reader.onload = function(e) {
-        try {
-          var result = parseCSV(e.target.result);
-          if (result.length < 2) {
-            setStatus('File appears empty or has no data rows.', 'error');
-            return;
-          }
-
-          var fileHeaders      = result[0].map(function(h) { return h.trim(); });
-          parsedRows           = result.slice(1);
-          var fileHeadersLower = fileHeaders.map(function(h) { return h.toLowerCase(); });
-          var expectedLower    = EXPECTED_HEADERS.map(function(h) { return h.toLowerCase(); });
-
-          columnMapping = EXPECTED_HEADERS.map(function(expected) {
-            return fileHeadersLower.indexOf(expected.toLowerCase());
-          });
-
-          var matched   = columnMapping.filter(function(i) { return i !== -1; });
-          var unmatched = EXPECTED_HEADERS.filter(function(_, i) { return columnMapping[i] === -1; });
-          var extraCols = fileHeaders.filter(function(h) {
-            return expectedLower.indexOf(h.toLowerCase()) === -1;
-          });
-
-          // Populate matched list
-          var matchedHtml = '';
-          EXPECTED_HEADERS.forEach(function(name, i) {
-            if (columnMapping[i] !== -1) {
-              matchedHtml += '<span class="match">' + escHtml(name) + '</span><br>';
-            }
-          });
-          document.getElementById('matchedList').innerHTML = matchedHtml || '<span style="color:#aaa">None</span>';
-
-          // Populate unmatched list
-          var unmatchedHtml = '';
-          unmatched.forEach(function(name) {
-            unmatchedHtml += '<span class="nomatch">' + escHtml(name) + '</span><br>';
-          });
-          document.getElementById('unmatchedList').innerHTML = unmatchedHtml || '<span style="color:#aaa">None — full match!</span>';
-
-          // Ignored columns
-          if (extraCols.length > 0) {
-            document.getElementById('ignoredList').innerHTML =
-              extraCols.map(function(h) { return escHtml(h); }).join('<br>');
-            document.getElementById('ignoredCols').style.display = 'block';
-          } else {
-            document.getElementById('ignoredCols').style.display = 'none';
-          }
-
-          document.getElementById('rowCountLabel').textContent = parsedRows.length.toLocaleString() + ' data rows';
-          document.getElementById('previewBox').style.display = 'block';
-
-          if (matched.length === 0) {
-            setStatus('No columns matched. Check that your file has the correct headers.', 'error');
-          } else {
-            setStatus(
-              parsedRows.length.toLocaleString() + ' rows ready — ' +
-              matched.length + ' columns matched' +
-              (unmatched.length > 0 ? ', ' + unmatched.length + ' missing.' : '.'),
-              'info'
-            );
-            document.getElementById('importBtn').disabled = false;
-          }
-        } catch(err) {
-          setStatus('Error parsing file: ' + err.message, 'error');
-        }
-      };
-      reader.onerror = function() { setStatus('Could not read file.', 'error'); };
-      reader.readAsText(file);
+    // ── Mode selector ─────────────────────────────────────────────────────────
+    function setMode(mode) {
+      selectedMode = mode;
+      document.getElementById('modeReplace').className = 'mode-option' + (mode === 'replace' ? ' active' : '');
+      document.getElementById('modeMerge').className   = 'mode-option' + (mode === 'merge'   ? ' active' : '');
+      document.getElementById('modeReplaceRadio').checked = (mode === 'replace');
+      document.getElementById('modeMergeRadio').checked   = (mode === 'merge');
+      document.getElementById('formSubtitle').textContent = (mode === 'replace')
+        ? 'Replace mode: clears all existing SCRAPERDATA and imports the selected file(s). Columns are matched per file by header name — order doesn\'t matter.'
+        : 'Merge mode: combines the selected file(s) with the existing SCRAPERDATA. Duplicate VINs with identical data are kept once; differing data is flagged for review.';
     }
 
-    // ── Import ────────────────────────────────────────────────────────────────
+    // ── File select (multi-file) ──────────────────────────────────────────────
+    function handleFilesSelect() {
+      var files = document.getElementById('fileInput').files;
+      if (!files || files.length === 0) return;
+
+      setStatus('Reading ' + files.length + ' file' + (files.length === 1 ? '' : 's') + '...', 'info');
+      document.getElementById('importBtn').disabled = true;
+      parsedFiles = [];
+
+      var remaining = files.length;
+      for (var i = 0; i < files.length; i++) {
+        (function(file, idx) {
+          var reader = new FileReader();
+          reader.onload = function(e) {
+            parsedFiles[idx] = parseOneFile_(file.name, e.target.result);
+            if (--remaining === 0) renderFileCards();
+          };
+          reader.onerror = function() {
+            parsedFiles[idx] = { name: file.name, rows: [], rowCount: 0, matchedCount: 0,
+                                 missing: [], ignored: [], valid: false, error: 'Could not read file.' };
+            if (--remaining === 0) renderFileCards();
+          };
+          reader.readAsText(file);
+        })(files[i], i);
+      }
+    }
+
+    // Parses one file's text into canonical 21-column rows with its own
+    // header mapping. Strips the UTF-8 BOM (a BOM'd header reads as
+    // "﻿VIN" and silently fails the match) and drops any stray header
+    // row hiding mid-file (VIN cell equal to the literal "vin").
+    function parseOneFile_(name, text) {
+      var out = { name: name, rows: [], rowCount: 0, matchedCount: 0,
+                  missing: [], ignored: [], valid: false, error: null };
+      try {
+        text = text.replace(/^\uFEFF/, '');
+        var result = parseCSV(text);
+        if (result.length < 2) {
+          out.error = 'File appears empty or has no data rows.';
+          return out;
+        }
+
+        var fileHeaders      = result[0].map(function(h) { return h.trim(); });
+        var dataRows         = result.slice(1);
+        var fileHeadersLower = fileHeaders.map(function(h) { return h.toLowerCase(); });
+        var expectedLower    = EXPECTED_HEADERS.map(function(h) { return h.toLowerCase(); });
+
+        var columnMapping = EXPECTED_HEADERS.map(function(expected) {
+          return fileHeadersLower.indexOf(expected.toLowerCase());
+        });
+
+        out.matchedCount = columnMapping.filter(function(i) { return i !== -1; }).length;
+        out.missing = EXPECTED_HEADERS.filter(function(_, i) { return columnMapping[i] === -1; });
+        out.ignored = fileHeaders.filter(function(h) {
+          return expectedLower.indexOf(h.toLowerCase()) === -1;
+        });
+
+        var vinFileIdx = columnMapping[0];
+        if (vinFileIdx === -1) {
+          out.error = 'No VIN column found — this file cannot be imported.';
+          return out;
+        }
+
+        var mapped = [];
+        for (var r = 0; r < dataRows.length; r++) {
+          var row = dataRows[r];
+          // Mid-file header guard: a "VIN" literal in the VIN column is a
+          // header row from a concatenated export, not a vehicle.
+          var vinCell = String(row[vinFileIdx] === undefined ? '' : row[vinFileIdx]).trim().toLowerCase();
+          if (vinCell === 'vin') continue;
+
+          mapped.push(columnMapping.map(function(fileColIdx) {
+            if (fileColIdx === -1) return '';
+            var val = row[fileColIdx];
+            return (val === undefined || val === null) ? '' : String(val);
+          }));
+        }
+
+        out.rows     = mapped;
+        out.rowCount = mapped.length;
+        if (out.rowCount === 0) {
+          out.error = 'No data rows after removing header rows.';
+          return out;
+        }
+        out.valid = true;
+        return out;
+      } catch (err) {
+        out.error = 'Error parsing file: ' + err.message;
+        return out;
+      }
+    }
+
+    function renderFileCards() {
+      var container = document.getElementById('fileCards');
+      var html = '';
+      var totalRows = 0;
+      var validCount = 0;
+      var invalidCount = 0;
+
+      parsedFiles.forEach(function(f) {
+        if (f.valid) { validCount++; totalRows += f.rowCount; } else { invalidCount++; }
+
+        html += '<div class="file-card' + (f.valid ? '' : ' invalid') + '">';
+        html += '<div class="file-card-header"><span>' + escHtml(f.name) + '</span>';
+        if (f.valid) {
+          html += '<span class="file-meta">' + f.rowCount.toLocaleString() + ' rows · ' +
+                  f.matchedCount + '/21 columns matched</span>';
+        }
+        html += '</div>';
+        html += '<div class="file-card-body">';
+        if (!f.valid) {
+          html += '<div class="error-line">✗ ' + escHtml(f.error || 'Invalid file.') + '</div>';
+        } else {
+          if (f.missing.length > 0) {
+            html += '<div class="missing-line">Missing (will be blank): ' +
+                    f.missing.map(escHtml).join(', ') + '</div>';
+          } else {
+            html += '<div class="match">✓ All 21 columns matched</div>';
+          }
+          if (f.ignored.length > 0) {
+            html += '<div class="ignored-line">Ignored: ' + f.ignored.map(escHtml).join(', ') + '</div>';
+          }
+        }
+        html += '</div></div>';
+      });
+
+      container.innerHTML = html;
+
+      var totals = document.getElementById('totalsLine');
+      totals.style.display = 'block';
+      totals.textContent = validCount + ' file' + (validCount === 1 ? '' : 's') + ' ready · ' +
+                           totalRows.toLocaleString() + ' total rows' +
+                           (invalidCount > 0 ? ' · ' + invalidCount + ' file' + (invalidCount === 1 ? '' : 's') + ' with errors' : '');
+
+      // All-or-nothing gate: every selected file must be valid.
+      if (invalidCount > 0) {
+        setStatus('Fix or deselect the file' + (invalidCount === 1 ? '' : 's') + ' with errors before importing.', 'error');
+        document.getElementById('importBtn').disabled = true;
+      } else if (validCount === 0) {
+        setStatus('No valid files selected.', 'error');
+        document.getElementById('importBtn').disabled = true;
+      } else {
+        setStatus(totalRows.toLocaleString() + ' rows ready from ' + validCount +
+                  ' file' + (validCount === 1 ? '' : 's') + '.', 'info');
+        document.getElementById('importBtn').disabled = false;
+      }
+    }
+
+    // ── Import (phase 1) ──────────────────────────────────────────────────────
     function runImport() {
-      if (parsedRows.length === 0 || columnMapping.length === 0) {
-        setStatus('Please select a valid CSV file first.', 'error');
+      var validFiles = parsedFiles.filter(function(f) { return f.valid; });
+      if (validFiles.length === 0) {
+        setStatus('Please select valid CSV file(s) first.', 'error');
         return;
       }
+
+      var allRows   = [];
+      var fileNames = [];
+      validFiles.forEach(function(f) {
+        allRows = allRows.concat(f.rows);
+        fileNames.push({ name: f.name, rowCount: f.rowCount });
+      });
+      pendingPayload = { rows: allRows, fileNames: fileNames };
 
       var btn = document.getElementById('importBtn');
       btn.disabled    = true;
       btn.textContent = 'Importing...';
-      setStatus('Sending ' + parsedRows.length.toLocaleString() + ' rows to Google Sheets...', 'info');
-
-      var mappedData = parsedRows.map(function(row) {
-        return columnMapping.map(function(fileColIdx) {
-          if (fileColIdx === -1) return '';
-          var val = row[fileColIdx];
-          return (val === undefined || val === null) ? '' : String(val);
-        });
-      });
+      setStatus('Sending ' + allRows.length.toLocaleString() + ' rows to Google Sheets...', 'info');
 
       google.script.run
         .withSuccessHandler(function(result) {
           btn.textContent = 'Import Data';
-          showReview(result);
+          if (result && result.needsResolution) {
+            showConflicts(result);
+          } else {
+            showReview(result);
+          }
         })
         .withFailureHandler(function(e) {
           setStatus('Error: ' + e.message, 'error');
           btn.disabled    = false;
           btn.textContent = 'Import Data';
         })
-        .importScraperData(mappedData);
+        .importScraperData(allRows, selectedMode, null, fileNames, null);
+    }
+
+    // ── Conflict resolution (phase 2) ─────────────────────────────────────────
+    function showConflicts(result) {
+      conflictState = {
+        conflicts:      result.conflicts || [],
+        conflictsTotal: result.conflictsTotal || (result.conflicts || []).length,
+        token:          result.token,
+        choices:        {}
+      };
+
+      document.getElementById('conflictTitle').textContent =
+        'Resolve ' + conflictState.conflictsTotal.toLocaleString() + ' Conflicting VIN' +
+        (conflictState.conflictsTotal === 1 ? '' : 's');
+
+      document.getElementById('bulkLabel').textContent =
+        (result.duplicatesRemoved > 0 ? result.duplicatesRemoved.toLocaleString() + ' identical duplicates were removed automatically. ' : '') +
+        'Apply one choice to everything, or decide per VIN below.';
+
+      var renderCount = Math.min(conflictState.conflicts.length, MAX_CONFLICT_CARDS);
+      var html = '';
+
+      for (var i = 0; i < renderCount; i++) {
+        var c = conflictState.conflicts[i];
+        var locIdx = 19, typeIdx = 2;
+        var loc  = c.incoming.row[locIdx] || c.existing.row[locIdx] || '';
+        var type = c.incoming.row[typeIdx] || c.existing.row[typeIdx] || '';
+
+        html += '<div class="conflict-card">';
+        html += '<div class="conflict-card-header"><span class="vin">' + escHtml(c.vin) + '</span>' +
+                '<span class="meta">' + escHtml(loc) + (type ? ' · ' + escHtml(type) : '') + '</span></div>';
+
+        html += '<table class="conflict-table"><tr><th style="width:130px">Field</th>' +
+                '<th>Existing — ' + escHtml(c.existing.source) + '</th>' +
+                '<th>New — ' + escHtml(c.incoming.source) + '</th></tr>';
+        for (var dIdx = 0; dIdx < c.diffCols.length; dIdx++) {
+          var col = c.diffCols[dIdx];
+          html += '<tr><td class="field-name">' + escHtml(EXPECTED_HEADERS[col]) + '</td>' +
+                  '<td>' + escHtml(c.existing.row[col]) + '</td>' +
+                  '<td>' + escHtml(c.incoming.row[col]) + '</td></tr>';
+        }
+        html += '</table>';
+
+        if (c.variantCount > 1) {
+          html += '<div class="variant-note">' + c.variantCount +
+                  ' differing versions were found for this VIN — showing the newest.</div>';
+        }
+
+        html += '<div class="conflict-choice">' +
+          '<label><input type="radio" name="conflict_' + i + '" onchange="setChoice(\'' + escAttr(c.vin) + '\', \'existing\')"> Keep existing</label>' +
+          '<label><input type="radio" name="conflict_' + i + '" onchange="setChoice(\'' + escAttr(c.vin) + '\', \'new\')"> Keep new</label>' +
+          '</div>';
+        html += '</div>';
+      }
+
+      if (conflictState.conflictsTotal > renderCount) {
+        html += '<div class="more-conflicts">' +
+                (conflictState.conflictsTotal - renderCount).toLocaleString() +
+                ' more conflicting VINs are not shown — use the bulk buttons above to cover them.</div>';
+      }
+
+      document.getElementById('conflictList').innerHTML = html;
+      setConflictStatus('', 'empty');
+      updateApplyGate();
+
+      document.getElementById('importForm').style.display    = 'none';
+      document.getElementById('conflictPanel').style.display = 'flex';
+    }
+
+    function setChoice(vin, choice) {
+      conflictState.choices[vin] = choice;
+      updateApplyGate();
+    }
+
+    function bulkChoice(choice) {
+      // '*' is the server-side fallback for every VIN without an explicit
+      // choice — it also covers conflicts beyond the rendered/returned cap.
+      conflictState.choices = { '*': choice };
+      var value = (choice === 'existing') ? 0 : 1;
+      var renderCount = Math.min(conflictState.conflicts.length, MAX_CONFLICT_CARDS);
+      for (var i = 0; i < renderCount; i++) {
+        var radios = document.getElementsByName('conflict_' + i);
+        if (radios.length === 2) {
+          radios[0].checked = (value === 0);
+          radios[1].checked = (value === 1);
+        }
+      }
+      updateApplyGate();
+    }
+
+    function updateApplyGate() {
+      var ok;
+      if (conflictState.choices['*']) {
+        ok = true;
+      } else {
+        // Without a bulk fallback, every conflict must have an explicit
+        // choice — only possible when every conflict was rendered.
+        var renderCount = Math.min(conflictState.conflicts.length, MAX_CONFLICT_CARDS);
+        ok = (conflictState.conflictsTotal === renderCount);
+        if (ok) {
+          for (var i = 0; i < renderCount; i++) {
+            if (!conflictState.choices[conflictState.conflicts[i].vin]) { ok = false; break; }
+          }
+        }
+      }
+      document.getElementById('applyBtn').disabled = !ok;
+    }
+
+    function submitResolutions() {
+      if (!pendingPayload || !conflictState) return;
+
+      var btn = document.getElementById('applyBtn');
+      btn.disabled    = true;
+      btn.textContent = 'Importing...';
+      setConflictStatus('Applying choices and importing...', 'info');
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          btn.textContent = 'Apply & Import';
+          showReview(result);
+        })
+        .withFailureHandler(function(e) {
+          setConflictStatus('Error: ' + e.message, 'error');
+          btn.disabled    = false;
+          btn.textContent = 'Apply & Import';
+        })
+        .importScraperData(pendingPayload.rows, selectedMode,
+                           conflictState.choices, pendingPayload.fileNames,
+                           conflictState.token);
+    }
+
+    function cancelConflicts() {
+      conflictState = null;
+      document.getElementById('conflictPanel').style.display = 'none';
+      document.getElementById('importForm').style.display    = 'flex';
+      document.getElementById('importBtn').disabled = false;
+      setStatus('Import cancelled — nothing was written.', 'info');
     }
 
     // ── Review panel ──────────────────────────────────────────────────────────
     function showReview(result) {
       var r = result.review;
 
+      var locCount = Object.keys(r.locationTypeCounts).length;
       document.getElementById('reviewTotal').textContent =
-        r.total.toLocaleString() + ' vehicles imported across ' +
-        Object.keys(r.locationTypeCounts).length + ' location' +
-        (Object.keys(r.locationTypeCounts).length === 1 ? '' : 's');
+        (result.mode === 'merge')
+          ? r.total.toLocaleString() + ' total vehicles after merge across ' + locCount + ' location' + (locCount === 1 ? '' : 's')
+          : r.total.toLocaleString() + ' vehicles imported across ' + locCount + ' location' + (locCount === 1 ? '' : 's');
+
+      // Import summary badges
+      var summaryEl = document.getElementById('importSummaryBadges');
+      summaryEl.innerHTML = '';
+      var badges = [];
+      if (result.fileCount > 0)          badges.push({ text: result.fileCount + ' file' + (result.fileCount === 1 ? '' : 's'), cls: 'neutral' });
+      if (result.mode)                   badges.push({ text: (result.mode === 'merge' ? 'Merge' : 'Replace') + ' mode', cls: 'neutral' });
+      if (result.duplicatesRemoved > 0)  badges.push({ text: result.duplicatesRemoved.toLocaleString() + ' duplicates removed', cls: 'neutral' });
+      if (result.conflictsResolved > 0)  badges.push({ text: result.conflictsResolved.toLocaleString() + ' conflicts resolved', cls: 'status' });
+      if (result.blankVinCount > 0)      badges.push({ text: result.blankVinCount.toLocaleString() + ' rows without VIN', cls: 'warning' });
+      badges.forEach(function(bd) {
+        var b = document.createElement('span');
+        b.className   = 'badge ' + bd.cls;
+        b.textContent = bd.text;
+        summaryEl.appendChild(b);
+      });
+      document.getElementById('importSummarySection').style.display = badges.length ? 'block' : 'none';
 
       // Types
       var typeKeys = Object.keys(r.typeCounts).sort();
@@ -574,7 +925,7 @@
           '<div class="health-section-title">&#9888; Data Health: ' + issues.length +
           ' issue' + (issues.length === 1 ? '' : 's') + ' detected</div>';
         issues.forEach(function(issue) {
-          var icon = issue.severity === 'error' ? '\uD83D\uDD34' : '\uD83D\uDFE1';
+          var icon = issue.severity === 'error' ? '🔴' : '🟡';
           hHtml += '<div class="health-item">' +
             '<span class="health-icon">' + icon + '</span>' +
             '<span><span class="health-location">' + escHtml(issue.location) + '</span>' +
@@ -586,40 +937,47 @@
         healthEl.innerHTML = hHtml;
       }
 
-      document.getElementById('importForm').style.display  = 'none';
-      document.getElementById('reviewPanel').style.display = 'flex';
+      document.getElementById('importForm').style.display    = 'none';
+      document.getElementById('conflictPanel').style.display = 'none';
+      document.getElementById('reviewPanel').style.display   = 'flex';
     }
 
     function resetImport() {
-      parsedRows    = [];
-      columnMapping = [];
+      parsedFiles    = [];
+      pendingPayload = null;
+      conflictState  = null;
 
-      document.getElementById('previewBox').style.display  = 'none';
-      document.getElementById('matchedList').innerHTML     = '';
-      document.getElementById('unmatchedList').innerHTML   = '';
-      document.getElementById('ignoredList').innerHTML     = '';
-      document.getElementById('ignoredCols').style.display = 'none';
+      document.getElementById('fileCards').innerHTML       = '';
+      document.getElementById('totalsLine').style.display  = 'none';
       document.getElementById('importBtn').disabled        = true;
       document.getElementById('importBtn').textContent     = 'Import Data';
       setStatus('', 'empty');
+      setMode('replace');
 
       // File input can't be cleared by value — replace the element
       var old   = document.getElementById('fileInput');
       var clone = old.cloneNode(false);
-      clone.onchange = handleFileSelect;
+      clone.onchange = handleFilesSelect;
       old.parentNode.replaceChild(clone, old);
 
-      document.getElementById('reviewPanel').style.display = 'none';
-      document.getElementById('healthSection').style.display = 'none';
-      document.getElementById('healthSection').innerHTML     = '';
-      document.getElementById('importForm').style.display  = 'flex';
+      document.getElementById('reviewPanel').style.display    = 'none';
+      document.getElementById('conflictPanel').style.display  = 'none';
+      document.getElementById('healthSection').style.display  = 'none';
+      document.getElementById('healthSection').innerHTML      = '';
+      document.getElementById('importForm').style.display     = 'flex';
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
     function setStatus(msg, type) {
       var el       = document.getElementById('status');
-      el.textContent = msg || '\u00a0';
-      el.className   = type || 'empty';
+      el.textContent = msg || ' ';
+      el.className   = 'status-bar ' + (type || 'empty');
+    }
+
+    function setConflictStatus(msg, type) {
+      var el       = document.getElementById('statusConflict');
+      el.textContent = msg || ' ';
+      el.className   = 'status-bar ' + (type || 'empty');
     }
 
     function escHtml(str) {
@@ -628,6 +986,10 @@
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
+    }
+
+    function escAttr(str) {
+      return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
     }
 
     // Minimal CSV parser — handles quoted fields, commas inside quotes,

@@ -332,86 +332,351 @@ function onOpen() {
   menu.addToUi();
 }
 
+// All modals share one large uniform size; the browser viewport is the
+// effective cap (GAS clamps/clips oversize dialogs), so smaller screens
+// still get the largest dialog that fits.
+var MODAL_WIDTH  = 1400;
+var MODAL_HEIGHT = 900;
+
 function promptRunDealer() {
   var html = HtmlService.createHtmlOutputFromFile('DealerSelector')
-    .setWidth(580)
-    .setHeight(600);
+    .setWidth(MODAL_WIDTH)
+    .setHeight(MODAL_HEIGHT);
   SpreadsheetApp.getUi().showModalDialog(html, 'Run Dealer');
 }
 
 function openScraperImport() {
   var html = HtmlService.createHtmlOutputFromFile('ScraperImport')
-    .setWidth(620)
-    .setHeight(580);
+    .setWidth(MODAL_WIDTH)
+    .setHeight(MODAL_HEIGHT);
   SpreadsheetApp.getUi().showModalDialog(html, 'Import Scraper Data');
 }
 
 /**
- * Receives pre-mapped data from the ScraperImport sidebar, normalizes it,
- * and writes it into SCRAPERDATA, replacing all existing data.
+ * Receives pre-mapped data from the ScraperImport modal, normalizes it,
+ * deduplicates by VIN, and writes the final dataset to SCRAPERDATA.
+ *
+ * Two-phase protocol: when VIN conflicts are detected (same VIN, differing
+ * data) and no resolutions are supplied, the function returns the conflict
+ * list WITHOUT touching the sheet. The modal shows a resolution UI and calls
+ * again with the same payload plus a resolutions map. The happy path (no
+ * conflicts) writes in a single call. No mutation happens above the gate, so
+ * a mid-pipeline error can never leave SCRAPERDATA half-written.
  *
  * @param {Array<Array<string>>} mappedData - 2D array already aligned to the
- *   21 SCRAPERDATA columns. Unmatched columns contain empty strings.
- * @returns {{rowCount: number, colCount: number}}
+ *   21 SCRAPERDATA columns (all selected files concatenated, headers removed).
+ * @param {string=}  mode        - 'replace' (default; clears existing data) or
+ *   'merge' (combines with the current SCRAPERDATA contents).
+ * @param {Object=}  resolutions - phase-2 only: { 'VIN': 'existing'|'new' }.
+ * @param {Array=}   fileNames   - [{name, rowCount}] in concatenation order;
+ *   used to label conflict sources by filename.
+ * @param {string=}  token       - phase-2 only: echo of the phase-1 token,
+ *   verified so a concurrent import between phases is detected.
  */
-function importScraperData(mappedData) {
+function importScraperData(mappedData, mode, resolutions, fileNames, token) {
   if (!mappedData || mappedData.length === 0) {
     throw new Error('No data received.');
   }
+  mode = (mode === 'merge') ? 'merge' : 'replace';
 
   var ss    = SpreadsheetApp.openById(MASTER_SHEET_ID);
   var sheet = ss.getSheetByName('SCRAPERDATA');
 
-  // Clear all existing data below the header row
-  var lastRow = sheet.getLastRow();
-  if (lastRow > 1) {
-    sheet.getRange(2, 1, lastRow - 1, 21).clearContent();
-  }
-
-  // Normalize scraper data (type, trim, status, price + global passes)
+  // Normalize incoming rows in place (type, trim, status, price + global
+  // passes). Existing sheet rows are NOT re-normalized — they were normalized
+  // at their own import time; if norm maps changed since, the difference
+  // surfaces as an honest, user-visible conflict.
   normalizeScraperData_(mappedData);
 
-  // Compute review stats from normalized data before writing to sheet
-  var review = computeImportReview_(mappedData);
+  var baseRows     = (mode === 'merge') ? readExistingScraperRows_(sheet) : [];
+  var currentToken = computeImportToken_(sheet);
 
-  // Force plain text on columns that Sheets auto-converts, causing QUERY
-  // mixed-type issues. Must be set BEFORE setValues so the format is
-  // applied at write time, preventing numeric-looking strings from being
-  // stored as numbers.
-  sheet.getRange(2, 1, mappedData.length, 2).setNumberFormat('@');  // VIN (col A) + Stock (col B)
-  sheet.getRange(2, 10, mappedData.length, 1).setNumberFormat('@'); // Price (col J)
-  sheet.getRange(2, 14, mappedData.length, 1).setNumberFormat('@'); // Date In Stock (col N)
+  var d = dedupeScraperRows_(baseRows, mappedData, fileNames || []);
 
-  // Write new data starting at row 2
-  sheet.getRange(2, 1, mappedData.length, 21).setValues(mappedData);
-
-  // Re-apply text format after setValues — belt-and-suspenders for numeric-looking values
-  sheet.getRange(2, 1, mappedData.length, 2).setNumberFormat('@');  // VIN + Stock
-  sheet.getRange(2, 10, mappedData.length, 1).setNumberFormat('@'); // Price
-  sheet.getRange(2, 14, mappedData.length, 1).setNumberFormat('@'); // Date In Stock
-
-  // Count how many columns actually had data (non-empty in at least one row)
-  var colCount = 0;
-  for (var c = 0; c < 21; c++) {
-    for (var r = 0; r < mappedData.length; r++) {
-      if (mappedData[r][c] !== '') { colCount++; break; }
-    }
+  // ── Phase 1 gate: conflicts found, no resolutions yet → return, write nothing.
+  if (d.conflicts.length > 0 && !resolutions) {
+    var MAX_CONFLICTS_RETURNED = 1000;
+    // google.script.run cannot serialize Date objects (which getValues() can
+    // return from non-@ columns), so the returned conflict rows are
+    // display-stringified copies. Resolutions substitute the server-side
+    // originals on the phase-2 re-run, so this is cosmetic-only.
+    var conflictsOut = d.conflicts.slice(0, MAX_CONFLICTS_RETURNED).map(function(c) {
+      return {
+        vin:          c.vin,
+        existing:     { row: c.existing.row.map(function(v) { return String(v); }), source: c.existing.source },
+        incoming:     { row: c.incoming.row.map(function(v) { return String(v); }), source: c.incoming.source },
+        diffCols:     c.diffCols,
+        variantCount: c.variantCount
+      };
+    });
+    return {
+      needsResolution:   true,
+      mode:              mode,
+      conflicts:         conflictsOut,
+      conflictsTotal:    d.conflicts.length,
+      duplicatesRemoved: d.duplicatesRemoved,
+      existingRowCount:  baseRows.length,
+      newRowCount:       mappedData.length,
+      token:             currentToken
+    };
   }
 
-  // Update the scraper timestamp
-  fillScraperDateTime();
+  // ── Commit (single-call happy path, or phase 2 with resolutions).
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000);
+  } catch (eLock) {
+    throw new Error('Another import is currently running — please wait a moment and try again.');
+  }
 
-  // Write per-location stats row to IMPORT_STATS (append)
-  var importTimestamp = Utilities.formatDate(new Date(), 'America/Chicago', 'yyyy-MM-dd HH:mm:ss');
-  writeImportStats_(ss, importTimestamp, review.locationDetail);
+  try {
+    if (resolutions) {
+      var freshToken = computeImportToken_(sheet);
+      if (String(token || '') !== freshToken) {
+        throw new Error('SCRAPERDATA changed since conflicts were detected — please re-run the import.');
+      }
+      applyConflictResolutions_(d, resolutions);
+    }
 
-  // Run health check against historical IMPORT_STATS baselines
-  var healthIssues = checkImportHealth_(ss, importTimestamp, review.locationDetail);
+    // Restore the location-contiguity invariant getDealerScraperData_ relies
+    // on: bucket rows by exact Location string in first-seen order.
+    var finalRows = groupRowsByLocation_(d.rows);
 
-  // Refresh DASHBOARD sheet with latest location data (non-fatal)
-  refreshDashboard_(ss, importTimestamp, review.locationDetail);
+    // Review stats on the FINAL dataset (both modes) so IMPORT_STATS rows
+    // always mean "full state of each location after this import" and the
+    // health baselines stay consistent.
+    var review = computeImportReview_(finalRows);
 
-  return { rowCount: mappedData.length, colCount: colCount, review: review, healthIssues: healthIssues };
+    // ── Mutations begin here ──
+    var lastRow = sheet.getLastRow();
+    if (lastRow > 1) {
+      sheet.getRange(2, 1, lastRow - 1, 21).clearContent();
+    }
+
+    // Force plain text on columns that Sheets auto-converts, causing QUERY
+    // mixed-type issues. Set BEFORE setValues so the format applies at write
+    // time, and AFTER as belt-and-suspenders.
+    sheet.getRange(2, 1, finalRows.length, 2).setNumberFormat('@');  // VIN (col A) + Stock (col B)
+    sheet.getRange(2, 10, finalRows.length, 1).setNumberFormat('@'); // Price (col J)
+    sheet.getRange(2, 14, finalRows.length, 1).setNumberFormat('@'); // Date In Stock (col N)
+
+    sheet.getRange(2, 1, finalRows.length, 21).setValues(finalRows);
+
+    sheet.getRange(2, 1, finalRows.length, 2).setNumberFormat('@');
+    sheet.getRange(2, 10, finalRows.length, 1).setNumberFormat('@');
+    sheet.getRange(2, 14, finalRows.length, 1).setNumberFormat('@');
+
+    // Count how many columns actually had data (non-empty in at least one row)
+    var colCount = 0;
+    for (var c = 0; c < 21; c++) {
+      for (var r = 0; r < finalRows.length; r++) {
+        if (finalRows[r][c] !== '' && finalRows[r][c] !== '*') { colCount++; break; }
+      }
+    }
+
+    fillScraperDateTime();
+
+    var importTimestamp = Utilities.formatDate(new Date(), 'America/Chicago', 'yyyy-MM-dd HH:mm:ss');
+    writeImportStats_(ss, importTimestamp, review.locationDetail);
+    var healthIssues = checkImportHealth_(ss, importTimestamp, review.locationDetail);
+    refreshDashboard_(ss, importTimestamp, review.locationDetail);
+
+    return {
+      rowCount:          finalRows.length,
+      colCount:          colCount,
+      review:            review,
+      healthIssues:      healthIssues,
+      mode:              mode,
+      duplicatesRemoved: d.duplicatesRemoved,
+      conflictsResolved: resolutions ? d.conflicts.length : 0,
+      blankVinCount:     d.blankVinCount,
+      fileCount:         (fileNames || []).length
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Reads all existing SCRAPERDATA rows (A2:U) for merge mode. */
+function readExistingScraperRows_(sheet) {
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  return sheet.getRange(2, 1, lastRow - 1, 21).getValues();
+}
+
+/**
+ * Optimistic-concurrency token for the two-phase import: changes whenever an
+ * import writes (row count and/or the W1:X1 scraper timestamp change).
+ */
+function computeImportToken_(sheet) {
+  var d = sheet.getRange('W1').getDisplayValue();
+  var t = sheet.getRange('X1').getDisplayValue();
+  return sheet.getLastRow() + '|' + d + ' ' + t;
+}
+
+/**
+ * Tolerant cell equality for dedup comparisons. Existing sheet rows come back
+ * from getValues() with numbers in non-@ columns (Year, MSRP, Postal Code...)
+ * while incoming rows are strings — a naive string compare would flag a false
+ * conflict on every merged row. Trim-string equal first, then a both-numeric
+ * fallback (handles 2024 vs "2024" and "06234" vs 6234).
+ */
+function cellsEqual_(a, b) {
+  var sa = String(a).trim();
+  var sb = String(b).trim();
+  if (sa === sb) return true;
+  if (sa !== '' && sb !== '' && isFinite(sa) && isFinite(sb)) {
+    return Number(sa) === Number(sb);
+  }
+  return false;
+}
+
+function rowsEqual_(a, b) {
+  for (var c = 0; c < 21; c++) {
+    if (!cellsEqual_(a[c], b[c])) return false;
+  }
+  return true;
+}
+
+function diffCols_(a, b) {
+  var diffs = [];
+  for (var c = 0; c < 21; c++) {
+    if (!cellsEqual_(a[c], b[c])) diffs.push(c);
+  }
+  return diffs;
+}
+
+/**
+ * VIN-keyed dedup / conflict-detection engine for imports.
+ *
+ * Iteration order is fixed: existing sheet rows first (merge mode), then files
+ * in selection order, rows in file order. The first row seen for a VIN is the
+ * "incumbent"; an identical later row (per cellsEqual_, all 21 cols) is
+ * silently dropped; a differing later row becomes — or replaces — the
+ * "challenger" (latest distinct wins, variantCount tracks how many differing
+ * versions appeared). The user always resolves a simple 2-way choice.
+ *
+ * Rows with a blank/'*' VIN are passed through untouched and never keyed —
+ * keying on '*' would cross-conflict every blank-VIN row, and stock-matched
+ * dealers still need those rows.
+ *
+ * @returns {{rows: Array, conflicts: Array, duplicatesRemoved: number, blankVinCount: number}}
+ *   rows = ordered keep-list (incumbents in place); each conflict carries
+ *   keptIndex so a 'new' resolution substitutes the challenger in position.
+ */
+function dedupeScraperRows_(baseRows, newRows, fileNames) {
+  var kept              = [];
+  var keyToKeptIdx      = {};
+  var incumbentSource   = {};
+  var conflictsByVin    = {};
+  var conflictOrder     = [];
+  var duplicatesRemoved = 0;
+  var blankVinCount     = 0;
+
+  // Resolve which uploaded file the i-th concatenated new row came from.
+  function sourceForNewRow(i) {
+    var offset = 0;
+    for (var f = 0; f < fileNames.length; f++) {
+      var count = Number(fileNames[f].rowCount) || 0;
+      if (i < offset + count) return String(fileNames[f].name || 'Uploaded file');
+      offset += count;
+    }
+    return 'Uploaded file';
+  }
+
+  function processRow(row, source) {
+    var key = String(row[0]).trim().toUpperCase();
+
+    if (key === '' || key === '*') {
+      blankVinCount++;
+      kept.push(row);
+      return;
+    }
+
+    if (!keyToKeptIdx.hasOwnProperty(key)) {
+      keyToKeptIdx[key]    = kept.length;
+      incumbentSource[key] = source;
+      kept.push(row);
+      return;
+    }
+
+    var incumbent = kept[keyToKeptIdx[key]];
+    if (rowsEqual_(incumbent, row)) { duplicatesRemoved++; return; }
+
+    var c = conflictsByVin[key];
+    if (c && rowsEqual_(c.incoming.row, row)) { duplicatesRemoved++; return; }
+
+    if (!c) {
+      c = {
+        vin:          key,
+        existing:     { row: incumbent, source: incumbentSource[key] },
+        incoming:     null,
+        diffCols:     [],
+        variantCount: 0,
+        keptIndex:    keyToKeptIdx[key]
+      };
+      conflictsByVin[key] = c;
+      conflictOrder.push(key);
+    }
+    c.incoming = { row: row, source: source };
+    c.variantCount++;
+    c.diffCols = diffCols_(incumbent, row);
+  }
+
+  for (var b = 0; b < baseRows.length; b++) processRow(baseRows[b], 'Existing data');
+  for (var n = 0; n < newRows.length; n++)  processRow(newRows[n], sourceForNewRow(n));
+
+  var conflicts = conflictOrder.map(function(k) { return conflictsByVin[k]; });
+  return {
+    rows:              kept,
+    conflicts:         conflicts,
+    duplicatesRemoved: duplicatesRemoved,
+    blankVinCount:     blankVinCount
+  };
+}
+
+/**
+ * Applies the user's per-VIN conflict choices. 'new' substitutes the
+ * challenger in the incumbent's position; 'existing' keeps the incumbent.
+ * resolutions['*'] is the bulk fallback for any VIN without an explicit
+ * choice (the returned conflict list is capped, so bulk buttons must be able
+ * to cover conflicts the client never saw individually).
+ */
+function applyConflictResolutions_(d, resolutions) {
+  var fallback = resolutions['*'];
+  for (var i = 0; i < d.conflicts.length; i++) {
+    var c      = d.conflicts[i];
+    var choice = resolutions.hasOwnProperty(c.vin) ? resolutions[c.vin] : fallback;
+    if (choice !== 'existing' && choice !== 'new') {
+      throw new Error('Missing conflict resolution for VIN ' + c.vin + ' — please resolve all conflicts and try again.');
+    }
+    if (choice === 'new') {
+      d.rows[c.keptIndex] = c.incoming.row;
+    }
+  }
+}
+
+/**
+ * Buckets rows by Location (col T, index 19) in first-seen order and
+ * concatenates — getDealerScraperData_'s two-pass read assumes each
+ * location's rows are contiguous. O(n), order-stable within a location.
+ */
+function groupRowsByLocation_(rows) {
+  var buckets = {};
+  var order   = [];
+  for (var i = 0; i < rows.length; i++) {
+    var loc = String(rows[i][19]).trim();
+    if (!buckets.hasOwnProperty(loc)) {
+      buckets[loc] = [];
+      order.push(loc);
+    }
+    buckets[loc].push(rows[i]);
+  }
+  var out = [];
+  for (var j = 0; j < order.length; j++) {
+    out = out.concat(buckets[order[j]]);
+  }
+  return out;
 }
 
 // Called by the sidebar to populate the dropdown
@@ -1670,8 +1935,8 @@ var NORM_MAPS_TAB = 'NORM_MAPS';
 
 function openNormManager() {
   var html = HtmlService.createHtmlOutputFromFile('NormManager')
-    .setWidth(740)
-    .setHeight(620);
+    .setWidth(MODAL_WIDTH)
+    .setHeight(MODAL_HEIGHT);
   SpreadsheetApp.getUi().showModalDialog(html, 'Normalization Maps');
 }
 
@@ -2223,8 +2488,8 @@ function getLoggedVins_(dealerKey) {
 
 function openVINLogUpdater() {
   var html = HtmlService.createHtmlOutputFromFile('VINLogUpdater')
-    .setWidth(660)
-    .setHeight(540);
+    .setWidth(MODAL_WIDTH)
+    .setHeight(MODAL_HEIGHT);
   SpreadsheetApp.getUi().showModalDialog(html, 'Update VIN Log');
 }
 
@@ -2515,8 +2780,8 @@ function manualCommitToVINLog(dealerKey, orderId, vins) {
 
 function openRulesEditor() {
   var html = HtmlService.createHtmlOutputFromFile('RulesEditor')
-    .setWidth(680)
-    .setHeight(660);
+    .setWidth(MODAL_WIDTH)
+    .setHeight(MODAL_HEIGHT);
   SpreadsheetApp.getUi().showModalDialog(html, 'Edit Dealer Rules');
 }
 

@@ -37,6 +37,13 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   Order checks CPO-EL → CPO → New → fallback, in formulas and in `type_rules`.
 - **`getValues()` returns real booleans** for TRUE/FALSE cells — compare with
   the `isTrue_()` helper, not string equality.
+- **`getValues()` returns numbers (and Dates) from non-`@` columns.** SCRAPERDATA
+  only forces text on VIN/Stock/Price/Date-In-Stock; Year, MSRP, Postal Code etc.
+  come back as numbers (`2024`, `6234` for `"06234"`). Comparing sheet data
+  against incoming string data needs a tolerant comparator (trim-string equal OR
+  both-numeric equal — `cellsEqual_`), or merge-mode imports false-conflict on
+  every row. Also: **`google.script.run` cannot serialize Date objects** — any
+  sheet rows returned to a modal must be display-stringified first.
 - **`PRICE_RAW` (ORDERMATCH col H) is stored as text, not a number.** `ISNUMBER(H2:H)`
   is FALSE for it, so any formula guarding on `ISNUMBER` blanks every row (this is
   exactly how the first `PRICE_TAGLINE` formula failed). Arithmetic (`H2:H+2000` in
@@ -113,3 +120,12 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   source of truth for condition fields; `getRulesEditorBootstrap` returns its keys
   so the Rules Editor dropdowns can't drift from the engine. Duplicating the list in
   HTML would be a latent divergence bug.
+- **Never clear a sheet before the pipeline that refills it has finished.** The old
+  `importScraperData` cleared SCRAPERDATA first, then normalized/wrote — any throw
+  mid-pipeline left the sheet empty. Destructive writes belong at the END, after all
+  computation succeeds (the two-phase import keeps every mutation below the
+  conflict gate for the same reason).
+- **CSV uploads from the wild need a BOM strip and a mid-file header guard.** A
+  UTF-8 BOM makes the first header read as `\uFEFF` +"VIN" and silently fail
+  exact-match mapping; concatenated exports hide header rows mid-data (caught by
+  VIN cell == literal "vin"). Strip `^\uFEFF` per file before parsing.
