@@ -327,6 +327,7 @@ function onOpen() {
   menu.addItem('View Run Log', 'openRunLog');
   menu.addSeparator();
   menu.addItem('Manage Normalization Maps...', 'openNormManager');
+  menu.addItem('Refresh Norm/Field Reference', 'refreshNormReference');
   menu.addItem('Edit Dealer Rules...', 'openRulesEditor');
   menu.addToUi();
 }
@@ -1676,6 +1677,85 @@ function openNormManager() {
 
 function getNormMapsSheet_() {
   return getConfigSS_().getSheetByName(NORM_MAPS_TAB);
+}
+
+// Columns enumerated by the on-demand reference (label -> SCRAPERDATA 0-based index).
+// Covers the normalized columns (Type/Status/Trim) plus the fields most useful for
+// authoring targeting conditions (Make/Model/Body Style/Fuel Type).
+var NORM_REFERENCE_FIELDS = [
+  { label: 'Type',       idx: 2  },
+  { label: 'Make',       idx: 4  },
+  { label: 'Model',      idx: 5  },
+  { label: 'Trim',       idx: 6  },
+  { label: 'Status',     idx: 8  },
+  { label: 'Body Style', idx: 10 },
+  { label: 'Fuel Type',  idx: 11 }
+];
+
+/**
+ * On-demand replacement for the old NORM_MAPS cols E+ live UNIQUE() reference
+ * formulas (removed June 2026 — full-column volatile formulas recalculating over a
+ * 10k+ row SCRAPERDATA made programmatic access to SF_DEALER_CONFIG time out, while
+ * the browser UI stayed fine — see LEARNINGS).
+ *
+ * Scans SCRAPERDATA once and writes a STATIC, sorted distinct-values list per column
+ * into NORM_MAPS starting at col E. Zero ongoing recalc cost. Run from the menu when
+ * you want a fresh snapshot to spot new raw values to normalize or to build targeting
+ * conditions. The script still only reads NORM_MAPS cols A–C for rules — E+ is inert.
+ */
+function refreshNormReference() {
+  var master  = SpreadsheetApp.openById(MASTER_SHEET_ID).getSheetByName('SCRAPERDATA');
+  var lastRow = master.getLastRow();
+  if (lastRow < 2) { SpreadsheetApp.getUi().alert('SCRAPERDATA is empty — nothing to reference.'); return; }
+
+  // Read the contiguous span covering every referenced column in one call (C..L).
+  var minIdx = 2, maxIdx = 11;                       // 0-based: Type(2) .. Fuel Type(11)
+  var data   = master.getRange(2, minIdx + 1, lastRow - 1, maxIdx - minIdx + 1).getValues();
+
+  // Sorted distinct (case-insensitive) values per field, skipping blanks and '*'.
+  var columns = NORM_REFERENCE_FIELDS.map(function(f) {
+    var seen = {}, vals = [];
+    for (var i = 0; i < data.length; i++) {
+      var v = String(data[i][f.idx - minIdx]).trim();
+      if (v === '' || v === '*') continue;
+      var k = v.toLowerCase();
+      if (!seen[k]) { seen[k] = true; vals.push(v); }
+    }
+    vals.sort(function(a, b) {
+      var la = a.toLowerCase(), lb = b.toLowerCase();
+      return la < lb ? -1 : (la > lb ? 1 : 0);
+    });
+    return vals;
+  });
+
+  var sheet    = getNormMapsSheet_();
+  var startCol = 5;                                   // col E
+  var nFields  = NORM_REFERENCE_FIELDS.length;
+  var maxLen   = columns.reduce(function(m, c) { return Math.max(m, c.length); }, 0);
+
+  // Ensure the sheet is big enough for headers + values and the timestamp column.
+  var neededRows = maxLen + 1;
+  if (sheet.getMaxRows() < neededRows) sheet.insertRowsAfter(sheet.getMaxRows(), neededRows - sheet.getMaxRows());
+  var neededCols = startCol + nFields + 1;            // fields + a gap + timestamp
+  if (sheet.getMaxColumns() < neededCols) sheet.insertColumnsAfter(sheet.getMaxColumns(), neededCols - sheet.getMaxColumns());
+
+  // Clear the whole reference area, then write headers (with distinct counts) + values.
+  sheet.getRange(1, startCol, sheet.getMaxRows(), nFields + 2).clearContent();
+
+  var block = [NORM_REFERENCE_FIELDS.map(function(f, c) { return f.label + ' (' + columns[c].length + ')'; })];
+  for (var r = 0; r < maxLen; r++) {
+    var row = [];
+    for (var c = 0; c < nFields; c++) row.push(r < columns[c].length ? columns[c][r] : '');
+    block.push(row);
+  }
+  sheet.getRange(1, startCol, block.length, nFields).setValues(block);
+
+  var ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
+  sheet.getRange(1, startCol + nFields + 1).setValue('Refreshed: ' + ts + ' (on-demand)');
+
+  SpreadsheetApp.getActiveSpreadsheet().toast(
+    'Reference refreshed in SF_DEALER_CONFIG → NORM_MAPS cols E+ (' + (lastRow - 1) + ' rows scanned).',
+    'SilverFox V2', 6);
 }
 
 function loadNormalizationMaps_() {

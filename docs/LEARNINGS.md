@@ -47,6 +47,19 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
 - **Merged cells break programmatic repositioning** — the DASHBOARD is written
   with zero merged cells for exactly this reason. `setRgbColor()` via
   `SpreadsheetApp.newColor()` handles hex backgrounds without Advanced Services.
+- **Volatile full-column formulas in a config sheet can make it unreachable to
+  code while the browser stays fine.** SF_DEALER_CONFIG's NORM_MAPS cols E+ held
+  live `UNIQUE(SCRAPERDATA!…)` reference formulas. They were cheap for years, but
+  once SCRAPERDATA passed ~10k rows (and a large import invalidated them all at
+  once), recalculation made *programmatic* access — Apps Script `openById`/`getValues`
+  AND the Sheets REST API — fail with `Service Spreadsheets failed` after a ~100s
+  timeout, taking down every config-reading modal and `importScraperData`. The
+  interactive web UI never blocks on recalc, so it kept opening fine — which is the
+  tell that it's a recalc/serving cost, not an outage or a code bug. Fix: replace
+  volatile reference formulas with an **on-demand static writer** (`refreshNormReference()`)
+  that computes uniques in code and writes plain values — zero standing recalc cost.
+  Diagnosis tip: a 503/timeout on ONE spreadsheet via the API while another reads
+  fine, plus the browser working, points at that document's serving cost, not your code.
 
 ## Git / GitHub (incl. GitHub MCP)
 
