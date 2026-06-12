@@ -301,6 +301,22 @@ function getVinLogsSS_() {
 //   msPerRow  — estimated milliseconds per row
 //   minMs     — floor (always wait at least this long for Sheets to register the write)
 //   maxMs     — ceiling (never wait longer than this)
+/**
+ * Polls a readiness check every 250ms until it returns true or maxMs elapses.
+ * Replaces fixed recalc sleeps: the typical case exits in 250–750ms instead of
+ * always paying the worst-case cap; the worst case (e.g. a zero-match QUERY
+ * that never populates) is unchanged — it waits exactly the old cap.
+ */
+function waitForRecalc_(maxMs, isReady) {
+  var waited = 0;
+  while (waited < maxMs) {
+    Utilities.sleep(250);
+    waited += 250;
+    try { if (isReady()) return waited; } catch (e) { /* keep waiting */ }
+  }
+  return waited;
+}
+
 function calcRecalcDelay_(rowCount, msPerRow, minMs, maxMs) {
   return Math.max(minMs, Math.min(maxMs, rowCount * msPerRow));
 }
@@ -925,9 +941,11 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     setProgress_(runId, 'Running ORDERMATCH query...', 38);
     writeOrderMatchFormula_(outputDoc, vins, isTrue_(config[CFG.USE_STOCK]));
     SpreadsheetApp.flush();
-    // Wait scales with order size: ~40ms/row, 1000ms floor, 3500ms ceiling.
-    // A 10-VIN order waits ~1s instead of the previous fixed 3s.
-    Utilities.sleep(calcRecalcDelay_(vins.length, 40, 1000, 3500));
+    // Poll for the QUERY spill instead of a fixed sleep — exits as soon as
+    // results land. Cap matches the old delay (40ms/row, 1s floor, 3.5s cap).
+    waitForRecalc_(calcRecalcDelay_(vins.length, 40, 1000, 3500), function() {
+      return String(outputDoc.getSheetByName('ORDERMATCH').getRange('A2').getValue()) !== '';
+    });
     var matchedRows = readOrderMatchResults_(outputDoc);
     Logger.log('Matched rows: ' + matchedRows.length);
 
@@ -1371,14 +1389,20 @@ function buildLinks_(outputDoc, config, typeRules) {
 
   writeLinkBuilderFormulas_(outputDoc, config, typeRules);
   SpreadsheetApp.flush();
-  // Wait scales with row count: ~30ms/row, 700ms floor, 2000ms ceiling.
-  Utilities.sleep(calcRecalcDelay_(numRows, 30, 700, 2000));
+  var readCol = (config[CFG.LINKBUILDER_COL] === 'C') ? 3 : 2;
+  // Poll until the LAST link formula has produced a URL — exits early on fast
+  // recalcs. Cap matches the old fixed delay (30ms/row, 700ms floor, 2s cap);
+  // rows without a URL fall back to waiting the full cap, same as before.
+  waitForRecalc_(calcRecalcDelay_(numRows, 30, 700, 2000), function() {
+    if (numRows === 0) return true;
+    var v = String(outputDoc.getSheetByName('LINKBUILDER').getRange(numRows + 1, readCol).getValue());
+    return v.indexOf('http') === 0;
+  });
 
   var sheet   = outputDoc.getSheetByName('LINKBUILDER');
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
 
-  var readCol = (config[CFG.LINKBUILDER_COL] === 'C') ? 3 : 2;
   return sheet.getRange(2, readCol, lastRow - 1, 1).getValues()
     .map(function(r)    { return String(r[0]).trim(); })
     .filter(function(v) { return v !== '' && v.indexOf('http') === 0; });
