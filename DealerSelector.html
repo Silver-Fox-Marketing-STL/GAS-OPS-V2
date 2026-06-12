@@ -232,6 +232,42 @@
       cursor: default;
     }
 
+    /* ── Finalization cards — one per prospective run log entry ──────────── */
+    #finalizeCards { margin-top: 10px; }
+    .finalize-card {
+      border: 1px solid #dadce0; border-radius: 4px;
+      padding: 10px 12px; margin-bottom: 8px; background: #f8f9fa;
+    }
+    .finalize-card.finalized { border-color: #1e7e34; background: #f2faf4; }
+    .finalize-card.abandoned { opacity: 0.55; background: #f1f3f4; }
+    .finalize-card-head {
+      display: flex; justify-content: space-between; align-items: baseline;
+      margin-bottom: 8px;
+    }
+    .finalize-card-title { font-size: 12px; font-weight: 600; color: #333; }
+    .finalize-card-count { font-size: 11px; color: #666; }
+    .finalize-card-body { display: flex; gap: 8px; }
+    .finalize-card-body input {
+      flex: 1; min-width: 0; padding: 6px 8px; font-size: 12px;
+      border: 1px solid #dadce0; border-radius: 4px;
+    }
+    .card-finalize-btn {
+      padding: 6px 12px; font-size: 12px; border: none; border-radius: 4px;
+      background: #1a73e8; color: #fff; cursor: pointer; white-space: nowrap;
+    }
+    .card-finalize-btn:hover    { background: #1557b0; }
+    .card-finalize-btn:disabled { background: #aaa; cursor: default; }
+    .card-abandon-btn {
+      padding: 6px 12px; font-size: 12px; border-radius: 4px;
+      background: #fff; color: #c0392b; border: 1px solid #c0392b;
+      cursor: pointer; white-space: nowrap;
+    }
+    .card-abandon-btn:hover    { background: #fce8e6; }
+    .card-abandon-btn:disabled { color: #aaa; border-color: #ccc; cursor: default; }
+    .finalize-card-status { font-size: 11px; color: #666; margin-top: 6px; min-height: 14px; }
+    .finalize-card-status.error { color: #c0392b; }
+    .finalize-card-status.ok    { color: #1e7e34; }
+
     /* ── Status bar ──────────────────────────────────────────────────────── */
     #status {
       margin-top: 12px; font-size: 12px; min-height: 18px;
@@ -270,13 +306,13 @@
 
       <label for="dealId">Pipedrive Deal ID</label>
       <input type="text" id="dealId" placeholder="e.g. 44021" />
-      <div class="field-hint">Required. Enter the Pipedrive deal number for this order.</div>
+      <div class="field-hint">Optional. Pre-fills the finalization step shown after the run.</div>
 
       <!-- Second deal ID — shown only for dealers with a billing_split configured -->
       <div id="splitDealRow" style="display:none;">
         <label for="splitDealId" id="splitDealLabel">Second Deal ID</label>
         <input type="text" id="splitDealId" placeholder="e.g. 44022" />
-        <div class="field-hint" id="splitDealHint">Required. This dealer bills these units to a separate Pipedrive deal.</div>
+        <div class="field-hint" id="splitDealHint">Optional. This dealer bills these units to a separate Pipedrive deal — entered or confirmed after the run.</div>
       </div>
 
       <label class="bypass-label">
@@ -298,7 +334,7 @@
       <div class="actions-block">
         <div class="btn-row">
           <button class="btn-primary" id="runBtn" onclick="runSelected()" disabled>Run Dealer</button>
-          <button class="btn-secondary" id="cancelBtn" onclick="google.script.host.close()">Cancel</button>
+          <button class="btn-secondary" id="cancelBtn" onclick="closeModal()">Cancel</button>
         </div>
 
         <!-- Progress bar — shown during run -->
@@ -313,11 +349,16 @@
           </div>
         </div>
 
-        <!-- Post-run actions — shown after successful completion -->
+        <!-- Post-run finalization — shown after successful completion.
+             One card per prospective run log entry; each is finalized (deal ID
+             required) or abandoned. Nothing is logged until a card is finalized. -->
         <div id="postRunActions">
           <div class="post-run-row">
             <a id="driveFolderBtn" href="#" target="_blank">&#128194; Open Output Folder</a>
-            <button id="vinLogBtn" onclick="addToVINLog()">&#10003; Add to VIN Log</button>
+          </div>
+          <div id="finalizeCards"></div>
+          <div class="post-run-row">
+            <button id="vinLogBtn" onclick="addToVINLog()" disabled>&#10003; Add to VIN Log</button>
           </div>
         </div>
 
@@ -343,9 +384,12 @@
     var pollInterval   = null;
     var runStartTime   = null;
     var currentRunId   = null;
-    var lastRunResult  = null; // {outputFolderUrl, runLogRowIndex, splitRunLogRowIndex, splitGroupName, dealerName, producedVinCount}
+    var lastRunResult  = null; // {outputFolderUrl, pendingRuns, dealerName, producedVinCount}
     var lastDealerKey  = null; // dealer key used for the last run
     var dealersByKey   = {};   // key → {key, name, splitDealLabel} from getActiveDealersForUI
+    var cardStates     = [];   // per pendingRuns entry: {state, rowIndex, committed}
+                               // state: pending → finalizing → finalized | pending → abandoning → abandoned
+    var lastConfirmedDealer = ''; // for reverting the dealer select if a discard is cancelled
 
     // ── Load dealer dropdown ──────────────────────────────────────────────────
     google.script.run
@@ -395,7 +439,13 @@
       updateVinCount(); updateButtons(); hideCaoSummary();
     });
     document.getElementById('dealerSelect').addEventListener('change', function() {
+      // Switching dealers discards any un-finalized run results — confirm first.
+      if (!discardPendingGuard()) {
+        this.value = lastConfirmedDealer;
+        return;
+      }
       var key = this.value;
+      lastConfirmedDealer = key;
       updateSplitDealRow(key);
       updateButtons(); hideCaoSummary();
       document.getElementById('vinInput').value = '';
@@ -408,13 +458,13 @@
       }
       loadVinLogStatus(key);
     });
+    // Note: typing in the deal ID fields must NOT clear post-run state — these
+    // fields are pre-fills for the finalization cards, not run inputs.
     document.getElementById('dealId').addEventListener('input', function() {
       updateButtons();
-      hidePostRunActions();
     });
     document.getElementById('splitDealId').addEventListener('input', function() {
       updateButtons();
-      hidePostRunActions();
     });
 
     // Show/hide the second deal ID field for billing-split dealers (e.g. MBCC
@@ -432,10 +482,6 @@
       }
     }
 
-    function splitDealRequired() {
-      return document.getElementById('splitDealRow').style.display !== 'none';
-    }
-
     function getVins() {
       return document.getElementById('vinInput').value
         .split('\n').map(function(v) { return v.trim(); }).filter(function(v) { return v !== ''; });
@@ -448,14 +494,13 @@
     }
 
     function updateButtons() {
+      // Deal IDs are NOT required to run — they are entered (or confirmed) on
+      // the finalization cards after the run, once results are known.
       var hasUser   = document.getElementById('userSelect').value !== '';
       var hasDealer = document.getElementById('dealerSelect').value !== '';
-      var hasDealId = document.getElementById('dealId').value.trim() !== '';
       var hasVins   = getVins().length > 0;
-      var hasSplitDeal = !splitDealRequired() ||
-                         document.getElementById('splitDealId').value.trim() !== '';
       document.getElementById('caoBtn').disabled = !hasDealer;
-      document.getElementById('runBtn').disabled = !(hasUser && hasDealer && hasDealId && hasSplitDeal && hasVins);
+      document.getElementById('runBtn').disabled = !(hasUser && hasDealer && hasVins);
     }
 
     // ── VIN log status ────────────────────────────────────────────────────────
@@ -583,26 +628,192 @@
       if (progress.error)                   fill.classList.add('error');
     }
 
-    // ── Post-run actions ──────────────────────────────────────────────────────
-    function showPostRunActions(result) {
-      document.getElementById('driveFolderBtn').href = result.outputFolderUrl;
-      document.getElementById('postRunActions').style.display = 'block';
+    // ── Post-run finalization panel ───────────────────────────────────────────
+    // One card per prospective RUN_LOG entry. Each is finalized (deal ID
+    // required — "test" for test runs) or abandoned. RUN_LOG/ORDER_STATS are
+    // written only by Finalize; the VIN log only by the explicit commit button.
 
-      // Reset VIN log button to default state
+    function showFinalizePanel(result) {
+      var link = document.getElementById('driveFolderBtn');
+      link.href = result.outputFolderUrl;
+      link.style.opacity = '';
+      link.style.pointerEvents = '';
+
       var vinBtn = document.getElementById('vinLogBtn');
-      vinBtn.disabled = false;
+      vinBtn.disabled = true;
       vinBtn.textContent = '✓ Add to VIN Log';
       vinBtn.className = '';
+
+      cardStates = result.pendingRuns.map(function() {
+        return { state: 'pending', rowIndex: null, committed: false };
+      });
+
+      var html = '';
+      result.pendingRuns.forEach(function(entry, i) {
+        html += '<div class="finalize-card" id="card' + i + '">' +
+          '<div class="finalize-card-head">' +
+            '<span class="finalize-card-title">' + entry.label + '</span>' +
+            '<span class="finalize-card-count">' + entry.totalMatched + ' unit' +
+              (entry.totalMatched === 1 ? '' : 's') + ' / ' + entry.totalOrdered + ' ordered</span>' +
+          '</div>' +
+          '<div class="finalize-card-body">' +
+            '<input type="text" id="cardDeal' + i + '" placeholder="' + entry.dealLabel +
+              ' (or &quot;test&quot;)" value="' + (entry.prefillDealId || '') + '" />' +
+            '<button class="card-finalize-btn" id="cardFinalize' + i + '" onclick="finalizeCard(' + i + ')">Finalize</button>' +
+            '<button class="card-abandon-btn" id="cardAbandon' + i + '" onclick="abandonCard(' + i + ')">Abandon</button>' +
+          '</div>' +
+          '<div class="finalize-card-status" id="cardStatus' + i + '"></div>' +
+        '</div>';
+      });
+      document.getElementById('finalizeCards').innerHTML = html;
+      document.getElementById('postRunActions').style.display = 'block';
     }
 
     function hidePostRunActions() {
       document.getElementById('postRunActions').style.display = 'none';
+      document.getElementById('finalizeCards').innerHTML = '';
       lastRunResult = null;
+      cardStates = [];
+    }
+
+    function setCardBusy(i, busy) {
+      document.getElementById('cardDeal' + i).disabled = busy;
+      document.getElementById('cardFinalize' + i).disabled = busy;
+      document.getElementById('cardAbandon' + i).disabled = busy;
+    }
+
+    function markCardAbandoned(i) {
+      document.getElementById('card' + i).className = 'finalize-card abandoned';
+      document.getElementById('cardDeal' + i).disabled = true;
+      document.getElementById('cardFinalize' + i).style.display = 'none';
+      document.getElementById('cardAbandon' + i).style.display = 'none';
+      var statusEl = document.getElementById('cardStatus' + i);
+      if (!statusEl.textContent) statusEl.textContent = 'Abandoned — not logged.';
+    }
+
+    function hasUnfinalizedCards() {
+      return lastRunResult !== null && cardStates.some(function(s) {
+        return s.state === 'pending' || s.state === 'finalizing' || s.state === 'abandoning';
+      });
+    }
+
+    function discardPendingGuard() {
+      if (!hasUnfinalizedCards()) return true;
+      return confirm('You have run results that haven\'t been finalized or abandoned. ' +
+                     'Discard them? They will never appear in the run log.');
+    }
+
+    function closeModal() {
+      if (discardPendingGuard()) google.script.host.close();
+    }
+
+    function finalizeCard(i) {
+      var entry    = lastRunResult.pendingRuns[i];
+      var input    = document.getElementById('cardDeal' + i);
+      var statusEl = document.getElementById('cardStatus' + i);
+      var dealId   = input.value.trim();
+
+      if (!dealId) {
+        statusEl.textContent = 'Enter a Deal ID (type "test" for test runs).';
+        statusEl.className = 'finalize-card-status error';
+        return;
+      }
+
+      cardStates[i].state = 'finalizing';
+      setCardBusy(i, true);
+      statusEl.textContent = 'Logging...';
+      statusEl.className = 'finalize-card-status';
+
+      google.script.run
+        .withSuccessHandler(function(res) {
+          cardStates[i].state    = 'finalized';
+          cardStates[i].rowIndex = res.rowIndex;
+          document.getElementById('card' + i).className = 'finalize-card finalized';
+          input.disabled = true;
+          document.getElementById('cardFinalize' + i).style.display = 'none';
+          document.getElementById('cardAbandon' + i).style.display = 'none';
+          statusEl.textContent = 'Logged ✓ (run log row ' + res.rowIndex + ')';
+          statusEl.className = 'finalize-card-status ok';
+          updateVinLogBtn();
+        })
+        .withFailureHandler(function(e) {
+          cardStates[i].state = 'pending';
+          setCardBusy(i, false);
+          statusEl.textContent = 'Error: ' + e.message;
+          statusEl.className = 'finalize-card-status error';
+        })
+        .finalizeRun(lastDealerKey, entry, dealId);
+    }
+
+    function abandonCard(i) {
+      var statusEl = document.getElementById('cardStatus' + i);
+
+      // If any sibling card is finalized or still live, the shared output doc
+      // and QR codes must be kept — this abandon is bookkeeping only.
+      var siblingsAlive = cardStates.some(function(s, j) {
+        return j !== i && s.state !== 'abandoned';
+      });
+
+      if (siblingsAlive) {
+        if (!confirm('Abandon this entry? It will never appear in the run log or order stats. ' +
+                     'The output document is kept — the other entry still uses it.')) return;
+        cardStates[i].state = 'abandoned';
+        markCardAbandoned(i);
+        updateVinLogBtn();
+        return;
+      }
+
+      // Last live card and nothing finalized — abandoning deletes the run's artifacts.
+      if (!confirm('Abandon this run? Nothing will be logged, and the output document ' +
+                   'and QR codes will be deleted (moved to Drive trash).')) return;
+
+      cardStates[i].state = 'abandoning';
+      setCardBusy(i, true);
+      statusEl.textContent = 'Deleting output doc and QR codes...';
+      statusEl.className = 'finalize-card-status';
+
+      google.script.run
+        .withSuccessHandler(function(res) {
+          cardStates[i].state = 'abandoned';
+          statusEl.textContent = 'Abandoned — output doc and ' + res.trashedQrs +
+                                 ' QR PNG' + (res.trashedQrs === 1 ? '' : 's') + ' moved to Drive trash.';
+          markCardAbandoned(i);
+          var link = document.getElementById('driveFolderBtn');
+          link.removeAttribute('href');
+          link.style.opacity = '0.5';
+          link.style.pointerEvents = 'none';
+          updateVinLogBtn();
+        })
+        .withFailureHandler(function(e) {
+          cardStates[i].state = 'pending';
+          setCardBusy(i, false);
+          statusEl.textContent = 'Error: ' + e.message;
+          statusEl.className = 'finalize-card-status error';
+        })
+        .abandonRun(lastDealerKey, lastRunResult.pendingRuns[i].outputDocId);
+    }
+
+    function getCommittableRows() {
+      var rows = [];
+      cardStates.forEach(function(s, i) {
+        if (s.state === 'finalized' && !s.committed &&
+            lastRunResult.pendingRuns[i].producedVins.length > 0) {
+          rows.push(s.rowIndex);
+        }
+      });
+      return rows;
+    }
+
+    function updateVinLogBtn() {
+      var vinBtn = document.getElementById('vinLogBtn');
+      if (vinBtn.className === 'committed') return;
+      vinBtn.disabled = getCommittableRows().length === 0;
     }
 
     function addToVINLog() {
-      if (!lastRunResult || !lastDealerKey) {
-        setStatus('No run result available.', 'error');
+      var rowIndexes = getCommittableRows();
+      if (!lastDealerKey || rowIndexes.length === 0) {
+        setStatus('No finalized entries to commit.', 'error');
         return;
       }
       var vinBtn = document.getElementById('vinLogBtn');
@@ -610,12 +821,11 @@
       vinBtn.textContent = 'Adding...';
       setStatus('', 'empty');
 
-      // Billing-split runs write two RUN_LOG rows (one per deal) — commit both.
-      var rowIndexes = [lastRunResult.runLogRowIndex];
-      if (lastRunResult.splitRunLogRowIndex) rowIndexes.push(lastRunResult.splitRunLogRowIndex);
-
       google.script.run
         .withSuccessHandler(function(result) {
+          cardStates.forEach(function(s) {
+            if (s.state === 'finalized') s.committed = true;
+          });
           vinBtn.textContent = '✓ Added ' + result.committed + ' VINs';
           vinBtn.className = 'committed';
           setStatus(result.committed + ' VINs committed to the ' +
@@ -644,12 +854,10 @@
 
       if (!userKey)          { setStatus('Please select a user.', 'error'); return; }
       if (!key)              { setStatus('Please select a dealer.', 'error'); return; }
-      if (!dealId)           { setStatus('Please enter a Pipedrive Deal ID.', 'error'); return; }
-      if (splitDealRequired() && !splitDealId) {
-        setStatus('Please enter the ' + document.getElementById('splitDealLabel').textContent + '.', 'error');
-        return;
-      }
       if (vins.length === 0) { setStatus('Please enter at least one VIN.', 'error'); return; }
+
+      // Starting a new run discards any un-finalized results from the last one.
+      if (!discardPendingGuard()) return;
 
       var runId  = String(Date.now());
       lastDealerKey = key;
@@ -669,9 +877,10 @@
           stopPolling();
           lastRunResult = result;
           updateProgressUI({ message: 'Complete!', percent: 100, done: true, error: null });
-          setStatus('Done! ' + name + ' order complete.', 'success');
+          setStatus('Done! ' + name + ' order complete — finalize or abandon below.', 'success');
           runBtn.textContent = 'Run Dealer';
-          if (result) showPostRunActions(result);
+          updateButtons();
+          if (result) showFinalizePanel(result);
         })
         .withFailureHandler(function(e) {
           stopPolling();

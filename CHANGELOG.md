@@ -10,7 +10,45 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## [Unreleased]
 
-### Added — billing split (`feature/billing-split`, not yet deployed)
+### Known issues
+- `CDJR_OF_COLUMBIA` `scraper_location_name` intentionally remains `"Joe Machens Chrysler Dodge Jeep Ram"` to match the live scraper feed; update when the feed reflects the new dealer name
+- Dave Sinclair Lincoln: used cars have no price in the scraper feed, so a "used ≥ $35k" targeting rule cannot function until used prices are scraped
+
+### Planned
+- **Log capacity plan (documented; build at trigger)** — "Capacity & Log Growth Plan" section added to the Bridge doc: hard limit 10M cells/spreadsheet, practical limit (full-tab readers: `checkImportHealth_`, DASHBOARD QUERY, `getRunsForDealer`) at ~25k–50k rows ≈ 2–3 years at production pace. Trigger: any log tab > ~25k rows or visible slowdown → build menu-driven `archiveOldLogs()` (rows older than 12 months → `SF_LOG_ARCHIVE`, per-year tabs; no live function references the archive; never archive SF_VIN_LOGS).
+- **Trim cleanup (analyzed; deferred)** — docs-only for now: full analysis + a validated auto-cleanup design (global `cleanTrim_` regex pass behind an `ENABLE_TRIM_CLEANUP` flag + `dryRunCleanTrim_` preview, plus residual exact-match rules) written into the Bridge doc ("Trim Normalization & Cleanup — Analysis & Deferred Design"). Approach decision (A full / B phased / C exact-only) pending.
+- Pipedrive post-run API integration (architecture designed; `pushToPipedrive_()` to be isolated in its own try/catch; config expansion at columns P–V requires updating hardcoded `CFG.FILTER_RULES` index)
+- Unresolved order configurations: Auffenberg Hybrid (Courtesy Loaners NEW→USED)
+- Trim cleanup approach decision (A full / B phased / C exact-only) — see Bridge doc deferred-design section
+- Architecture hardening: IFERROR-wrapped ORDERMATCH formulas, self-describing field-to-column map, resumable runs (6-minute Apps Script ceiling), regression harness, scheduled config audits, extended per-run caching
+
+---
+
+## [2026-06-12] — v2.10: Post-run finalization (deferred deal IDs + abandonable runs)
+
+### Changed
+- **RUN_LOG and ORDER_STATS are now written only at a post-run finalization step — never during the run.** `runDealer` step 17 builds self-contained `pendingRuns` entries (one per prospective log row; two for a billing-split run with group units) and returns them to the modal instead of writing rows. New `finalizeRun(dealerKey, entry, dealId)` writes one RUN_LOG (+ ORDER_STATS) row per finalized entry via the unchanged `writeRunLog_`.
+  - **Invariant: no RUN_LOG row is ever written with a blank deal ID.** Finalizing requires one; enter `test` for test runs.
+  - **Invariant: the VIN log is never written implicitly.** Finalizing only logs the run; the VIN log is touched solely by the explicit "✓ Add to VIN Log" button or the VIN Log Updater.
+  - Motivating case: Pipedrive deals are only created once an order is known to exist — a zero-match CAO run (or the Sprinter half of an MBCC run with no vans) no longer demands a deal ID that would have to be cancelled.
+- **Deal ID fields are now optional at run time for all dealers** (primary and split). They remain on the pre-run form purely to pre-fill the finalization cards; the Run button is gated on user + dealer + VINs only. Server-side required-throws removed from `pasteVinsAndRun`.
+- **Post-run panel reworked into finalization cards** (DealerSelector.html): one card per prospective entry showing label + unit counts, a deal ID input (pre-filled when entered up-front), and **Finalize** / **Abandon** buttons. Cards act independently — e.g. abandon a 0-match primary and finalize the Sprinter half. "✓ Add to VIN Log" enables only once ≥1 card is finalized (0-VIN finalized rows are excluded from commit). Discard guards (confirm dialogs) protect un-finalized results on dealer change, on starting a new run, and on the Cancel/Close button. The dialog's X-close cannot be intercepted (GAS limitation) — an X-closed run is simply never logged; recovery is re-running or the VIN Log Updater's manual-entry panel.
+
+### Added
+- **`abandonRun(dealerKey, outputDocId)`** — when abandonment leaves no live cards (nothing finalized, nothing pending), the run's artifacts are deleted after a warning popup: the output doc and the dealer's `<prefix>_QR_Code_N.PNG` files are moved to **Drive trash** (recoverable 30 days, not a hard delete). A partially-abandoned split run (sibling card finalized or pending) keeps the shared doc/QRs and the abandon is bookkeeping-only — a distinct popup explains the difference.
+
+### Fixed
+- Typing in the pre-run deal ID fields after a run no longer clears the post-run state (the old input listeners called `hidePostRunActions()` on every keystroke, which would have silently discarded pending finalization cards).
+
+### Behavior changes (documented)
+- Running `runDealer` directly from the Apps Script editor no longer writes RUN_LOG — it returns `pendingRuns` without logging.
+- An abandoned run leaves no trace in RUN_LOG/ORDER_STATS; a run discarded by closing the modal leaves its output doc in Drive (aged out by `cleanUpOutputDocs`).
+
+---
+
+## [2026-06-12] — v2.9: Billing split for shared-feed dual accounts (MBCC/Sprinter)
+
+### Added
 - **Billing split for shared-feed dual accounts (MBCC / Sprinter of Creve Coeur).** One run, one CSV (one Illustrator setup) — but billing separated per account. New optional `billing_split` key in `filtering_rules` (col W), no per-dealer code:
   ```json
   "billing_split": { "group_name": "SPRINTER", "deal_label": "Sprinter Deal ID",
@@ -24,20 +62,13 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   - Post-run "✓ Add to VIN Log" commits both rows via new `commitRunRows(dealerKey, rowIndexes)` (skips already-committed rows, so retry after a partial failure is safe). VIN Log Updater shows a `SPLIT:*` badge per row (`getRunsForDealer` now returns `note`).
   - Split applies even with "Bypass filtering rules" — it's billing-time classification, not a filter.
 
-### Fixed — billing split branch
+### Fixed
 - **Rules Editor silently dropped unknown `filtering_rules` keys on save.** `collectFilteringRules()` rebuilt the JSON from UI-managed keys only, so any passthrough key (now: `billing_split`) was erased by the next Filtering save. The editor now stashes unmanaged keys on load and re-merges them on save.
 
-### Known issues
-- `CDJR_OF_COLUMBIA` `scraper_location_name` intentionally remains `"Joe Machens Chrysler Dodge Jeep Ram"` to match the live scraper feed; update when the feed reflects the new dealer name
-- Dave Sinclair Lincoln: used cars have no price in the scraper feed, so a "used ≥ $35k" targeting rule cannot function until used prices are scraped
+### Config
+- MBCC (`MERCEDES_CREVE_COEUR`, DEALERS row 25): `billing_split` added to `filtering_rules` (`field: model, op: contains, values: ["Sprinter", "Metris"]`); notes column updated. Resolves the long-standing "MBCC/Sprinter shared inventory" item — Option B (one run, two billing outputs).
 
-### Planned
-- **Log capacity plan (documented; build at trigger)** — "Capacity & Log Growth Plan" section added to the Bridge doc: hard limit 10M cells/spreadsheet, practical limit (full-tab readers: `checkImportHealth_`, DASHBOARD QUERY, `getRunsForDealer`) at ~25k–50k rows ≈ 2–3 years at production pace. Trigger: any log tab > ~25k rows or visible slowdown → build menu-driven `archiveOldLogs()` (rows older than 12 months → `SF_LOG_ARCHIVE`, per-year tabs; no live function references the archive; never archive SF_VIN_LOGS).
-- **Trim cleanup (analyzed; deferred)** — docs-only for now: full analysis + a validated auto-cleanup design (global `cleanTrim_` regex pass behind an `ENABLE_TRIM_CLEANUP` flag + `dryRunCleanTrim_` preview, plus residual exact-match rules) written into the Bridge doc ("Trim Normalization & Cleanup — Analysis & Deferred Design"). Approach decision (A full / B phased / C exact-only) pending.
-- Pipedrive post-run API integration (architecture designed; `pushToPipedrive_()` to be isolated in its own try/catch; config expansion at columns P–V requires updating hardcoded `CFG.FILTER_RULES` index)
-- Unresolved order configurations: Auffenberg Hybrid (Courtesy Loaners NEW→USED). *(MBCC/Sprinter shared inventory: resolved by the billing split on `feature/billing-split` — see Added above; pending deploy + MBCC `billing_split` config.)*
-- Trim cleanup approach decision (A full / B phased / C exact-only) — see Bridge doc deferred-design section
-- Architecture hardening: IFERROR-wrapped ORDERMATCH formulas, self-describing field-to-column map, resumable runs (6-minute Apps Script ceiling), regression harness, scheduled config audits, extended per-run caching
+> The "second deal ID **required** at run time" behavior described above was superseded the same day by v2.10 (deal IDs optional pre-run; entered at finalization).
 
 ---
 
