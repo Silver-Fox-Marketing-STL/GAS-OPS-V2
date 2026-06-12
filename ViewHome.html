@@ -40,11 +40,11 @@
 
     <div class="home-section-label">Utilities</div>
     <div class="home-utils" id="homeUtils">
-      <button class="util-btn" data-util="timestamp" disabled title="Available in the next update">&#8635; Update Scraper Timestamp</button>
-      <button class="util-btn" data-util="runlog" disabled title="Available in the next update">&#128202; View Run Log</button>
-      <button class="util-btn" data-util="normref" disabled title="Available in the next update">&#128270; Refresh Norm/Field Reference</button>
-      <button class="util-btn" data-util="clearqr" disabled title="Available in the next update">&#129529; Clear QR Folders</button>
-      <button class="util-btn" data-util="cleanup" disabled title="Available in the next update">&#128465; Clean Up Old Output Docs</button>
+      <button class="util-btn" id="utilTimestamp" onclick="runUtility(this, 'fillScraperDateTime')">&#8635; Update Scraper Timestamp</button>
+      <button class="util-btn" id="utilRunlog" onclick="runUtility(this, 'appOpenRunLog')">&#128202; View Run Log</button>
+      <button class="util-btn" id="utilNormref" onclick="runUtility(this, 'appRefreshNormReference')">&#128270; Refresh Norm/Field Reference</button>
+      <button class="util-btn" id="utilClearqr" onclick="confirmUtility(this, 'appEraseAllQRFolders', 'Clear the QR folders for ALL active dealers?')">&#129529; Clear QR Folders</button>
+      <button class="util-btn" id="utilCleanup" onclick="confirmUtility(this, 'appCleanUpOutputDocs', 'Trash output docs older than 30 days?')">&#128465; Clean Up Old Output Docs</button>
     </div>
 
   </div>
@@ -144,6 +144,33 @@
           'Could not read import status: ' + e.message;
       })
       .getAppHomeStatus();
+  }
+
+  // Runs a server utility and toasts its {message}. The button is disabled
+  // while the call is in flight so double-clicks can't double-run it.
+  function runUtility(btn, serverFn) {
+    var original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Working…';
+    google.script.run
+      .withSuccessHandler(function(result) {
+        btn.disabled = false;
+        btn.textContent = original;
+        toast((result && result.message) ? result.message : 'Done.',
+              (result && result.ok === false) ? 'error' : 'success');
+        // Timestamp updates change the Home status strip — refresh it.
+        if (serverFn === 'fillScraperDateTime') initHomeView();
+      })
+      .withFailureHandler(function(e) {
+        btn.disabled = false;
+        btn.textContent = original;
+        toast('Error: ' + e.message, 'error');
+      })[serverFn]();
+  }
+
+  // Destructive utilities get a confirm first.
+  function confirmUtility(btn, serverFn, prompt) {
+    if (confirm(prompt)) runUtility(btn, serverFn);
   }
 
   window.VIEW_INITS = window.VIEW_INITS || {};

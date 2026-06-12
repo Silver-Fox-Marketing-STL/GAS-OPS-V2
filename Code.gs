@@ -1431,7 +1431,10 @@ function clearQRFolder_(folderId) {
   while (files.hasNext()) files.next().setTrashed(true);
 }
 
-function eraseAllQRFolders() {
+// Core/wrapper split: ui.alert() FAILS when a function is invoked from a
+// dialog via google.script.run, so the App calls app*() wrappers that return
+// {message} for an in-app toast, while the classic menu keeps its alert.
+function eraseAllQRFoldersCore_() {
   var data    = getConfigSS_()
     .getSheetByName('DEALERS').getDataRange().getValues();
   var cleared = 0;
@@ -1441,7 +1444,17 @@ function eraseAllQRFolders() {
       catch(e) { Logger.log('QR folder clear failed: ' + data[i][CFG.KEY] + ' — ' + e.message); }
     }
   }
+  return cleared;
+}
+
+function eraseAllQRFolders() {
+  var cleared = eraseAllQRFoldersCore_();
   SpreadsheetApp.getUi().alert('Cleared QR folders for ' + cleared + ' active dealers.');
+}
+
+function appEraseAllQRFolders() {
+  var cleared = eraseAllQRFoldersCore_();
+  return { message: 'Cleared QR folders for ' + cleared + ' active dealers.' };
 }
 
 
@@ -2051,7 +2064,7 @@ function copyTemplateToFolder_(templateId, folderId) {
   return SpreadsheetApp.openById(copy.getId());
 }
 
-function cleanUpOutputDocs(daysOld) {
+function cleanUpOutputDocsCore_(daysOld) {
   daysOld = daysOld || 30;
   var cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - daysOld);
@@ -2061,7 +2074,17 @@ function cleanUpOutputDocs(daysOld) {
     var f = files.next();
     if (f.getLastUpdated() < cutoff) { f.setTrashed(true); count++; }
   }
-  SpreadsheetApp.getUi().alert('Trashed ' + count + ' output docs older than ' + daysOld + ' days.');
+  return { count: count, daysOld: daysOld };
+}
+
+function cleanUpOutputDocs(daysOld) {
+  var r = cleanUpOutputDocsCore_(daysOld);
+  SpreadsheetApp.getUi().alert('Trashed ' + r.count + ' output docs older than ' + r.daysOld + ' days.');
+}
+
+function appCleanUpOutputDocs() {
+  var r = cleanUpOutputDocsCore_(30);
+  return { message: 'Trashed ' + r.count + ' output docs older than ' + r.daysOld + ' days.' };
 }
 
 /**
@@ -2155,6 +2178,14 @@ function fillScraperDateTime() {
   ss.getSheetByName('SCRAPERDATA').getRange('X1').setValue(t);
   ss.getSheetByName('HELPERS').getRange('A1').setValue(d);
   ss.getSheetByName('HELPERS').getRange('B1').setValue(t);
+  // Return for App callers (menu invocations ignore this).
+  return { message: 'Scraper timestamp set to ' + d + ' ' + t + '.' };
+}
+
+// App wrapper for View Run Log: activates the tab (behind the modal).
+function appOpenRunLog() {
+  openRunLog();
+  return { message: 'RUN_LOG tab opened behind this window.' };
 }
 
 function onEdit(e) {
@@ -2248,10 +2279,10 @@ var NORM_REFERENCE_FIELDS = [
  * you want a fresh snapshot to spot new raw values to normalize or to build targeting
  * conditions. The script still only reads NORM_MAPS cols A–C for rules — E+ is inert.
  */
-function refreshNormReference() {
+function refreshNormReferenceCore_() {
   var master  = SpreadsheetApp.openById(MASTER_SHEET_ID).getSheetByName('SCRAPERDATA');
   var lastRow = master.getLastRow();
-  if (lastRow < 2) { SpreadsheetApp.getUi().alert('SCRAPERDATA is empty — nothing to reference.'); return; }
+  if (lastRow < 2) return { ok: false, message: 'SCRAPERDATA is empty — nothing to reference.' };
 
   // Read the contiguous span covering every referenced column in one call (C..L).
   var minIdx = 2, maxIdx = 11;                       // 0-based: Type(2) .. Fuel Type(11)
@@ -2298,9 +2329,20 @@ function refreshNormReference() {
   var ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
   sheet.getRange(1, startCol + nFields + 1).setValue('Refreshed: ' + ts + ' (on-demand)');
 
-  SpreadsheetApp.getActiveSpreadsheet().toast(
-    'Reference refreshed in SF_DEALER_CONFIG → NORM_MAPS cols E+ (' + (lastRow - 1) + ' rows scanned).',
-    'SilverFox V2', 6);
+  var doneMsg = 'Reference refreshed in SF_DEALER_CONFIG → NORM_MAPS cols E+ (' + (lastRow - 1) + ' rows scanned).';
+  SpreadsheetApp.getActiveSpreadsheet().toast(doneMsg, 'SilverFox V2', 6);
+  return { ok: true, message: doneMsg };
+}
+
+// Menu wrapper: alert on the empty-data path (ui.alert is menu-context only).
+function refreshNormReference() {
+  var r = refreshNormReferenceCore_();
+  if (!r.ok) SpreadsheetApp.getUi().alert(r.message);
+}
+
+// App wrapper: returns {message} for the in-app toast.
+function appRefreshNormReference() {
+  return refreshNormReferenceCore_();
 }
 
 function loadNormalizationMaps_() {
