@@ -1,288 +1,12 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <style>
-    * { box-sizing: border-box; }
-    body {
-      font-family: Arial, sans-serif;
-      margin: 0;
-      padding: 0;
-      font-size: 13px;
-      color: #333;
-      height: 100vh;
-      overflow: hidden;
-    }
+<div class="view" id="view-vinlog" hidden>
 
-    /* ── Two-column layout (wide modal) ──────────────────────────────────── */
-    .layout { display: flex; height: 100%; }
-    .col-main {
-      flex: 1;
-      min-width: 0;
-      padding: 20px;
-      display: flex;
-      flex-direction: column;
-      border-right: 1px solid #e0e0e0;
-      overflow: hidden;
-    }
-    .col-side {
-      width: 440px;
-      flex-shrink: 0;
-      padding: 20px;
-      overflow-y: auto;
-      background: #fafbfc;
-      display: flex;
-      flex-direction: column;
-    }
-    .side-bottom { margin-top: auto; padding-top: 16px; }
-
-    label {
-      display: block;
-      font-weight: bold;
-      margin-bottom: 4px;
-      margin-top: 14px;
-    }
-    label:first-of-type { margin-top: 0; }
-    select, input[type="text"] {
-      width: 100%;
-      padding: 8px;
-      font-size: 13px;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-    }
-    input[type="text"]:focus, textarea:focus {
-      outline: none;
-      border-color: #1a73e8;
-      box-shadow: 0 0 0 2px rgba(26,115,232,0.15);
-    }
-    textarea {
-      width: 100%;
-      padding: 8px;
-      font-size: 12px;
-      font-family: monospace;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      resize: vertical;
-    }
-
-    /* ── Latest order number pill ──────────────────────────────────────────── */
-    #latestOrderRow {
-      display: none;
-      margin-top: 8px;
-      font-size: 11px;
-      color: #555;
-    }
-    #latestOrderRow span {
-      display: inline-block;
-      background: #f1f3f4;
-      border: 1px solid #dadce0;
-      border-radius: 10px;
-      padding: 2px 9px;
-      font-weight: bold;
-      color: #333;
-      margin-left: 4px;
-    }
-
-    /* ── Runs table ────────────────────────────────────────────────────────── */
-    /* Fills the left column; long run lists scroll inside runsContainer. */
-    #runsSection {
-      display: none;
-      margin-top: 16px;
-      flex: 1;
-      min-height: 0;
-      flex-direction: column;
-    }
-    #runsSection h3 {
-      font-size: 12px;
-      font-weight: bold;
-      color: #555;
-      margin: 0 0 8px 0;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      flex-shrink: 0;
-    }
-    #runsContainer {
-      flex: 1;
-      min-height: 0;
-      overflow-y: auto;
-      border: 1px solid #f0f0f0;
-      border-radius: 4px;
-    }
-    #runsTable thead th { position: sticky; top: 0; z-index: 1; }
-    #runsTable {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 12px;
-    }
-    #runsTable th {
-      text-align: left;
-      padding: 6px 8px;
-      background: #f1f3f4;
-      border-bottom: 1px solid #dadce0;
-      font-weight: bold;
-      color: #555;
-      font-size: 11px;
-    }
-    #runsTable td {
-      padding: 7px 8px;
-      border-bottom: 1px solid #f0f0f0;
-      vertical-align: middle;
-    }
-    #runsTable tr:hover td { background: #fafafa; cursor: pointer; }
-    #runsTable tr.selected td { background: #e8f0fe; }
-    .status-badge {
-      display: inline-block;
-      padding: 2px 7px;
-      border-radius: 10px;
-      font-size: 10px;
-      font-weight: bold;
-      text-transform: uppercase;
-    }
-    .status-pending     { background: #fff3cd; color: #856404; }
-    .status-committed   { background: #d1e7dd; color: #0f5132; }
-    .status-rolled_back { background: #f8d7da; color: #842029; }
-
-    /* ── Action panel ──────────────────────────────────────────────────────── */
-    #actionPanel {
-      display: none;
-      margin-top: 14px;
-      padding: 12px;
-      background: #f8f9fa;
-      border: 1px solid #dadce0;
-      border-radius: 4px;
-      font-size: 12px;
-    }
-    #actionPanel .run-detail {
-      margin-bottom: 10px;
-      line-height: 1.8;
-      color: #444;
-    }
-    #actionPanel .run-detail strong { color: #222; }
-    .action-btns { display: flex; gap: 10px; margin-top: 10px; }
-    .btn-commit {
-      flex: 1; padding: 9px; background: #1a73e8; color: white;
-      border: none; font-size: 13px; font-weight: bold; cursor: pointer; border-radius: 4px;
-    }
-    .btn-commit:hover    { background: #1557b0; }
-    .btn-commit:disabled { background: #aaa; cursor: default; }
-    .btn-rollback {
-      flex: 1; padding: 9px; background: #fff; color: #c0392b;
-      border: 1.5px solid #c0392b; font-size: 13px; font-weight: bold;
-      cursor: pointer; border-radius: 4px;
-    }
-    .btn-rollback:hover    { background: #fce8e6; }
-    .btn-rollback:disabled { background: #f5f5f5; color: #aaa; border-color: #ccc; cursor: default; }
-
-    /* ── Manual entry section ──────────────────────────────────────────────── */
-    #manualSection { display: none; margin-top: 20px; }
-    #manualToggle {
-      display: none;
-      width: 100%;
-      padding: 8px 12px;
-      background: #fff;
-      border: 1px solid #dadce0;
-      border-radius: 4px;
-      font-size: 12px;
-      color: #555;
-      cursor: pointer;
-      text-align: left;
-      margin-top: 16px;
-    }
-    #manualToggle:hover { background: #f8f9fa; }
-    #manualToggle .arrow { float: right; transition: transform 0.2s; }
-    #manualToggle.open .arrow { transform: rotate(180deg); }
-
-    #manualPanel {
-      display: none;
-      margin-top: 8px;
-      padding: 14px;
-      background: #f8f9fa;
-      border: 1px solid #dadce0;
-      border-radius: 4px;
-    }
-    #manualPanel .panel-title {
-      font-size: 12px;
-      font-weight: bold;
-      color: #555;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-bottom: 12px;
-    }
-    #manualPanel label {
-      font-size: 12px;
-      margin-top: 10px;
-    }
-    #manualPanel label:first-of-type { margin-top: 0; }
-    #manualPanel .hint {
-      font-size: 11px;
-      color: #888;
-      margin-top: 3px;
-    }
-    #manualOrderId {
-      font-family: monospace;
-      letter-spacing: 0.5px;
-    }
-    #manualVins {
-      min-height: 140px;
-      max-height: 320px;
-    }
-    #vinCount {
-      font-size: 11px;
-      color: #888;
-      margin-top: 4px;
-      text-align: right;
-    }
-    .btn-manual-submit {
-      width: 100%;
-      margin-top: 12px;
-      padding: 9px;
-      background: #188038;
-      color: white;
-      border: none;
-      font-size: 13px;
-      font-weight: bold;
-      cursor: pointer;
-      border-radius: 4px;
-    }
-    .btn-manual-submit:hover    { background: #136d31; }
-    .btn-manual-submit:disabled { background: #aaa; cursor: default; }
-
-    /* ── Bottom buttons ────────────────────────────────────────────────────── */
-    .btn-row { display: flex; gap: 10px; margin-top: 18px; }
-    .btn-secondary {
-      padding: 9px 18px; background: #fff; color: #555;
-      border: 1px solid #ccc; font-size: 13px; cursor: pointer; border-radius: 4px;
-    }
-    .btn-secondary:hover { background: #f5f5f5; }
-
-    /* ── Status ────────────────────────────────────────────────────────────── */
-    #status {
-      margin-top: 12px; font-size: 12px; min-height: 18px;
-      padding: 6px 8px; border-radius: 4px;
-    }
-    #status.error   { background: #fce8e6; color: #c0392b; }
-    #status.success { background: #e6f4ea; color: #1e7e34; }
-    #status.info    { background: #e8f0fe; color: #1a73e8; }
-    #status.empty   { background: none; color: #555; }
-
-    .empty-msg { color: #888; font-size: 12px; padding: 12px 0; text-align: center; }
-    .loading   { color: #888; font-size: 12px; padding: 12px 0; }
-
-    /* ── Divider ───────────────────────────────────────────────────────────── */
-    .divider {
-      border: none;
-      border-top: 1px solid #e0e0e0;
-      margin: 18px 0 0 0;
-    }
-  </style>
-</head>
-<body>
 
   <div class="layout">
 
     <!-- ── Left column: dealer + runs list ──────────────────────────────── -->
     <div class="col-main">
-      <label for="dealerSelect">Dealer</label>
-      <select id="dealerSelect">
+      <label for="vinlogDealerSelect">Dealer</label>
+      <select id="vinlogDealerSelect">
         <option value="">-- Loading dealers... --</option>
       </select>
 
@@ -324,8 +48,8 @@
         <div class="hint">Enter the Pipedrive deal ID or order number for this entry.</div>
 
         <label for="manualVins">VINs</label>
-        <textarea id="manualVins" placeholder="One VIN or stock number per line" oninput="updateVinCount()"></textarea>
-        <div id="vinCount">0 VINs</div>
+        <textarea id="manualVins" placeholder="One VIN or stock number per line" oninput="updateVinlogVinCount()"></textarea>
+        <div id="vinlogVinCount">0 VINs</div>
 
         <button class="btn-manual-submit" id="manualSubmitBtn" onclick="submitManual()">
           Add to VIN Log
@@ -334,41 +58,345 @@
 
       <div class="side-bottom">
         <div class="btn-row" style="margin-top: 0;">
-          <button class="btn-secondary" onclick="google.script.host.close()">Close</button>
+          <button class="btn-secondary" onclick="exitApp()">Close SilverFox</button>
         </div>
-        <div id="status" class="empty"></div>
+        <div id="vinlogStatus" class="empty"></div>
       </div>
 
     </div>
 
   </div>
+</div>
 
-  <script>
+<style>
+#view-vinlog * { box-sizing: border-box; }
+    #view-vinlog {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      font-size: 13px;
+      color: #333;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    /* ── Two-column layout (wide modal) ──────────────────────────────────── */
+    #view-vinlog .layout { display: flex; height: 100%; }
+    #view-vinlog .col-main {
+      flex: 1;
+      min-width: 0;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid #e0e0e0;
+      overflow: hidden;
+    }
+    #view-vinlog .col-side {
+      width: 440px;
+      flex-shrink: 0;
+      padding: 20px;
+      overflow-y: auto;
+      background: #fafbfc;
+      display: flex;
+      flex-direction: column;
+    }
+    #view-vinlog .side-bottom { margin-top: auto; padding-top: 16px; }
+
+    #view-vinlog label {
+      display: block;
+      font-weight: bold;
+      margin-bottom: 4px;
+      margin-top: 14px;
+    }
+    #view-vinlog label:first-of-type { margin-top: 0; }
+    #view-vinlog select,
+  #view-vinlog input[type="text"] {
+      width: 100%;
+      padding: 8px;
+      font-size: 13px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    #view-vinlog input[type="text"]:focus,
+  #view-vinlog textarea:focus {
+      outline: none;
+      border-color: #1a73e8;
+      box-shadow: 0 0 0 2px rgba(26,115,232,0.15);
+    }
+    #view-vinlog textarea {
+      width: 100%;
+      padding: 8px;
+      font-size: 12px;
+      font-family: monospace;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      resize: vertical;
+    }
+
+    /* ── Latest order number pill ──────────────────────────────────────────── */
+    #view-vinlog #latestOrderRow {
+      display: none;
+      margin-top: 8px;
+      font-size: 11px;
+      color: #555;
+    }
+    #view-vinlog #latestOrderRow span {
+      display: inline-block;
+      background: #f1f3f4;
+      border: 1px solid #dadce0;
+      border-radius: 10px;
+      padding: 2px 9px;
+      font-weight: bold;
+      color: #333;
+      margin-left: 4px;
+    }
+
+    /* ── Runs table ────────────────────────────────────────────────────────── */
+    /* Fills the left column; long run lists scroll inside runsContainer. */
+    #view-vinlog #runsSection {
+      display: none;
+      margin-top: 16px;
+      flex: 1;
+      min-height: 0;
+      flex-direction: column;
+    }
+    #view-vinlog #runsSection h3 {
+      font-size: 12px;
+      font-weight: bold;
+      color: #555;
+      margin: 0 0 8px 0;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      flex-shrink: 0;
+    }
+    #view-vinlog #runsContainer {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      border: 1px solid #f0f0f0;
+      border-radius: 4px;
+    }
+    #view-vinlog #runsTable thead th { position: sticky; top: 0; z-index: 1; }
+    #view-vinlog #runsTable {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    #view-vinlog #runsTable th {
+      text-align: left;
+      padding: 6px 8px;
+      background: #f1f3f4;
+      border-bottom: 1px solid #dadce0;
+      font-weight: bold;
+      color: #555;
+      font-size: 11px;
+    }
+    #view-vinlog #runsTable td {
+      padding: 7px 8px;
+      border-bottom: 1px solid #f0f0f0;
+      vertical-align: middle;
+    }
+    #view-vinlog #runsTable tr:hover td { background: #fafafa; cursor: pointer; }
+    #view-vinlog #runsTable tr.selected td { background: #e8f0fe; }
+    #view-vinlog .status-badge {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: bold;
+      text-transform: uppercase;
+    }
+    #view-vinlog .status-pending { background: #fff3cd; color: #856404; }
+    #view-vinlog .status-committed { background: #d1e7dd; color: #0f5132; }
+    #view-vinlog .status-rolled_back { background: #f8d7da; color: #842029; }
+
+    /* ── Action panel ──────────────────────────────────────────────────────── */
+    #view-vinlog #actionPanel {
+      display: none;
+      margin-top: 14px;
+      padding: 12px;
+      background: #f8f9fa;
+      border: 1px solid #dadce0;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    #view-vinlog #actionPanel .run-detail {
+      margin-bottom: 10px;
+      line-height: 1.8;
+      color: #444;
+    }
+    #view-vinlog #actionPanel .run-detail strong { color: #222; }
+    #view-vinlog .action-btns { display: flex; gap: 10px; margin-top: 10px; }
+    #view-vinlog .btn-commit {
+      flex: 1; padding: 9px; background: #1a73e8; color: white;
+      border: none; font-size: 13px; font-weight: bold; cursor: pointer; border-radius: 4px;
+    }
+    #view-vinlog .btn-commit:hover { background: #1557b0; }
+    #view-vinlog .btn-commit:disabled { background: #aaa; cursor: default; }
+    #view-vinlog .btn-rollback {
+      flex: 1; padding: 9px; background: #fff; color: #c0392b;
+      border: 1.5px solid #c0392b; font-size: 13px; font-weight: bold;
+      cursor: pointer; border-radius: 4px;
+    }
+    #view-vinlog .btn-rollback:hover { background: #fce8e6; }
+    #view-vinlog .btn-rollback:disabled { background: #f5f5f5; color: #aaa; border-color: #ccc; cursor: default; }
+
+    /* ── Manual entry section ──────────────────────────────────────────────── */
+    #view-vinlog #manualSection { display: none; margin-top: 20px; }
+    #view-vinlog #manualToggle {
+      display: none;
+      width: 100%;
+      padding: 8px 12px;
+      background: #fff;
+      border: 1px solid #dadce0;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #555;
+      cursor: pointer;
+      text-align: left;
+      margin-top: 16px;
+    }
+    #view-vinlog #manualToggle:hover { background: #f8f9fa; }
+    #view-vinlog #manualToggle .arrow { float: right; transition: transform 0.2s; }
+    #view-vinlog #manualToggle.open .arrow { transform: rotate(180deg); }
+
+    #view-vinlog #manualPanel {
+      display: none;
+      margin-top: 8px;
+      padding: 14px;
+      background: #f8f9fa;
+      border: 1px solid #dadce0;
+      border-radius: 4px;
+    }
+    #view-vinlog #manualPanel .panel-title {
+      font-size: 12px;
+      font-weight: bold;
+      color: #555;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 12px;
+    }
+    #view-vinlog #manualPanel label {
+      font-size: 12px;
+      margin-top: 10px;
+    }
+    #view-vinlog #manualPanel label:first-of-type { margin-top: 0; }
+    #view-vinlog #manualPanel .hint {
+      font-size: 11px;
+      color: #888;
+      margin-top: 3px;
+    }
+    #view-vinlog #manualOrderId {
+      font-family: monospace;
+      letter-spacing: 0.5px;
+    }
+    #view-vinlog #manualVins {
+      min-height: 140px;
+      max-height: 320px;
+    }
+    #view-vinlog #vinlogVinCount {
+      font-size: 11px;
+      color: #888;
+      margin-top: 4px;
+      text-align: right;
+    }
+    #view-vinlog .btn-manual-submit {
+      width: 100%;
+      margin-top: 12px;
+      padding: 9px;
+      background: #188038;
+      color: white;
+      border: none;
+      font-size: 13px;
+      font-weight: bold;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    #view-vinlog .btn-manual-submit:hover { background: #136d31; }
+    #view-vinlog .btn-manual-submit:disabled { background: #aaa; cursor: default; }
+
+    /* ── Bottom buttons ────────────────────────────────────────────────────── */
+    #view-vinlog .btn-row { display: flex; gap: 10px; margin-top: 18px; }
+    #view-vinlog .btn-secondary {
+      padding: 9px 18px; background: #fff; color: #555;
+      border: 1px solid #ccc; font-size: 13px; cursor: pointer; border-radius: 4px;
+    }
+    #view-vinlog .btn-secondary:hover { background: #f5f5f5; }
+
+    /* ── Status ────────────────────────────────────────────────────────────── */
+    #view-vinlog #vinlogStatus {
+      margin-top: 12px; font-size: 12px; min-height: 18px;
+      padding: 6px 8px; border-radius: 4px;
+    }
+    #view-vinlog #vinlogStatus.error { background: #fce8e6; color: #c0392b; }
+    #view-vinlog #vinlogStatus.success { background: #e6f4ea; color: #1e7e34; }
+    #view-vinlog #vinlogStatus.info { background: #e8f0fe; color: #1a73e8; }
+    #view-vinlog #vinlogStatus.empty { background: none; color: #555; }
+
+    #view-vinlog .empty-msg { color: #888; font-size: 12px; padding: 12px 0; text-align: center; }
+    #view-vinlog .loading { color: #888; font-size: 12px; padding: 12px 0; }
+
+    /* ── Divider ───────────────────────────────────────────────────────────── */
+    #view-vinlog .divider {
+      border: none;
+      border-top: 1px solid #e0e0e0;
+      margin: 18px 0 0 0;
+    }
+</style>
+
+<script>
     var selectedRun = null;
     var manualPanelOpen = false;
+    var vinlogDealersLoaded   = false;
+    var pendingPreselectKey   = null;  // set by cross-view jumps before dealers load
 
-    // ── Load dealer dropdown ────────────────────────────────────────────────
-    google.script.run
-      .withSuccessHandler(function(dealers) {
-        var sel = document.getElementById('dealerSelect');
-        sel.innerHTML = '<option value="">-- Select a dealer --</option>';
-        dealers.forEach(function(d) {
-          var opt = document.createElement('option');
-          opt.value = d.key; opt.text = d.name;
-          sel.appendChild(opt);
-        });
-      })
-      .withFailureHandler(function(e) {
-        document.getElementById('dealerSelect').innerHTML = '<option value="">Error loading dealers</option>';
-        setStatus('Could not load dealer list: ' + e.message, 'error');
-      })
-      .getActiveDealersForUI();
+    // ── Init (lazy — first nav into the view) ────────────────────────────────
+    function initVinlogView() {
+      google.script.run
+        .withSuccessHandler(function(dealers) {
+          var sel = document.getElementById('vinlogDealerSelect');
+          sel.innerHTML = '<option value="">-- Select a dealer --</option>';
+          dealers.forEach(function(d) {
+            var opt = document.createElement('option');
+            opt.value = d.key; opt.text = d.name;
+            sel.appendChild(opt);
+          });
+          vinlogDealersLoaded = true;
+          if (pendingPreselectKey) {
+            var key = pendingPreselectKey;
+            pendingPreselectKey = null;
+            vinlogPreselectDealer(key);
+          }
+        })
+        .withFailureHandler(function(e) {
+          document.getElementById('vinlogDealerSelect').innerHTML = '<option value="">Error loading dealers</option>';
+          setVinlogStatus('Could not load dealer list: ' + e.message, 'error');
+        })
+        .getActiveDealersForUI();
 
-    document.getElementById('dealerSelect').addEventListener('change', function() {
+      registerVinlogListeners();
+    }
+
+    window.VIEW_INITS = window.VIEW_INITS || {};
+    VIEW_INITS['view-vinlog'] = initVinlogView;
+
+    // Cross-view jump support (Run Order → "Update VIN Log"): selects the
+    // dealer and fires the normal change flow. If the dealer list is still
+    // loading, the key is stashed and applied when the load completes.
+    function vinlogPreselectDealer(key) {
+      if (!key) return;
+      if (!vinlogDealersLoaded) { pendingPreselectKey = key; return; }
+      var sel = document.getElementById('vinlogDealerSelect');
+      sel.value = key;
+      sel.dispatchEvent(new Event('change'));
+    }
+
+    function registerVinlogListeners() {
+      document.getElementById('vinlogDealerSelect').addEventListener('change', function() {
       var key = this.value;
       selectedRun = null;
       hideActionPanel();
-      setStatus('', 'empty');
+      setVinlogStatus('', 'empty');
       resetManualPanel();
 
       if (!key) {
@@ -382,7 +410,8 @@
       loadLatestOrderId(key);
 
       document.getElementById('manualToggle').style.display = 'block';
-    });
+      });
+    }
 
     // ── Latest order number ─────────────────────────────────────────────────
     function loadLatestOrderId(dealerKey) {
@@ -415,7 +444,7 @@
         })
         .withFailureHandler(function(e) {
           span.textContent = '—';
-          setStatus('Could not read latest order ID: ' + e.message, 'error');
+          setVinlogStatus('Could not read latest order ID: ' + e.message, 'error');
         })
         .getLatestOrderId(dealerKey);
     }
@@ -508,7 +537,7 @@
       }
 
       panel.style.display = 'block';
-      setStatus('', 'empty');
+      setVinlogStatus('', 'empty');
     }
 
     function hideActionPanel() {
@@ -520,27 +549,27 @@
     function commitRun() {
       if (!selectedRun) return;
       if (!selectedRun.dealId) {
-        setStatus('This run has no Deal ID. Cannot commit without a Deal ID.', 'error');
+        setVinlogStatus('This run has no Deal ID. Cannot commit without a Deal ID.', 'error');
         return;
       }
 
-      var dealerKey = document.getElementById('dealerSelect').value;
+      var dealerKey = document.getElementById('vinlogDealerSelect').value;
       var btn = document.getElementById('commitBtn');
       btn.disabled = true; btn.textContent = 'Committing...';
-      setStatus('Writing ' + selectedRun.vinCount + ' VINs to log...', 'info');
+      setVinlogStatus('Writing ' + selectedRun.vinCount + ' VINs to log...', 'info');
 
       google.script.run
         .withSuccessHandler(function(result) {
-          setStatus('Committed ' + result.committed + ' VINs to the ' +
-            document.getElementById('dealerSelect').options[
-              document.getElementById('dealerSelect').selectedIndex].text +
+          setVinlogStatus('Committed ' + result.committed + ' VINs to the ' +
+            document.getElementById('vinlogDealerSelect').options[
+              document.getElementById('vinlogDealerSelect').selectedIndex].text +
             ' VIN log.', 'success');
           btn.textContent = 'Commit to VIN Log';
           loadRuns(dealerKey);
           loadLatestOrderId(dealerKey); // refresh latest order number
         })
         .withFailureHandler(function(e) {
-          setStatus('Commit failed: ' + e.message, 'error');
+          setVinlogStatus('Commit failed: ' + e.message, 'error');
           btn.disabled = false; btn.textContent = 'Commit to VIN Log';
         })
         .commitRunToVINLog(dealerKey, selectedRun.rowIndex, selectedRun.dealId, selectedRun.producedVins);
@@ -550,39 +579,39 @@
     function rollbackRun() {
       if (!selectedRun) return;
 
-      var dealerKey  = document.getElementById('dealerSelect').value;
-      var dealerName = document.getElementById('dealerSelect').options[
-        document.getElementById('dealerSelect').selectedIndex].text;
+      var dealerKey  = document.getElementById('vinlogDealerSelect').value;
+      var dealerName = document.getElementById('vinlogDealerSelect').options[
+        document.getElementById('vinlogDealerSelect').selectedIndex].text;
       var btn = document.getElementById('rollbackBtn');
 
       btn.disabled = true; btn.textContent = 'Rolling back...';
-      setStatus('Looking up committed_at timestamp...', 'info');
+      setVinlogStatus('Looking up committed_at timestamp...', 'info');
 
       google.script.run
         .withSuccessHandler(function(committedAt) {
           if (!committedAt) {
-            setStatus('Could not find committed entries for this run in the VIN log.', 'error');
+            setVinlogStatus('Could not find committed entries for this run in the VIN log.', 'error');
             btn.disabled = false; btn.textContent = 'Rollback';
             return;
           }
-          setStatus('Removing entries from VIN log...', 'info');
+          setVinlogStatus('Removing entries from VIN log...', 'info');
 
           google.script.run
             .withSuccessHandler(function(result) {
-              setStatus('Rolled back ' + result.removed + ' entries from the ' +
+              setVinlogStatus('Rolled back ' + result.removed + ' entries from the ' +
                 dealerName + ' VIN log.', 'success');
               btn.textContent = 'Rollback';
               loadRuns(dealerKey);
               loadLatestOrderId(dealerKey);
             })
             .withFailureHandler(function(e) {
-              setStatus('Rollback failed: ' + e.message, 'error');
+              setVinlogStatus('Rollback failed: ' + e.message, 'error');
               btn.disabled = false; btn.textContent = 'Rollback';
             })
             .rollbackRunFromVINLog(dealerKey, selectedRun.rowIndex, selectedRun.dealId, committedAt);
         })
         .withFailureHandler(function(e) {
-          setStatus('Error fetching committed_at: ' + e.message, 'error');
+          setVinlogStatus('Error fetching committed_at: ' + e.message, 'error');
           btn.disabled = false; btn.textContent = 'Rollback';
         })
         .getCommittedAt(dealerKey, selectedRun.dealId);
@@ -603,14 +632,14 @@
       document.getElementById('manualPanel').style.display = 'none';
       document.getElementById('manualOrderId').value = '';
       document.getElementById('manualVins').value = '';
-      document.getElementById('vinCount').textContent = '0 VINs';
+      document.getElementById('vinlogVinCount').textContent = '0 VINs';
     }
 
-    function updateVinCount() {
+    function updateVinlogVinCount() {
       var raw  = document.getElementById('manualVins').value;
       var vins = parseVins(raw);
       var n    = vins.length;
-      document.getElementById('vinCount').textContent = n + ' VIN' + (n === 1 ? '' : 's');
+      document.getElementById('vinlogVinCount').textContent = n + ' VIN' + (n === 1 ? '' : 's');
     }
 
     function parseVins(raw) {
@@ -620,40 +649,38 @@
     }
 
     function submitManual() {
-      var dealerKey = document.getElementById('dealerSelect').value;
-      if (!dealerKey) { setStatus('Select a dealer first.', 'error'); return; }
+      var dealerKey = document.getElementById('vinlogDealerSelect').value;
+      if (!dealerKey) { setVinlogStatus('Select a dealer first.', 'error'); return; }
 
       var orderId = document.getElementById('manualOrderId').value.trim();
-      if (!orderId) { setStatus('Enter an order number before submitting.', 'error'); return; }
+      if (!orderId) { setVinlogStatus('Enter an order number before submitting.', 'error'); return; }
 
       var vins = parseVins(document.getElementById('manualVins').value);
-      if (vins.length === 0) { setStatus('Enter at least one VIN or stock number.', 'error'); return; }
+      if (vins.length === 0) { setVinlogStatus('Enter at least one VIN or stock number.', 'error'); return; }
 
       var btn = document.getElementById('manualSubmitBtn');
       btn.disabled = true; btn.textContent = 'Adding ' + vins.length + ' VIN' + (vins.length === 1 ? '' : 's') + '...';
-      setStatus('Writing to VIN log...', 'info');
+      setVinlogStatus('Writing to VIN log...', 'info');
 
       google.script.run
         .withSuccessHandler(function(result) {
-          setStatus('Added ' + result.committed + ' VIN' + (result.committed === 1 ? '' : 's') +
+          setVinlogStatus('Added ' + result.committed + ' VIN' + (result.committed === 1 ? '' : 's') +
             ' to the VIN log under order ' + orderId + '.', 'success');
           btn.disabled = false; btn.textContent = 'Add to VIN Log';
           // Clear the textarea but keep the order number in case user wants to add more
           document.getElementById('manualVins').value = '';
-          document.getElementById('vinCount').textContent = '0 VINs';
+          document.getElementById('vinlogVinCount').textContent = '0 VINs';
           loadLatestOrderId(dealerKey); // refresh latest order display
         })
         .withFailureHandler(function(e) {
-          setStatus('Failed: ' + e.message, 'error');
+          setVinlogStatus('Failed: ' + e.message, 'error');
           btn.disabled = false; btn.textContent = 'Add to VIN Log';
         })
         .manualCommitToVINLog(dealerKey, orderId, vins);
     }
 
-    function setStatus(msg, type) {
-      var el = document.getElementById('status');
+    function setVinlogStatus(msg, type) {
+      var el = document.getElementById('vinlogStatus');
       el.textContent = msg; el.className = type || 'empty';
     }
-  </script>
-</body>
-</html>
+</script>

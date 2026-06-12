@@ -2874,11 +2874,9 @@ function getLoggedVins_(dealerKey) {
 // SECTION 23: VIN LOG — COMMIT / ROLLBACK
 // ============================================================================
 
+// Classic fallback: serves the converted App fragment standalone.
 function openVINLogUpdater() {
-  var html = HtmlService.createHtmlOutputFromFile('VINLogUpdater')
-    .setWidth(MODAL_WIDTH)
-    .setHeight(MODAL_HEIGHT);
-  SpreadsheetApp.getUi().showModalDialog(html, 'Update VIN Log');
+  openViewStandalone_('ViewVinLog', 'Update VIN Log');
 }
 
 function getRunsForDealer(dealerKey) {
