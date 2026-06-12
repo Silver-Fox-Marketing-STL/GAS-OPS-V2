@@ -10,7 +10,23 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## [Unreleased]
 
-### Added — `feature/data-importer` (in testing)
+### Known issues
+- `CDJR_OF_COLUMBIA` `scraper_location_name` intentionally remains `"Joe Machens Chrysler Dodge Jeep Ram"` to match the live scraper feed; update when the feed reflects the new dealer name
+- Dave Sinclair Lincoln: used cars have no price in the scraper feed, so a "used ≥ $35k" targeting rule cannot function until used prices are scraped
+
+### Planned
+- **Log capacity plan (documented; build at trigger)** — "Capacity & Log Growth Plan" section added to the Bridge doc: hard limit 10M cells/spreadsheet, practical limit (full-tab readers: `checkImportHealth_`, DASHBOARD QUERY, `getRunsForDealer`) at ~25k–50k rows ≈ 2–3 years at production pace. Trigger: any log tab > ~25k rows or visible slowdown → build menu-driven `archiveOldLogs()` (rows older than 12 months → `SF_LOG_ARCHIVE`, per-year tabs; no live function references the archive; never archive SF_VIN_LOGS).
+- **Trim cleanup (analyzed; deferred)** — docs-only for now: full analysis + a validated auto-cleanup design (global `cleanTrim_` regex pass behind an `ENABLE_TRIM_CLEANUP` flag + `dryRunCleanTrim_` preview, plus residual exact-match rules) written into the Bridge doc ("Trim Normalization & Cleanup — Analysis & Deferred Design"). Approach decision (A full / B phased / C exact-only) pending.
+- Pipedrive post-run API integration (architecture designed; `pushToPipedrive_()` to be isolated in its own try/catch; config expansion at columns P–V requires updating hardcoded `CFG.FILTER_RULES` index)
+- Unresolved order configurations: MBCC/Sprinter shared inventory, Auffenberg Hybrid (Courtesy Loaners NEW→USED)
+- Trim cleanup approach decision (A full / B phased / C exact-only) — see Bridge doc deferred-design section
+- Architecture hardening: IFERROR-wrapped ORDERMATCH formulas, self-describing field-to-column map, resumable runs (6-minute Apps Script ceiling), regression harness, scheduled config audits, extended per-run caching
+
+---
+
+## [2026-06-11] — v2.8: Multi-file import + modal layout rework
+
+### Added
 - **Multi-file import with Replace/Merge modes** (`ScraperImport.html` + `importScraperData` rewrite):
   - **Main Import (Replace)** — select 1+ CSVs, merged into one dataset, clears SCRAPERDATA (previous behavior, now multi-file). **Merge with Existing** — combines the selected file(s) with the current SCRAPERDATA contents.
   - **VIN dedup/conflict engine** (`dedupeScraperRows_`, server-side, post-normalization): same VIN + identical data kept once silently; differing data → 2-way conflict (incumbent vs newest challenger) resolved per-VIN in a new conflict panel (side-by-side diff of only the differing fields, sources labeled by filename, bulk Keep-All buttons via the `resolutions['*']` fallback). Tolerant comparator `cellsEqual_` (trim-string or both-numeric) prevents false conflicts from `getValues()` numeric coercion.
@@ -18,11 +34,15 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   - Per-file header mapping (files may differ in column order/set), per-file preview cards, all-or-nothing validity gate (a file without a VIN column blocks the import), **UTF-8 BOM strip** per file (fixes a latent silent VIN-unmatch bug), and a **mid-file header guard** (drops stray "VIN" header rows from concatenated exports).
   - Final dataset **grouped by Location** before writing (preserves `getDealerScraperData_`'s contiguity invariant in both modes); stats/health/dashboard computed on the final dataset so IMPORT_STATS baselines stay sane in merge mode. Review panel gains mode-aware totals + Import Summary badges (files, mode, duplicates removed, conflicts resolved, rows without VIN).
 
-### Fixed — `feature/data-importer` (in testing)
+### Changed
+- **All five modals resized to a uniform 1400×900** (`MODAL_WIDTH`/`MODAL_HEIGHT` constants): Run Dealer, Import Scraper Data, Normalization Maps, VIN Log Updater, Dealer Rules Editor. The browser viewport is the effective cap; verify on the smallest screen used to run orders.
+
+### Fixed
 - **"View Run Log" menu item did nothing.** `openRunLog()` called `.activate()` on a sheet obtained via `openById()` — activation only moves the UI on the active-spreadsheet instance. Switched to `getActiveSpreadsheet()`; the menu item now jumps to the RUN_LOG tab as intended.
 
-### Changed — `feature/data-importer` (in testing)
-- **All five modals resized to a uniform 1400×900** (`MODAL_WIDTH`/`MODAL_HEIGHT` constants): Run Dealer, Import Scraper Data, Normalization Maps, VIN Log Updater, Dealer Rules Editor. The browser viewport is the effective cap; verify on the smallest screen used to run orders.
+---
+
+## [2026-06-10] — v2.7: Targeting rules + Dean Team Brentwood + NORM_MAPS performance fix
 
 ### Added
 - **`refreshNormReference()` + "Refresh Norm/Field Reference" menu item** — on-demand, static replacement for the NORM_MAPS cols E+ reference. Scans SCRAPERDATA once and writes sorted distinct values per column (Type/Make/Model/Trim/Status/Body Style/Fuel Type) with counts + a timestamp; zero ongoing recalc cost. Doubles as the lookup for exact raw values when authoring targeting conditions.
@@ -39,18 +59,6 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ### Fixed
 - **`PRICE_TAGLINE` returned blank for every row.** `PRICE_RAW` (ORDERMATCH col H) is stored as text, so the original `ISNUMBER(H2:H)` guard was always FALSE. Reworked the formula to coerce with `VALUE()` inside `IFERROR` (`IFERROR(IF(VALUE(H2:H)>=15000,…),"")`). A plain text-vs-number comparison was avoided because Sheets sorts any text above any number, which would bucket every text price into the top tier. Fixed in the SF_UNIVERSAL_TEMPLATE ORDERMATCH U2 cell (no code change).
 - **New CSV schema `SCP_TAGLINE`** — the SCP layout plus `PRICE_TAGLINE` appended as col_11. Used by Dean Team Brentwood; leaves the shared `SCP` schema untouched.
-
-### Known issues
-- `CDJR_OF_COLUMBIA` `scraper_location_name` intentionally remains `"Joe Machens Chrysler Dodge Jeep Ram"` to match the live scraper feed; update when the feed reflects the new dealer name
-- Dave Sinclair Lincoln: used cars have no price in the scraper feed, so a "used ≥ $35k" targeting rule cannot function until used prices are scraped
-
-### Planned
-- **Log capacity plan (documented; build at trigger)** — "Capacity & Log Growth Plan" section added to the Bridge doc: hard limit 10M cells/spreadsheet, practical limit (full-tab readers: `checkImportHealth_`, DASHBOARD QUERY, `getRunsForDealer`) at ~25k–50k rows ≈ 2–3 years at production pace. Trigger: any log tab > ~25k rows or visible slowdown → build menu-driven `archiveOldLogs()` (rows older than 12 months → `SF_LOG_ARCHIVE`, per-year tabs; no live function references the archive; never archive SF_VIN_LOGS).
-- **Trim cleanup (analyzed; deferred)** — docs-only for now: full analysis + a validated auto-cleanup design (global `cleanTrim_` regex pass behind an `ENABLE_TRIM_CLEANUP` flag + `dryRunCleanTrim_` preview, plus residual exact-match rules) written into the Bridge doc ("Trim Normalization & Cleanup — Analysis & Deferred Design"). Approach decision (A full / B phased / C exact-only) pending.
-- Pipedrive post-run API integration (architecture designed; `pushToPipedrive_()` to be isolated in its own try/catch; config expansion at columns P–V requires updating hardcoded `CFG.FILTER_RULES` index)
-- Unresolved order configurations: MBCC/Sprinter shared inventory, Auffenberg Hybrid (Courtesy Loaners NEW→USED)
-- Trim cleanup approach decision (A full / B phased / C exact-only) — see Bridge doc deferred-design section
-- Architecture hardening: IFERROR-wrapped ORDERMATCH formulas, self-describing field-to-column map, resumable runs (6-minute Apps Script ceiling), regression harness, scheduled config audits, extended per-run caching
 
 ---
 
