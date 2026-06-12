@@ -2244,11 +2244,9 @@ function auditConfigPlaceholders() {
 
 var NORM_MAPS_TAB = 'NORM_MAPS';
 
+// Classic fallback: serves the converted App fragment standalone.
 function openNormManager() {
-  var html = HtmlService.createHtmlOutputFromFile('NormManager')
-    .setWidth(MODAL_WIDTH)
-    .setHeight(MODAL_HEIGHT);
-  SpreadsheetApp.getUi().showModalDialog(html, 'Normalization Maps');
+  openViewStandalone_('ViewNorm', 'Normalization Maps');
 }
 
 function getNormMapsSheet_() {
