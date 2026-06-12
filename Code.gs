@@ -946,9 +946,8 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     if (clearedOld > 0) Logger.log('Cleared ' + clearedOld + ' old QR PNGs before run.');
 
     setProgress_(runId, 'Generating ' + links.length + ' QR code' + (links.length === 1 ? '' : 's') + ' (parallel)...', 64);
-    var qrFolder = DriveApp.getFolderById(config[CFG.QR_FOLDER_ID]);
-    var qrFileIds = generateQRCodesParallel_(links, qrFolder, config[CFG.QR_PREFIX]);
-    Logger.log('QR codes generated: ' + links.length);
+    var qrFileIds = generateQRCodesParallel_(links, config[CFG.QR_FOLDER_ID], config[CFG.QR_PREFIX]);
+    Logger.log('QR codes generated: ' + qrFileIds.length + ' of ' + links.length);
 
     // 12. Write QR paths into ORDERMATCH col J
     setProgress_(runId, links.length + ' QR codes complete. Writing paths...', 82);
@@ -1426,33 +1425,78 @@ function writeLinkBuilderFormulas_(outputDoc, config, typeRules) {
 
 /**
  * Generates QR PNGs (parallel download) and saves them to the dealer's Drive
- * folder. Returns the created Drive file IDs (in QR index order) so the
- * finalization panel can abandon EXACTLY this run's files by ID instead of
- * scanning the folder.
+ * folder via PARALLEL multipart uploads to the Drive REST API — the old
+ * sequential DriveApp.createFile() loop cost ~120ms per file (6–24s per run).
+ * Returns the created Drive file IDs (QR index order) so the finalization
+ * panel can abandon exactly this run's files by ID. Any upload that fails
+ * falls back to a one-off DriveApp.createFile for that file.
  */
-function generateQRCodesParallel_(links, qrFolder, qrPrefix) {
+function generateQRCodesParallel_(links, qrFolderId, qrPrefix) {
   if (!links || links.length === 0) return [];
 
-  var requests = links.map(function(url) {
+  // 1. Download all QR PNGs in one parallel round (unchanged).
+  var dlRequests = links.map(function(url) {
     return {
       url:                'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' + encodeURIComponent(url),
       method:             'GET',
       muteHttpExceptions: true
     };
   });
+  var responses = UrlFetchApp.fetchAll(dlRequests);
 
-  var responses = UrlFetchApp.fetchAll(requests);
-
-  var qrFileIds = [];
+  // 2. Build one multipart upload request per successful download.
+  var token    = ScriptApp.getOAuthToken();
+  var boundary = 'sfx_qr_upload_boundary';
+  var uploads  = [];
+  var qrIndex  = [];  // upload position → original QR index (for names/fallback)
   responses.forEach(function(response, i) {
-    if (response.getResponseCode() === 200) {
-      var fileName = qrPrefix + '_QR_Code_' + (i + 1) + '.PNG';
-      var file = qrFolder.createFile(response.getBlob().setName(fileName).setContentType('image/png'));
-      qrFileIds.push(file.getId());
-    } else {
-      Logger.log('QR failed for index ' + (i + 1) + ': HTTP ' + response.getResponseCode());
+    if (response.getResponseCode() !== 200) {
+      Logger.log('QR download failed for index ' + (i + 1) + ': HTTP ' + response.getResponseCode());
+      return;
     }
+    var fileName = qrPrefix + '_QR_Code_' + (i + 1) + '.PNG';
+    var body =
+      '--' + boundary + '\r\n' +
+      'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+      JSON.stringify({ name: fileName, parents: [qrFolderId] }) + '\r\n' +
+      '--' + boundary + '\r\n' +
+      'Content-Type: image/png\r\n' +
+      'Content-Transfer-Encoding: base64\r\n\r\n' +
+      Utilities.base64Encode(response.getBlob().getBytes()) + '\r\n' +
+      '--' + boundary + '--';
+    uploads.push({
+      url:                'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
+      method:             'post',
+      contentType:        'multipart/related; boundary=' + boundary,
+      headers:            { Authorization: 'Bearer ' + token },
+      payload:            body,
+      muteHttpExceptions: true
+    });
+    qrIndex.push(i);
   });
+
+  // 3. Fire uploads in parallel batches; collect file IDs in QR order.
+  var qrFileIds = [];
+  for (var b = 0; b < uploads.length; b += 50) {
+    var batch = UrlFetchApp.fetchAll(uploads.slice(b, b + 50));
+    batch.forEach(function(r, j) {
+      var idx = qrIndex[b + j];
+      if (r.getResponseCode() < 300) {
+        qrFileIds.push(JSON.parse(r.getContentText()).id);
+      } else {
+        Logger.log('QR upload failed for index ' + (idx + 1) + ': HTTP ' +
+                   r.getResponseCode() + ' — falling back to DriveApp.');
+        try {
+          var fn = qrPrefix + '_QR_Code_' + (idx + 1) + '.PNG';
+          qrFileIds.push(DriveApp.getFolderById(qrFolderId)
+            .createFile(responses[idx].getBlob().setName(fn).setContentType('image/png'))
+            .getId());
+        } catch (e) {
+          Logger.log('QR fallback createFile failed for index ' + (idx + 1) + ': ' + e.message);
+        }
+      }
+    });
+  }
   return qrFileIds;
 }
 
