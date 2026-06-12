@@ -351,28 +351,29 @@
     var pendingPreselectKey   = null;  // set by cross-view jumps before dealers load
 
     // ── Init (lazy — first nav into the view) ────────────────────────────────
+    // Dealer list comes from the shared AppData bootstrap (one server call per
+    // session instead of a second getActiveDealersForUI execution).
     function initVinlogView() {
-      google.script.run
-        .withSuccessHandler(function(dealers) {
-          var sel = document.getElementById('vinlogDealerSelect');
-          sel.innerHTML = '<option value="">-- Select a dealer --</option>';
-          dealers.forEach(function(d) {
-            var opt = document.createElement('option');
-            opt.value = d.key; opt.text = d.name;
-            sel.appendChild(opt);
-          });
-          vinlogDealersLoaded = true;
-          if (pendingPreselectKey) {
-            var key = pendingPreselectKey;
-            pendingPreselectKey = null;
-            vinlogPreselectDealer(key);
-          }
-        })
-        .withFailureHandler(function(e) {
+      AppData.get(function(data, err) {
+        if (!data) {
           document.getElementById('vinlogDealerSelect').innerHTML = '<option value="">Error loading dealers</option>';
-          setVinlogStatus('Could not load dealer list: ' + e.message, 'error');
-        })
-        .getActiveDealersForUI();
+          setVinlogStatus('Could not load dealer list: ' + (err && err.message ? err.message : 'unknown error'), 'error');
+          return;
+        }
+        var sel = document.getElementById('vinlogDealerSelect');
+        sel.innerHTML = '<option value="">-- Select a dealer --</option>';
+        data.dealers.forEach(function(d) {
+          var opt = document.createElement('option');
+          opt.value = d.key; opt.text = d.name;
+          sel.appendChild(opt);
+        });
+        vinlogDealersLoaded = true;
+        if (pendingPreselectKey) {
+          var key = pendingPreselectKey;
+          pendingPreselectKey = null;
+          vinlogPreselectDealer(key);
+        }
+      });
 
       registerVinlogListeners();
     }

@@ -393,46 +393,38 @@
     var lastConfirmedDealer = ''; // for reverting the dealer select if a discard is cancelled
 
     // ── Init (lazy — first nav into the view) ────────────────────────────────
+    // Dealers + users come from the shared AppData bootstrap (one server call
+    // per session, prefetched by the App shell while the user is on Home;
+    // Classic standalone triggers the same fetch lazily).
     function initRunView() {
-      // Load dealer dropdown
-      google.script.run
-        .withSuccessHandler(function(dealers) {
-          var sel = document.getElementById('runDealerSelect');
-          sel.innerHTML = '<option value="">-- Select a dealer --</option>';
-          dealersByKey = {};
-          dealers.forEach(function(d) {
-            dealersByKey[d.key] = d;
-            var opt = document.createElement('option');
-            opt.value = d.key; opt.text = d.name;
-            sel.appendChild(opt);
-          });
-          updateButtons();
-        })
-        .withFailureHandler(function(e) {
+      AppData.get(function(data, err) {
+        if (!data) {
           document.getElementById('runDealerSelect').innerHTML = '<option value="">Error loading dealers</option>';
-          setRunStatus('Could not load dealer list: ' + e.message, 'error');
-        })
-        .getActiveDealersForUI();
+          setRunStatus('Could not load app data: ' + (err && err.message ? err.message : 'unknown error'), 'error');
+          return;
+        }
 
-      // Load user profiles dropdown
-      google.script.run
-        .withSuccessHandler(function(result) {
-          // result = { profiles: [...], lastUser: '...' }
-          var sel = document.getElementById('userSelect');
-          sel.innerHTML = '<option value="">-- Select user --</option>';
-          result.profiles.forEach(function(u) {
-            var opt = document.createElement('option');
-            opt.value = u.key; opt.text = u.name;
-            sel.appendChild(opt);
-          });
-          if (result.lastUser) sel.value = result.lastUser;
-          updateButtons();
-        })
-        .withFailureHandler(function(e) {
-          document.getElementById('userSelect').innerHTML = '<option value="">Error loading users</option>';
-          setRunStatus('Could not load user profiles: ' + e.message, 'error');
-        })
-        .getUserProfilesForModal();
+        var sel = document.getElementById('runDealerSelect');
+        sel.innerHTML = '<option value="">-- Select a dealer --</option>';
+        dealersByKey = {};
+        data.dealers.forEach(function(d) {
+          dealersByKey[d.key] = d;
+          var opt = document.createElement('option');
+          opt.value = d.key; opt.text = d.name;
+          sel.appendChild(opt);
+        });
+
+        var usel = document.getElementById('userSelect');
+        usel.innerHTML = '<option value="">-- Select user --</option>';
+        data.users.profiles.forEach(function(u) {
+          var opt = document.createElement('option');
+          opt.value = u.key; opt.text = u.name;
+          usel.appendChild(opt);
+        });
+        if (data.users.lastUser) usel.value = data.users.lastUser;
+
+        updateButtons();
+      });
 
       registerRunListeners();
     }

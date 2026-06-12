@@ -616,6 +616,7 @@ Bound to SF_SYSTEM_MASTER.
 | `openApp` | `()` | Opens the SilverFox App — `App.html` evaluated as an HtmlService template (1400×900; `MODAL_WIDTH`/`MODAL_HEIGHT`); views stitched in via `include_()`. |
 | `include_` | `(name)` | Template include helper — returns a fragment file's raw content for `<?!= include_('ViewXxx') ?>` scriptlets. |
 | `openViewStandalone_` | `(fragmentName, title)` | Serves one converted view fragment inside `Classic.html` as a standalone dialog — powers the Classic fallback menu with zero duplication. |
+| `getAppBootstrap` | `()` | Single round-trip App bootstrap: `{dealers, users}` (active dealers incl. `splitDealLabel` + user profiles/lastUser). Prefetched once per App session into the shared client-side `AppData` latch (SharedUtils) — Run Order and VIN Logs populate from it instead of firing separate executions. |
 | `getAppHomeStatus` | `()` | Home status strip: `{lastImportDate, lastImportTime}` from SCRAPERDATA W1:X1 display values. |
 | `appEraseAllQRFolders` / `appCleanUpOutputDocs` / `appRefreshNormReference` / `appOpenRunLog` | `()` | App wrappers returning `{message}` for in-app toasts (`ui.alert` fails when invoked via `google.script.run`); the classic menu functions keep their alerts and share the `*Core_` implementations. |
 | `promptRunDealer` | `()` | Classic fallback: opens the ViewRun fragment standalone via `openViewStandalone_`. |

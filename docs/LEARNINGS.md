@@ -25,6 +25,18 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
 - **Large reads time out.** 5,000+ row SCRAPERDATA: never `getRange` the full
   21-column sheet from a modal call. Two-pass: read the Location column only,
   find the matching row span, read just that span.
+- **Per-file DriveApp calls in loops are the easiest way to accidentally build
+  a minutes-long operation.** `createFile`/`setTrashed` cost ~120ms EACH; a few
+  hundred files = a perceived hang. Batch via `UrlFetchApp.fetchAll` against
+  the Drive REST API with `ScriptApp.getOAuthToken()` (multipart upload for
+  creates, `PATCH {trashed:true}` for trashes — see `trashFilesParallel_` /
+  `generateQRCodesParallel_`). Related: folders that only ever accumulate
+  (the QR folders did, with duplicate filenames) make every later folder
+  operation slower — clear at the start of the producing operation.
+- **Formatting calls in loops are ~12× more expensive than block formatting.**
+  The DASHBOARD's per-row stripe loop issued ~500 range ops per import; one
+  `setBackgroundObjects(matrix)` + column-scoped alignment calls do the same
+  work in 7 ops. Build matrices in memory; touch ranges once.
 - **`SpreadsheetApp.getUi().alert()` FAILS when invoked via `google.script.run`**
   (no UI context in client-invoked executions). Server functions that need to
   report to a dialog must RETURN a message for the client to render; keep the

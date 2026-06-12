@@ -72,6 +72,40 @@
     is:  function(key) { return !!this._flags[key]; }
   };
 
+  // ── Shared bootstrap data (dealers + user profiles) ───────────────────────
+  // Fetched ONCE per session via getAppBootstrap (the App prefetches at open;
+  // Classic standalone views lazily trigger the same fetch on first use).
+  // get(cb) fires immediately when loaded, otherwise queues the callback.
+  var AppData = {
+    _data: null,
+    _err: null,
+    _loading: false,
+    _cbs: [],
+    load: function() {
+      if (this._loading || this._data) return;
+      this._loading = true;
+      var self = this;
+      google.script.run
+        .withSuccessHandler(function(d) {
+          self._data = d; self._loading = false;
+          var cbs = self._cbs; self._cbs = [];
+          cbs.forEach(function(cb) { cb(d, null); });
+        })
+        .withFailureHandler(function(e) {
+          self._err = e; self._loading = false;
+          var cbs = self._cbs; self._cbs = [];
+          cbs.forEach(function(cb) { cb(null, e); });
+        })
+        .getAppBootstrap();
+    },
+    get: function(cb) {
+      if (this._data) { cb(this._data, null); return; }
+      this._cbs.push(cb);
+      this._err = null;       // allow retry after a failed load
+      this.load();
+    }
+  };
+
   // ── View registries (populated by each view fragment) ─────────────────────
   window.VIEW_INITS = window.VIEW_INITS || {};  // viewId -> init fn (run once, first nav)
   window.VIEW_SHOWN = window.VIEW_SHOWN || {};  // viewId -> fn run on every nav-in

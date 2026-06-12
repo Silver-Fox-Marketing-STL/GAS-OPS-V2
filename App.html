@@ -208,6 +208,9 @@
 
     markPendingViews();
     navTo('view-home');
+    // Prefetch shared bootstrap data (dealers + users) while the user is on
+    // Home — Run Order / VIN Logs then populate instantly on first visit.
+    AppData.load();
   </script>
 </body>
 </html>

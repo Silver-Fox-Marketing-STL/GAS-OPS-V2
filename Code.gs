@@ -756,6 +756,19 @@ function groupRowsByLocation_(rows) {
   return out;
 }
 
+/**
+ * Single round-trip App bootstrap: the data Run Order and VIN Logs each
+ * fetched in separate executions (dealers ×2 + user profiles = 3 cold starts).
+ * The App fetches this once via the shared client-side AppData latch; both
+ * reads share one getConfigSS_() open.
+ */
+function getAppBootstrap() {
+  return {
+    dealers: getActiveDealersForUI(),
+    users:   getUserProfilesForModal()
+  };
+}
+
 // Called by the sidebar to populate the dropdown
 function getActiveDealersForUI() {
   var data = getConfigSS_()
