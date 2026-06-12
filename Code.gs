@@ -392,11 +392,9 @@ function promptRunDealer() {
   SpreadsheetApp.getUi().showModalDialog(html, 'Run Dealer');
 }
 
+// Classic fallback: serves the converted App fragment standalone.
 function openScraperImport() {
-  var html = HtmlService.createHtmlOutputFromFile('ScraperImport')
-    .setWidth(MODAL_WIDTH)
-    .setHeight(MODAL_HEIGHT);
-  SpreadsheetApp.getUi().showModalDialog(html, 'Import Scraper Data');
+  openViewStandalone_('ViewImport', 'Import Scraper Data');
 }
 
 /**

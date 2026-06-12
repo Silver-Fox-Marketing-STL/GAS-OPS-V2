@@ -89,6 +89,9 @@
 </head>
 <body>
 
+  <!-- SharedUtils FIRST: view fragments register guards/inits at parse time -->
+  <?!= include_('SharedUtils') ?>
+
   <div id="appRoot">
 
     <nav id="sidebar">
@@ -127,13 +130,12 @@
       </div>
       <div id="appContent">
         <?!= include_('ViewHome') ?>
+        <?!= include_('ViewImport') ?>
         <?!= include_('ViewNorm') ?>
       </div>
     </div>
 
   </div>
-
-  <?!= include_('SharedUtils') ?>
 
   <script>
     // ── Shell boot — runs AFTER all view fragments have registered ──────────

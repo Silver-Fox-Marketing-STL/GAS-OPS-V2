@@ -17,8 +17,9 @@
 </head>
 <body class="standalone">
 
-  <?!= include_(fragment) ?>
+  <!-- SharedUtils FIRST: the fragment registers guards/inits at parse time -->
   <?!= include_('SharedUtils') ?>
+  <?!= include_(fragment) ?>
 
   <script>
     // In the classic (single-view) context, cross-view navigation falls back
