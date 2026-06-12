@@ -1,285 +1,5 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <style>
-    * { box-sizing: border-box; }
-    body {
-      font-family: Arial, sans-serif;
-      margin: 0;
-      padding: 0;
-      font-size: 13px;
-      color: #333;
-      height: 100vh;
-      overflow: hidden;
-    }
+<div class="view" id="view-run" hidden>
 
-    /* ── Two-column layout (wide modal) ──────────────────────────────────── */
-    .layout { display: flex; height: 100%; }
-    .col-left {
-      width: 440px;
-      flex-shrink: 0;
-      padding: 20px;
-      overflow-y: auto;
-      border-right: 1px solid #e0e0e0;
-      display: flex;
-      flex-direction: column;
-    }
-    .col-right {
-      flex: 1;
-      min-width: 0;
-      padding: 20px;
-      display: flex;
-      flex-direction: column;
-      background: #fafbfc;
-    }
-    /* Pin actions/progress/status to the bottom of the left column */
-    .actions-block { margin-top: auto; padding-top: 16px; }
-
-    label {
-      display: block;
-      font-weight: bold;
-      margin-bottom: 4px;
-      margin-top: 14px;
-    }
-    label:first-of-type { margin-top: 0; }
-    .user-select-wrap select {
-      border-color: #1a73e8;
-    }
-    .user-select-wrap select:focus {
-      outline: none;
-      box-shadow: 0 0 0 2px rgba(26,115,232,0.25);
-    }
-    select, textarea, input[type="text"] {
-      width: 100%;
-      padding: 8px;
-      font-size: 13px;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-    }
-    textarea {
-      flex: 1;
-      min-height: 150px;
-      resize: none;
-      font-family: monospace;
-      font-size: 12px;
-      line-height: 1.6;
-      background: #fff;
-    }
-    .vin-count  { font-size: 11px; color: #888; margin-top: 4px; min-height: 16px; }
-    .field-hint { font-size: 11px; color: #888; margin-top: 3px; }
-    .bypass-label {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      margin-top: 8px;
-      font-weight: normal;
-      font-size: 12px;
-      color: #555;
-      cursor: pointer;
-      user-select: none;
-    }
-    .bypass-label input[type="checkbox"] {
-      width: auto;
-      margin: 0;
-      cursor: pointer;
-      accent-color: #e67e00;
-    }
-    .bypass-label:has(input:checked) { color: #e67e00; }
-    .bypass-hint {
-      font-size: 11px;
-      color: #aaa;
-      margin-left: 2px;
-    }
-
-    /* ── VIN log status row ──────────────────────────────────────────────── */
-    #vinLogStatusRow {
-      display: none;
-      align-items: center;
-      gap: 8px;
-      margin-top: 7px;
-      font-size: 11px;
-      color: #555;
-    }
-    #vinLogStatusRow .log-label { flex: 1; }
-    #vinLogStatusRow .log-label span {
-      display: inline-block;
-      background: #f1f3f4;
-      border: 1px solid #dadce0;
-      border-radius: 10px;
-      padding: 2px 9px;
-      font-weight: bold;
-      color: #333;
-      margin-left: 4px;
-    }
-    #openVinLogBtn {
-      padding: 4px 10px;
-      font-size: 11px;
-      font-weight: bold;
-      background: #fff;
-      color: #1a73e8;
-      border: 1.5px solid #1a73e8;
-      border-radius: 4px;
-      cursor: pointer;
-      white-space: nowrap;
-    }
-    #openVinLogBtn:hover { background: #e8f0fe; }
-
-    /* ── CAO row ─────────────────────────────────────────────────────────── */
-    .cao-row { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
-    .cao-row label { margin: 0; flex: 1; }
-    #caoBtn {
-      padding: 6px 12px; font-size: 12px; font-weight: bold;
-      background: #fff; color: #1a73e8; border: 1.5px solid #1a73e8;
-      border-radius: 4px; cursor: pointer; white-space: nowrap; width: auto; margin: 0;
-    }
-    #caoBtn:hover    { background: #e8f0fe; }
-    #caoBtn:disabled { background: #f5f5f5; color: #aaa; border-color: #ccc; cursor: default; }
-
-    /* ── CAO summary ─────────────────────────────────────────────────────── */
-    #caoSummary {
-      display: none; margin-top: 8px; padding: 8px 10px;
-      background: #f8f9fa; border: 1px solid #dadce0; border-radius: 4px;
-      font-size: 11px; line-height: 1.7;
-    }
-    #caoSummary .summary-row { display: flex; justify-content: space-between; }
-    #caoSummary .summary-row span:last-child { font-weight: bold; color: #333; }
-    #caoSummary .summary-divider { border: none; border-top: 1px solid #e0e0e0; margin: 4px 0; }
-    #caoSummary .summary-net { color: #1a73e8; }
-    #caoSummary .rejection-detail { color: #888; font-size: 10.5px; margin-top: 2px; }
-
-    /* ── Run / Cancel buttons ────────────────────────────────────────────── */
-    .btn-row { display: flex; gap: 10px; margin-top: 16px; }
-    .btn-primary {
-      flex: 1; padding: 10px; background: #1a73e8; color: white;
-      border: none; font-size: 14px; font-weight: bold; cursor: pointer; border-radius: 4px;
-    }
-    .btn-primary:hover    { background: #1557b0; }
-    .btn-primary:disabled { background: #aaa; cursor: default; }
-    .btn-secondary {
-      padding: 10px 18px; background: #fff; color: #555;
-      border: 1px solid #ccc; font-size: 13px; cursor: pointer; border-radius: 4px;
-    }
-    .btn-secondary:hover { background: #f5f5f5; }
-
-    /* ── Progress section ────────────────────────────────────────────────── */
-    #progressSection {
-      display: none; margin-top: 16px; padding: 12px;
-      background: #f8f9fa; border: 1px solid #dadce0; border-radius: 4px;
-    }
-    #progressStep {
-      font-size: 12px; color: #444; margin-bottom: 8px;
-      min-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
-    .progress-track {
-      height: 6px; background: #e0e0e0; border-radius: 3px; overflow: hidden;
-    }
-    .progress-fill {
-      height: 100%; background: #1a73e8; border-radius: 3px;
-      width: 0%; transition: width 0.5s ease, background 0.3s ease;
-    }
-    .progress-fill.done  { background: #1e7e34; }
-    .progress-fill.error { background: #c0392b; }
-    .progress-meta {
-      display: flex; justify-content: space-between;
-      margin-top: 5px; font-size: 11px; color: #888;
-    }
-    #progressPercent { font-weight: bold; color: #555; }
-
-    /* ── Post-run actions ────────────────────────────────────────────────── */
-    #postRunActions {
-      display: none;
-      margin-top: 12px;
-    }
-    .post-run-row {
-      display: flex;
-      gap: 10px;
-    }
-    /* Drive folder button — styled as a link-button */
-    #driveFolderBtn {
-      flex: 1;
-      display: block;
-      padding: 9px 12px;
-      background: #fff;
-      color: #1a73e8;
-      border: 1.5px solid #1a73e8;
-      border-radius: 4px;
-      font-size: 13px;
-      font-weight: bold;
-      text-align: center;
-      text-decoration: none;
-      cursor: pointer;
-      line-height: 1.4;
-    }
-    #driveFolderBtn:hover { background: #e8f0fe; }
-    /* VIN log button */
-    #vinLogBtn {
-      flex: 1;
-      padding: 9px 12px;
-      background: #1e7e34;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      font-size: 13px;
-      font-weight: bold;
-      cursor: pointer;
-    }
-    #vinLogBtn:hover    { background: #155724; }
-    #vinLogBtn:disabled { background: #aaa; cursor: default; }
-    #vinLogBtn.committed {
-      background: #fff;
-      color: #1e7e34;
-      border: 1.5px solid #1e7e34;
-      cursor: default;
-    }
-
-    /* ── Finalization cards — one per prospective run log entry ──────────── */
-    #finalizeCards { margin-top: 10px; }
-    .finalize-card {
-      border: 1px solid #dadce0; border-radius: 4px;
-      padding: 10px 12px; margin-bottom: 8px; background: #f8f9fa;
-    }
-    .finalize-card.finalized { border-color: #1e7e34; background: #f2faf4; }
-    .finalize-card.abandoned { opacity: 0.55; background: #f1f3f4; }
-    .finalize-card-head {
-      display: flex; justify-content: space-between; align-items: baseline;
-      margin-bottom: 8px;
-    }
-    .finalize-card-title { font-size: 12px; font-weight: 600; color: #333; }
-    .finalize-card-count { font-size: 11px; color: #666; }
-    .finalize-card-body { display: flex; gap: 8px; }
-    .finalize-card-body input {
-      flex: 1; min-width: 0; padding: 6px 8px; font-size: 12px;
-      border: 1px solid #dadce0; border-radius: 4px;
-    }
-    .card-finalize-btn {
-      padding: 6px 12px; font-size: 12px; border: none; border-radius: 4px;
-      background: #1a73e8; color: #fff; cursor: pointer; white-space: nowrap;
-    }
-    .card-finalize-btn:hover    { background: #1557b0; }
-    .card-finalize-btn:disabled { background: #aaa; cursor: default; }
-    .card-abandon-btn {
-      padding: 6px 12px; font-size: 12px; border-radius: 4px;
-      background: #fff; color: #c0392b; border: 1px solid #c0392b;
-      cursor: pointer; white-space: nowrap;
-    }
-    .card-abandon-btn:hover    { background: #fce8e6; }
-    .card-abandon-btn:disabled { color: #aaa; border-color: #ccc; cursor: default; }
-    .finalize-card-status { font-size: 11px; color: #666; margin-top: 6px; min-height: 14px; }
-    .finalize-card-status.error { color: #c0392b; }
-    .finalize-card-status.ok    { color: #1e7e34; }
-
-    /* ── Status bar ──────────────────────────────────────────────────────── */
-    #status {
-      margin-top: 12px; font-size: 12px; min-height: 18px;
-      padding: 6px 8px; border-radius: 4px;
-    }
-    #status.error   { background: #fce8e6; color: #c0392b; }
-    #status.success { background: #e6f4ea; color: #1e7e34; }
-    #status.info    { background: #e8f0fe; color: #1a73e8; }
-    #status.empty   { background: none; color: #555; }
-  </style>
-</head>
-<body>
 
   <div class="layout">
 
@@ -293,8 +13,8 @@
         </select>
       </div>
 
-      <label for="dealerSelect">Dealer</label>
-      <select id="dealerSelect">
+      <label for="runDealerSelect">Dealer</label>
+      <select id="runDealerSelect">
         <option value="">-- Loading dealers... --</option>
       </select>
 
@@ -362,7 +82,7 @@
           </div>
         </div>
 
-        <div id="status" class="empty"></div>
+        <div id="runStatus" class="empty"></div>
       </div>
 
     </div>
@@ -375,12 +95,293 @@
       </div>
 
       <textarea id="vinInput" placeholder="Paste VINs here, one per line..."></textarea>
-      <div class="vin-count" id="vinCount"></div>
+      <div class="vin-count" id="runVinCount"></div>
     </div>
 
   </div>
+</div>
 
-  <script>
+<style>
+#view-run * { box-sizing: border-box; }
+    #view-run {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      font-size: 13px;
+      color: #333;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    /* ── Two-column layout (wide modal) ──────────────────────────────────── */
+    #view-run .layout { display: flex; height: 100%; }
+    #view-run .col-left {
+      width: 440px;
+      flex-shrink: 0;
+      padding: 20px;
+      overflow-y: auto;
+      border-right: 1px solid #e0e0e0;
+      display: flex;
+      flex-direction: column;
+    }
+    #view-run .col-right {
+      flex: 1;
+      min-width: 0;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      background: #fafbfc;
+    }
+    /* Pin actions/progress/status to the bottom of the left column */
+    #view-run .actions-block { margin-top: auto; padding-top: 16px; }
+
+    #view-run label {
+      display: block;
+      font-weight: bold;
+      margin-bottom: 4px;
+      margin-top: 14px;
+    }
+    #view-run label:first-of-type { margin-top: 0; }
+    #view-run .user-select-wrap select {
+      border-color: #1a73e8;
+    }
+    #view-run .user-select-wrap select:focus {
+      outline: none;
+      box-shadow: 0 0 0 2px rgba(26,115,232,0.25);
+    }
+    #view-run select,
+  #view-run textarea,
+  #view-run input[type="text"] {
+      width: 100%;
+      padding: 8px;
+      font-size: 13px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    #view-run textarea {
+      flex: 1;
+      min-height: 150px;
+      resize: none;
+      font-family: monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      background: #fff;
+    }
+    #view-run .vin-count { font-size: 11px; color: #888; margin-top: 4px; min-height: 16px; }
+    #view-run .field-hint { font-size: 11px; color: #888; margin-top: 3px; }
+    #view-run .bypass-label {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin-top: 8px;
+      font-weight: normal;
+      font-size: 12px;
+      color: #555;
+      cursor: pointer;
+      user-select: none;
+    }
+    #view-run .bypass-label input[type="checkbox"] {
+      width: auto;
+      margin: 0;
+      cursor: pointer;
+      accent-color: #e67e00;
+    }
+    #view-run .bypass-label:has(input:checked) { color: #e67e00; }
+    #view-run .bypass-hint {
+      font-size: 11px;
+      color: #aaa;
+      margin-left: 2px;
+    }
+
+    /* ── VIN log status row ──────────────────────────────────────────────── */
+    #view-run #vinLogStatusRow {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      margin-top: 7px;
+      font-size: 11px;
+      color: #555;
+    }
+    #view-run #vinLogStatusRow .log-label { flex: 1; }
+    #view-run #vinLogStatusRow .log-label span {
+      display: inline-block;
+      background: #f1f3f4;
+      border: 1px solid #dadce0;
+      border-radius: 10px;
+      padding: 2px 9px;
+      font-weight: bold;
+      color: #333;
+      margin-left: 4px;
+    }
+    #view-run #openVinLogBtn {
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: bold;
+      background: #fff;
+      color: #1a73e8;
+      border: 1.5px solid #1a73e8;
+      border-radius: 4px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    #view-run #openVinLogBtn:hover { background: #e8f0fe; }
+
+    /* ── CAO row ─────────────────────────────────────────────────────────── */
+    #view-run .cao-row { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+    #view-run .cao-row label { margin: 0; flex: 1; }
+    #view-run #caoBtn {
+      padding: 6px 12px; font-size: 12px; font-weight: bold;
+      background: #fff; color: #1a73e8; border: 1.5px solid #1a73e8;
+      border-radius: 4px; cursor: pointer; white-space: nowrap; width: auto; margin: 0;
+    }
+    #view-run #caoBtn:hover { background: #e8f0fe; }
+    #view-run #caoBtn:disabled { background: #f5f5f5; color: #aaa; border-color: #ccc; cursor: default; }
+
+    /* ── CAO summary ─────────────────────────────────────────────────────── */
+    #view-run #caoSummary {
+      display: none; margin-top: 8px; padding: 8px 10px;
+      background: #f8f9fa; border: 1px solid #dadce0; border-radius: 4px;
+      font-size: 11px; line-height: 1.7;
+    }
+    #view-run #caoSummary .summary-row { display: flex; justify-content: space-between; }
+    #view-run #caoSummary .summary-row span:last-child { font-weight: bold; color: #333; }
+    #view-run #caoSummary .summary-divider { border: none; border-top: 1px solid #e0e0e0; margin: 4px 0; }
+    #view-run #caoSummary .summary-net { color: #1a73e8; }
+    #view-run #caoSummary .rejection-detail { color: #888; font-size: 10.5px; margin-top: 2px; }
+
+    /* ── Run / Cancel buttons ────────────────────────────────────────────── */
+    #view-run .btn-row { display: flex; gap: 10px; margin-top: 16px; }
+    #view-run .btn-primary {
+      flex: 1; padding: 10px; background: #1a73e8; color: white;
+      border: none; font-size: 14px; font-weight: bold; cursor: pointer; border-radius: 4px;
+    }
+    #view-run .btn-primary:hover { background: #1557b0; }
+    #view-run .btn-primary:disabled { background: #aaa; cursor: default; }
+    #view-run .btn-secondary {
+      padding: 10px 18px; background: #fff; color: #555;
+      border: 1px solid #ccc; font-size: 13px; cursor: pointer; border-radius: 4px;
+    }
+    #view-run .btn-secondary:hover { background: #f5f5f5; }
+
+    /* ── Progress section ────────────────────────────────────────────────── */
+    #view-run #progressSection {
+      display: none; margin-top: 16px; padding: 12px;
+      background: #f8f9fa; border: 1px solid #dadce0; border-radius: 4px;
+    }
+    #view-run #progressStep {
+      font-size: 12px; color: #444; margin-bottom: 8px;
+      min-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    #view-run .progress-track {
+      height: 6px; background: #e0e0e0; border-radius: 3px; overflow: hidden;
+    }
+    #view-run .progress-fill {
+      height: 100%; background: #1a73e8; border-radius: 3px;
+      width: 0%; transition: width 0.5s ease, background 0.3s ease;
+    }
+    #view-run .progress-fill.done { background: #1e7e34; }
+    #view-run .progress-fill.error { background: #c0392b; }
+    #view-run .progress-meta {
+      display: flex; justify-content: space-between;
+      margin-top: 5px; font-size: 11px; color: #888;
+    }
+    #view-run #progressPercent { font-weight: bold; color: #555; }
+
+    /* ── Post-run actions ────────────────────────────────────────────────── */
+    #view-run #postRunActions {
+      display: none;
+      margin-top: 12px;
+    }
+    #view-run .post-run-row {
+      display: flex;
+      gap: 10px;
+    }
+    /* Drive folder button — styled as a link-button */
+    #view-run #driveFolderBtn {
+      flex: 1;
+      display: block;
+      padding: 9px 12px;
+      background: #fff;
+      color: #1a73e8;
+      border: 1.5px solid #1a73e8;
+      border-radius: 4px;
+      font-size: 13px;
+      font-weight: bold;
+      text-align: center;
+      text-decoration: none;
+      cursor: pointer;
+      line-height: 1.4;
+    }
+    #view-run #driveFolderBtn:hover { background: #e8f0fe; }
+    /* VIN log button */
+    #view-run #vinLogBtn {
+      flex: 1;
+      padding: 9px 12px;
+      background: #1e7e34;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 13px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    #view-run #vinLogBtn:hover { background: #155724; }
+    #view-run #vinLogBtn:disabled { background: #aaa; cursor: default; }
+    #view-run #vinLogBtn.committed {
+      background: #fff;
+      color: #1e7e34;
+      border: 1.5px solid #1e7e34;
+      cursor: default;
+    }
+
+    /* ── Finalization cards — one per prospective run log entry ──────────── */
+    #view-run #finalizeCards { margin-top: 10px; }
+    #view-run .finalize-card {
+      border: 1px solid #dadce0; border-radius: 4px;
+      padding: 10px 12px; margin-bottom: 8px; background: #f8f9fa;
+    }
+    #view-run .finalize-card.finalized { border-color: #1e7e34; background: #f2faf4; }
+    #view-run .finalize-card.abandoned { opacity: 0.55; background: #f1f3f4; }
+    #view-run .finalize-card-head {
+      display: flex; justify-content: space-between; align-items: baseline;
+      margin-bottom: 8px;
+    }
+    #view-run .finalize-card-title { font-size: 12px; font-weight: 600; color: #333; }
+    #view-run .finalize-card-count { font-size: 11px; color: #666; }
+    #view-run .finalize-card-body { display: flex; gap: 8px; }
+    #view-run .finalize-card-body input {
+      flex: 1; min-width: 0; padding: 6px 8px; font-size: 12px;
+      border: 1px solid #dadce0; border-radius: 4px;
+    }
+    #view-run .card-finalize-btn {
+      padding: 6px 12px; font-size: 12px; border: none; border-radius: 4px;
+      background: #1a73e8; color: #fff; cursor: pointer; white-space: nowrap;
+    }
+    #view-run .card-finalize-btn:hover { background: #1557b0; }
+    #view-run .card-finalize-btn:disabled { background: #aaa; cursor: default; }
+    #view-run .card-abandon-btn {
+      padding: 6px 12px; font-size: 12px; border-radius: 4px;
+      background: #fff; color: #c0392b; border: 1px solid #c0392b;
+      cursor: pointer; white-space: nowrap;
+    }
+    #view-run .card-abandon-btn:hover { background: #fce8e6; }
+    #view-run .card-abandon-btn:disabled { color: #aaa; border-color: #ccc; cursor: default; }
+    #view-run .finalize-card-status { font-size: 11px; color: #666; margin-top: 6px; min-height: 14px; }
+    #view-run .finalize-card-status.error { color: #c0392b; }
+    #view-run .finalize-card-status.ok { color: #1e7e34; }
+
+    /* ── Status bar ──────────────────────────────────────────────────────── */
+    #view-run #runStatus {
+      margin-top: 12px; font-size: 12px; min-height: 18px;
+      padding: 6px 8px; border-radius: 4px;
+    }
+    #view-run #runStatus.error { background: #fce8e6; color: #c0392b; }
+    #view-run #runStatus.success { background: #e6f4ea; color: #1e7e34; }
+    #view-run #runStatus.info { background: #e8f0fe; color: #1a73e8; }
+    #view-run #runStatus.empty { background: none; color: #555; }
+</style>
+
+<script>
     var pollInterval   = null;
     var runStartTime   = null;
     var currentRunId   = null;
@@ -391,54 +392,74 @@
                                // state: pending → finalizing → finalized | pending → abandoning → abandoned
     var lastConfirmedDealer = ''; // for reverting the dealer select if a discard is cancelled
 
-    // ── Load dealer dropdown ──────────────────────────────────────────────────
-    google.script.run
-      .withSuccessHandler(function(dealers) {
-        var sel = document.getElementById('dealerSelect');
-        sel.innerHTML = '<option value="">-- Select a dealer --</option>';
-        dealersByKey = {};
-        dealers.forEach(function(d) {
-          dealersByKey[d.key] = d;
-          var opt = document.createElement('option');
-          opt.value = d.key; opt.text = d.name;
-          sel.appendChild(opt);
-        });
-        updateButtons();
-      })
-      .withFailureHandler(function(e) {
-        document.getElementById('dealerSelect').innerHTML = '<option value="">Error loading dealers</option>';
-        setStatus('Could not load dealer list: ' + e.message, 'error');
-      })
-      .getActiveDealersForUI();
+    // ── Init (lazy — first nav into the view) ────────────────────────────────
+    function initRunView() {
+      // Load dealer dropdown
+      google.script.run
+        .withSuccessHandler(function(dealers) {
+          var sel = document.getElementById('runDealerSelect');
+          sel.innerHTML = '<option value="">-- Select a dealer --</option>';
+          dealersByKey = {};
+          dealers.forEach(function(d) {
+            dealersByKey[d.key] = d;
+            var opt = document.createElement('option');
+            opt.value = d.key; opt.text = d.name;
+            sel.appendChild(opt);
+          });
+          updateButtons();
+        })
+        .withFailureHandler(function(e) {
+          document.getElementById('runDealerSelect').innerHTML = '<option value="">Error loading dealers</option>';
+          setRunStatus('Could not load dealer list: ' + e.message, 'error');
+        })
+        .getActiveDealersForUI();
 
-    // ── Load user profiles dropdown ───────────────────────────────────────────
-    google.script.run
-      .withSuccessHandler(function(result) {
-        // result = { profiles: [...], lastUser: '...' }
-        var sel = document.getElementById('userSelect');
-        sel.innerHTML = '<option value="">-- Select user --</option>';
-        result.profiles.forEach(function(u) {
-          var opt = document.createElement('option');
-          opt.value = u.key; opt.text = u.name;
-          sel.appendChild(opt);
-        });
-        if (result.lastUser) sel.value = result.lastUser;
-        updateButtons();
-      })
-      .withFailureHandler(function(e) {
-        document.getElementById('userSelect').innerHTML = '<option value="">Error loading users</option>';
-        setStatus('Could not load user profiles: ' + e.message, 'error');
-      })
-      .getUserProfilesForModal();
+      // Load user profiles dropdown
+      google.script.run
+        .withSuccessHandler(function(result) {
+          // result = { profiles: [...], lastUser: '...' }
+          var sel = document.getElementById('userSelect');
+          sel.innerHTML = '<option value="">-- Select user --</option>';
+          result.profiles.forEach(function(u) {
+            var opt = document.createElement('option');
+            opt.value = u.key; opt.text = u.name;
+            sel.appendChild(opt);
+          });
+          if (result.lastUser) sel.value = result.lastUser;
+          updateButtons();
+        })
+        .withFailureHandler(function(e) {
+          document.getElementById('userSelect').innerHTML = '<option value="">Error loading users</option>';
+          setRunStatus('Could not load user profiles: ' + e.message, 'error');
+        })
+        .getUserProfilesForModal();
 
-    // ── Input listeners ───────────────────────────────────────────────────────
+      registerRunListeners();
+    }
+
+    window.VIEW_INITS = window.VIEW_INITS || {};
+    VIEW_INITS['view-run'] = initRunView;
+
+    // Close guards: a live run or un-finalized results should warn on exit.
+    if (window.AppGuards) {
+      AppGuards.register(function() {
+        if (pollInterval) return 'A dealer run is still in progress';
+        if (typeof hasUnfinalizedCards === 'function' && hasUnfinalizedCards()) {
+          return 'Un-finalized run results (finalize or abandon them first)';
+        }
+        return null;
+      });
+    }
+
+    // ── Input listeners (registered once from initRunView) ───────────────────
+    function registerRunListeners() {
     document.getElementById('userSelect').addEventListener('change', function() {
       updateButtons();
     });
     document.getElementById('vinInput').addEventListener('input', function() {
-      updateVinCount(); updateButtons(); hideCaoSummary();
+      updateRunVinCount(); updateButtons(); hideCaoSummary();
     });
-    document.getElementById('dealerSelect').addEventListener('change', function() {
+    document.getElementById('runDealerSelect').addEventListener('change', function() {
       // Switching dealers discards any un-finalized run results — confirm first.
       if (!discardPendingGuard()) {
         this.value = lastConfirmedDealer;
@@ -449,7 +470,7 @@
       updateSplitDealRow(key);
       updateButtons(); hideCaoSummary();
       document.getElementById('vinInput').value = '';
-      updateVinCount();
+      updateRunVinCount();
       hidePostRunActions();
 
       if (!key) {
@@ -466,6 +487,7 @@
     document.getElementById('splitDealId').addEventListener('input', function() {
       updateButtons();
     });
+    }
 
     // Show/hide the second deal ID field for billing-split dealers (e.g. MBCC
     // Sprinters bill to a separate Pipedrive deal).
@@ -487,9 +509,9 @@
         .split('\n').map(function(v) { return v.trim(); }).filter(function(v) { return v !== ''; });
     }
 
-    function updateVinCount() {
+    function updateRunVinCount() {
       var count = getVins().length;
-      document.getElementById('vinCount').textContent =
+      document.getElementById('runVinCount').textContent =
         count > 0 ? count + ' VIN' + (count === 1 ? '' : 's') + ' entered' : '';
     }
 
@@ -497,7 +519,7 @@
       // Deal IDs are NOT required to run — they are entered (or confirmed) on
       // the finalization cards after the run, once results are known.
       var hasUser   = document.getElementById('userSelect').value !== '';
-      var hasDealer = document.getElementById('dealerSelect').value !== '';
+      var hasDealer = document.getElementById('runDealerSelect').value !== '';
       var hasVins   = getVins().length > 0;
       document.getElementById('caoBtn').disabled = !hasDealer;
       document.getElementById('runBtn').disabled = !(hasUser && hasDealer && hasVins);
@@ -521,24 +543,32 @@
     }
 
     function openVinLogUpdater() {
-      google.script.run.openVINLogUpdater();
+      // In the App: instant view switch with the current dealer preselected.
+      // Pending finalization state in this view SURVIVES the jump (hidden
+      // views keep their DOM + JS state). In the classic standalone context,
+      // navTo falls back to the old dialog-replacement behavior.
+      var key = document.getElementById('runDealerSelect').value;
+      navTo('view-vinlog');
+      if (typeof vinlogPreselectDealer === 'function' && key) {
+        vinlogPreselectDealer(key);
+      }
     }
 
     // ── CAO pre-fill ──────────────────────────────────────────────────────────
     function prefillFromCAO() {
-      var key = document.getElementById('dealerSelect').value;
+      var key = document.getElementById('runDealerSelect').value;
       if (!key) return;
       var btn = document.getElementById('caoBtn');
       btn.disabled = true; btn.textContent = '⟳ Loading...';
-      setStatus('Pulling inventory and applying filters...', 'info');
+      setRunStatus('Pulling inventory and applying filters...', 'info');
       hideCaoSummary();
 
       google.script.run
         .withSuccessHandler(function(result) {
           document.getElementById('vinInput').value = result.vins.join('\n');
-          updateVinCount(); updateButtons();
+          updateRunVinCount(); updateButtons();
           showCaoSummary(result.summary);
-          setStatus(result.vins.length === 0
+          setRunStatus(result.vins.length === 0
             ? 'No net-new vehicles found after filters and dedup.'
             : 'Pre-filled ' + result.vins.length + ' net-new VIN' +
               (result.vins.length === 1 ? '' : 's') + '. Review and click Run.',
@@ -546,7 +576,7 @@
           btn.disabled = false; btn.textContent = '↺ Pre-fill from CAO';
         })
         .withFailureHandler(function(e) {
-          setStatus('CAO error: ' + e.message, 'error');
+          setRunStatus('CAO error: ' + e.message, 'error');
           btn.disabled = false; btn.textContent = '↺ Pre-fill from CAO';
         })
         .getCaoVins(key);
@@ -591,6 +621,7 @@
 
     // ── Progress polling ──────────────────────────────────────────────────────
     function startPolling(runId) {
+      if (window.AppBusy) AppBusy.set('run', true);
       currentRunId = runId;
       runStartTime = Date.now();
       document.getElementById('progressSection').style.display = 'block';
@@ -611,6 +642,7 @@
     }
 
     function stopPolling() {
+      if (window.AppBusy) AppBusy.set('run', false);
       if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
       if (currentRunId) {
         google.script.run.clearRunProgress(currentRunId);
@@ -704,7 +736,9 @@
     }
 
     function closeModal() {
-      if (discardPendingGuard()) google.script.host.close();
+      // exitApp runs the shared AppGuards (which include this view's
+      // pending-cards and live-run checks) and confirms once.
+      exitApp();
     }
 
     function finalizeCard(i) {
@@ -813,13 +847,13 @@
     function addToVINLog() {
       var rowIndexes = getCommittableRows();
       if (!lastDealerKey || rowIndexes.length === 0) {
-        setStatus('No finalized entries to commit.', 'error');
+        setRunStatus('No finalized entries to commit.', 'error');
         return;
       }
       var vinBtn = document.getElementById('vinLogBtn');
       vinBtn.disabled = true;
       vinBtn.textContent = 'Adding...';
-      setStatus('', 'empty');
+      setRunStatus('', 'empty');
 
       google.script.run
         .withSuccessHandler(function(result) {
@@ -828,14 +862,14 @@
           });
           vinBtn.textContent = '✓ Added ' + result.committed + ' VINs';
           vinBtn.className = 'committed';
-          setStatus(result.committed + ' VINs committed to the ' +
+          setRunStatus(result.committed + ' VINs committed to the ' +
             lastRunResult.dealerName + ' VIN log' +
             (rowIndexes.length > 1 ? ' (' + rowIndexes.length + ' deals)' : '') + '.', 'success');
         })
         .withFailureHandler(function(e) {
           vinBtn.disabled = false;
           vinBtn.textContent = '✓ Add to VIN Log';
-          setStatus('VIN log error: ' + e.message, 'error');
+          setRunStatus('VIN log error: ' + e.message, 'error');
         })
         .commitRunRows(lastDealerKey, rowIndexes);
     }
@@ -844,7 +878,7 @@
     function runSelected() {
       var userSel = document.getElementById('userSelect');
       var userKey = userSel.value;
-      var sel    = document.getElementById('dealerSelect');
+      var sel    = document.getElementById('runDealerSelect');
       var key    = sel.value;
       var name   = sel.options[sel.selectedIndex].text;
       var dealId      = document.getElementById('dealId').value.trim();
@@ -852,9 +886,16 @@
       var vins   = getVins();
       var runBtn = document.getElementById('runBtn');
 
-      if (!userKey)          { setStatus('Please select a user.', 'error'); return; }
-      if (!key)              { setStatus('Please select a dealer.', 'error'); return; }
-      if (vins.length === 0) { setStatus('Please enter at least one VIN.', 'error'); return; }
+      if (!userKey)          { setRunStatus('Please select a user.', 'error'); return; }
+      if (!key)              { setRunStatus('Please select a dealer.', 'error'); return; }
+      if (vins.length === 0) { setRunStatus('Please enter at least one VIN.', 'error'); return; }
+
+      // Mutual exclusion with imports: an import rewrites SCRAPERDATA, which
+      // this run is about to read.
+      if (window.AppBusy && AppBusy.is('import')) {
+        setRunStatus('A data import is in progress (or has unresolved conflicts) — finish it before running.', 'error');
+        return;
+      }
 
       // Starting a new run discards any un-finalized results from the last one.
       if (!discardPendingGuard()) return;
@@ -867,7 +908,7 @@
       runBtn.disabled = true;
       runBtn.textContent = 'Running...';
       document.getElementById('cancelBtn').textContent = 'Close';
-      setStatus('', 'empty');
+      setRunStatus('', 'empty');
       startPolling(runId);
 
       var bypass = document.getElementById('bypassFilters').checked;
@@ -877,7 +918,7 @@
           stopPolling();
           lastRunResult = result;
           updateProgressUI({ message: 'Complete!', percent: 100, done: true, error: null });
-          setStatus('Done! ' + name + ' order complete — finalize or abandon below.', 'success');
+          setRunStatus('Done! ' + name + ' order complete — finalize or abandon below.', 'success');
           runBtn.textContent = 'Run Dealer';
           updateButtons();
           if (result) showFinalizePanel(result);
@@ -885,17 +926,15 @@
         .withFailureHandler(function(e) {
           stopPolling();
           updateProgressUI({ message: 'Error: ' + e.message, percent: 0, done: true, error: e.message });
-          setStatus('Error: ' + e.message, 'error');
+          setRunStatus('Error: ' + e.message, 'error');
           runBtn.disabled = false;
           runBtn.textContent = 'Run Dealer';
         })
         .pasteVinsAndRun(key, vins, dealId, runId, bypass, userKey, splitDealId || null);
     }
 
-    function setStatus(msg, type) {
-      var el = document.getElementById('status');
+    function setRunStatus(msg, type) {
+      var el = document.getElementById('runStatus');
       el.textContent = msg; el.className = type || 'empty';
     }
-  </script>
-</body>
-</html>
+</script>

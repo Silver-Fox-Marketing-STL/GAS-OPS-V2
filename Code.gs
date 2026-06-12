@@ -385,11 +385,9 @@ function getAppHomeStatus() {
   return { lastImportDate: vals[0], lastImportTime: vals[1] };
 }
 
+// Classic fallback: serves the converted App fragment standalone.
 function promptRunDealer() {
-  var html = HtmlService.createHtmlOutputFromFile('DealerSelector')
-    .setWidth(MODAL_WIDTH)
-    .setHeight(MODAL_HEIGHT);
-  SpreadsheetApp.getUi().showModalDialog(html, 'Run Dealer');
+  openViewStandalone_('ViewRun', 'Run Dealer');
 }
 
 // Classic fallback: serves the converted App fragment standalone.
