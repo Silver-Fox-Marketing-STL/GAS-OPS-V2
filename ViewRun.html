@@ -824,7 +824,8 @@
           statusEl.textContent = 'Error: ' + e.message;
           statusEl.className = 'finalize-card-status error';
         })
-        .abandonRun(lastDealerKey, lastRunResult.pendingRuns[i].outputDocId);
+        .abandonRun(lastDealerKey, lastRunResult.pendingRuns[i].outputDocId,
+                    lastRunResult.pendingRuns[i].qrFileIds || null);
     }
 
     function getCommittableRows() {

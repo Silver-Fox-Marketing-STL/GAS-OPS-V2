@@ -276,6 +276,22 @@ function getConfigSS_() {
   return _configSS_;
 }
 
+// Same single-open-per-execution pattern for the other two openById() targets.
+// (getActiveSpreadsheet() call sites are deliberately NOT routed through these —
+// see LEARNINGS on openById vs getActiveSpreadsheet write+read consistency.)
+var _masterSS_  = null;
+var _vinLogsSS_ = null;
+
+function getMasterSS_() {
+  if (!_masterSS_) _masterSS_ = SpreadsheetApp.openById(MASTER_SHEET_ID);
+  return _masterSS_;
+}
+
+function getVinLogsSS_() {
+  if (!_vinLogsSS_) _vinLogsSS_ = SpreadsheetApp.openById(VIN_LOGS_ID);
+  return _vinLogsSS_;
+}
+
 
 // ── RECALC DELAY HELPER ───────────────────────────────────────────────────────
 // Replaces the fixed Utilities.sleep() calls after ORDERMATCH and LINKBUILDER
@@ -422,7 +438,7 @@ function importScraperData(mappedData, mode, resolutions, fileNames, token) {
   }
   mode = (mode === 'merge') ? 'merge' : 'replace';
 
-  var ss    = SpreadsheetApp.openById(MASTER_SHEET_ID);
+  var ss    = getMasterSS_();
   var sheet = ss.getSheetByName('SCRAPERDATA');
 
   // Normalize incoming rows in place (type, trim, status, price + global
@@ -922,9 +938,16 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     // 11. Build LINKBUILDER, generate QR codes in parallel
     setProgress_(runId, 'Building link formulas...', 56);
     var links    = buildLinks_(outputDoc, config, typeRules);
+    // Auto-clear the dealer's QR folder first: folders then only ever hold the
+    // current run's PNGs (old ones go to Drive trash, 30-day recovery). Keeps
+    // uploads fast, abandons cheap, and kills the duplicate-filename pileup.
+    setProgress_(runId, 'Clearing old QR codes...', 60);
+    var clearedOld = clearQRFolder_(config[CFG.QR_FOLDER_ID]);
+    if (clearedOld > 0) Logger.log('Cleared ' + clearedOld + ' old QR PNGs before run.');
+
     setProgress_(runId, 'Generating ' + links.length + ' QR code' + (links.length === 1 ? '' : 's') + ' (parallel)...', 64);
     var qrFolder = DriveApp.getFolderById(config[CFG.QR_FOLDER_ID]);
-    generateQRCodesParallel_(links, qrFolder, config[CFG.QR_PREFIX]);
+    var qrFileIds = generateQRCodesParallel_(links, qrFolder, config[CFG.QR_PREFIX]);
     Logger.log('QR codes generated: ' + links.length);
 
     // 12. Write QR paths into ORDERMATCH col J
@@ -989,6 +1012,7 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
         note:          'SPLIT:PRIMARY',
         prefillDealId: dealId || '',
         outputDocId:   outputDocId,
+        qrFileIds:     qrFileIds,
         durationSec:   duration,
         errors:        errors
       });
@@ -1003,6 +1027,7 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
         note:          'SPLIT:' + billingSplit.groupName,
         prefillDealId: splitDealId || '',
         outputDocId:   outputDocId,
+        qrFileIds:     qrFileIds,
         durationSec:   duration,
         errors:        errors
       });
@@ -1019,6 +1044,7 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
                          ? 'split: 0 ' + billingSplit.groupName + ' units' : '',
         prefillDealId: dealId || '',
         outputDocId:   outputDocId,
+        qrFileIds:     qrFileIds,
         durationSec:   duration,
         errors:        errors
       });
@@ -1097,7 +1123,7 @@ function getOrderVINs_(colLetter) {
  * then do one contiguous read of exactly those rows.
  */
 function getDealerScraperData_(scraperLocationName) {
-  var sheet   = SpreadsheetApp.openById(MASTER_SHEET_ID).getSheetByName('SCRAPERDATA');
+  var sheet   = getMasterSS_().getSheetByName('SCRAPERDATA');
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
 
@@ -1398,8 +1424,14 @@ function writeLinkBuilderFormulas_(outputDoc, config, typeRules) {
 // SECTION 9: QR CODE GENERATION (PARALLEL)
 // ============================================================================
 
+/**
+ * Generates QR PNGs (parallel download) and saves them to the dealer's Drive
+ * folder. Returns the created Drive file IDs (in QR index order) so the
+ * finalization panel can abandon EXACTLY this run's files by ID instead of
+ * scanning the folder.
+ */
 function generateQRCodesParallel_(links, qrFolder, qrPrefix) {
-  if (!links || links.length === 0) return;
+  if (!links || links.length === 0) return [];
 
   var requests = links.map(function(url) {
     return {
@@ -1411,20 +1443,56 @@ function generateQRCodesParallel_(links, qrFolder, qrPrefix) {
 
   var responses = UrlFetchApp.fetchAll(requests);
 
+  var qrFileIds = [];
   responses.forEach(function(response, i) {
     if (response.getResponseCode() === 200) {
       var fileName = qrPrefix + '_QR_Code_' + (i + 1) + '.PNG';
-      qrFolder.createFile(response.getBlob().setName(fileName).setContentType('image/png'));
+      var file = qrFolder.createFile(response.getBlob().setName(fileName).setContentType('image/png'));
+      qrFileIds.push(file.getId());
     } else {
       Logger.log('QR failed for index ' + (i + 1) + ': HTTP ' + response.getResponseCode());
     }
   });
+  return qrFileIds;
 }
 
+/**
+ * Batch-trashes Drive files via the REST API — one parallel fetchAll round
+ * per 100 files instead of a sequential DriveApp.setTrashed() per file
+ * (~120ms each; hundreds of files = minutes — this was the "abandon hangs"
+ * bottleneck). Token scope is already granted via the script's DriveApp use.
+ */
+function trashFilesParallel_(fileIds) {
+  if (!fileIds || fileIds.length === 0) return 0;
+  var token = ScriptApp.getOAuthToken();
+  var requests = fileIds.map(function(id) {
+    return {
+      url:                'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(id),
+      method:             'patch',
+      contentType:        'application/json',
+      headers:            { Authorization: 'Bearer ' + token },
+      payload:            JSON.stringify({ trashed: true }),
+      muteHttpExceptions: true
+    };
+  });
+  var ok = 0;
+  for (var i = 0; i < requests.length; i += 100) {
+    UrlFetchApp.fetchAll(requests.slice(i, i + 100)).forEach(function(r) {
+      if (r.getResponseCode() < 300) ok++;
+      else Logger.log('trashFilesParallel_: HTTP ' + r.getResponseCode());
+    });
+  }
+  return ok;
+}
+
+// Clears a QR folder by collecting file IDs (cheap iteration) and batch-
+// trashing them in parallel. Also called automatically at the start of every
+// run so dealer QR folders only ever hold the current run's PNGs.
 function clearQRFolder_(folderId) {
-  var folder = DriveApp.getFolderById(folderId);
-  var files  = folder.getFiles();
-  while (files.hasNext()) files.next().setTrashed(true);
+  var ids   = [];
+  var files = DriveApp.getFolderById(folderId).getFiles();
+  while (files.hasNext()) ids.push(files.next().getId());
+  return trashFilesParallel_(ids);
 }
 
 // Core/wrapper split: ui.alert() FAILS when a function is invoked from a
@@ -1624,7 +1692,7 @@ function writeCSVSheet_(outputDoc, sheetName, headers, rows) {
 // ============================================================================
 
 function copyVINLogToOutput_(outputDoc, dealerKey) {
-  var vinLogSS  = SpreadsheetApp.openById(VIN_LOGS_ID);
+  var vinLogSS  = getVinLogsSS_();
   var logSheet  = vinLogSS.getSheetByName(dealerKey);
   if (!logSheet) { Logger.log('No VIN log tab found for: ' + dealerKey); return; }
   var lastRow   = logSheet.getLastRow();
@@ -2096,7 +2164,7 @@ function appCleanUpOutputDocs() {
  * @param {string} outputDocId - from the pending run entry
  * @return {Object} {trashedDoc, trashedQrs}
  */
-function abandonRun(dealerKey, outputDocId) {
+function abandonRun(dealerKey, outputDocId, qrFileIds) {
   var config = getDealerConfig_(dealerKey);
   if (!config) throw new Error('Dealer key not found: ' + dealerKey);
 
@@ -2112,19 +2180,26 @@ function abandonRun(dealerKey, outputDocId) {
     }
   }
 
-  // Trash this dealer's QR PNGs (<prefix>_QR_Code_N.PNG). Same scope the
-  // Erase QR Folders maintenance already clears; earlier runs' PNGs are
-  // downloaded locally before printing, so nothing needed is lost.
+  // Trash this run's QR PNGs. Preferred path: the exact file IDs captured at
+  // generation time (qrFileIds on the pendingRuns entry) batch-trashed in one
+  // parallel round — O(this run), regardless of folder size. Fallback for
+  // entries created before IDs were tracked: the old name-pattern folder scan.
   var trashedQrs = 0;
   try {
-    var prefix  = String(config[CFG.QR_PREFIX] || '').trim();
-    var pattern = new RegExp('^' + prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') +
-                             '_QR_Code_\\d+\\.png$', 'i');
-    if (prefix && config[CFG.QR_FOLDER_ID]) {
-      var qrFiles = DriveApp.getFolderById(config[CFG.QR_FOLDER_ID]).getFiles();
-      while (qrFiles.hasNext()) {
-        var qf = qrFiles.next();
-        if (pattern.test(qf.getName())) { qf.setTrashed(true); trashedQrs++; }
+    if (qrFileIds && qrFileIds.length > 0) {
+      trashedQrs = trashFilesParallel_(qrFileIds);
+    } else {
+      var prefix  = String(config[CFG.QR_PREFIX] || '').trim();
+      var pattern = new RegExp('^' + prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') +
+                               '_QR_Code_\\d+\\.png$', 'i');
+      if (prefix && config[CFG.QR_FOLDER_ID]) {
+        var ids = [];
+        var qrFiles = DriveApp.getFolderById(config[CFG.QR_FOLDER_ID]).getFiles();
+        while (qrFiles.hasNext()) {
+          var qf = qrFiles.next();
+          if (pattern.test(qf.getName())) ids.push(qf.getId());
+        }
+        trashedQrs = trashFilesParallel_(ids);
       }
     }
   } catch (e) {
@@ -2166,7 +2241,7 @@ function writeConfigCache_(outputDoc, config) {
 // ============================================================================
 
 function fillScraperDateTime() {
-  var ss  = SpreadsheetApp.openById(MASTER_SHEET_ID);
+  var ss  = getMasterSS_();
   var now = new Date();
   var d   = Utilities.formatDate(now, 'America/Chicago', 'yyyy/MM/dd');
   var t   = Utilities.formatDate(now, 'America/Chicago', 'HH:mm:ss');
@@ -2274,7 +2349,7 @@ var NORM_REFERENCE_FIELDS = [
  * conditions. The script still only reads NORM_MAPS cols A–C for rules — E+ is inert.
  */
 function refreshNormReferenceCore_() {
-  var master  = SpreadsheetApp.openById(MASTER_SHEET_ID).getSheetByName('SCRAPERDATA');
+  var master  = getMasterSS_().getSheetByName('SCRAPERDATA');
   var lastRow = master.getLastRow();
   if (lastRow < 2) return { ok: false, message: 'SCRAPERDATA is empty — nothing to reference.' };
 
@@ -2847,7 +2922,7 @@ function getCaoVins(dealerKey) {
 }
 
 function getLoggedVins_(dealerKey) {
-  var logSS  = SpreadsheetApp.openById(VIN_LOGS_ID);
+  var logSS  = getVinLogsSS_();
   var sheet  = logSS.getSheetByName(dealerKey);
   var logged = {};
 
@@ -2922,7 +2997,7 @@ function commitRunToVINLog(dealerKey, runRowIndex, dealId, producedVins) {
     throw new Error('No VINs to commit for this run.');
   }
 
-  var logSS    = SpreadsheetApp.openById(VIN_LOGS_ID);
+  var logSS    = getVinLogsSS_();
   var logSheet = logSS.getSheetByName(dealerKey);
   if (!logSheet) throw new Error('No VIN log tab found for: ' + dealerKey);
 
@@ -2942,7 +3017,7 @@ function commitRunToVINLog(dealerKey, runRowIndex, dealId, producedVins) {
 }
 
 function rollbackRunFromVINLog(dealerKey, runRowIndex, dealId, committedAt) {
-  var logSS    = SpreadsheetApp.openById(VIN_LOGS_ID);
+  var logSS    = getVinLogsSS_();
   var logSheet = logSS.getSheetByName(dealerKey);
   if (!logSheet) throw new Error('No VIN log tab found for: ' + dealerKey);
 
@@ -3028,7 +3103,7 @@ function commitRunRows(dealerKey, rowIndexes) {
 }
 
 function getCommittedAt(dealerKey, dealId) {
-  var logSS    = SpreadsheetApp.openById(VIN_LOGS_ID);
+  var logSS    = getVinLogsSS_();
   var logSheet = logSS.getSheetByName(dealerKey);
   if (!logSheet) return null;
 
@@ -3055,7 +3130,7 @@ function getCommittedAt(dealerKey, dealId) {
 // ============================================================================
 
 function addCommittedAtHeaders() {
-  var ss      = SpreadsheetApp.openById(VIN_LOGS_ID);
+  var ss      = getVinLogsSS_();
   var sheets  = ss.getSheets();
   var skip    = ['README', 'Sheet1'];
   var updated = 0;
@@ -3126,7 +3201,7 @@ function clearRunProgress(runId) {
  * @returns {{ latestOrderId: string|null }}
  */
 function getLatestOrderId(dealerKey) {
-  var logSS = SpreadsheetApp.openById(VIN_LOGS_ID);
+  var logSS = getVinLogsSS_();
   var sheet = logSS.getSheetByName(dealerKey);
 
   if (!sheet) return { latestOrderId: null };
@@ -3161,7 +3236,7 @@ function manualCommitToVINLog(dealerKey, orderId, vins) {
   if (!orderId || String(orderId).trim() === '') throw new Error('Order number is required.');
   if (!vins || vins.length === 0) throw new Error('No VINs provided.');
 
-  var logSS  = SpreadsheetApp.openById(VIN_LOGS_ID);
+  var logSS  = getVinLogsSS_();
   var sheet  = logSS.getSheetByName(dealerKey);
   if (!sheet) throw new Error('No VIN log tab found for: ' + dealerKey);
 
