@@ -81,7 +81,7 @@ Code files live in GitHub: `Silver-Fox-Marketing-STL/GAS-OPS-V2` (branch `main`;
 - **Manual entry path:** VINLogUpdater modal includes a collapsible manual entry panel (shown after dealer selection). Calls `getLatestOrderId(dealerKey)` on panel open to pre-populate the Order Number field (reads VIN log col A bottom-up — reflects manually-committed entries immediately). `manualCommitToVINLog(dealerKey, orderId, vins)` deduplicates and appends directly to SF_VIN_LOGS with a `committed_at` timestamp. No RUN_LOG row is created or modified. Intended for LIST orders and any manually-entered VINs with no corresponding run record.
 
 ### Run Dealer Modal (converted from sidebar May 2026)
-- Modal at 580×600px (was sidebar at 300px fixed)
+- Modal at 1400×900px (June 2026: all five modals share the `MODAL_WIDTH`/`MODAL_HEIGHT` constants in Code.gs; the browser viewport is the effective cap)
 - **"Running as:" user dropdown** at the top — required field. Populated from `USER_PROFILES` tab in SF_DEALER_CONFIG. The last-used selection is persisted per Google account via `PropertiesService.getUserProperties()` and auto-selected on the next open. Run button is gated on a user being selected.
 - Required Pipedrive Deal ID field — runs cannot be submitted without it
 - **VIN Log status row (added June 2026):** appears after a dealer is selected — "Most recent order in log: {id}" via `getLatestOrderId`, plus a 📋 Update VIN Log button that opens the VIN Log Updater modal
@@ -126,12 +126,13 @@ Code files live in GitHub: `Silver-Fox-Marketing-STL/GAS-OPS-V2` (branch `main`;
 - Replaced with on-demand **`refreshNormReference()`** (menu: **Refresh Norm/Field Reference**): scans SCRAPERDATA once and writes a STATIC sorted distinct-values list per column (Type/Make/Model/Trim/Status/Body Style/Fuel Type) to cols E+, with counts + a timestamp. Zero standing recalc cost. Also serves as the raw-value lookup for authoring targeting `conditions`.
 - **Do not** reintroduce volatile full-column formulas in this sheet. The script still reads only cols A–C.
 
-### ScraperImport (converted from sidebar to modal, May 2026)
-- Now a modal at 620×580px. Was a sidebar at 340px.
-- Same logic throughout: CSV parser, column mapping, `importScraperData()` call, post-import review panel all unchanged.
-- Layout updated to modal flex-column pattern: pinned header, scrollable body, fixed footer with status bar + Import button.
-- Column mapping preview redesigned from a monospace scroll box to a two-column ✓ Matched / ✗ Missing grid.
-- `openScraperImport()` in Code.gs: replaced `showSidebar()` with `showModalDialog()`, dropped `.setTitle()`, updated dimensions.
+### ScraperImport (converted from sidebar to modal, May 2026; multi-file + merge, June 2026)
+- Modal at 1400×900px (was 620×580; sidebar before that).
+- **Multi-file import, two modes (June 2026):** mode selector — **Main Import (Replace)** clears SCRAPERDATA and imports the selected file(s); **Merge with Existing** combines them with the current data. File input accepts multiple CSVs; each file parsed with its own header mapping (different column orders OK), shown as a per-file card; a file without a VIN column blocks the import (all-or-nothing). UTF-8 BOM stripped per file; mid-file header rows (VIN cell = "VIN") dropped.
+- **VIN dedup/conflict engine (server-side, `dedupeScraperRows_`):** same VIN + identical data (tolerant compare — `getValues()` returns numbers for non-`@` cols, so trim-string equal OR both-numeric equal) → kept once silently; differing data → 2-way conflict (incumbent = first-seen, challenger = latest distinct; `variantCount` tracked). Conflict panel: per-VIN side-by-side diff (only differing fields), bulk Keep-All buttons (`resolutions['*']` fallback covers conflicts beyond the 200-card render cap), Cancel is safe (phase 1 writes nothing).
+- **Two-phase protocol:** `importScraperData(rows, mode, resolutions, fileNames, token)` — phase 1 returns conflicts with zero mutation; phase 2 re-sends the payload + resolutions, verified against an optimistic-concurrency token (`lastRow|W1 X1`) under a `LockService` script lock. All mutations sit below the gate (also fixed the old clear-before-normalize hazard where a mid-pipeline throw left SCRAPERDATA empty).
+- Final dataset is **grouped by Location** before writing (preserves `getDealerScraperData_`'s contiguity assumption); stats/health/dashboard computed on the final dataset in both modes so IMPORT_STATS baselines stay sane. Note: the "location missing" health error can't fire in merge mode (old rows persist).
+- Review panel: mode-aware totals + Import Summary badges (files, mode, duplicates removed, conflicts resolved, rows without VIN).
 
 ### Health Monitoring & Live Dashboard (added June 2026, branch `feature/health-monitoring`)
 - **`IMPORT_STATS` tab** (SF_SYSTEM_MASTER, 13 cols A–M): `timestamp | scraper_location | total | new | po | cpo | cpo_el | other_types | onlot | offlot | other_status | no_price | no_stock`. One row per location per import, appended by `writeImportStats_()` (Section 29).
@@ -142,7 +143,7 @@ Code files live in GitHub: `Silver-Fox-Marketing-STL/GAS-OPS-V2` (branch `main`;
 - **`getRunsForDealer` fixed** to read the full 23-column RUN_LOG (V = produced_vins, W = vin_log_status); previously read only 19 columns.
 
 ### Dealer Rules Editor (added May 2026)
-- Modal at 680×660px. Menu item: **SilverFox V2 → Edit Dealer Rules...**
+- Modal at 1400×900px (June 2026 uniform sizing). Menu item: **SilverFox V2 → Edit Dealer Rules...**
 - Two independent tabs — each has its own Save button. Switching tabs does not discard unsaved changes.
 - **Type Rules tab:** Displays `type_rules` (col O) as ordered cards with match badge, CSV schema, and UTM. ▲▼ reorder buttons (first-match-wins). Remove per rule. Add-rule form: match dropdown (`New`, `PO`, `CPO`, `CPO-EL`, `*`), CSV schema dropdown loaded live from CSV_SCHEMAS tab at open time (no hardcoding), UTM text input. Adding a non-catch-all rule auto-inserts before any existing `*` rule to preserve order safety.
 - **Filtering Rules tab:** GUI for `filtering_rules` (col W). Toggle switches for `require_stock`/`require_price`. Colored pill buttons for `allowed_types` (green=New, orange=PO, purple=CPO, blue=CPO-EL) and `exclude_status`. Min/max price number inputs. Per-type seasoning table with add/remove rows.

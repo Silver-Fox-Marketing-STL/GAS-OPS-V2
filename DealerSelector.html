@@ -5,10 +5,36 @@
     * { box-sizing: border-box; }
     body {
       font-family: Arial, sans-serif;
-      padding: 20px;
+      margin: 0;
+      padding: 0;
       font-size: 13px;
       color: #333;
+      height: 100vh;
+      overflow: hidden;
     }
+
+    /* ── Two-column layout (wide modal) ──────────────────────────────────── */
+    .layout { display: flex; height: 100%; }
+    .col-left {
+      width: 440px;
+      flex-shrink: 0;
+      padding: 20px;
+      overflow-y: auto;
+      border-right: 1px solid #e0e0e0;
+      display: flex;
+      flex-direction: column;
+    }
+    .col-right {
+      flex: 1;
+      min-width: 0;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      background: #fafbfc;
+    }
+    /* Pin actions/progress/status to the bottom of the left column */
+    .actions-block { margin-top: auto; padding-top: 16px; }
+
     label {
       display: block;
       font-weight: bold;
@@ -31,11 +57,13 @@
       border-radius: 4px;
     }
     textarea {
-      height: 150px;
-      resize: vertical;
+      flex: 1;
+      min-height: 150px;
+      resize: none;
       font-family: monospace;
       font-size: 12px;
-      line-height: 1.5;
+      line-height: 1.6;
+      background: #fff;
     }
     .vin-count  { font-size: 11px; color: #888; margin-top: 4px; min-height: 16px; }
     .field-hint { font-size: 11px; color: #888; margin-top: 3px; }
@@ -217,78 +245,92 @@
 </head>
 <body>
 
-  <div class="user-select-wrap">
-    <label for="userSelect">Running as</label>
-    <select id="userSelect">
-      <option value="">-- Loading... --</option>
-    </select>
-  </div>
+  <div class="layout">
 
-  <label for="dealerSelect">Dealer</label>
-  <select id="dealerSelect">
-    <option value="">-- Loading dealers... --</option>
-  </select>
+    <!-- ── Left column: form controls + actions ─────────────────────────── -->
+    <div class="col-left">
 
-  <!-- VIN log status row (shown after dealer selected) -->
-  <div id="vinLogStatusRow">
-    <span class="log-label">Most recent order in log: <span id="vinLogOrderSpan">—</span></span>
-    <button id="openVinLogBtn" onclick="openVinLogUpdater()">&#x1F4CB; Update VIN Log</button>
-  </div>
+      <div class="user-select-wrap">
+        <label for="userSelect">Running as</label>
+        <select id="userSelect">
+          <option value="">-- Loading... --</option>
+        </select>
+      </div>
 
-  <label for="dealId">Pipedrive Deal ID</label>
-  <input type="text" id="dealId" placeholder="e.g. 44021" />
-  <div class="field-hint">Required. Enter the Pipedrive deal number for this order.</div>
+      <label for="dealerSelect">Dealer</label>
+      <select id="dealerSelect">
+        <option value="">-- Loading dealers... --</option>
+      </select>
 
-  <div class="cao-row">
-    <label for="vinInput">VINs / Stock Numbers</label>
-    <button id="caoBtn" onclick="prefillFromCAO()" disabled>&#x21BA; Pre-fill from CAO</button>
-  </div>
+      <!-- VIN log status row (shown after dealer selected) -->
+      <div id="vinLogStatusRow">
+        <span class="log-label">Most recent order in log: <span id="vinLogOrderSpan">—</span></span>
+        <button id="openVinLogBtn" onclick="openVinLogUpdater()">&#x1F4CB; Update VIN Log</button>
+      </div>
 
-  <textarea id="vinInput" placeholder="Paste VINs here, one per line..."></textarea>
-  <div class="vin-count" id="vinCount"></div>
+      <label for="dealId">Pipedrive Deal ID</label>
+      <input type="text" id="dealId" placeholder="e.g. 44021" />
+      <div class="field-hint">Required. Enter the Pipedrive deal number for this order.</div>
 
-  <label class="bypass-label">
-    <input type="checkbox" id="bypassFilters" />
-    Bypass filtering rules
-    <span class="bypass-hint">Use if a vehicle is being incorrectly filtered out</span>
-  </label>
+      <label class="bypass-label">
+        <input type="checkbox" id="bypassFilters" />
+        Bypass filtering rules
+        <span class="bypass-hint">Use if a vehicle is being incorrectly filtered out</span>
+      </label>
 
-  <div id="caoSummary">
-    <div class="summary-row"><span>Total inventory</span><span id="sTotal">—</span></div>
-    <div class="summary-row"><span>After filters</span><span id="sFiltered">—</span></div>
-    <div id="rejectionRows"></div>
-    <hr class="summary-divider">
-    <div class="summary-row"><span>Already printed</span><span id="sPrinted">—</span></div>
-    <hr class="summary-divider">
-    <div class="summary-row summary-net"><span><b>Net new (pre-filled)</b></span><span id="sNetNew">—</span></div>
-  </div>
+      <div id="caoSummary">
+        <div class="summary-row"><span>Total inventory</span><span id="sTotal">—</span></div>
+        <div class="summary-row"><span>After filters</span><span id="sFiltered">—</span></div>
+        <div id="rejectionRows"></div>
+        <hr class="summary-divider">
+        <div class="summary-row"><span>Already printed</span><span id="sPrinted">—</span></div>
+        <hr class="summary-divider">
+        <div class="summary-row summary-net"><span><b>Net new (pre-filled)</b></span><span id="sNetNew">—</span></div>
+      </div>
 
-  <div class="btn-row">
-    <button class="btn-primary" id="runBtn" onclick="runSelected()" disabled>Run Dealer</button>
-    <button class="btn-secondary" id="cancelBtn" onclick="google.script.host.close()">Cancel</button>
-  </div>
+      <div class="actions-block">
+        <div class="btn-row">
+          <button class="btn-primary" id="runBtn" onclick="runSelected()" disabled>Run Dealer</button>
+          <button class="btn-secondary" id="cancelBtn" onclick="google.script.host.close()">Cancel</button>
+        </div>
 
-  <!-- Progress bar — shown during run -->
-  <div id="progressSection">
-    <div id="progressStep">Starting...</div>
-    <div class="progress-track">
-      <div class="progress-fill" id="progressFill"></div>
+        <!-- Progress bar — shown during run -->
+        <div id="progressSection">
+          <div id="progressStep">Starting...</div>
+          <div class="progress-track">
+            <div class="progress-fill" id="progressFill"></div>
+          </div>
+          <div class="progress-meta">
+            <span id="progressElapsed"></span>
+            <span id="progressPercent">0%</span>
+          </div>
+        </div>
+
+        <!-- Post-run actions — shown after successful completion -->
+        <div id="postRunActions">
+          <div class="post-run-row">
+            <a id="driveFolderBtn" href="#" target="_blank">&#128194; Open Output Folder</a>
+            <button id="vinLogBtn" onclick="addToVINLog()">&#10003; Add to VIN Log</button>
+          </div>
+        </div>
+
+        <div id="status" class="empty"></div>
+      </div>
+
     </div>
-    <div class="progress-meta">
-      <span id="progressElapsed"></span>
-      <span id="progressPercent">0%</span>
-    </div>
-  </div>
 
-  <!-- Post-run actions — shown after successful completion -->
-  <div id="postRunActions">
-    <div class="post-run-row">
-      <a id="driveFolderBtn" href="#" target="_blank">&#128194; Open Output Folder</a>
-      <button id="vinLogBtn" onclick="addToVINLog()">&#10003; Add to VIN Log</button>
-    </div>
-  </div>
+    <!-- ── Right column: full-height VIN workspace ──────────────────────── -->
+    <div class="col-right">
+      <div class="cao-row" style="margin-top: 0;">
+        <label for="vinInput">VINs / Stock Numbers</label>
+        <button id="caoBtn" onclick="prefillFromCAO()" disabled>&#x21BA; Pre-fill from CAO</button>
+      </div>
 
-  <div id="status" class="empty"></div>
+      <textarea id="vinInput" placeholder="Paste VINs here, one per line..."></textarea>
+      <div class="vin-count" id="vinCount"></div>
+    </div>
+
+  </div>
 
   <script>
     var pollInterval   = null;

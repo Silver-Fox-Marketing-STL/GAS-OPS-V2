@@ -23,6 +23,7 @@ V2 is in final bug-hunt testing ahead of production launch. It replaces V1's ~42
 
 | Date | Version | Change Summary |
 |---|---|---|
+| June 11, 2026 | 2.8 | **Multi-file import with Replace/Merge modes + VIN conflict resolution + modal layout rework.** (1) **`importScraperData` rewritten as a two-phase protocol** — `importScraperData(mappedData, mode, resolutions, fileNames, token)`. Phase 1 normalizes, dedupes by VIN, and (if same-VIN-different-data conflicts exist) returns them with **zero mutation**; phase 2 re-sends the payload + per-VIN resolutions (`'*'` bulk fallback), verified against an optimistic-concurrency token under a `LockService` lock. All mutations now sit below the conflict gate — fixes the latent hazard where the old importer cleared SCRAPERDATA *before* processing. New helpers: `dedupeScraperRows_` (incumbent vs newest challenger; identical rows dropped silently), `cellsEqual_`/`rowsEqual_`/`diffCols_` (tolerant compare — `getValues()` returns numbers for non-`@` cols), `groupRowsByLocation_` (rows grouped by Location on every write, preserving `getDealerScraperData_`'s contiguity invariant), `readExistingScraperRows_`, `computeImportToken_`, `applyConflictResolutions_`. Stats/health/dashboard computed on the **final** dataset in both modes. (2) **ScraperImport modal**: Replace/Merge mode selector, multi-file input with per-file header mapping + preview cards (all-or-nothing gate; VIN column required per file), UTF-8 BOM strip (fixes silent VIN-unmatch), mid-file header guard, conflict-resolution panel (side-by-side diff of differing fields, per-VIN radios, bulk buttons), mode-aware review with Import Summary badges. (3) **All five modals resized to a uniform 1400×900** (`MODAL_WIDTH`/`MODAL_HEIGHT`) **with layouts reworked for the wide canvas**: Run Dealer → two columns with full-height VIN workspace; VIN Log Updater → scrolling runs table + actions sidebar; Rules Editor → tabs replaced by side-by-side Type/Filtering panels; ScraperImport → two-column form + 2-up conflict grid; NormManager unchanged (already JS-sized). (4) **Fix:** "View Run Log" menu item did nothing (`openRunLog` activated a sheet via a separate `openById()` handle); now uses `getActiveSpreadsheet()`. (5) **Capacity & Log Growth Plan** section added (limits, growth math, ~25k-row triggers, `archiveOldLogs()` design; SF_VIN_LOGS never archived). |
 | June 10, 2026 | 2.7 | **Targeting rules + Dean Team Brentwood + NORM_MAPS performance fix.** (1) **`feature/health-monitoring` merged to `main`** — `main` is now the single deployed branch. (2) **New dealer: `DEAN_TEAM_BRENTWOOD`** — 43rd dealer row, ORDERS col **AQ** (ORDERS widened 42→43 cols), used-only (`require_stock`/`require_price` true), Pipedrive, CAO. System now has **43 configured dealers, 29 active**. (3) **New field code `PRICE_TAGLINE`** at ORDERMATCH col **21 (U)** — price-tier tagline (`≥15000`→"as low as $300/mo", `10000–14999`→"Below $15,000", `<10000`→"Below $10,000"); formula coerces text price via `IFERROR(IF(VALUE(H2:H)>=…),"")` (PRICE_RAW is text). Plus new **`SCP_TAGLINE`** schema (SCP + PRICE_TAGLINE). (4) **Generalized targeting rules in `filtering_rules`** — two new optional keys: **`conditions`** (array of `{field, op, values, applies_to?}`; ops `in/not_in/contains/not_contains/gte/lte`; new `FILTER_FIELD_INDEX` map + `evaluateCondition_` helper, **fail-open** on misconfig; applied in CAO + run, Bypass overrides) and **`cao_exclude_types`** (manual-only types, CAO-phase only). `applyFilteringRules_` gains a `phase` param; `getCaoVins` tallies reasons dynamically; `getRulesEditorBootstrap` returns field/op metadata; RulesEditor adds a Targeting Conditions table + Exclude-from-CAO pills; DealerSelector renders `cond:*`/`cao_excluded` reasons. Pundmann Ford configured to exclude F-250. (5) **NORM_MAPS cols E+ live `UNIQUE()` formulas removed** — at 10k+ SCRAPERDATA rows they made programmatic access to SF_DEALER_CONFIG time out (~100s `Service Spreadsheets failed`), breaking config-reading modals + imports while the browser UI stayed fine. Replaced with on-demand **`refreshNormReference()`** (menu: **Refresh Norm/Field Reference**) writing static sorted distinct values (Type/Make/Model/Trim/Status/Body Style/Fuel Type) to cols E+. (6) **Trim cleanup** — full analysis + validated auto-cleanup design captured as a deferred section (see Trim Normalization & Cleanup); implementation pending. |
 | June 10, 2026 | 2.6 | **Mazda of Columbia added + live-system documentation audit.** (1) **New dealer: `MAZDA_OF_COLUMBIA`** — 42nd dealer row in DEALERS. ORDERS col AP, used-only (`allowed_types: ["PO","CPO"]`), Pipedrive deal IDs, SCP schema, `scraper_location_name` = "Mazda of Columbia", VIN log tab created. System now has **42 configured dealers, 28 active**. (2) **`PRICE_PLUS_2000` is live** — active in the GLENDALE_COMBINED schema, mapped at ORDERMATCH col 20 (T), formula: `=ARRAYFORMULA(IF(ISBLANK(A2:A),"",IF(H2:H="*","*","$"&TEXT(H2:H+2000,"#,##0"))))`. The Glendale price+$2,000 requirement is complete. (3) **CSV_SCHEMAS documentation corrected to live state** — SCP/SCP_NEW/SC layouts updated; new `SCWSB` schema (Dave Sinclair windshield-only) documented. (4) **Doc audit corrections:** Serra Honda seasoning is PO 7 days (not New); Bommarito Cadillac and CDJR of Columbia each have a third `CPO` type rule; TRANSCRIPTION gained an optional DEALER_FILTER column; template LOG tab is 2 columns; ORDERMATCH col N template header is `TYPESTOCK` (the `QRSTOCK` field code maps to it); NORM_MAPS columns E+ documented as an intentional unique-values reference area; completed housekeeping items (VIN log tab rename, Sheet1 deletion) removed from pending lists. |
 | June 2026 | 2.5 | **Health monitoring + live dashboard + billing/modal additions.** (1) **Import Health Monitoring (Code.gs Section 29):** New `IMPORT_STATS` tab in SF_SYSTEM_MASTER — `writeImportStats_()` appends one row per scraper location (13 cols A–M: `timestamp, scraper_location, total, new, po, cpo, cpo_el, other_types, onlot, offlot, other_status, no_price, no_stock`) after every `importScraperData()` call. `checkImportHealth_()` reads IMPORT_STATS history, computes per-location rolling averages, and returns issue objects (`{location, severity, message}`, severity `error`/`warning`/`info`). Hard errors regardless of history: total dropped to 0 for a location with prior data; `no_stock` or `no_price` > 20% of total (`MISSING_FIELD_THRESHOLD = 0.20`). Baseline warnings (require ≥ `MIN_IMPORTS_FOR_BASELINE = 5` prior rows): total/new/po dropped > 40% below rolling average (`DROP_THRESHOLD = 0.40`); a type appearing that was always 0 before. Locations under the baseline minimum return `info` "Building baseline" instead of warnings. Issues are rendered in a new health section of the ScraperImport review panel. (2) **ORDER_STATS side-write:** `writeRunLog_()` now also appends a clean analytics row to a new `ORDER_STATS` tab (12 cols A–L: `timestamp, dealer_key, dealer_name, order_id, vins_ordered, vins_matched, vins_produced, match_rate, new, po, cpo, cpo_el`). Both stats writes are isolated in try/catch — failure never breaks an import or run. (3) **DASHBOARD auto-refresh (Code.gs Section 30):** New `DASHBOARD` tab in SF_SYSTEM_MASTER, rewritten automatically by `refreshDashboard_()` at the end of every `importScraperData()` call. Contains an alphabetical per-location inventory snapshot (10 cols), a TOTALS row, then three formula-driven sections at dynamic row positions below the table: RUN LOG SUMMARY, MOST RECENT RUN, and RUNS BY DEALER (QUERY over RUN_LOG A:W grouped by dealer). All formulas IFERROR-wrapped. Two follow-up fixes landed same day: the Run Log sections are rewritten at their correct dynamic position as the location count changes, and all formatting is applied fully dynamically with no merged cells (stale rows beyond the current location count are cleared). Non-fatal — a dashboard failure never breaks an import. (4) **Produced VINs list in BILLING:** `writeBillingSheet_()` gains a fifth section — a `── PRODUCED VINS (N) ──` header in column B below the Total Duplicates row, followed by one VIN per row listing every matched/produced vehicle (from ORDERMATCH col E, VIN-log dupes included). Lands at B20 on a clean run. (5) **VIN Log status row in Run Dealer modal:** after a dealer is selected, a status strip appears below the dealer dropdown showing "Most recent order in log: {id}" (populated via `getLatestOrderId`) with a 📋 Update VIN Log button that opens the VIN Log Updater modal. (6) **`getRunsForDealer` updated to the 23-column RUN_LOG** — reads cols A–W and sources `produced_vins` from col V and `vin_log_status` from col W (was reading only 19 columns against the pre-expansion schema). |
@@ -83,6 +84,7 @@ Master raw inventory feed. All scraped vehicle data across all dealers.
 - Timestamp backup mirrored in HELPERS A1:B1; restored by `onEdit` trigger if cleared
 - All data is normalized at import time — see Scraper Data Normalization section
 - Blank cells replaced with `*` for Illustrator compatibility
+- Rows are **grouped by Location on every write** (first-seen order) — `getDealerScraperData_`'s two-pass read assumes each location's rows are contiguous, and merge-mode imports would otherwise scatter them
 - VIN (col A) and Stock (col B) stored as plain text (`@` format) to prevent QUERY mixed-type issues
 
 ### ORDERS
@@ -587,11 +589,11 @@ Bound to SF_SYSTEM_MASTER.
 | Function | Signature | Description |
 |---|---|---|
 | `onOpen` | `()` | Installs SilverFox V2 menu. |
-| `promptRunDealer` | `()` | Opens Run Dealer modal (580×600px). |
-| `openScraperImport` | `()` | Opens Import Scraper Data modal (620×580px). |
-| `openNormManager` | `()` | Opens Normalization Maps modal (740×620px). |
-| `openVINLogUpdater` | `()` | Opens VIN Log Updater modal (660×540px). |
-| `openRulesEditor` | `()` | Opens Dealer Rules Editor modal (680×660px). |
+| `promptRunDealer` | `()` | Opens Run Dealer modal (1400×900px — all modals share `MODAL_WIDTH`/`MODAL_HEIGHT`; the browser viewport is the effective cap). |
+| `openScraperImport` | `()` | Opens Import Scraper Data modal (1400×900px). |
+| `openNormManager` | `()` | Opens Normalization Maps modal (1400×900px). |
+| `openVINLogUpdater` | `()` | Opens VIN Log Updater modal (1400×900px). |
+| `openRulesEditor` | `()` | Opens Dealer Rules Editor modal (1400×900px). |
 | `getRulesEditorBootstrap` | `()` | Single round-trip bootstrap for Rules Editor. Returns `{dealers, schemas}` — active dealers and all CSV schema keys from CSV_SCHEMAS tab. |
 | `getDealerRulesData` | `(dealerKey)` | Returns `{dealerName, typeRules, filteringRules}` — parsed objects for both rule sets. Safe defaults on parse failure. |
 | `saveDealerTypeRules` | `(dealerKey, typeRulesJson)` | Validates JSON and writes to DEALERS col O (TYPE_RULES). |
@@ -629,7 +631,12 @@ Bound to SF_SYSTEM_MASTER.
 | `setProgress_` | `(runId, message, percent)` | Writes `{message, percent, done, error}` to ScriptProperties. No-op if runId is falsy. |
 | `getRunProgress` | `(runId)` | Returns current progress state. Polled by modal every 1.5 seconds. |
 | `clearRunProgress` | `(runId)` | Deletes progress property after run completes. |
-| `importScraperData` | `(mappedData)` | Normalizes and writes to master SCRAPERDATA. Returns review stats. |
+| `importScraperData` | `(mappedData, mode, resolutions, fileNames, token)` | Two-phase import. Normalizes incoming rows, builds the working set (`mode`: `'replace'` default = clear-and-write; `'merge'` = combine with existing SCRAPERDATA), runs the VIN dedup engine. Conflicts found + no `resolutions` → returns `{needsResolution, conflicts, token, …}` with **zero mutation**; otherwise (or on the phase-2 call with `resolutions` `{VIN:'existing'\|'new'}` + `'*'` bulk fallback, verified against `token`) groups rows by Location and writes under a `LockService` script lock. Stats/health/dashboard computed on the **final** dataset. Returns review stats + `{mode, duplicatesRemoved, conflictsResolved, blankVinCount, fileCount}`. |
+| `dedupeScraperRows_` | `(baseRows, newRows, fileNames)` | VIN-keyed dedup/conflict engine. Order: existing rows → files in selection order. First-seen row per VIN = incumbent; identical later rows (tolerant compare) dropped silently; differing rows become/replace the "challenger" (latest distinct wins, `variantCount` tracked) → 2-way conflict. Blank/`*` VINs pass through unkeyed. |
+| `cellsEqual_` / `rowsEqual_` / `diffCols_` | `(a, b)` | Tolerant comparison: trim-string equal, else both-numeric equal (`getValues()` returns numbers for non-`@` columns like Year/MSRP while incoming rows are strings — naive compare would false-conflict every merged row). |
+| `applyConflictResolutions_` | `(d, resolutions)` | Applies per-VIN choices; `'new'` substitutes the challenger in the incumbent's position; `resolutions['*']` is the bulk fallback for VINs without an explicit choice. |
+| `groupRowsByLocation_` | `(rows)` | Buckets rows by exact Location string (col T) in first-seen order and concatenates — restores the contiguity invariant `getDealerScraperData_` relies on. |
+| `readExistingScraperRows_` / `computeImportToken_` | `(sheet)` | Merge-mode base read (A2:U) and the optimistic-concurrency token (`lastRow \| W1 X1 timestamp`) verified between the two phases. |
 | `writeImportStats_` | `(ss, timestamp, locationDetail)` | Section 29. Appends one 13-column row per scraper location to IMPORT_STATS after every import. Non-fatal try/catch; skips silently if the sheet is missing. |
 | `checkImportHealth_` | `(ss, currentTs, locationDetail)` | Section 29. Reads IMPORT_STATS history (excluding the current import's rows), builds per-location rolling baselines, and returns `[{location, severity, message}]`. Hard errors: total dropped to 0 with prior data; `no_stock`/`no_price` > 20% (`MISSING_FIELD_THRESHOLD`). Baseline warnings (≥ 5 prior rows, `MIN_IMPORTS_FOR_BASELINE`): total/new/po > 40% below rolling average (`DROP_THRESHOLD`); unexpected type appeared. Under-baseline locations return `info` "Building baseline". |
 | `refreshDashboard_` | `(ss, importTimestamp, locationDetail)` | Section 30. Rewrites the DASHBOARD tab: timestamp, alphabetical per-location inventory table, TOTALS row, then RUN LOG SUMMARY / MOST RECENT RUN / RUNS BY DEALER sections at dynamic row positions. Clears stale rows; fully dynamic formatting, no merged cells; IFERROR-wrapped formulas. Called at the end of every `importScraperData()`. Non-fatal. |
@@ -674,15 +681,15 @@ NORM_COL          = { TYPE: 2, TRIM: 6, STATUS: 8, PRICE: 9 }  // 0-indexed SCRA
 
 ### HTML Files
 
-**DealerSelector.html** — Run Dealer modal (580×600px). "Running as:" user dropdown (top, required — gates Run button; pre-selects last-used selection per Google account), dealer dropdown, VIN Log status row (appears after a dealer is selected: "Most recent order in log: {id}" populated via `getLatestOrderId`, plus a 📋 Update VIN Log button that opens the VIN Log Updater modal), required Pipedrive Deal ID field, VIN textarea with live count, CAO pre-fill button with filter rejection summary, bypass filters checkbox, progress bar with step messages and elapsed timer, post-run action buttons (Open Output Folder, Add to VIN Log).
+**DealerSelector.html** — Run Dealer modal (1400×900px). "Running as:" user dropdown (top, required — gates Run button; pre-selects last-used selection per Google account), dealer dropdown, VIN Log status row (appears after a dealer is selected: "Most recent order in log: {id}" populated via `getLatestOrderId`, plus a 📋 Update VIN Log button that opens the VIN Log Updater modal), required Pipedrive Deal ID field, VIN textarea with live count, CAO pre-fill button with filter rejection summary, bypass filters checkbox, progress bar with step messages and elapsed timer, post-run action buttons (Open Output Folder, Add to VIN Log).
 
-**ScraperImport.html** — Import Scraper Data modal (620×580px). CSV upload, two-column matched/missing column mapping preview, row count display, calls `importScraperData()`. Shows post-import review panel (type breakdown, status breakdown, Location × Type table) on success, including a health issues section that renders the `checkImportHealth_()` results — error/warning/info items per scraper location, or a clean all-healthy state.
+**ScraperImport.html** — Import Scraper Data modal (1400×900px). **Multi-file import with two modes** (June 2026): a segmented mode selector chooses **Main Import (Replace)** (clears SCRAPERDATA, imports the selected file(s)) or **Merge with Existing** (combines the selected file(s) with the current data). The file input accepts multiple CSVs; each file is parsed independently with its own header mapping (files may have different column orders/sets), rendered as a per-file card (name, row count, matched/missing/ignored columns); a file without a VIN column is rejected and blocks the import (all-or-nothing). A UTF-8 BOM is stripped per file, and stray header rows hiding mid-file (VIN cell = literal "VIN") are dropped. Calls `importScraperData(rows, mode, resolutions, fileNames, token)` — when the server detects VIN conflicts (same VIN, differing data) it returns them without writing, and a **conflict resolution panel** appears: per-VIN side-by-side diff cards (only differing fields shown, sources labeled by filename or "Existing data"), per-VIN keep-existing/keep-new radios, bulk "Keep All Existing"/"Keep All New" buttons (the `'*'` fallback choice covers conflicts beyond the rendered cap of 200), Cancel (safe — nothing written) and Apply & Import. Identical duplicate VINs are removed silently. The review panel shows mode-aware totals plus an Import Summary badge row (files, mode, duplicates removed, conflicts resolved, rows without VIN), the type/status breakdowns, Location × Type table, and the `checkImportHealth_()` health section.
 
-**NormManager.html** — Normalization Maps modal (740×620px). Stacked layout: add form on top, scrollable entries table below. All five maps support inline edit, delete, ▲▼ reorder.
+**NormManager.html** — Normalization Maps modal (1400×900px). Stacked layout: add form on top, scrollable entries table below. All five maps support inline edit, delete, ▲▼ reorder.
 
-**VINLogUpdater.html** — VIN Log Updater modal (660×540px). Dealer dropdown, runs table with timestamp/deal ID/VIN count/status badges, Commit and Rollback action buttons. After a dealer is selected, a collapsible **"＋ Manually add VINs to log"** panel appears below the runs table. The panel contains an Order Number input (pre-populated with the most recent order ID from the dealer's VIN log tab via `getLatestOrderId`), a VIN textarea (one VIN or stock number per line, with live count), and a Submit button. On submit, calls `manualCommitToVINLog` — which deduplicates the input list (case-insensitive), appends `ORDER_ID | VIN | committed_at` rows directly to SF_VIN_LOGS, and returns the committed count. Does **not** touch the RUN_LOG.
+**VINLogUpdater.html** — VIN Log Updater modal (1400×900px). Dealer dropdown, runs table with timestamp/deal ID/VIN count/status badges, Commit and Rollback action buttons. After a dealer is selected, a collapsible **"＋ Manually add VINs to log"** panel appears below the runs table. The panel contains an Order Number input (pre-populated with the most recent order ID from the dealer's VIN log tab via `getLatestOrderId`), a VIN textarea (one VIN or stock number per line, with live count), and a Submit button. On submit, calls `manualCommitToVINLog` — which deduplicates the input list (case-insensitive), appends `ORDER_ID | VIN | committed_at` rows directly to SF_VIN_LOGS, and returns the committed count. Does **not** touch the RUN_LOG.
 
-**RulesEditor.html** — Dealer Rules Editor modal (680×660px). Two-tab layout. Type Rules tab: card list with ▲▼ reorder and remove per rule, add-rule form with match dropdown, live CSV schema dropdown (loaded from CSV_SCHEMAS tab at open time), and UTM input. Filtering Rules tab: `require_stock`/`require_price` toggle switches, `allowed_types` and `exclude_status` pill buttons, min/max price inputs, per-type seasoning table. Each tab saves independently.
+**RulesEditor.html** — Dealer Rules Editor modal (1400×900px). Two-tab layout. Type Rules tab: card list with ▲▼ reorder and remove per rule, add-rule form with match dropdown, live CSV schema dropdown (loaded from CSV_SCHEMAS tab at open time), and UTM input. Filtering Rules tab: `require_stock`/`require_price` toggle switches, `allowed_types` and `exclude_status` pill buttons, min/max price inputs, per-type seasoning table. Each tab saves independently.
 
 ### Script Files to Delete
 - `VINLogMigration.gs` — one-time VIN log migration, complete
@@ -741,6 +748,58 @@ Use **SilverFox V2 → Manage Normalization Maps**. Never edit Code.gs for routi
 ## Editing Type Rules or Filtering Rules
 
 Use **SilverFox V2 → Edit Dealer Rules...**. Select a dealer from the dropdown — rules load immediately. Type Rules tab manages `type_rules` (col O); Filtering Rules tab manages `filtering_rules` (col W). Each tab saves independently. CSV schema options are loaded live from the CSV_SCHEMAS tab — no hardcoded values.
+
+---
+
+## Capacity & Log Growth Plan *(written June 2026, while logs were <1k rows)*
+
+At production pace the log tabs grow without bound. This section records the limits, the growth math, the thresholds to watch, and the archive design to build **when — and only when — a threshold is hit**. Nothing needs to be built before then.
+
+### The two limits
+
+**Hard limit:** Google Sheets caps a spreadsheet at **10 million cells** (sum of all tabs; empty-but-allocated grid cells count). Each core file (SF_SYSTEM_MASTER, SF_DEALER_CONFIG, SF_UNIVERSAL_TEMPLATE, SF_VIN_LOGS) has its own 10M budget. The log tabs all live in **SF_SYSTEM_MASTER**, so it is the document to watch.
+
+**Practical limit (hits first):** several functions read *entire* log tabs and scale linearly with their size:
+- `checkImportHealth_` reads **all of IMPORT_STATS** on every import
+- DASHBOARD's RUNS BY DEALER is a **QUERY over RUN_LOG A:W**, recalculated on refresh
+- `getRunsForDealer` reads the full RUN_LOG and filters in memory
+
+The NORM_MAPS `UNIQUE()` incident (June 2026) is the canonical example of this failure pattern: cheap for years, then a size threshold turns programmatic access into ~100s timeouts. Expect sluggishness in the **~25k–50k rows-per-tab range — roughly 2–3 years** at production volume.
+
+### Growth math (assumes ~300 orders/week, imports most days)
+
+| Tab | Growth driver | ≈ Cells/year |
+|---|---|---|
+| RUN_LOG (23 cols) | 1 row per run (~15,600/yr) | ~360k |
+| ORDER_STATS (12 cols) | 1 row per run | ~190k |
+| IMPORT_STATS (13 cols) | ~43 locations × every import (incl. merges) | ~290k |
+| SCRAPERDATA | snapshot — replaced per import, does not accumulate | ~220k standing |
+
+Total ≈ **850k cells/year** vs a 10M ceiling → hard limit is ~8–10 years out; the practical limit arrives first. **IMPORT_STATS is the fastest-growing tab** (merge imports append a row for *every* location) — first to watch if merge imports become frequent.
+
+### Triggers to act
+
+Build the archiver when **any** of these occur:
+1. Any log tab exceeds **~25,000 rows**.
+2. Imports or DASHBOARD refresh become noticeably slow.
+3. SF_SYSTEM_MASTER total cell count passes ~5M (check File → Settings or count rows×cols per tab).
+
+### Archive design (build at trigger time; ~half-day job)
+
+Menu-driven `archiveOldLogs()`:
+- Moves rows **older than 12 months** from RUN_LOG, IMPORT_STATS, and ORDER_STATS into a separate **`SF_LOG_ARCHIVE`** spreadsheet (per-year tabs, e.g. `RUN_LOG_2026`).
+- **No live function needs to reference the archive** — every runtime consumer only needs recent data: health baselines are rolling averages over recent IMPORT_STATS; commit/rollback only touches recent runs; the DASHBOARD summarizes current state.
+- One semantic change: all-time counts (e.g. RUNS BY DEALER) become **trailing-12-months**. Lifetime totals live in the archive workbook (or the archiver writes a small carry-forward summary row).
+- Non-fatal/isolated like the stats writes: an archive failure must never break an import or run.
+
+### Explicitly out of scope for archiving
+
+- **SF_VIN_LOGS — never archive.** It is the CAO dedup source of truth ("have we ever printed this VIN"), grows slowly (3 narrow columns per dealer tab), and has decades of headroom in its own document.
+- **SCRAPERDATA** — a snapshot, self-limiting.
+
+### Structural endgame
+
+V3's PostgreSQL migration eliminates this problem class entirely — IMPORT_STATS and ORDER_STATS were deliberately designed as flat, formula-free tables so they port 1:1 to `import_stats` / `order_stats` database tables.
 
 ---
 

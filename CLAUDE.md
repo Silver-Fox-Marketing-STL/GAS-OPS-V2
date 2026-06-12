@@ -101,6 +101,10 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
    from Apps Script, `git rm test-write-access.txt`, fix stale "Scraper #N/A" notes
    on the active Jefferson City dealers, consider consolidating SCP_NEW (now
    identical to SCP).
+8. Log capacity (watch, don't build yet): when any log tab passes ~25k rows or
+   imports/dashboard slow down, build `archiveOldLogs()` per the "Capacity & Log
+   Growth Plan" section in the Bridge doc (12-month hot window → SF_LOG_ARCHIVE;
+   never archive SF_VIN_LOGS).
 
 ## Reference docs
 
