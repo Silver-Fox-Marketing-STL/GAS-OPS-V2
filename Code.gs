@@ -3197,11 +3197,9 @@ function manualCommitToVINLog(dealerKey, orderId, vins) {
 // SECTION 27: DEALER RULES EDITOR
 // ============================================================================
 
+// Classic fallback: serves the converted App fragment standalone.
 function openRulesEditor() {
-  var html = HtmlService.createHtmlOutputFromFile('RulesEditor')
-    .setWidth(MODAL_WIDTH)
-    .setHeight(MODAL_HEIGHT);
-  SpreadsheetApp.getUi().showModalDialog(html, 'Edit Dealer Rules');
+  openViewStandalone_('ViewRules', 'Edit Dealer Rules');
 }
 
 /**
