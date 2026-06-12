@@ -750,6 +750,58 @@ Use **SilverFox V2 → Edit Dealer Rules...**. Select a dealer from the dropdown
 
 ---
 
+## Capacity & Log Growth Plan *(written June 2026, while logs were <1k rows)*
+
+At production pace the log tabs grow without bound. This section records the limits, the growth math, the thresholds to watch, and the archive design to build **when — and only when — a threshold is hit**. Nothing needs to be built before then.
+
+### The two limits
+
+**Hard limit:** Google Sheets caps a spreadsheet at **10 million cells** (sum of all tabs; empty-but-allocated grid cells count). Each core file (SF_SYSTEM_MASTER, SF_DEALER_CONFIG, SF_UNIVERSAL_TEMPLATE, SF_VIN_LOGS) has its own 10M budget. The log tabs all live in **SF_SYSTEM_MASTER**, so it is the document to watch.
+
+**Practical limit (hits first):** several functions read *entire* log tabs and scale linearly with their size:
+- `checkImportHealth_` reads **all of IMPORT_STATS** on every import
+- DASHBOARD's RUNS BY DEALER is a **QUERY over RUN_LOG A:W**, recalculated on refresh
+- `getRunsForDealer` reads the full RUN_LOG and filters in memory
+
+The NORM_MAPS `UNIQUE()` incident (June 2026) is the canonical example of this failure pattern: cheap for years, then a size threshold turns programmatic access into ~100s timeouts. Expect sluggishness in the **~25k–50k rows-per-tab range — roughly 2–3 years** at production volume.
+
+### Growth math (assumes ~300 orders/week, imports most days)
+
+| Tab | Growth driver | ≈ Cells/year |
+|---|---|---|
+| RUN_LOG (23 cols) | 1 row per run (~15,600/yr) | ~360k |
+| ORDER_STATS (12 cols) | 1 row per run | ~190k |
+| IMPORT_STATS (13 cols) | ~43 locations × every import (incl. merges) | ~290k |
+| SCRAPERDATA | snapshot — replaced per import, does not accumulate | ~220k standing |
+
+Total ≈ **850k cells/year** vs a 10M ceiling → hard limit is ~8–10 years out; the practical limit arrives first. **IMPORT_STATS is the fastest-growing tab** (merge imports append a row for *every* location) — first to watch if merge imports become frequent.
+
+### Triggers to act
+
+Build the archiver when **any** of these occur:
+1. Any log tab exceeds **~25,000 rows**.
+2. Imports or DASHBOARD refresh become noticeably slow.
+3. SF_SYSTEM_MASTER total cell count passes ~5M (check File → Settings or count rows×cols per tab).
+
+### Archive design (build at trigger time; ~half-day job)
+
+Menu-driven `archiveOldLogs()`:
+- Moves rows **older than 12 months** from RUN_LOG, IMPORT_STATS, and ORDER_STATS into a separate **`SF_LOG_ARCHIVE`** spreadsheet (per-year tabs, e.g. `RUN_LOG_2026`).
+- **No live function needs to reference the archive** — every runtime consumer only needs recent data: health baselines are rolling averages over recent IMPORT_STATS; commit/rollback only touches recent runs; the DASHBOARD summarizes current state.
+- One semantic change: all-time counts (e.g. RUNS BY DEALER) become **trailing-12-months**. Lifetime totals live in the archive workbook (or the archiver writes a small carry-forward summary row).
+- Non-fatal/isolated like the stats writes: an archive failure must never break an import or run.
+
+### Explicitly out of scope for archiving
+
+- **SF_VIN_LOGS — never archive.** It is the CAO dedup source of truth ("have we ever printed this VIN"), grows slowly (3 narrow columns per dealer tab), and has decades of headroom in its own document.
+- **SCRAPERDATA** — a snapshot, self-limiting.
+
+### Structural endgame
+
+V3's PostgreSQL migration eliminates this problem class entirely — IMPORT_STATS and ORDER_STATS were deliberately designed as flat, formula-free tables so they port 1:1 to `import_stats` / `order_stats` database tables.
+
+---
+
 ## Known Issues & Pending Work
 
 ### Active Issues

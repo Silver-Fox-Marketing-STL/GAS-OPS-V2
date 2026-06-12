@@ -45,6 +45,7 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 - Dave Sinclair Lincoln: used cars have no price in the scraper feed, so a "used ≥ $35k" targeting rule cannot function until used prices are scraped
 
 ### Planned
+- **Log capacity plan (documented; build at trigger)** — "Capacity & Log Growth Plan" section added to the Bridge doc: hard limit 10M cells/spreadsheet, practical limit (full-tab readers: `checkImportHealth_`, DASHBOARD QUERY, `getRunsForDealer`) at ~25k–50k rows ≈ 2–3 years at production pace. Trigger: any log tab > ~25k rows or visible slowdown → build menu-driven `archiveOldLogs()` (rows older than 12 months → `SF_LOG_ARCHIVE`, per-year tabs; no live function references the archive; never archive SF_VIN_LOGS).
 - **Trim cleanup (analyzed; deferred)** — docs-only for now: full analysis + a validated auto-cleanup design (global `cleanTrim_` regex pass behind an `ENABLE_TRIM_CLEANUP` flag + `dryRunCleanTrim_` preview, plus residual exact-match rules) written into the Bridge doc ("Trim Normalization & Cleanup — Analysis & Deferred Design"). Approach decision (A full / B phased / C exact-only) pending.
 - Pipedrive post-run API integration (architecture designed; `pushToPipedrive_()` to be isolated in its own try/catch; config expansion at columns P–V requires updating hardcoded `CFG.FILTER_RULES` index)
 - Unresolved order configurations: MBCC/Sprinter shared inventory, Auffenberg Hybrid (Courtesy Loaners NEW→USED)
