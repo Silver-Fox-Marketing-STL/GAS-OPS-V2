@@ -1893,8 +1893,12 @@ function onEdit(e) {
   sheet.getRange('X1').setValue(helpers.getRange('B1').getValue());
 }
 
+// Menu action: jump to the RUN_LOG tab. Must use getActiveSpreadsheet() —
+// activate() on a sheet from a separate openById() handle doesn't move the UI
+// (same openById vs getActiveSpreadsheet inconsistency noted in LEARNINGS).
 function openRunLog() {
-  SpreadsheetApp.openById(MASTER_SHEET_ID).getSheetByName('RUN_LOG').activate();
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('RUN_LOG');
+  if (sheet) sheet.activate();
 }
 
 function handleError_(e) {

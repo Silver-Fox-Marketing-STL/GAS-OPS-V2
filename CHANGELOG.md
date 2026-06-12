@@ -18,6 +18,9 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   - Per-file header mapping (files may differ in column order/set), per-file preview cards, all-or-nothing validity gate (a file without a VIN column blocks the import), **UTF-8 BOM strip** per file (fixes a latent silent VIN-unmatch bug), and a **mid-file header guard** (drops stray "VIN" header rows from concatenated exports).
   - Final dataset **grouped by Location** before writing (preserves `getDealerScraperData_`'s contiguity invariant in both modes); stats/health/dashboard computed on the final dataset so IMPORT_STATS baselines stay sane in merge mode. Review panel gains mode-aware totals + Import Summary badges (files, mode, duplicates removed, conflicts resolved, rows without VIN).
 
+### Fixed — `feature/data-importer` (in testing)
+- **"View Run Log" menu item did nothing.** `openRunLog()` called `.activate()` on a sheet obtained via `openById()` — activation only moves the UI on the active-spreadsheet instance. Switched to `getActiveSpreadsheet()`; the menu item now jumps to the RUN_LOG tab as intended.
+
 ### Changed — `feature/data-importer` (in testing)
 - **All five modals resized to a uniform 1400×900** (`MODAL_WIDTH`/`MODAL_HEIGHT` constants): Run Dealer, Import Scraper Data, Normalization Maps, VIN Log Updater, Dealer Rules Editor. The browser viewport is the effective cap; verify on the smallest screen used to run orders.
 
