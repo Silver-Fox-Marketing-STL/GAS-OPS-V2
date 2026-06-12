@@ -1,0 +1,78 @@
+<!-- ════════════════════════════════════════════════════════════════════════════
+     SHARED UTILS — included by both App.html (SPA shell) and Classic.html
+     (standalone view wrapper). Contains only view-agnostic helpers; per-view
+     status setters stay inside their own view fragments.
+════════════════════════════════════════════════════════════════════════════ -->
+<style>
+  #appToast {
+    position: fixed;
+    bottom: 18px;
+    right: 18px;
+    z-index: 2000;
+    max-width: 420px;
+    padding: 10px 16px;
+    border-radius: 6px;
+    font-size: 12.5px;
+    font-weight: bold;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.25);
+    display: none;
+    line-height: 1.5;
+  }
+  #appToast.info    { background: #e8f0fe; color: #1a73e8; border: 1px solid #c6dafc; }
+  #appToast.success { background: #e6f4ea; color: #1e7e34; border: 1px solid #c3e6cb; }
+  #appToast.error   { background: #fce8e6; color: #c0392b; border: 1px solid #f5c6c2; }
+</style>
+<script>
+  // ── HTML escaping (single shared copy) ─────────────────────────────────────
+  function escHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  // ── Toast (transient feedback for utilities / background actions) ─────────
+  var _toastTimer = null;
+  function toast(msg, type) {
+    var el = document.getElementById('appToast');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'appToast';
+      document.body.appendChild(el);
+    }
+    el.textContent = msg;
+    el.className = type || 'info';
+    el.style.display = 'block';
+    if (_toastTimer) clearTimeout(_toastTimer);
+    _toastTimer = setTimeout(function() { el.style.display = 'none'; }, 6000);
+  }
+
+  // ── Close guards ───────────────────────────────────────────────────────────
+  // Views register functions returning a reason string (or null when clean).
+  // exitApp() collects the non-null reasons into one confirm dialog.
+  var AppGuards = {
+    _fns: [],
+    register: function(fn) { this._fns.push(fn); },
+    run: function() {
+      var msgs = [];
+      this._fns.forEach(function(fn) {
+        try { var m = fn(); if (m) msgs.push('• ' + m); } catch (e) {}
+      });
+      return msgs;
+    }
+  };
+
+  // ── Busy flags ─────────────────────────────────────────────────────────────
+  // Mutual exclusion for operations that must not overlap now that all views
+  // share one dialog (e.g. an import rewriting SCRAPERDATA mid-run).
+  var AppBusy = {
+    _flags: {},
+    set: function(key, val) { this._flags[key] = !!val; },
+    is:  function(key) { return !!this._flags[key]; }
+  };
+
+  // ── View registries (populated by each view fragment) ─────────────────────
+  window.VIEW_INITS = window.VIEW_INITS || {};  // viewId -> init fn (run once, first nav)
+  window.VIEW_SHOWN = window.VIEW_SHOWN || {};  // viewId -> fn run on every nav-in
+</script>

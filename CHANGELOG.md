@@ -10,6 +10,9 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## [Unreleased]
 
+### Added — `feature/app-shell` (in progress)
+- **SilverFox App shell (commit 1)** — single-modal SPA foundation: new `App.html` (left sidebar nav + header + content area, Gmail-style), `ViewHome.html` (workflow launcher cards + utilities placeholder + last-import status strip via new `getAppHomeStatus()`), `SharedUtils.html` (shared `escHtml`, `toast`, `AppGuards`, `AppBusy`, view registries), `Classic.html` (standalone single-view wrapper for the fallback menu). Code.gs: `include_()` template helper (first HtmlService templating use), `openApp()`, `openViewStandalone_()`. Menu rewritten: **🚀 Open SilverFox** + "Classic menu (deprecated)" submenu with all 10 existing items (fallback during validation). The five modal views migrate into the App one commit at a time; un-migrated sidebar items are dimmed "coming soon".
+
 ### Known issues
 - `CDJR_OF_COLUMBIA` `scraper_location_name` intentionally remains `"Joe Machens Chrysler Dodge Jeep Ram"` to match the live scraper feed; update when the feed reflects the new dealer name
 - Dave Sinclair Lincoln: used cars have no price in the scraper feed, so a "used ≥ $35k" targeting rule cannot function until used prices are scraped

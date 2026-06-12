@@ -314,21 +314,27 @@ function isTrue_(val) {
 function onOpen() {
   var ui   = SpreadsheetApp.getUi();
   var menu = ui.createMenu('SilverFox V2');
-  menu.addItem('Run Dealer...', 'promptRunDealer');
+  menu.addItem('🚀 Open SilverFox', 'openApp');
+  // Classic per-modal entry points kept as a fallback during App validation.
+  // Remove this submenu (and Classic.html / openViewStandalone_) at sign-off.
+  var classic = ui.createMenu('Classic menu (deprecated)');
+  classic.addItem('Run Dealer...', 'promptRunDealer');
+  classic.addSeparator();
+  classic.addItem('Import Scraper Data...', 'openScraperImport');
+  classic.addItem('Update Scraper Timestamp', 'fillScraperDateTime');
+  classic.addSeparator();
+  classic.addItem('Update VIN Log...', 'openVINLogUpdater');
+  classic.addSeparator();
+  classic.addItem('Clear QR Folders (all active dealers)', 'eraseAllQRFolders');
+  classic.addItem('Clean Up Old Output Docs', 'cleanUpOutputDocs');
+  classic.addSeparator();
+  classic.addItem('View Run Log', 'openRunLog');
+  classic.addSeparator();
+  classic.addItem('Manage Normalization Maps...', 'openNormManager');
+  classic.addItem('Refresh Norm/Field Reference', 'refreshNormReference');
+  classic.addItem('Edit Dealer Rules...', 'openRulesEditor');
   menu.addSeparator();
-  menu.addItem('Import Scraper Data...', 'openScraperImport');
-  menu.addItem('Update Scraper Timestamp', 'fillScraperDateTime');
-  menu.addSeparator();
-  menu.addItem('Update VIN Log...', 'openVINLogUpdater');
-  menu.addSeparator();
-  menu.addItem('Clear QR Folders (all active dealers)', 'eraseAllQRFolders');
-  menu.addItem('Clean Up Old Output Docs', 'cleanUpOutputDocs');
-  menu.addSeparator();
-  menu.addItem('View Run Log', 'openRunLog');
-  menu.addSeparator();
-  menu.addItem('Manage Normalization Maps...', 'openNormManager');
-  menu.addItem('Refresh Norm/Field Reference', 'refreshNormReference');
-  menu.addItem('Edit Dealer Rules...', 'openRulesEditor');
+  menu.addSubMenu(classic);
   menu.addToUi();
 }
 
@@ -337,6 +343,47 @@ function onOpen() {
 // still get the largest dialog that fits.
 var MODAL_WIDTH  = 1400;
 var MODAL_HEIGHT = 900;
+
+/**
+ * Template include helper — returns a fragment file's raw content for
+ * <?!= include_('ViewXxx') ?> scriptlets in App.html / Classic.html.
+ * Trailing underscore keeps it off the google.script.run surface.
+ */
+function include_(name) {
+  return HtmlService.createHtmlOutputFromFile(name).getContent();
+}
+
+/**
+ * Opens the SilverFox App — the single-modal SPA shell. Views are stitched
+ * into App.html via include_() and switched client-side (no dialog swaps).
+ */
+function openApp() {
+  var html = HtmlService.createTemplateFromFile('App').evaluate()
+    .setWidth(MODAL_WIDTH)
+    .setHeight(MODAL_HEIGHT);
+  SpreadsheetApp.getUi().showModalDialog(html, 'SilverFox');
+}
+
+/**
+ * Serves one converted view fragment as a standalone dialog — powers the
+ * "Classic menu" fallback during App validation with zero code duplication.
+ */
+function openViewStandalone_(fragmentName, title) {
+  var t = HtmlService.createTemplateFromFile('Classic');
+  t.fragment = fragmentName;
+  var html = t.evaluate().setWidth(MODAL_WIDTH).setHeight(MODAL_HEIGHT);
+  SpreadsheetApp.getUi().showModalDialog(html, title);
+}
+
+/**
+ * Home-page status strip: last scraper import timestamp from SCRAPERDATA
+ * W1:X1 (written by fillScraperDateTime on every import).
+ */
+function getAppHomeStatus() {
+  var vals = SpreadsheetApp.getActiveSpreadsheet()
+    .getSheetByName('SCRAPERDATA').getRange('W1:X1').getDisplayValues()[0];
+  return { lastImportDate: vals[0], lastImportTime: vals[1] };
+}
 
 function promptRunDealer() {
   var html = HtmlService.createHtmlOutputFromFile('DealerSelector')
