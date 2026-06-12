@@ -272,6 +272,13 @@
       <input type="text" id="dealId" placeholder="e.g. 44021" />
       <div class="field-hint">Required. Enter the Pipedrive deal number for this order.</div>
 
+      <!-- Second deal ID — shown only for dealers with a billing_split configured -->
+      <div id="splitDealRow" style="display:none;">
+        <label for="splitDealId" id="splitDealLabel">Second Deal ID</label>
+        <input type="text" id="splitDealId" placeholder="e.g. 44022" />
+        <div class="field-hint" id="splitDealHint">Required. This dealer bills these units to a separate Pipedrive deal.</div>
+      </div>
+
       <label class="bypass-label">
         <input type="checkbox" id="bypassFilters" />
         Bypass filtering rules
@@ -336,15 +343,18 @@
     var pollInterval   = null;
     var runStartTime   = null;
     var currentRunId   = null;
-    var lastRunResult  = null; // {outputFolderUrl, runLogRowIndex, dealerName, producedVinCount}
+    var lastRunResult  = null; // {outputFolderUrl, runLogRowIndex, splitRunLogRowIndex, splitGroupName, dealerName, producedVinCount}
     var lastDealerKey  = null; // dealer key used for the last run
+    var dealersByKey   = {};   // key → {key, name, splitDealLabel} from getActiveDealersForUI
 
     // ── Load dealer dropdown ──────────────────────────────────────────────────
     google.script.run
       .withSuccessHandler(function(dealers) {
         var sel = document.getElementById('dealerSelect');
         sel.innerHTML = '<option value="">-- Select a dealer --</option>';
+        dealersByKey = {};
         dealers.forEach(function(d) {
+          dealersByKey[d.key] = d;
           var opt = document.createElement('option');
           opt.value = d.key; opt.text = d.name;
           sel.appendChild(opt);
@@ -386,6 +396,7 @@
     });
     document.getElementById('dealerSelect').addEventListener('change', function() {
       var key = this.value;
+      updateSplitDealRow(key);
       updateButtons(); hideCaoSummary();
       document.getElementById('vinInput').value = '';
       updateVinCount();
@@ -401,6 +412,29 @@
       updateButtons();
       hidePostRunActions();
     });
+    document.getElementById('splitDealId').addEventListener('input', function() {
+      updateButtons();
+      hidePostRunActions();
+    });
+
+    // Show/hide the second deal ID field for billing-split dealers (e.g. MBCC
+    // Sprinters bill to a separate Pipedrive deal).
+    function updateSplitDealRow(dealerKey) {
+      var dealer = dealersByKey[dealerKey];
+      var label  = dealer ? dealer.splitDealLabel : null;
+      var row    = document.getElementById('splitDealRow');
+      if (label) {
+        document.getElementById('splitDealLabel').textContent = label;
+        row.style.display = 'block';
+      } else {
+        row.style.display = 'none';
+        document.getElementById('splitDealId').value = '';
+      }
+    }
+
+    function splitDealRequired() {
+      return document.getElementById('splitDealRow').style.display !== 'none';
+    }
 
     function getVins() {
       return document.getElementById('vinInput').value
@@ -418,8 +452,10 @@
       var hasDealer = document.getElementById('dealerSelect').value !== '';
       var hasDealId = document.getElementById('dealId').value.trim() !== '';
       var hasVins   = getVins().length > 0;
+      var hasSplitDeal = !splitDealRequired() ||
+                         document.getElementById('splitDealId').value.trim() !== '';
       document.getElementById('caoBtn').disabled = !hasDealer;
-      document.getElementById('runBtn').disabled = !(hasUser && hasDealer && hasDealId && hasVins);
+      document.getElementById('runBtn').disabled = !(hasUser && hasDealer && hasDealId && hasSplitDeal && hasVins);
     }
 
     // ── VIN log status ────────────────────────────────────────────────────────
@@ -574,19 +610,24 @@
       vinBtn.textContent = 'Adding...';
       setStatus('', 'empty');
 
+      // Billing-split runs write two RUN_LOG rows (one per deal) — commit both.
+      var rowIndexes = [lastRunResult.runLogRowIndex];
+      if (lastRunResult.splitRunLogRowIndex) rowIndexes.push(lastRunResult.splitRunLogRowIndex);
+
       google.script.run
         .withSuccessHandler(function(result) {
           vinBtn.textContent = '✓ Added ' + result.committed + ' VINs';
           vinBtn.className = 'committed';
           setStatus(result.committed + ' VINs committed to the ' +
-            lastRunResult.dealerName + ' VIN log.', 'success');
+            lastRunResult.dealerName + ' VIN log' +
+            (rowIndexes.length > 1 ? ' (' + rowIndexes.length + ' deals)' : '') + '.', 'success');
         })
         .withFailureHandler(function(e) {
           vinBtn.disabled = false;
           vinBtn.textContent = '✓ Add to VIN Log';
           setStatus('VIN log error: ' + e.message, 'error');
         })
-        .commitLatestRun(lastDealerKey, lastRunResult.runLogRowIndex);
+        .commitRunRows(lastDealerKey, rowIndexes);
     }
 
     // ── Run handler ───────────────────────────────────────────────────────────
@@ -596,13 +637,18 @@
       var sel    = document.getElementById('dealerSelect');
       var key    = sel.value;
       var name   = sel.options[sel.selectedIndex].text;
-      var dealId = document.getElementById('dealId').value.trim();
+      var dealId      = document.getElementById('dealId').value.trim();
+      var splitDealId = document.getElementById('splitDealId').value.trim();
       var vins   = getVins();
       var runBtn = document.getElementById('runBtn');
 
       if (!userKey)          { setStatus('Please select a user.', 'error'); return; }
       if (!key)              { setStatus('Please select a dealer.', 'error'); return; }
       if (!dealId)           { setStatus('Please enter a Pipedrive Deal ID.', 'error'); return; }
+      if (splitDealRequired() && !splitDealId) {
+        setStatus('Please enter the ' + document.getElementById('splitDealLabel').textContent + '.', 'error');
+        return;
+      }
       if (vins.length === 0) { setStatus('Please enter at least one VIN.', 'error'); return; }
 
       var runId  = String(Date.now());
@@ -634,7 +680,7 @@
           runBtn.disabled = false;
           runBtn.textContent = 'Run Dealer';
         })
-        .pasteVinsAndRun(key, vins, dealId, runId, bypass, userKey);
+        .pasteVinsAndRun(key, vins, dealId, runId, bypass, userKey, splitDealId || null);
     }
 
     function setStatus(msg, type) {

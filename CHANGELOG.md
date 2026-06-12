@@ -10,6 +10,23 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## [Unreleased]
 
+### Added — billing split (`feature/billing-split`, not yet deployed)
+- **Billing split for shared-feed dual accounts (MBCC / Sprinter of Creve Coeur).** One run, one CSV (one Illustrator setup) — but billing separated per account. New optional `billing_split` key in `filtering_rules` (col W), no per-dealer code:
+  ```json
+  "billing_split": { "group_name": "SPRINTER", "deal_label": "Sprinter Deal ID",
+                     "field": "model", "op": "contains", "values": ["Sprinter", "Metris"] }
+  ```
+  - `getBillingSplit_(config)` parses/validates (fields `model/make/trim/type` — ORDERMATCH vehicle keys, intentionally not `FILTER_FIELD_INDEX`; ops `contains`/`in`, case-insensitive, any-value OR). **Fail-safe:** absent or malformed → run behaves exactly as today.
+  - `writeBillingSheet_(outputDoc, billingSplit)` partitions matched vehicles via `isInBillingGroup_`; the five-section layout is extracted into `renderBillingSheet_(sheet, …)` and rendered twice: **BILLING** (primary account, excludes group units; also carries the not-found list, which can't be classified) and **BILLING_<group>** (created on demand with `insertSheet` — the universal template is intentionally untouched). Sums across both sheets equal the old single-sheet totals. `readBillingTotals_` gains an optional `sheetName` param.
+  - **Two Pipedrive deal IDs per run:** Run Dealer modal shows a second required deal ID field (label from `deal_label`) only for split dealers (`getActiveDealersForUI` now returns `splitDealLabel`); `pasteVinsAndRun`/`runDealer` gain a trailing `splitDealId` param with server-side validation.
+  - **Two RUN_LOG rows per split run** (same `output_doc_id`/dealer_key; notes col U = `SPLIT:PRIMARY` / `SPLIT:<group>`): each row carries its own deal ID, per-account totals, and produced VINs, so VIN Log Updater commit/rollback works per account **unchanged** (rollback keys on deal ID + committed_at). Zero group units → second row skipped (note `split: 0 <group> units` instead). ORDER_STATS likewise gets one clean row per account. Caveat: sheet-side QUERYs counting RUN_LOG rows see a split run as two rows — filter on `notes` if needed.
+  - VIN log: single dealer tab as before — group VINs commit under the group's deal ID; dedup/duplicate-flagging is identifier-based and unaffected.
+  - Post-run "✓ Add to VIN Log" commits both rows via new `commitRunRows(dealerKey, rowIndexes)` (skips already-committed rows, so retry after a partial failure is safe). VIN Log Updater shows a `SPLIT:*` badge per row (`getRunsForDealer` now returns `note`).
+  - Split applies even with "Bypass filtering rules" — it's billing-time classification, not a filter.
+
+### Fixed — billing split branch
+- **Rules Editor silently dropped unknown `filtering_rules` keys on save.** `collectFilteringRules()` rebuilt the JSON from UI-managed keys only, so any passthrough key (now: `billing_split`) was erased by the next Filtering save. The editor now stashes unmanaged keys on load and re-merges them on save.
+
 ### Known issues
 - `CDJR_OF_COLUMBIA` `scraper_location_name` intentionally remains `"Joe Machens Chrysler Dodge Jeep Ram"` to match the live scraper feed; update when the feed reflects the new dealer name
 - Dave Sinclair Lincoln: used cars have no price in the scraper feed, so a "used ≥ $35k" targeting rule cannot function until used prices are scraped
@@ -18,7 +35,7 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 - **Log capacity plan (documented; build at trigger)** — "Capacity & Log Growth Plan" section added to the Bridge doc: hard limit 10M cells/spreadsheet, practical limit (full-tab readers: `checkImportHealth_`, DASHBOARD QUERY, `getRunsForDealer`) at ~25k–50k rows ≈ 2–3 years at production pace. Trigger: any log tab > ~25k rows or visible slowdown → build menu-driven `archiveOldLogs()` (rows older than 12 months → `SF_LOG_ARCHIVE`, per-year tabs; no live function references the archive; never archive SF_VIN_LOGS).
 - **Trim cleanup (analyzed; deferred)** — docs-only for now: full analysis + a validated auto-cleanup design (global `cleanTrim_` regex pass behind an `ENABLE_TRIM_CLEANUP` flag + `dryRunCleanTrim_` preview, plus residual exact-match rules) written into the Bridge doc ("Trim Normalization & Cleanup — Analysis & Deferred Design"). Approach decision (A full / B phased / C exact-only) pending.
 - Pipedrive post-run API integration (architecture designed; `pushToPipedrive_()` to be isolated in its own try/catch; config expansion at columns P–V requires updating hardcoded `CFG.FILTER_RULES` index)
-- Unresolved order configurations: MBCC/Sprinter shared inventory, Auffenberg Hybrid (Courtesy Loaners NEW→USED)
+- Unresolved order configurations: Auffenberg Hybrid (Courtesy Loaners NEW→USED). *(MBCC/Sprinter shared inventory: resolved by the billing split on `feature/billing-split` — see Added above; pending deploy + MBCC `billing_split` config.)*
 - Trim cleanup approach decision (A full / B phased / C exact-only) — see Bridge doc deferred-design section
 - Architecture hardening: IFERROR-wrapped ORDERMATCH formulas, self-describing field-to-column map, resumable runs (6-minute Apps Script ceiling), regression harness, scheduled config audits, extended per-run caching
 

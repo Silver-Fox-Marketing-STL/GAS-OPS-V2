@@ -449,8 +449,13 @@
       runs.forEach(function(run, idx) {
         var statusClass = 'status-' + (run.status || 'pending');
         var statusLabel = run.status || 'pending';
+        // Billing-split runs write two rows sharing a timestamp — the SPLIT:*
+        // note badge is what tells them apart (e.g. SPLIT:PRIMARY / SPLIT:SPRINTER).
+        var noteBadge = (run.note && run.note.indexOf('SPLIT:') === 0)
+          ? ' <span style="font-size:10px;background:#e8eaf6;color:#3949ab;border-radius:3px;padding:1px 5px;white-space:nowrap;">' + run.note + '</span>'
+          : '';
         html += '<tr data-idx="' + idx + '" onclick="selectRun(' + idx + ', this)">' +
-          '<td>' + run.timestamp + '</td>' +
+          '<td>' + run.timestamp + noteBadge + '</td>' +
           '<td>' + (run.dealId || '<em style="color:#aaa">—</em>') + '</td>' +
           '<td>' + run.vinCount + '</td>' +
           '<td><span class="status-badge ' + statusClass + '">' + statusLabel + '</span></td>' +
@@ -482,6 +487,10 @@
         '<strong>Timestamp:</strong> ' + run.timestamp + '<br>' +
         '<strong>Deal ID:</strong> '   + (run.dealId || '—') + '<br>' +
         '<strong>VINs:</strong> '      + run.vinCount + ' vehicle' + (run.vinCount === 1 ? '' : 's');
+
+      if (run.note && run.note.indexOf('SPLIT:') === 0) {
+        detail.innerHTML += '<br><strong>Billing group:</strong> ' + run.note;
+      }
 
       if (run.vinCount === 0) {
         detail.innerHTML += '<br><em style="color:#c0392b">No VINs recorded for this run.</em>';

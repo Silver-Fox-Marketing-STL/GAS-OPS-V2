@@ -832,7 +832,19 @@
     // FILTERING RULES
     // ════════════════════════════════════════════════════════════════════════════
 
+    // Keys this editor manages via UI controls. Anything else in filtering_rules
+    // (e.g. billing_split) is stashed in filterExtras and re-merged on save so a
+    // round-trip through this editor never silently drops it.
+    var FILTER_MANAGED_KEYS = ['require_stock', 'require_price', 'allowed_types',
+      'exclude_status', 'min_price', 'max_price', 'seasoning', 'conditions', 'cao_exclude_types'];
+    var filterExtras = {};
+
     function applyFilteringRulesToUI(fr) {
+      filterExtras = {};
+      Object.keys(fr || {}).forEach(function(k) {
+        if (FILTER_MANAGED_KEYS.indexOf(k) === -1) filterExtras[k] = fr[k];
+      });
+
       // Toggles
       document.getElementById('reqStock').checked = !!fr.require_stock;
       document.getElementById('reqPrice').checked = !!fr.require_price;
@@ -901,10 +913,10 @@
         }
       });
 
-      var rules = {
-        require_stock: document.getElementById('reqStock').checked,
-        require_price: document.getElementById('reqPrice').checked
-      };
+      var rules = {};
+      Object.keys(filterExtras).forEach(function(k) { rules[k] = filterExtras[k]; });
+      rules.require_stock = document.getElementById('reqStock').checked;
+      rules.require_price = document.getElementById('reqPrice').checked;
       // Targeting conditions
       var conditions = [];
       document.querySelectorAll('#conditionsBody tr[data-cond-row]').forEach(function(row) {
