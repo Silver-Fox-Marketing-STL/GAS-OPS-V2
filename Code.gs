@@ -747,9 +747,11 @@ function groupRowsByLocation_(rows) {
     }
     buckets[loc].push(rows[i]);
   }
+  // push.apply per bucket — `out = out.concat(...)` re-copied the accumulated
+  // array once per location (O(n²) at 12k rows / 43 locations).
   var out = [];
   for (var j = 0; j < order.length; j++) {
-    out = out.concat(buckets[order[j]]);
+    Array.prototype.push.apply(out, buckets[order[j]]);
   }
   return out;
 }
@@ -3640,8 +3642,13 @@ function checkImportHealth_(ss, currentTs, locationDetail) {
     var lastRow = sheet.getLastRow();
     if (lastRow < 2) return issues;  // No history yet at all
 
-    // Read all historical rows (excluding the rows we JUST wrote, identified by currentTs)
-    var allData = sheet.getRange(2, 1, lastRow - 1, 13).getValues();
+    // Tail read: rolling baselines only need recent history (MIN_IMPORTS_FOR_
+    // BASELINE imports per location). 2,000 rows ≈ the last ~45 imports at 43
+    // locations — far more than the baselines use, while keeping this read
+    // constant-time as IMPORT_STATS (the fastest-growing log tab) accumulates.
+    var HEALTH_TAIL_ROWS = 2000;
+    var startRow = Math.max(2, lastRow - HEALTH_TAIL_ROWS + 1);
+    var allData = sheet.getRange(startRow, 1, lastRow - startRow + 1, 13).getValues();
 
     // Build per-location history: { locationName: [ {total, new, po, cpo, cpo_el, no_price, no_stock}, ... ] }
     var history = {};
@@ -3981,17 +3988,24 @@ function refreshDashboard_(ss, importTimestamp, locationDetail) {
                .setHorizontalAlignment('center');
     dashboard.getRange(R_COL_HDR, 1).setHorizontalAlignment('left');
 
-    // Data rows — alternating, numbers centered, location left
+    // Data rows — alternating stripes, numbers centered, location left.
+    // Block-formatted: the old per-row loop issued ~12 range ops per location
+    // (~500 calls per refresh ≈ 1.5–2.5s); this does the same in 7 calls.
     if (n > 0) {
+      var bgMatrix = [];
       for (var i = 0; i < n; i++) {
-        var rowNum = R_DATA_START + i;
-        var rowBg  = (i % 2 === 0) ? C_WHITE : C_STRIPE;
-        var rowRange = dashboard.getRange(rowNum, 1, 1, 10);
-        rowRange.setBackgroundObject(rowBg).setFontSize(10).setHorizontalAlignment('center')
-                .setNumberFormat('#,##0');
-        dashboard.getRange(rowNum, 1).setHorizontalAlignment('left').setNumberFormat('@');
-        dashboard.getRange(rowNum, 10).setHorizontalAlignment('center').setNumberFormat('@');
+        var rowBg = (i % 2 === 0) ? C_WHITE : C_STRIPE;
+        var bgRow = [];
+        for (var bc = 0; bc < 10; bc++) bgRow.push(rowBg);
+        bgMatrix.push(bgRow);
       }
+      dashboard.getRange(R_DATA_START, 1, n, 10)
+        .setBackgroundObjects(bgMatrix).setFontSize(10)
+        .setHorizontalAlignment('center').setNumberFormat('#,##0');
+      dashboard.getRange(R_DATA_START, 1, n, 1)
+        .setHorizontalAlignment('left').setNumberFormat('@');
+      dashboard.getRange(R_DATA_START, 10, n, 1)
+        .setHorizontalAlignment('center').setNumberFormat('@');
     }
 
     // Totals row
@@ -4024,15 +4038,16 @@ function refreshDashboard_(ss, importTimestamp, locationDetail) {
              .setHorizontalAlignment('center');
     dashboard.getRange(R_MR_DATA, 1).setHorizontalAlignment('left');
 
-    // Column widths (only set once — they don't change with location count)
-    dashboard.setColumnWidth(1, 260);
-    for (var c = 2; c <= 7; c++) dashboard.setColumnWidth(c, 72);
-    dashboard.setColumnWidth(8, 80);
-    dashboard.setColumnWidth(9, 80);
-    dashboard.setColumnWidth(10, 130);
-
-    // Freeze through column headers row
-    dashboard.setFrozenRows(R_COL_HDR);
+    // Column widths + frozen rows never change between refreshes — only set
+    // them when the sheet hasn't been laid out yet (8 ops saved per import).
+    if (dashboard.getFrozenRows() !== R_COL_HDR) {
+      dashboard.setColumnWidth(1, 260);
+      for (var c = 2; c <= 7; c++) dashboard.setColumnWidth(c, 72);
+      dashboard.setColumnWidth(8, 80);
+      dashboard.setColumnWidth(9, 80);
+      dashboard.setColumnWidth(10, 130);
+      dashboard.setFrozenRows(R_COL_HDR);
+    }
 
     Logger.log('refreshDashboard_: complete. ' + n + ' locations, totals at row ' + R_TOTALS + ', run log at ' + R_RL_HDR + '.');
   } catch (e) {
