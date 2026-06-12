@@ -5,10 +5,36 @@
     * { box-sizing: border-box; }
     body {
       font-family: Arial, sans-serif;
-      padding: 20px;
+      margin: 0;
+      padding: 0;
       font-size: 13px;
       color: #333;
+      height: 100vh;
+      overflow: hidden;
     }
+
+    /* ── Two-column layout (wide modal) ──────────────────────────────────── */
+    .layout { display: flex; height: 100%; }
+    .col-main {
+      flex: 1;
+      min-width: 0;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid #e0e0e0;
+      overflow: hidden;
+    }
+    .col-side {
+      width: 440px;
+      flex-shrink: 0;
+      padding: 20px;
+      overflow-y: auto;
+      background: #fafbfc;
+      display: flex;
+      flex-direction: column;
+    }
+    .side-bottom { margin-top: auto; padding-top: 16px; }
+
     label {
       display: block;
       font-weight: bold;
@@ -57,7 +83,14 @@
     }
 
     /* ── Runs table ────────────────────────────────────────────────────────── */
-    #runsSection { display: none; margin-top: 16px; }
+    /* Fills the left column; long run lists scroll inside runsContainer. */
+    #runsSection {
+      display: none;
+      margin-top: 16px;
+      flex: 1;
+      min-height: 0;
+      flex-direction: column;
+    }
     #runsSection h3 {
       font-size: 12px;
       font-weight: bold;
@@ -65,7 +98,16 @@
       margin: 0 0 8px 0;
       text-transform: uppercase;
       letter-spacing: 0.5px;
+      flex-shrink: 0;
     }
+    #runsContainer {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      border: 1px solid #f0f0f0;
+      border-radius: 4px;
+    }
+    #runsTable thead th { position: sticky; top: 0; z-index: 1; }
     #runsTable {
       width: 100%;
       border-collapse: collapse;
@@ -180,8 +222,8 @@
       letter-spacing: 0.5px;
     }
     #manualVins {
-      min-height: 80px;
-      max-height: 160px;
+      min-height: 140px;
+      max-height: 320px;
     }
     #vinCount {
       font-size: 11px;
@@ -235,58 +277,71 @@
 </head>
 <body>
 
-  <label for="dealerSelect">Dealer</label>
-  <select id="dealerSelect">
-    <option value="">-- Loading dealers... --</option>
-  </select>
+  <div class="layout">
 
-  <!-- Latest order number (shown after dealer loads) -->
-  <div id="latestOrderRow">
-    Most recent order in log: <span id="latestOrderSpan">—</span>
-  </div>
+    <!-- ── Left column: dealer + runs list ──────────────────────────────── -->
+    <div class="col-main">
+      <label for="dealerSelect">Dealer</label>
+      <select id="dealerSelect">
+        <option value="">-- Loading dealers... --</option>
+      </select>
 
-  <!-- Runs list (shown after dealer selected) -->
-  <div id="runsSection">
-    <h3>Order Runs</h3>
-    <div id="runsContainer"><div class="loading">Loading runs...</div></div>
-  </div>
+      <!-- Latest order number (shown after dealer loads) -->
+      <div id="latestOrderRow">
+        Most recent order in log: <span id="latestOrderSpan">—</span>
+      </div>
 
-  <!-- Action panel (shown after run selected) -->
-  <div id="actionPanel">
-    <div class="run-detail" id="runDetail"></div>
-    <div class="action-btns">
-      <button class="btn-commit"   id="commitBtn"   onclick="commitRun()">Commit to VIN Log</button>
-      <button class="btn-rollback" id="rollbackBtn" onclick="rollbackRun()">Rollback</button>
+      <!-- Runs list (shown after dealer selected) -->
+      <div id="runsSection">
+        <h3>Order Runs</h3>
+        <div id="runsContainer"><div class="loading">Loading runs...</div></div>
+      </div>
     </div>
+
+    <!-- ── Right column: actions on the selected run + manual entry ─────── -->
+    <div class="col-side">
+
+      <!-- Action panel (shown after run selected) -->
+      <div id="actionPanel">
+        <div class="run-detail" id="runDetail"></div>
+        <div class="action-btns">
+          <button class="btn-commit"   id="commitBtn"   onclick="commitRun()">Commit to VIN Log</button>
+          <button class="btn-rollback" id="rollbackBtn" onclick="rollbackRun()">Rollback</button>
+        </div>
+      </div>
+
+      <!-- Manual entry toggle button (shown after dealer selected) -->
+      <button id="manualToggle" onclick="toggleManualPanel()">
+        ＋ Manually add VINs to log <span class="arrow">▼</span>
+      </button>
+
+      <!-- Manual entry panel -->
+      <div id="manualPanel">
+        <div class="panel-title">Manual VIN Entry</div>
+
+        <label for="manualOrderId">Order Number</label>
+        <input type="text" id="manualOrderId" placeholder="e.g. 47350" />
+        <div class="hint">Enter the Pipedrive deal ID or order number for this entry.</div>
+
+        <label for="manualVins">VINs</label>
+        <textarea id="manualVins" placeholder="One VIN or stock number per line" oninput="updateVinCount()"></textarea>
+        <div id="vinCount">0 VINs</div>
+
+        <button class="btn-manual-submit" id="manualSubmitBtn" onclick="submitManual()">
+          Add to VIN Log
+        </button>
+      </div>
+
+      <div class="side-bottom">
+        <div class="btn-row" style="margin-top: 0;">
+          <button class="btn-secondary" onclick="google.script.host.close()">Close</button>
+        </div>
+        <div id="status" class="empty"></div>
+      </div>
+
+    </div>
+
   </div>
-
-  <!-- Manual entry toggle button (shown after dealer selected) -->
-  <button id="manualToggle" onclick="toggleManualPanel()">
-    ＋ Manually add VINs to log <span class="arrow">▼</span>
-  </button>
-
-  <!-- Manual entry panel -->
-  <div id="manualPanel">
-    <div class="panel-title">Manual VIN Entry</div>
-
-    <label for="manualOrderId">Order Number</label>
-    <input type="text" id="manualOrderId" placeholder="e.g. 47350" />
-    <div class="hint">Enter the Pipedrive deal ID or order number for this entry.</div>
-
-    <label for="manualVins">VINs</label>
-    <textarea id="manualVins" placeholder="One VIN or stock number per line" oninput="updateVinCount()"></textarea>
-    <div id="vinCount">0 VINs</div>
-
-    <button class="btn-manual-submit" id="manualSubmitBtn" onclick="submitManual()">
-      Add to VIN Log
-    </button>
-  </div>
-
-  <div class="btn-row">
-    <button class="btn-secondary" onclick="google.script.host.close()">Close</button>
-  </div>
-
-  <div id="status" class="empty"></div>
 
   <script>
     var selectedRun = null;
@@ -368,7 +423,7 @@
     // ── Load runs for selected dealer ───────────────────────────────────────
     function loadRuns(dealerKey) {
       var section = document.getElementById('runsSection');
-      section.style.display = 'block';
+      section.style.display = 'flex';  // flex column — runs list fills the left column and scrolls
       document.getElementById('runsContainer').innerHTML = '<div class="loading">Loading runs...</div>';
 
       google.script.run

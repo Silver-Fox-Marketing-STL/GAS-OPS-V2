@@ -59,9 +59,29 @@
     .status-bar.success { background: #e6f4ea; color: #1e7e34; }
     .status-bar.error   { background: #fce8e6; color: #c0392b; }
 
-    /* ── Mode selector ───────────────────────────────────────────────────────── */
+    /* ── Two-column import form (wide modal) ─────────────────────────────────── */
+    .import-cols { display: flex; gap: 20px; align-items: flex-start; }
+    .import-left {
+      width: 460px;
+      flex-shrink: 0;
+    }
+    .import-right {
+      flex: 1;
+      min-width: 0;
+    }
+    .files-placeholder {
+      border: 1px dashed #dadce0;
+      border-radius: 5px;
+      padding: 40px 20px;
+      text-align: center;
+      color: #aaa;
+      font-size: 12px;
+    }
+
+    /* ── Mode selector (stacked in the left column) ──────────────────────────── */
     .mode-selector {
       display: flex;
+      flex-direction: column;
       gap: 0;
       margin-bottom: 14px;
       border: 1px solid #dadce0;
@@ -73,9 +93,9 @@
       padding: 10px 14px;
       cursor: pointer;
       background: #fff;
-      border-left: 1px solid #dadce0;
+      border-top: 1px solid #dadce0;
     }
-    .mode-option:first-child { border-left: none; }
+    .mode-option:first-child { border-top: none; }
     .mode-option.active { background: #e8f0fe; }
     .mode-option .mode-title {
       font-weight: bold;
@@ -104,8 +124,8 @@
       padding: 4px 0;
     }
 
-    /* ── Per-file cards ──────────────────────────────────────────────────────── */
-    #fileCards { margin-top: 14px; }
+    /* ── Per-file cards (right column) ───────────────────────────────────────── */
+    #fileCards { margin-top: 0; }
     .file-card {
       border: 1px solid #dadce0;
       border-radius: 5px;
@@ -143,7 +163,7 @@
     .nomatch { color: #c0392b; }
 
     .totals-line {
-      margin-top: 4px;
+      margin-top: 14px;
       font-size: 12px;
       font-weight: bold;
       color: #333;
@@ -197,11 +217,17 @@
     .bulk-bar .bulk-label { font-weight: bold; color: #b06000; flex: 1; }
     .bulk-bar button { padding: 6px 14px; font-size: 12px; }
 
+    /* Conflict cards render 2-up in the wide modal */
+    #conflictList {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      align-items: start;
+    }
     .conflict-card {
       border: 1px solid #dadce0;
       border-radius: 5px;
       overflow: hidden;
-      margin-bottom: 12px;
     }
     .conflict-card-header {
       background: #f1f3f4;
@@ -245,13 +271,13 @@
     .conflict-choice label { cursor: pointer; display: flex; align-items: center; gap: 5px; }
     .variant-note { font-size: 10.5px; color: #b06000; padding: 4px 12px 8px; background: #fafafa; }
     .more-conflicts {
+      grid-column: 1 / -1;
       padding: 10px 12px;
       background: #f1f3f4;
       border-radius: 5px;
       font-size: 12px;
       color: #666;
       text-align: center;
-      margin-bottom: 12px;
     }
 
     /* ════════════════════════════════════════════════════════════════════════════
@@ -390,23 +416,34 @@
     </div>
 
     <div class="modal-body">
+      <div class="import-cols">
 
-      <div class="mode-selector">
-        <div class="mode-option active" id="modeReplace" onclick="setMode('replace')">
-          <div class="mode-title"><input type="radio" name="importMode" id="modeReplaceRadio" checked> Main Import (Replace)</div>
-          <div class="mode-desc">Clears the current SCRAPERDATA and imports the selected file(s) as the new dataset.</div>
+        <!-- Left: mode + file picker -->
+        <div class="import-left">
+          <div class="mode-selector">
+            <div class="mode-option active" id="modeReplace" onclick="setMode('replace')">
+              <div class="mode-title"><input type="radio" name="importMode" id="modeReplaceRadio" checked> Main Import (Replace)</div>
+              <div class="mode-desc">Clears the current SCRAPERDATA and imports the selected file(s) as the new dataset.</div>
+            </div>
+            <div class="mode-option" id="modeMerge" onclick="setMode('merge')">
+              <div class="mode-title"><input type="radio" name="importMode" id="modeMergeRadio"> Merge with Existing</div>
+              <div class="mode-desc">Adds the selected file(s) to the current data. Same VIN + identical data is kept once; differing data is flagged for review. Health drop-checks are only meaningful on Replace.</div>
+            </div>
+          </div>
+
+          <label class="field-label" for="fileInput">Select CSV File(s)</label>
+          <input type="file" id="fileInput" accept=".csv" multiple onchange="handleFilesSelect()" />
+          <div class="totals-line" id="totalsLine" style="display:none;"></div>
         </div>
-        <div class="mode-option" id="modeMerge" onclick="setMode('merge')">
-          <div class="mode-title"><input type="radio" name="importMode" id="modeMergeRadio"> Merge with Existing</div>
-          <div class="mode-desc">Adds the selected file(s) to the current data. Same VIN + identical data is kept once; differing data is flagged for review. Health drop-checks are only meaningful on Replace.</div>
+
+        <!-- Right: per-file parse results -->
+        <div class="import-right">
+          <div id="fileCards">
+            <div class="files-placeholder">Selected files will appear here with their column mapping.</div>
+          </div>
         </div>
+
       </div>
-
-      <label class="field-label" for="fileInput">Select CSV File(s)</label>
-      <input type="file" id="fileInput" accept=".csv" multiple onchange="handleFilesSelect()" />
-
-      <div id="fileCards"></div>
-      <div class="totals-line" id="totalsLine" style="display:none;"></div>
     </div>
 
     <div class="modal-footer">
@@ -947,7 +984,8 @@
       pendingPayload = null;
       conflictState  = null;
 
-      document.getElementById('fileCards').innerHTML       = '';
+      document.getElementById('fileCards').innerHTML       =
+        '<div class="files-placeholder">Selected files will appear here with their column mapping.</div>';
       document.getElementById('totalsLine').style.display  = 'none';
       document.getElementById('importBtn').disabled        = true;
       document.getElementById('importBtn').textContent     = 'Import Data';
