@@ -276,6 +276,22 @@ function getConfigSS_() {
   return _configSS_;
 }
 
+// Same single-open-per-execution pattern for the other two openById() targets.
+// (getActiveSpreadsheet() call sites are deliberately NOT routed through these —
+// see LEARNINGS on openById vs getActiveSpreadsheet write+read consistency.)
+var _masterSS_  = null;
+var _vinLogsSS_ = null;
+
+function getMasterSS_() {
+  if (!_masterSS_) _masterSS_ = SpreadsheetApp.openById(MASTER_SHEET_ID);
+  return _masterSS_;
+}
+
+function getVinLogsSS_() {
+  if (!_vinLogsSS_) _vinLogsSS_ = SpreadsheetApp.openById(VIN_LOGS_ID);
+  return _vinLogsSS_;
+}
+
 
 // ── RECALC DELAY HELPER ───────────────────────────────────────────────────────
 // Replaces the fixed Utilities.sleep() calls after ORDERMATCH and LINKBUILDER
@@ -285,6 +301,22 @@ function getConfigSS_() {
 //   msPerRow  — estimated milliseconds per row
 //   minMs     — floor (always wait at least this long for Sheets to register the write)
 //   maxMs     — ceiling (never wait longer than this)
+/**
+ * Polls a readiness check every 250ms until it returns true or maxMs elapses.
+ * Replaces fixed recalc sleeps: the typical case exits in 250–750ms instead of
+ * always paying the worst-case cap; the worst case (e.g. a zero-match QUERY
+ * that never populates) is unchanged — it waits exactly the old cap.
+ */
+function waitForRecalc_(maxMs, isReady) {
+  var waited = 0;
+  while (waited < maxMs) {
+    Utilities.sleep(250);
+    waited += 250;
+    try { if (isReady()) return waited; } catch (e) { /* keep waiting */ }
+  }
+  return waited;
+}
+
 function calcRecalcDelay_(rowCount, msPerRow, minMs, maxMs) {
   return Math.max(minMs, Math.min(maxMs, rowCount * msPerRow));
 }
@@ -314,21 +346,27 @@ function isTrue_(val) {
 function onOpen() {
   var ui   = SpreadsheetApp.getUi();
   var menu = ui.createMenu('SilverFox V2');
-  menu.addItem('Run Dealer...', 'promptRunDealer');
+  menu.addItem('🚀 Open SilverFox', 'openApp');
+  // Classic per-modal entry points kept as a fallback during App validation.
+  // Remove this submenu (and Classic.html / openViewStandalone_) at sign-off.
+  var classic = ui.createMenu('Classic menu (deprecated)');
+  classic.addItem('Run Dealer...', 'promptRunDealer');
+  classic.addSeparator();
+  classic.addItem('Import Scraper Data...', 'openScraperImport');
+  classic.addItem('Update Scraper Timestamp', 'fillScraperDateTime');
+  classic.addSeparator();
+  classic.addItem('Update VIN Log...', 'openVINLogUpdater');
+  classic.addSeparator();
+  classic.addItem('Clear QR Folders (all active dealers)', 'eraseAllQRFolders');
+  classic.addItem('Clean Up Old Output Docs', 'cleanUpOutputDocs');
+  classic.addSeparator();
+  classic.addItem('View Run Log', 'openRunLog');
+  classic.addSeparator();
+  classic.addItem('Manage Normalization Maps...', 'openNormManager');
+  classic.addItem('Refresh Norm/Field Reference', 'refreshNormReference');
+  classic.addItem('Edit Dealer Rules...', 'openRulesEditor');
   menu.addSeparator();
-  menu.addItem('Import Scraper Data...', 'openScraperImport');
-  menu.addItem('Update Scraper Timestamp', 'fillScraperDateTime');
-  menu.addSeparator();
-  menu.addItem('Update VIN Log...', 'openVINLogUpdater');
-  menu.addSeparator();
-  menu.addItem('Clear QR Folders (all active dealers)', 'eraseAllQRFolders');
-  menu.addItem('Clean Up Old Output Docs', 'cleanUpOutputDocs');
-  menu.addSeparator();
-  menu.addItem('View Run Log', 'openRunLog');
-  menu.addSeparator();
-  menu.addItem('Manage Normalization Maps...', 'openNormManager');
-  menu.addItem('Refresh Norm/Field Reference', 'refreshNormReference');
-  menu.addItem('Edit Dealer Rules...', 'openRulesEditor');
+  menu.addSubMenu(classic);
   menu.addToUi();
 }
 
@@ -338,18 +376,55 @@ function onOpen() {
 var MODAL_WIDTH  = 1400;
 var MODAL_HEIGHT = 900;
 
-function promptRunDealer() {
-  var html = HtmlService.createHtmlOutputFromFile('DealerSelector')
-    .setWidth(MODAL_WIDTH)
-    .setHeight(MODAL_HEIGHT);
-  SpreadsheetApp.getUi().showModalDialog(html, 'Run Dealer');
+/**
+ * Template include helper — returns a fragment file's raw content for
+ * <?!= include_('ViewXxx') ?> scriptlets in App.html / Classic.html.
+ * Trailing underscore keeps it off the google.script.run surface.
+ */
+function include_(name) {
+  return HtmlService.createHtmlOutputFromFile(name).getContent();
 }
 
-function openScraperImport() {
-  var html = HtmlService.createHtmlOutputFromFile('ScraperImport')
+/**
+ * Opens the SilverFox App — the single-modal SPA shell. Views are stitched
+ * into App.html via include_() and switched client-side (no dialog swaps).
+ */
+function openApp() {
+  var html = HtmlService.createTemplateFromFile('App').evaluate()
     .setWidth(MODAL_WIDTH)
     .setHeight(MODAL_HEIGHT);
-  SpreadsheetApp.getUi().showModalDialog(html, 'Import Scraper Data');
+  SpreadsheetApp.getUi().showModalDialog(html, 'SilverFox');
+}
+
+/**
+ * Serves one converted view fragment as a standalone dialog — powers the
+ * "Classic menu" fallback during App validation with zero code duplication.
+ */
+function openViewStandalone_(fragmentName, title) {
+  var t = HtmlService.createTemplateFromFile('Classic');
+  t.fragment = fragmentName;
+  var html = t.evaluate().setWidth(MODAL_WIDTH).setHeight(MODAL_HEIGHT);
+  SpreadsheetApp.getUi().showModalDialog(html, title);
+}
+
+/**
+ * Home-page status strip: last scraper import timestamp from SCRAPERDATA
+ * W1:X1 (written by fillScraperDateTime on every import).
+ */
+function getAppHomeStatus() {
+  var vals = SpreadsheetApp.getActiveSpreadsheet()
+    .getSheetByName('SCRAPERDATA').getRange('W1:X1').getDisplayValues()[0];
+  return { lastImportDate: vals[0], lastImportTime: vals[1] };
+}
+
+// Classic fallback: serves the converted App fragment standalone.
+function promptRunDealer() {
+  openViewStandalone_('ViewRun', 'Run Dealer');
+}
+
+// Classic fallback: serves the converted App fragment standalone.
+function openScraperImport() {
+  openViewStandalone_('ViewImport', 'Import Scraper Data');
 }
 
 /**
@@ -379,7 +454,7 @@ function importScraperData(mappedData, mode, resolutions, fileNames, token) {
   }
   mode = (mode === 'merge') ? 'merge' : 'replace';
 
-  var ss    = SpreadsheetApp.openById(MASTER_SHEET_ID);
+  var ss    = getMasterSS_();
   var sheet = ss.getSheetByName('SCRAPERDATA');
 
   // Normalize incoming rows in place (type, trim, status, price + global
@@ -672,11 +747,26 @@ function groupRowsByLocation_(rows) {
     }
     buckets[loc].push(rows[i]);
   }
+  // push.apply per bucket — `out = out.concat(...)` re-copied the accumulated
+  // array once per location (O(n²) at 12k rows / 43 locations).
   var out = [];
   for (var j = 0; j < order.length; j++) {
-    out = out.concat(buckets[order[j]]);
+    Array.prototype.push.apply(out, buckets[order[j]]);
   }
   return out;
+}
+
+/**
+ * Single round-trip App bootstrap: the data Run Order and VIN Logs each
+ * fetched in separate executions (dealers ×2 + user profiles = 3 cold starts).
+ * The App fetches this once via the shared client-side AppData latch; both
+ * reads share one getConfigSS_() open.
+ */
+function getAppBootstrap() {
+  return {
+    dealers: getActiveDealersForUI(),
+    users:   getUserProfilesForModal()
+  };
 }
 
 // Called by the sidebar to populate the dropdown
@@ -866,9 +956,11 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     setProgress_(runId, 'Running ORDERMATCH query...', 38);
     writeOrderMatchFormula_(outputDoc, vins, isTrue_(config[CFG.USE_STOCK]));
     SpreadsheetApp.flush();
-    // Wait scales with order size: ~40ms/row, 1000ms floor, 3500ms ceiling.
-    // A 10-VIN order waits ~1s instead of the previous fixed 3s.
-    Utilities.sleep(calcRecalcDelay_(vins.length, 40, 1000, 3500));
+    // Poll for the QUERY spill instead of a fixed sleep — exits as soon as
+    // results land. Cap matches the old delay (40ms/row, 1s floor, 3.5s cap).
+    waitForRecalc_(calcRecalcDelay_(vins.length, 40, 1000, 3500), function() {
+      return String(outputDoc.getSheetByName('ORDERMATCH').getRange('A2').getValue()) !== '';
+    });
     var matchedRows = readOrderMatchResults_(outputDoc);
     Logger.log('Matched rows: ' + matchedRows.length);
 
@@ -879,10 +971,16 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     // 11. Build LINKBUILDER, generate QR codes in parallel
     setProgress_(runId, 'Building link formulas...', 56);
     var links    = buildLinks_(outputDoc, config, typeRules);
+    // Auto-clear the dealer's QR folder first: folders then only ever hold the
+    // current run's PNGs (old ones go to Drive trash, 30-day recovery). Keeps
+    // uploads fast, abandons cheap, and kills the duplicate-filename pileup.
+    setProgress_(runId, 'Clearing old QR codes...', 60);
+    var clearedOld = clearQRFolder_(config[CFG.QR_FOLDER_ID]);
+    if (clearedOld > 0) Logger.log('Cleared ' + clearedOld + ' old QR PNGs before run.');
+
     setProgress_(runId, 'Generating ' + links.length + ' QR code' + (links.length === 1 ? '' : 's') + ' (parallel)...', 64);
-    var qrFolder = DriveApp.getFolderById(config[CFG.QR_FOLDER_ID]);
-    generateQRCodesParallel_(links, qrFolder, config[CFG.QR_PREFIX]);
-    Logger.log('QR codes generated: ' + links.length);
+    var qrFileIds = generateQRCodesParallel_(links, config[CFG.QR_FOLDER_ID], config[CFG.QR_PREFIX]);
+    Logger.log('QR codes generated: ' + qrFileIds.length + ' of ' + links.length);
 
     // 12. Write QR paths into ORDERMATCH col J
     setProgress_(runId, links.length + ' QR codes complete. Writing paths...', 82);
@@ -946,6 +1044,7 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
         note:          'SPLIT:PRIMARY',
         prefillDealId: dealId || '',
         outputDocId:   outputDocId,
+        qrFileIds:     qrFileIds,
         durationSec:   duration,
         errors:        errors
       });
@@ -960,6 +1059,7 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
         note:          'SPLIT:' + billingSplit.groupName,
         prefillDealId: splitDealId || '',
         outputDocId:   outputDocId,
+        qrFileIds:     qrFileIds,
         durationSec:   duration,
         errors:        errors
       });
@@ -976,6 +1076,7 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
                          ? 'split: 0 ' + billingSplit.groupName + ' units' : '',
         prefillDealId: dealId || '',
         outputDocId:   outputDocId,
+        qrFileIds:     qrFileIds,
         durationSec:   duration,
         errors:        errors
       });
@@ -1054,7 +1155,7 @@ function getOrderVINs_(colLetter) {
  * then do one contiguous read of exactly those rows.
  */
 function getDealerScraperData_(scraperLocationName) {
-  var sheet   = SpreadsheetApp.openById(MASTER_SHEET_ID).getSheetByName('SCRAPERDATA');
+  var sheet   = getMasterSS_().getSheetByName('SCRAPERDATA');
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
 
@@ -1303,14 +1404,20 @@ function buildLinks_(outputDoc, config, typeRules) {
 
   writeLinkBuilderFormulas_(outputDoc, config, typeRules);
   SpreadsheetApp.flush();
-  // Wait scales with row count: ~30ms/row, 700ms floor, 2000ms ceiling.
-  Utilities.sleep(calcRecalcDelay_(numRows, 30, 700, 2000));
+  var readCol = (config[CFG.LINKBUILDER_COL] === 'C') ? 3 : 2;
+  // Poll until the LAST link formula has produced a URL — exits early on fast
+  // recalcs. Cap matches the old fixed delay (30ms/row, 700ms floor, 2s cap);
+  // rows without a URL fall back to waiting the full cap, same as before.
+  waitForRecalc_(calcRecalcDelay_(numRows, 30, 700, 2000), function() {
+    if (numRows === 0) return true;
+    var v = String(outputDoc.getSheetByName('LINKBUILDER').getRange(numRows + 1, readCol).getValue());
+    return v.indexOf('http') === 0;
+  });
 
   var sheet   = outputDoc.getSheetByName('LINKBUILDER');
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
 
-  var readCol = (config[CFG.LINKBUILDER_COL] === 'C') ? 3 : 2;
   return sheet.getRange(2, readCol, lastRow - 1, 1).getValues()
     .map(function(r)    { return String(r[0]).trim(); })
     .filter(function(v) { return v !== '' && v.indexOf('http') === 0; });
@@ -1355,36 +1462,126 @@ function writeLinkBuilderFormulas_(outputDoc, config, typeRules) {
 // SECTION 9: QR CODE GENERATION (PARALLEL)
 // ============================================================================
 
-function generateQRCodesParallel_(links, qrFolder, qrPrefix) {
-  if (!links || links.length === 0) return;
+/**
+ * Generates QR PNGs (parallel download) and saves them to the dealer's Drive
+ * folder via PARALLEL multipart uploads to the Drive REST API — the old
+ * sequential DriveApp.createFile() loop cost ~120ms per file (6–24s per run).
+ * Returns the created Drive file IDs (QR index order) so the finalization
+ * panel can abandon exactly this run's files by ID. Any upload that fails
+ * falls back to a one-off DriveApp.createFile for that file.
+ */
+function generateQRCodesParallel_(links, qrFolderId, qrPrefix) {
+  if (!links || links.length === 0) return [];
 
-  var requests = links.map(function(url) {
+  // 1. Download all QR PNGs in one parallel round (unchanged).
+  var dlRequests = links.map(function(url) {
     return {
       url:                'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' + encodeURIComponent(url),
       method:             'GET',
       muteHttpExceptions: true
     };
   });
+  var responses = UrlFetchApp.fetchAll(dlRequests);
 
-  var responses = UrlFetchApp.fetchAll(requests);
-
+  // 2. Build one multipart upload request per successful download.
+  var token    = ScriptApp.getOAuthToken();
+  var boundary = 'sfx_qr_upload_boundary';
+  var uploads  = [];
+  var qrIndex  = [];  // upload position → original QR index (for names/fallback)
   responses.forEach(function(response, i) {
-    if (response.getResponseCode() === 200) {
-      var fileName = qrPrefix + '_QR_Code_' + (i + 1) + '.PNG';
-      qrFolder.createFile(response.getBlob().setName(fileName).setContentType('image/png'));
-    } else {
-      Logger.log('QR failed for index ' + (i + 1) + ': HTTP ' + response.getResponseCode());
+    if (response.getResponseCode() !== 200) {
+      Logger.log('QR download failed for index ' + (i + 1) + ': HTTP ' + response.getResponseCode());
+      return;
     }
+    var fileName = qrPrefix + '_QR_Code_' + (i + 1) + '.PNG';
+    var body =
+      '--' + boundary + '\r\n' +
+      'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+      JSON.stringify({ name: fileName, parents: [qrFolderId] }) + '\r\n' +
+      '--' + boundary + '\r\n' +
+      'Content-Type: image/png\r\n' +
+      'Content-Transfer-Encoding: base64\r\n\r\n' +
+      Utilities.base64Encode(response.getBlob().getBytes()) + '\r\n' +
+      '--' + boundary + '--';
+    uploads.push({
+      url:                'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
+      method:             'post',
+      contentType:        'multipart/related; boundary=' + boundary,
+      headers:            { Authorization: 'Bearer ' + token },
+      payload:            body,
+      muteHttpExceptions: true
+    });
+    qrIndex.push(i);
   });
+
+  // 3. Fire uploads in parallel batches; collect file IDs in QR order.
+  var qrFileIds = [];
+  for (var b = 0; b < uploads.length; b += 50) {
+    var batch = UrlFetchApp.fetchAll(uploads.slice(b, b + 50));
+    batch.forEach(function(r, j) {
+      var idx = qrIndex[b + j];
+      if (r.getResponseCode() < 300) {
+        qrFileIds.push(JSON.parse(r.getContentText()).id);
+      } else {
+        Logger.log('QR upload failed for index ' + (idx + 1) + ': HTTP ' +
+                   r.getResponseCode() + ' — falling back to DriveApp.');
+        try {
+          var fn = qrPrefix + '_QR_Code_' + (idx + 1) + '.PNG';
+          qrFileIds.push(DriveApp.getFolderById(qrFolderId)
+            .createFile(responses[idx].getBlob().setName(fn).setContentType('image/png'))
+            .getId());
+        } catch (e) {
+          Logger.log('QR fallback createFile failed for index ' + (idx + 1) + ': ' + e.message);
+        }
+      }
+    });
+  }
+  return qrFileIds;
 }
 
+/**
+ * Batch-trashes Drive files via the REST API — one parallel fetchAll round
+ * per 100 files instead of a sequential DriveApp.setTrashed() per file
+ * (~120ms each; hundreds of files = minutes — this was the "abandon hangs"
+ * bottleneck). Token scope is already granted via the script's DriveApp use.
+ */
+function trashFilesParallel_(fileIds) {
+  if (!fileIds || fileIds.length === 0) return 0;
+  var token = ScriptApp.getOAuthToken();
+  var requests = fileIds.map(function(id) {
+    return {
+      url:                'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(id),
+      method:             'patch',
+      contentType:        'application/json',
+      headers:            { Authorization: 'Bearer ' + token },
+      payload:            JSON.stringify({ trashed: true }),
+      muteHttpExceptions: true
+    };
+  });
+  var ok = 0;
+  for (var i = 0; i < requests.length; i += 100) {
+    UrlFetchApp.fetchAll(requests.slice(i, i + 100)).forEach(function(r) {
+      if (r.getResponseCode() < 300) ok++;
+      else Logger.log('trashFilesParallel_: HTTP ' + r.getResponseCode());
+    });
+  }
+  return ok;
+}
+
+// Clears a QR folder by collecting file IDs (cheap iteration) and batch-
+// trashing them in parallel. Also called automatically at the start of every
+// run so dealer QR folders only ever hold the current run's PNGs.
 function clearQRFolder_(folderId) {
-  var folder = DriveApp.getFolderById(folderId);
-  var files  = folder.getFiles();
-  while (files.hasNext()) files.next().setTrashed(true);
+  var ids   = [];
+  var files = DriveApp.getFolderById(folderId).getFiles();
+  while (files.hasNext()) ids.push(files.next().getId());
+  return trashFilesParallel_(ids);
 }
 
-function eraseAllQRFolders() {
+// Core/wrapper split: ui.alert() FAILS when a function is invoked from a
+// dialog via google.script.run, so the App calls app*() wrappers that return
+// {message} for an in-app toast, while the classic menu keeps its alert.
+function eraseAllQRFoldersCore_() {
   var data    = getConfigSS_()
     .getSheetByName('DEALERS').getDataRange().getValues();
   var cleared = 0;
@@ -1394,7 +1591,17 @@ function eraseAllQRFolders() {
       catch(e) { Logger.log('QR folder clear failed: ' + data[i][CFG.KEY] + ' — ' + e.message); }
     }
   }
+  return cleared;
+}
+
+function eraseAllQRFolders() {
+  var cleared = eraseAllQRFoldersCore_();
   SpreadsheetApp.getUi().alert('Cleared QR folders for ' + cleared + ' active dealers.');
+}
+
+function appEraseAllQRFolders() {
+  var cleared = eraseAllQRFoldersCore_();
+  return { message: 'Cleared QR folders for ' + cleared + ' active dealers.' };
 }
 
 
@@ -1568,7 +1775,7 @@ function writeCSVSheet_(outputDoc, sheetName, headers, rows) {
 // ============================================================================
 
 function copyVINLogToOutput_(outputDoc, dealerKey) {
-  var vinLogSS  = SpreadsheetApp.openById(VIN_LOGS_ID);
+  var vinLogSS  = getVinLogsSS_();
   var logSheet  = vinLogSS.getSheetByName(dealerKey);
   if (!logSheet) { Logger.log('No VIN log tab found for: ' + dealerKey); return; }
   var lastRow   = logSheet.getLastRow();
@@ -2004,7 +2211,7 @@ function copyTemplateToFolder_(templateId, folderId) {
   return SpreadsheetApp.openById(copy.getId());
 }
 
-function cleanUpOutputDocs(daysOld) {
+function cleanUpOutputDocsCore_(daysOld) {
   daysOld = daysOld || 30;
   var cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - daysOld);
@@ -2014,7 +2221,17 @@ function cleanUpOutputDocs(daysOld) {
     var f = files.next();
     if (f.getLastUpdated() < cutoff) { f.setTrashed(true); count++; }
   }
-  SpreadsheetApp.getUi().alert('Trashed ' + count + ' output docs older than ' + daysOld + ' days.');
+  return { count: count, daysOld: daysOld };
+}
+
+function cleanUpOutputDocs(daysOld) {
+  var r = cleanUpOutputDocsCore_(daysOld);
+  SpreadsheetApp.getUi().alert('Trashed ' + r.count + ' output docs older than ' + r.daysOld + ' days.');
+}
+
+function appCleanUpOutputDocs() {
+  var r = cleanUpOutputDocsCore_(30);
+  return { message: 'Trashed ' + r.count + ' output docs older than ' + r.daysOld + ' days.' };
 }
 
 /**
@@ -2030,7 +2247,7 @@ function cleanUpOutputDocs(daysOld) {
  * @param {string} outputDocId - from the pending run entry
  * @return {Object} {trashedDoc, trashedQrs}
  */
-function abandonRun(dealerKey, outputDocId) {
+function abandonRun(dealerKey, outputDocId, qrFileIds) {
   var config = getDealerConfig_(dealerKey);
   if (!config) throw new Error('Dealer key not found: ' + dealerKey);
 
@@ -2046,19 +2263,26 @@ function abandonRun(dealerKey, outputDocId) {
     }
   }
 
-  // Trash this dealer's QR PNGs (<prefix>_QR_Code_N.PNG). Same scope the
-  // Erase QR Folders maintenance already clears; earlier runs' PNGs are
-  // downloaded locally before printing, so nothing needed is lost.
+  // Trash this run's QR PNGs. Preferred path: the exact file IDs captured at
+  // generation time (qrFileIds on the pendingRuns entry) batch-trashed in one
+  // parallel round — O(this run), regardless of folder size. Fallback for
+  // entries created before IDs were tracked: the old name-pattern folder scan.
   var trashedQrs = 0;
   try {
-    var prefix  = String(config[CFG.QR_PREFIX] || '').trim();
-    var pattern = new RegExp('^' + prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') +
-                             '_QR_Code_\\d+\\.png$', 'i');
-    if (prefix && config[CFG.QR_FOLDER_ID]) {
-      var qrFiles = DriveApp.getFolderById(config[CFG.QR_FOLDER_ID]).getFiles();
-      while (qrFiles.hasNext()) {
-        var qf = qrFiles.next();
-        if (pattern.test(qf.getName())) { qf.setTrashed(true); trashedQrs++; }
+    if (qrFileIds && qrFileIds.length > 0) {
+      trashedQrs = trashFilesParallel_(qrFileIds);
+    } else {
+      var prefix  = String(config[CFG.QR_PREFIX] || '').trim();
+      var pattern = new RegExp('^' + prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') +
+                               '_QR_Code_\\d+\\.png$', 'i');
+      if (prefix && config[CFG.QR_FOLDER_ID]) {
+        var ids = [];
+        var qrFiles = DriveApp.getFolderById(config[CFG.QR_FOLDER_ID]).getFiles();
+        while (qrFiles.hasNext()) {
+          var qf = qrFiles.next();
+          if (pattern.test(qf.getName())) ids.push(qf.getId());
+        }
+        trashedQrs = trashFilesParallel_(ids);
       }
     }
   } catch (e) {
@@ -2100,7 +2324,7 @@ function writeConfigCache_(outputDoc, config) {
 // ============================================================================
 
 function fillScraperDateTime() {
-  var ss  = SpreadsheetApp.openById(MASTER_SHEET_ID);
+  var ss  = getMasterSS_();
   var now = new Date();
   var d   = Utilities.formatDate(now, 'America/Chicago', 'yyyy/MM/dd');
   var t   = Utilities.formatDate(now, 'America/Chicago', 'HH:mm:ss');
@@ -2108,6 +2332,14 @@ function fillScraperDateTime() {
   ss.getSheetByName('SCRAPERDATA').getRange('X1').setValue(t);
   ss.getSheetByName('HELPERS').getRange('A1').setValue(d);
   ss.getSheetByName('HELPERS').getRange('B1').setValue(t);
+  // Return for App callers (menu invocations ignore this).
+  return { message: 'Scraper timestamp set to ' + d + ' ' + t + '.' };
+}
+
+// App wrapper for View Run Log: activates the tab (behind the modal).
+function appOpenRunLog() {
+  openRunLog();
+  return { message: 'RUN_LOG tab opened behind this window.' };
 }
 
 function onEdit(e) {
@@ -2166,11 +2398,9 @@ function auditConfigPlaceholders() {
 
 var NORM_MAPS_TAB = 'NORM_MAPS';
 
+// Classic fallback: serves the converted App fragment standalone.
 function openNormManager() {
-  var html = HtmlService.createHtmlOutputFromFile('NormManager')
-    .setWidth(MODAL_WIDTH)
-    .setHeight(MODAL_HEIGHT);
-  SpreadsheetApp.getUi().showModalDialog(html, 'Normalization Maps');
+  openViewStandalone_('ViewNorm', 'Normalization Maps');
 }
 
 function getNormMapsSheet_() {
@@ -2201,10 +2431,10 @@ var NORM_REFERENCE_FIELDS = [
  * you want a fresh snapshot to spot new raw values to normalize or to build targeting
  * conditions. The script still only reads NORM_MAPS cols A–C for rules — E+ is inert.
  */
-function refreshNormReference() {
-  var master  = SpreadsheetApp.openById(MASTER_SHEET_ID).getSheetByName('SCRAPERDATA');
+function refreshNormReferenceCore_() {
+  var master  = getMasterSS_().getSheetByName('SCRAPERDATA');
   var lastRow = master.getLastRow();
-  if (lastRow < 2) { SpreadsheetApp.getUi().alert('SCRAPERDATA is empty — nothing to reference.'); return; }
+  if (lastRow < 2) return { ok: false, message: 'SCRAPERDATA is empty — nothing to reference.' };
 
   // Read the contiguous span covering every referenced column in one call (C..L).
   var minIdx = 2, maxIdx = 11;                       // 0-based: Type(2) .. Fuel Type(11)
@@ -2251,9 +2481,20 @@ function refreshNormReference() {
   var ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
   sheet.getRange(1, startCol + nFields + 1).setValue('Refreshed: ' + ts + ' (on-demand)');
 
-  SpreadsheetApp.getActiveSpreadsheet().toast(
-    'Reference refreshed in SF_DEALER_CONFIG → NORM_MAPS cols E+ (' + (lastRow - 1) + ' rows scanned).',
-    'SilverFox V2', 6);
+  var doneMsg = 'Reference refreshed in SF_DEALER_CONFIG → NORM_MAPS cols E+ (' + (lastRow - 1) + ' rows scanned).';
+  SpreadsheetApp.getActiveSpreadsheet().toast(doneMsg, 'SilverFox V2', 6);
+  return { ok: true, message: doneMsg };
+}
+
+// Menu wrapper: alert on the empty-data path (ui.alert is menu-context only).
+function refreshNormReference() {
+  var r = refreshNormReferenceCore_();
+  if (!r.ok) SpreadsheetApp.getUi().alert(r.message);
+}
+
+// App wrapper: returns {message} for the in-app toast.
+function appRefreshNormReference() {
+  return refreshNormReferenceCore_();
 }
 
 function loadNormalizationMaps_() {
@@ -2764,7 +3005,7 @@ function getCaoVins(dealerKey) {
 }
 
 function getLoggedVins_(dealerKey) {
-  var logSS  = SpreadsheetApp.openById(VIN_LOGS_ID);
+  var logSS  = getVinLogsSS_();
   var sheet  = logSS.getSheetByName(dealerKey);
   var logged = {};
 
@@ -2789,11 +3030,9 @@ function getLoggedVins_(dealerKey) {
 // SECTION 23: VIN LOG — COMMIT / ROLLBACK
 // ============================================================================
 
+// Classic fallback: serves the converted App fragment standalone.
 function openVINLogUpdater() {
-  var html = HtmlService.createHtmlOutputFromFile('VINLogUpdater')
-    .setWidth(MODAL_WIDTH)
-    .setHeight(MODAL_HEIGHT);
-  SpreadsheetApp.getUi().showModalDialog(html, 'Update VIN Log');
+  openViewStandalone_('ViewVinLog', 'Update VIN Log');
 }
 
 function getRunsForDealer(dealerKey) {
@@ -2841,7 +3080,7 @@ function commitRunToVINLog(dealerKey, runRowIndex, dealId, producedVins) {
     throw new Error('No VINs to commit for this run.');
   }
 
-  var logSS    = SpreadsheetApp.openById(VIN_LOGS_ID);
+  var logSS    = getVinLogsSS_();
   var logSheet = logSS.getSheetByName(dealerKey);
   if (!logSheet) throw new Error('No VIN log tab found for: ' + dealerKey);
 
@@ -2861,7 +3100,7 @@ function commitRunToVINLog(dealerKey, runRowIndex, dealId, producedVins) {
 }
 
 function rollbackRunFromVINLog(dealerKey, runRowIndex, dealId, committedAt) {
-  var logSS    = SpreadsheetApp.openById(VIN_LOGS_ID);
+  var logSS    = getVinLogsSS_();
   var logSheet = logSS.getSheetByName(dealerKey);
   if (!logSheet) throw new Error('No VIN log tab found for: ' + dealerKey);
 
@@ -2947,7 +3186,7 @@ function commitRunRows(dealerKey, rowIndexes) {
 }
 
 function getCommittedAt(dealerKey, dealId) {
-  var logSS    = SpreadsheetApp.openById(VIN_LOGS_ID);
+  var logSS    = getVinLogsSS_();
   var logSheet = logSS.getSheetByName(dealerKey);
   if (!logSheet) return null;
 
@@ -2974,7 +3213,7 @@ function getCommittedAt(dealerKey, dealId) {
 // ============================================================================
 
 function addCommittedAtHeaders() {
-  var ss      = SpreadsheetApp.openById(VIN_LOGS_ID);
+  var ss      = getVinLogsSS_();
   var sheets  = ss.getSheets();
   var skip    = ['README', 'Sheet1'];
   var updated = 0;
@@ -3045,7 +3284,7 @@ function clearRunProgress(runId) {
  * @returns {{ latestOrderId: string|null }}
  */
 function getLatestOrderId(dealerKey) {
-  var logSS = SpreadsheetApp.openById(VIN_LOGS_ID);
+  var logSS = getVinLogsSS_();
   var sheet = logSS.getSheetByName(dealerKey);
 
   if (!sheet) return { latestOrderId: null };
@@ -3080,7 +3319,7 @@ function manualCommitToVINLog(dealerKey, orderId, vins) {
   if (!orderId || String(orderId).trim() === '') throw new Error('Order number is required.');
   if (!vins || vins.length === 0) throw new Error('No VINs provided.');
 
-  var logSS  = SpreadsheetApp.openById(VIN_LOGS_ID);
+  var logSS  = getVinLogsSS_();
   var sheet  = logSS.getSheetByName(dealerKey);
   if (!sheet) throw new Error('No VIN log tab found for: ' + dealerKey);
 
@@ -3114,11 +3353,9 @@ function manualCommitToVINLog(dealerKey, orderId, vins) {
 // SECTION 27: DEALER RULES EDITOR
 // ============================================================================
 
+// Classic fallback: serves the converted App fragment standalone.
 function openRulesEditor() {
-  var html = HtmlService.createHtmlOutputFromFile('RulesEditor')
-    .setWidth(MODAL_WIDTH)
-    .setHeight(MODAL_HEIGHT);
-  SpreadsheetApp.getUi().showModalDialog(html, 'Edit Dealer Rules');
+  openViewStandalone_('ViewRules', 'Edit Dealer Rules');
 }
 
 /**
@@ -3418,8 +3655,13 @@ function checkImportHealth_(ss, currentTs, locationDetail) {
     var lastRow = sheet.getLastRow();
     if (lastRow < 2) return issues;  // No history yet at all
 
-    // Read all historical rows (excluding the rows we JUST wrote, identified by currentTs)
-    var allData = sheet.getRange(2, 1, lastRow - 1, 13).getValues();
+    // Tail read: rolling baselines only need recent history (MIN_IMPORTS_FOR_
+    // BASELINE imports per location). 2,000 rows ≈ the last ~45 imports at 43
+    // locations — far more than the baselines use, while keeping this read
+    // constant-time as IMPORT_STATS (the fastest-growing log tab) accumulates.
+    var HEALTH_TAIL_ROWS = 2000;
+    var startRow = Math.max(2, lastRow - HEALTH_TAIL_ROWS + 1);
+    var allData = sheet.getRange(startRow, 1, lastRow - startRow + 1, 13).getValues();
 
     // Build per-location history: { locationName: [ {total, new, po, cpo, cpo_el, no_price, no_stock}, ... ] }
     var history = {};
@@ -3759,17 +4001,24 @@ function refreshDashboard_(ss, importTimestamp, locationDetail) {
                .setHorizontalAlignment('center');
     dashboard.getRange(R_COL_HDR, 1).setHorizontalAlignment('left');
 
-    // Data rows — alternating, numbers centered, location left
+    // Data rows — alternating stripes, numbers centered, location left.
+    // Block-formatted: the old per-row loop issued ~12 range ops per location
+    // (~500 calls per refresh ≈ 1.5–2.5s); this does the same in 7 calls.
     if (n > 0) {
+      var bgMatrix = [];
       for (var i = 0; i < n; i++) {
-        var rowNum = R_DATA_START + i;
-        var rowBg  = (i % 2 === 0) ? C_WHITE : C_STRIPE;
-        var rowRange = dashboard.getRange(rowNum, 1, 1, 10);
-        rowRange.setBackgroundObject(rowBg).setFontSize(10).setHorizontalAlignment('center')
-                .setNumberFormat('#,##0');
-        dashboard.getRange(rowNum, 1).setHorizontalAlignment('left').setNumberFormat('@');
-        dashboard.getRange(rowNum, 10).setHorizontalAlignment('center').setNumberFormat('@');
+        var rowBg = (i % 2 === 0) ? C_WHITE : C_STRIPE;
+        var bgRow = [];
+        for (var bc = 0; bc < 10; bc++) bgRow.push(rowBg);
+        bgMatrix.push(bgRow);
       }
+      dashboard.getRange(R_DATA_START, 1, n, 10)
+        .setBackgroundObjects(bgMatrix).setFontSize(10)
+        .setHorizontalAlignment('center').setNumberFormat('#,##0');
+      dashboard.getRange(R_DATA_START, 1, n, 1)
+        .setHorizontalAlignment('left').setNumberFormat('@');
+      dashboard.getRange(R_DATA_START, 10, n, 1)
+        .setHorizontalAlignment('center').setNumberFormat('@');
     }
 
     // Totals row
@@ -3802,15 +4051,16 @@ function refreshDashboard_(ss, importTimestamp, locationDetail) {
              .setHorizontalAlignment('center');
     dashboard.getRange(R_MR_DATA, 1).setHorizontalAlignment('left');
 
-    // Column widths (only set once — they don't change with location count)
-    dashboard.setColumnWidth(1, 260);
-    for (var c = 2; c <= 7; c++) dashboard.setColumnWidth(c, 72);
-    dashboard.setColumnWidth(8, 80);
-    dashboard.setColumnWidth(9, 80);
-    dashboard.setColumnWidth(10, 130);
-
-    // Freeze through column headers row
-    dashboard.setFrozenRows(R_COL_HDR);
+    // Column widths + frozen rows never change between refreshes — only set
+    // them when the sheet hasn't been laid out yet (8 ops saved per import).
+    if (dashboard.getFrozenRows() !== R_COL_HDR) {
+      dashboard.setColumnWidth(1, 260);
+      for (var c = 2; c <= 7; c++) dashboard.setColumnWidth(c, 72);
+      dashboard.setColumnWidth(8, 80);
+      dashboard.setColumnWidth(9, 80);
+      dashboard.setColumnWidth(10, 130);
+      dashboard.setFrozenRows(R_COL_HDR);
+    }
 
     Logger.log('refreshDashboard_: complete. ' + n + ' locations, totals at row ' + R_TOTALS + ', run log at ' + R_RL_HDR + '.');
   } catch (e) {

@@ -30,9 +30,16 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
 
 ## Repo / environment
 
-- Repo: `Silver-Fox-Marketing-STL/GAS-OPS-V2` — `Code.gs` (~2,900 lines, 30 sections)
-  plus 5 HTML modals (`DealerSelector`, `ScraperImport`, `NormManager`,
-  `VINLogUpdater`, `RulesEditor`).
+- Repo: `Silver-Fox-Marketing-STL/GAS-OPS-V2` — `Code.gs` (~3,400 lines, 30 sections)
+  plus the **SilverFox App** (single-modal SPA, June 2026): `App.html` shell
+  (sidebar nav + `<?!= include_() ?>` templating), view fragments `ViewRun`,
+  `ViewImport`, `ViewVinLog`, `ViewRules`, `ViewNorm`, `ViewHome`, plus
+  `SharedUtils.html` (escHtml/toast/AppGuards/AppBusy — include FIRST) and
+  `Classic.html` (standalone single-view wrapper for the deprecated Classic
+  menu fallback; delete with `openViewStandalone_` at validation sign-off).
+  App invariants: `.view[hidden]{display:none !important}`; hidden views keep
+  state; imports and runs are mutually exclusive via `AppBusy`; `ui.alert`
+  fails via `google.script.run` — use the `*Core_`/`app*` wrapper split.
 - Local project: `C:\Users\Nick_Workstation\Documents\SilverFox-V2`
 - clasp script ID: `1E5aTcofzWzJZssOikaf6lFytS92vRHmj-k1NDV0C_Xu7NoJk7VUEjtNO`
 - Script is bound to SF_SYSTEM_MASTER; menu: **SilverFox V2**.

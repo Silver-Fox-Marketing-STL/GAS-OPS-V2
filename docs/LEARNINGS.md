@@ -25,6 +25,37 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
 - **Large reads time out.** 5,000+ row SCRAPERDATA: never `getRange` the full
   21-column sheet from a modal call. Two-pass: read the Location column only,
   find the matching row span, read just that span.
+- **Per-file DriveApp calls in loops are the easiest way to accidentally build
+  a minutes-long operation.** `createFile`/`setTrashed` cost ~120ms EACH; a few
+  hundred files = a perceived hang. Batch via `UrlFetchApp.fetchAll` against
+  the Drive REST API with `ScriptApp.getOAuthToken()` (multipart upload for
+  creates, `PATCH {trashed:true}` for trashes — see `trashFilesParallel_` /
+  `generateQRCodesParallel_`). Related: folders that only ever accumulate
+  (the QR folders did, with duplicate filenames) make every later folder
+  operation slower — clear at the start of the producing operation.
+- **Formatting calls in loops are ~12× more expensive than block formatting.**
+  The DASHBOARD's per-row stripe loop issued ~500 range ops per import; one
+  `setBackgroundObjects(matrix)` + column-scoped alignment calls do the same
+  work in 7 ops. Build matrices in memory; touch ranges once.
+- **`SpreadsheetApp.getUi().alert()` FAILS when invoked via `google.script.run`**
+  (no UI context in client-invoked executions). Server functions that need to
+  report to a dialog must RETURN a message for the client to render; keep the
+  alert only in menu-invoked wrappers (see the `*Core_` / `app*` split).
+  `Spreadsheet.toast()` works from any context.
+- **SPA-in-a-modal conversion lessons (App shell, June 2026):**
+  hidden views (`[hidden]` + show/hide nav) retain full DOM + JS state —
+  polling intervals, pending panels, dirty flags all survive navigation, so
+  per-view state machines need no rework. But: (1) author `display:flex` on a
+  view root DEFEATS the UA `[hidden]` rule — ship
+  `.view[hidden]{display:none !important}`; (2) include shared-utils fragments
+  BEFORE view fragments — views register guards/inits at parse time;
+  (3) height math must measure the view container, never `window.innerHeight`,
+  and element queries must be view-scoped (`view.querySelector('.top-bar')` —
+  a global query matches other views in the shared DOM); (4) never assign
+  `window.onresize` from a fragment (single-owner slot) — use
+  `addEventListener`; (5) operations that were implicitly exclusive when each
+  modal was its own dialog (import vs run) need explicit mutual exclusion
+  (`AppBusy`) once they share one page.
 
 ## Google Sheets behavior
 

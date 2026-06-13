@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    /* ── App shell ─────────────────────────────────────────────────────────── */
+    html, body { height: 100%; margin: 0; padding: 0; }
+    body {
+      font-family: Arial, sans-serif;
+      font-size: 13px;
+      color: #333;
+      overflow: hidden;
+    }
+
+    #appRoot { display: flex; height: 100vh; }
+
+    /* ── Sidebar ───────────────────────────────────────────────────────────── */
+    #sidebar {
+      width: 210px;
+      flex-shrink: 0;
+      background: #f8f9fa;
+      border-right: 1px solid #e0e0e0;
+      display: flex;
+      flex-direction: column;
+      padding-top: 6px;
+    }
+    .app-brand {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 12px 16px 14px;
+      font-size: 15px;
+      font-weight: bold;
+      color: #1a1a1a;
+      border-bottom: 1px solid #e8e8e8;
+      margin-bottom: 6px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .app-brand .logo { font-size: 18px; }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      padding: 10px 16px;
+      cursor: pointer;
+      font-weight: 600;
+      color: #444;
+      border-left: 3px solid transparent;
+      user-select: none;
+    }
+    .nav-item:hover { background: #eef1f4; }
+    .nav-item.active {
+      background: #e8f0fe;
+      color: #1a73e8;
+      border-left-color: #1a73e8;
+    }
+    .nav-item.pending { opacity: 0.38; cursor: default; }
+    .nav-item.pending:hover { background: none; }
+    .nav-item .icon { width: 20px; text-align: center; font-size: 14px; }
+    .nav-spacer { flex: 1; }
+    .nav-footer {
+      padding: 10px 16px 14px;
+      font-size: 10.5px;
+      color: #aaa;
+      border-top: 1px solid #e8e8e8;
+    }
+
+    /* ── Main area ─────────────────────────────────────────────────────────── */
+    #appMain { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    #appHeader {
+      height: 44px;
+      flex-shrink: 0;
+      border-bottom: 1px solid #e0e0e0;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 18px;
+    }
+    #appHeaderTitle { font-size: 14px; font-weight: bold; }
+    #appHeaderRight { margin-left: auto; font-size: 11px; color: #888; }
+    #appContent { flex: 1; min-height: 0; position: relative; }
+
+    /* ── Views ─────────────────────────────────────────────────────────────── */
+    .view { height: 100%; }
+    /* Author display rules on view roots (flex etc.) would defeat the UA's
+       [hidden] rule — force it. */
+    .view[hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+
+  <!-- SharedUtils FIRST: view fragments register guards/inits at parse time -->
+  <?!= include_('SharedUtils') ?>
+
+  <div id="appRoot">
+
+    <nav id="sidebar">
+      <div class="app-brand" onclick="navTo('view-home')">
+        <span class="logo">&#129418;</span> SilverFox
+      </div>
+      <div class="nav-item" id="nav-view-home" onclick="navTo('view-home')">
+        <span class="icon">&#8962;</span> Home
+      </div>
+      <div class="nav-item" id="nav-view-run" onclick="navTo('view-run')">
+        <span class="icon">&#9654;</span> Run Order
+      </div>
+      <div class="nav-item" id="nav-view-import" onclick="navTo('view-import')">
+        <span class="icon">&#11014;</span> Import Data
+      </div>
+      <div class="nav-item" id="nav-view-vinlog" onclick="navTo('view-vinlog')">
+        <span class="icon">&#128203;</span> VIN Logs
+      </div>
+      <div class="nav-item" id="nav-view-rules" onclick="navTo('view-rules')">
+        <span class="icon">&#9881;</span> Dealer Rules
+      </div>
+      <div class="nav-item" id="nav-view-norm" onclick="navTo('view-norm')">
+        <span class="icon">Aa</span> Normalization
+      </div>
+      <div class="nav-spacer"></div>
+      <div class="nav-item" onclick="exitApp()">
+        <span class="icon">&#10005;</span> Close SilverFox
+      </div>
+      <div class="nav-footer">SilverFox V2 &middot; GAS-OPS</div>
+    </nav>
+
+    <div id="appMain">
+      <div id="appHeader">
+        <span id="appHeaderTitle">Home</span>
+        <span id="appHeaderRight"></span>
+      </div>
+      <div id="appContent">
+        <?!= include_('ViewHome') ?>
+        <?!= include_('ViewRun') ?>
+        <?!= include_('ViewImport') ?>
+        <?!= include_('ViewVinLog') ?>
+        <?!= include_('ViewRules') ?>
+        <?!= include_('ViewNorm') ?>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    // ── Shell boot — runs AFTER all view fragments have registered ──────────
+    var NAV_TITLES = {
+      'view-home':   'Home',
+      'view-run':    'Run Order',
+      'view-import': 'Import Data',
+      'view-vinlog': 'VIN Logs',
+      'view-rules':  'Dealer Rules',
+      'view-norm':   'Normalization'
+    };
+    var _viewInited = {};
+
+    function navTo(viewId) {
+      var target = document.getElementById(viewId);
+      if (!target) {
+        toast('This section is still being migrated into the App — use the Classic menu for now.', 'info');
+        return;
+      }
+
+      // Show/hide views
+      var views = document.querySelectorAll('#appContent .view');
+      for (var i = 0; i < views.length; i++) {
+        views[i].hidden = (views[i].id !== viewId);
+      }
+
+      // Sidebar active state + header title
+      var items = document.querySelectorAll('#sidebar .nav-item');
+      for (var j = 0; j < items.length; j++) {
+        items[j].classList.toggle('active', items[j].id === 'nav-' + viewId);
+      }
+      document.getElementById('appHeaderTitle').textContent = NAV_TITLES[viewId] || '';
+
+      // Lazy init (once), then on-show hook (every visit)
+      if (!_viewInited[viewId]) {
+        _viewInited[viewId] = true;
+        if (window.VIEW_INITS && VIEW_INITS[viewId]) {
+          try { VIEW_INITS[viewId](); } catch (e) { toast('Init error: ' + e.message, 'error'); }
+        }
+      }
+      if (window.VIEW_SHOWN && VIEW_SHOWN[viewId]) {
+        try { VIEW_SHOWN[viewId](); } catch (e) {}
+      }
+    }
+
+    // Mark not-yet-migrated sections in the sidebar
+    function markPendingViews() {
+      var ids = ['view-run', 'view-import', 'view-vinlog', 'view-rules', 'view-norm'];
+      ids.forEach(function(id) {
+        if (!document.getElementById(id)) {
+          var item = document.getElementById('nav-' + id);
+          if (item) {
+            item.classList.add('pending');
+            item.title = 'Coming soon — use the Classic menu for now';
+          }
+        }
+      });
+    }
+
+    function exitApp() {
+      var msgs = AppGuards.run();
+      if (msgs.length === 0 ||
+          confirm('Before you close:\n\n' + msgs.join('\n') + '\n\nClose anyway?')) {
+        google.script.host.close();
+      }
+    }
+
+    markPendingViews();
+    navTo('view-home');
+    // Prefetch shared bootstrap data (dealers + users) while the user is on
+    // Home — Run Order / VIN Logs then populate instantly on first visit.
+    AppData.load();
+  </script>
+</body>
+</html>

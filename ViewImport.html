@@ -1,414 +1,10 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: Arial, sans-serif;
-      font-size: 13px;
-      color: #333;
-      background: #fff;
-      display: flex;
-      flex-direction: column;
-      height: 100vh;
-      overflow: hidden;
-    }
+<div class="view" id="view-import" hidden>
 
-    /* ── Header ──────────────────────────────────────────────────────────────── */
-    .modal-header {
-      padding: 14px 18px 10px;
-      border-bottom: 1px solid #e0e0e0;
-      flex-shrink: 0;
-    }
-    .modal-header h3 {
-      font-size: 14px;
-      font-weight: bold;
-      margin-bottom: 2px;
-    }
-    .modal-header .subtitle {
-      font-size: 11px;
-      color: #888;
-    }
-
-    /* ── Scrollable content area ─────────────────────────────────────────────── */
-    .modal-body {
-      flex: 1;
-      overflow-y: auto;
-      padding: 16px 18px;
-    }
-
-    /* ── Bottom action bar ───────────────────────────────────────────────────── */
-    .modal-footer {
-      border-top: 1px solid #e0e0e0;
-      padding: 10px 18px;
-      flex-shrink: 0;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-    .status-bar {
-      flex: 1;
-      font-size: 12px;
-      padding: 6px 8px;
-      border-radius: 4px;
-      min-height: 30px;
-      line-height: 18px;
-    }
-    .status-bar.empty   { background: none; color: transparent; }
-    .status-bar.info    { background: #e8f0fe; color: #1a73e8; }
-    .status-bar.success { background: #e6f4ea; color: #1e7e34; }
-    .status-bar.error   { background: #fce8e6; color: #c0392b; }
-
-    /* ── Two-column import form (wide modal) ─────────────────────────────────── */
-    .import-cols { display: flex; gap: 20px; align-items: flex-start; }
-    .import-left {
-      width: 460px;
-      flex-shrink: 0;
-    }
-    .import-right {
-      flex: 1;
-      min-width: 0;
-    }
-    .files-placeholder {
-      border: 1px dashed #dadce0;
-      border-radius: 5px;
-      padding: 40px 20px;
-      text-align: center;
-      color: #aaa;
-      font-size: 12px;
-    }
-
-    /* ── Mode selector (stacked in the left column) ──────────────────────────── */
-    .mode-selector {
-      display: flex;
-      flex-direction: column;
-      gap: 0;
-      margin-bottom: 14px;
-      border: 1px solid #dadce0;
-      border-radius: 5px;
-      overflow: hidden;
-    }
-    .mode-option {
-      flex: 1;
-      padding: 10px 14px;
-      cursor: pointer;
-      background: #fff;
-      border-top: 1px solid #dadce0;
-    }
-    .mode-option:first-child { border-top: none; }
-    .mode-option.active { background: #e8f0fe; }
-    .mode-option .mode-title {
-      font-weight: bold;
-      font-size: 13px;
-      display: flex;
-      align-items: center;
-      gap: 7px;
-    }
-    .mode-option.active .mode-title { color: #1a73e8; }
-    .mode-option .mode-desc {
-      font-size: 11px;
-      color: #888;
-      margin-top: 3px;
-      line-height: 1.4;
-    }
-
-    /* ── File input ──────────────────────────────────────────────────────────── */
-    label.field-label {
-      display: block;
-      font-weight: bold;
-      margin-bottom: 5px;
-    }
-    input[type="file"] {
-      width: 100%;
-      font-size: 12px;
-      padding: 4px 0;
-    }
-
-    /* ── Per-file cards (right column) ───────────────────────────────────────── */
-    #fileCards { margin-top: 0; }
-    .file-card {
-      border: 1px solid #dadce0;
-      border-radius: 5px;
-      overflow: hidden;
-      margin-bottom: 10px;
-    }
-    .file-card.invalid { border-color: #e8a09a; }
-    .file-card-header {
-      background: #f1f3f4;
-      padding: 7px 12px;
-      font-size: 12px;
-      font-weight: bold;
-      border-bottom: 1px solid #e0e0e0;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 10px;
-    }
-    .file-card.invalid .file-card-header { background: #fce8e6; color: #c0392b; }
-    .file-card-header .file-meta {
-      font-weight: normal;
-      font-size: 11px;
-      color: #666;
-      white-space: nowrap;
-    }
-    .file-card-body {
-      padding: 8px 12px;
-      font-size: 11px;
-      line-height: 1.7;
-    }
-    .file-card-body .missing-line  { color: #c0392b; }
-    .file-card-body .ignored-line  { color: #999; }
-    .file-card-body .error-line    { color: #c0392b; font-weight: bold; }
-    .match   { color: #1e7e34; }
-    .nomatch { color: #c0392b; }
-
-    .totals-line {
-      margin-top: 14px;
-      font-size: 12px;
-      font-weight: bold;
-      color: #333;
-    }
-
-    /* ── Buttons ─────────────────────────────────────────────────────────────── */
-    .btn-primary {
-      padding: 9px 22px;
-      background: #1a73e8;
-      color: white;
-      border: none;
-      font-size: 13px;
-      font-weight: bold;
-      cursor: pointer;
-      border-radius: 4px;
-      white-space: nowrap;
-      flex-shrink: 0;
-    }
-    .btn-primary:hover    { background: #1557b0; }
-    .btn-primary:disabled { background: #aaa; cursor: default; }
-    .btn-secondary {
-      padding: 9px 18px;
-      background: #fff;
-      color: #1a73e8;
-      border: 1.5px solid #1a73e8;
-      font-size: 13px;
-      font-weight: bold;
-      cursor: pointer;
-      border-radius: 4px;
-      white-space: nowrap;
-      flex-shrink: 0;
-    }
-    .btn-secondary:hover { background: #e8f0fe; }
-
-    /* ════════════════════════════════════════════════════════════════════════════
-       CONFLICT PANEL
-    ════════════════════════════════════════════════════════════════════════════ */
-    #conflictPanel { display: none; }
-
-    .bulk-bar {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 10px 12px;
-      background: #fef7e0;
-      border: 1px solid #f0d97a;
-      border-radius: 5px;
-      margin-bottom: 14px;
-      font-size: 12px;
-    }
-    .bulk-bar .bulk-label { font-weight: bold; color: #b06000; flex: 1; }
-    .bulk-bar button { padding: 6px 14px; font-size: 12px; }
-
-    /* Conflict cards render 2-up in the wide modal */
-    #conflictList {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
-      align-items: start;
-    }
-    .conflict-card {
-      border: 1px solid #dadce0;
-      border-radius: 5px;
-      overflow: hidden;
-    }
-    .conflict-card-header {
-      background: #f1f3f4;
-      padding: 7px 12px;
-      font-size: 12px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 10px;
-      border-bottom: 1px solid #e0e0e0;
-    }
-    .conflict-card-header .vin { font-weight: bold; font-family: monospace; font-size: 12px; }
-    .conflict-card-header .meta { font-size: 11px; color: #666; white-space: nowrap; }
-    .conflict-table { width: 100%; border-collapse: collapse; font-size: 11px; }
-    .conflict-table th {
-      background: #fafafa;
-      padding: 5px 10px;
-      text-align: left;
-      border-bottom: 1px solid #e0e0e0;
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: 0.3px;
-      color: #888;
-    }
-    .conflict-table td {
-      padding: 5px 10px;
-      border-bottom: 1px solid #f0f0f0;
-      text-align: left;
-      vertical-align: top;
-      word-break: break-word;
-    }
-    .conflict-table td.field-name { font-weight: bold; color: #555; width: 130px; white-space: nowrap; }
-    .conflict-choice {
-      display: flex;
-      gap: 22px;
-      padding: 8px 12px;
-      background: #fafafa;
-      border-top: 1px solid #e0e0e0;
-      font-size: 12px;
-    }
-    .conflict-choice label { cursor: pointer; display: flex; align-items: center; gap: 5px; }
-    .variant-note { font-size: 10.5px; color: #b06000; padding: 4px 12px 8px; background: #fafafa; }
-    .more-conflicts {
-      grid-column: 1 / -1;
-      padding: 10px 12px;
-      background: #f1f3f4;
-      border-radius: 5px;
-      font-size: 12px;
-      color: #666;
-      text-align: center;
-    }
-
-    /* ════════════════════════════════════════════════════════════════════════════
-       REVIEW PANEL
-    ════════════════════════════════════════════════════════════════════════════ */
-    #reviewPanel { display: none; }
-
-    .review-hero {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 14px;
-    }
-    .review-hero .check { font-size: 24px; color: #1e7e34; }
-    .review-hero h3     { font-size: 15px; color: #1e7e34; margin: 0; }
-    .review-hero .total { font-size: 12px; color: #666; margin-top: 1px; }
-
-    .review-section { margin-bottom: 16px; }
-    .review-section-title {
-      font-size: 11px;
-      font-weight: bold;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      color: #888;
-      margin-bottom: 7px;
-    }
-
-    .badge-row { display: flex; flex-wrap: wrap; gap: 6px; }
-    .badge {
-      display: inline-block;
-      padding: 3px 10px;
-      border-radius: 12px;
-      font-size: 12px;
-      font-weight: bold;
-      background: #e8f0fe;
-      color: #1a73e8;
-    }
-    .badge.status  { background: #fef7e0; color: #b06000; }
-    .badge.warning { background: #fce8e6; color: #c0392b; }
-    .badge.neutral { background: #f1f3f4; color: #555; }
-
-    .divider {
-      border: none;
-      border-top: 1px solid #e0e0e0;
-      margin: 14px 0;
-    }
-
-    /* Location × Type table */
-    .table-wrap {
-      overflow-x: auto;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 11px;
-    }
-    th {
-      background: #f1f3f4;
-      padding: 6px 10px;
-      text-align: right;
-      font-weight: bold;
-      white-space: nowrap;
-      border-bottom: 1px solid #ddd;
-    }
-    th:first-child { text-align: left; }
-    td {
-      padding: 5px 10px;
-      text-align: right;
-      border-bottom: 1px solid #f0f0f0;
-      white-space: nowrap;
-    }
-    td:first-child {
-      text-align: left;
-      max-width: 200px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      color: #333;
-    }
-    tr:last-child td { border-bottom: none; }
-    tr:hover td { background: #f8f9fa; }
-    td.total-col, th.total-col {
-      font-weight: bold;
-      color: #333;
-      border-left: 1px solid #ddd;
-    }
-    /* ── Health issues section ───────────────────────────────────────────────── */
-    .health-section {
-      margin-top: 14px;
-      border: 1px solid #f5c6cb;
-      border-radius: 5px;
-      overflow: hidden;
-    }
-    .health-section.clean {
-      border-color: #c3e6cb;
-    }
-    .health-section-title {
-      padding: 7px 12px;
-      font-size: 11px;
-      font-weight: bold;
-      background: #fce8e6;
-      color: #c0392b;
-    }
-    .health-section.clean .health-section-title {
-      background: #e6f4ea;
-      color: #1e7e34;
-    }
-    .health-item {
-      display: flex;
-      align-items: flex-start;
-      gap: 8px;
-      padding: 6px 12px;
-      font-size: 11px;
-      border-top: 1px solid #f5e6e6;
-    }
-    .health-section.clean .health-item {
-      border-top-color: #d4edda;
-    }
-    .health-icon { flex-shrink: 0; font-size: 13px; line-height: 1.4; }
-    .health-location { font-weight: bold; color: #333; }
-    .health-msg { color: #555; }
-
-  </style>
-</head>
-<body>
 
   <!-- ════════════════════════════════════════════════════════════════════════════
        IMPORT FORM
   ════════════════════════════════════════════════════════════════════════════ -->
-  <div id="importForm" style="display:flex;flex-direction:column;height:100vh;">
+  <div id="importForm" style="display:flex;flex-direction:column;height:100%;">
 
     <div class="modal-header">
       <h3>Import Scraper Data</h3>
@@ -427,7 +23,7 @@
             </div>
             <div class="mode-option" id="modeMerge" onclick="setMode('merge')">
               <div class="mode-title"><input type="radio" name="importMode" id="modeMergeRadio"> Merge with Existing</div>
-              <div class="mode-desc">Adds the selected file(s) to the current data. Same VIN + identical data is kept once; differing data is flagged for review. Health drop-checks are only meaningful on Replace.</div>
+              <div class="mode-desc">Adds the selected file(s) to the current data. Same VIN + identical data is kept once; differing data is flagged for review. Health drop-checks are only meaningful on Replace. <strong>Tip:</strong> run a Main Import periodically — Merge never removes sold vehicles, so the dataset only grows.</div>
             </div>
           </div>
 
@@ -447,7 +43,7 @@
     </div>
 
     <div class="modal-footer">
-      <div id="status" class="status-bar empty">&nbsp;</div>
+      <div id="importStatus" class="status-bar empty">&nbsp;</div>
       <button class="btn-primary" id="importBtn" onclick="runImport()" disabled>Import Data</button>
     </div>
 
@@ -456,7 +52,7 @@
   <!-- ════════════════════════════════════════════════════════════════════════════
        CONFLICT RESOLUTION PANEL
   ════════════════════════════════════════════════════════════════════════════ -->
-  <div id="conflictPanel" style="display:none;flex-direction:column;height:100vh;">
+  <div id="conflictPanel" style="display:none;flex-direction:column;height:100%;">
 
     <div class="modal-header">
       <h3 id="conflictTitle">Resolve Conflicting VINs</h3>
@@ -483,7 +79,7 @@
   <!-- ════════════════════════════════════════════════════════════════════════════
        REVIEW PANEL
   ════════════════════════════════════════════════════════════════════════════ -->
-  <div id="reviewPanel" style="display:none;flex-direction:column;height:100vh;">
+  <div id="reviewPanel" style="display:none;flex-direction:column;height:100%;">
 
     <div class="modal-body">
       <div class="review-hero">
@@ -525,9 +121,412 @@
     </div>
 
   </div>
+</div>
 
-  <script>
-    // Expected SCRAPERDATA column headers in order
+<style>
+#view-import * { box-sizing: border-box; margin: 0; padding: 0; }
+    #view-import {
+      font-family: Arial, sans-serif;
+      font-size: 13px;
+      color: #333;
+      background: #fff;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    /* ── Header ──────────────────────────────────────────────────────────────── */
+    #view-import .modal-header {
+      padding: 14px 18px 10px;
+      border-bottom: 1px solid #e0e0e0;
+      flex-shrink: 0;
+    }
+    #view-import .modal-header h3 {
+      font-size: 14px;
+      font-weight: bold;
+      margin-bottom: 2px;
+    }
+    #view-import .modal-header .subtitle {
+      font-size: 11px;
+      color: #888;
+    }
+
+    /* ── Scrollable content area ─────────────────────────────────────────────── */
+    #view-import .modal-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 18px;
+    }
+
+    /* ── Bottom action bar ───────────────────────────────────────────────────── */
+    #view-import .modal-footer {
+      border-top: 1px solid #e0e0e0;
+      padding: 10px 18px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    #view-import .status-bar {
+      flex: 1;
+      font-size: 12px;
+      padding: 6px 8px;
+      border-radius: 4px;
+      min-height: 30px;
+      line-height: 18px;
+    }
+    #view-import .status-bar.empty { background: none; color: transparent; }
+    #view-import .status-bar.info { background: #e8f0fe; color: #1a73e8; }
+    #view-import .status-bar.success { background: #e6f4ea; color: #1e7e34; }
+    #view-import .status-bar.error { background: #fce8e6; color: #c0392b; }
+
+    /* ── Two-column import form (wide modal) ─────────────────────────────────── */
+    #view-import .import-cols { display: flex; gap: 20px; align-items: flex-start; }
+    #view-import .import-left {
+      width: 460px;
+      flex-shrink: 0;
+    }
+    #view-import .import-right {
+      flex: 1;
+      min-width: 0;
+    }
+    #view-import .files-placeholder {
+      border: 1px dashed #dadce0;
+      border-radius: 5px;
+      padding: 40px 20px;
+      text-align: center;
+      color: #aaa;
+      font-size: 12px;
+    }
+
+    /* ── Mode selector (stacked in the left column) ──────────────────────────── */
+    #view-import .mode-selector {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      margin-bottom: 14px;
+      border: 1px solid #dadce0;
+      border-radius: 5px;
+      overflow: hidden;
+    }
+    #view-import .mode-option {
+      flex: 1;
+      padding: 10px 14px;
+      cursor: pointer;
+      background: #fff;
+      border-top: 1px solid #dadce0;
+    }
+    #view-import .mode-option:first-child { border-top: none; }
+    #view-import .mode-option.active { background: #e8f0fe; }
+    #view-import .mode-option .mode-title {
+      font-weight: bold;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+    #view-import .mode-option.active .mode-title { color: #1a73e8; }
+    #view-import .mode-option .mode-desc {
+      font-size: 11px;
+      color: #888;
+      margin-top: 3px;
+      line-height: 1.4;
+    }
+
+    /* ── File input ──────────────────────────────────────────────────────────── */
+    #view-import label.field-label {
+      display: block;
+      font-weight: bold;
+      margin-bottom: 5px;
+    }
+    #view-import input[type="file"] {
+      width: 100%;
+      font-size: 12px;
+      padding: 4px 0;
+    }
+
+    /* ── Per-file cards (right column) ───────────────────────────────────────── */
+    #view-import #fileCards { margin-top: 0; }
+    #view-import .file-card {
+      border: 1px solid #dadce0;
+      border-radius: 5px;
+      overflow: hidden;
+      margin-bottom: 10px;
+    }
+    #view-import .file-card.invalid { border-color: #e8a09a; }
+    #view-import .file-card-header {
+      background: #f1f3f4;
+      padding: 7px 12px;
+      font-size: 12px;
+      font-weight: bold;
+      border-bottom: 1px solid #e0e0e0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+    }
+    #view-import .file-card.invalid .file-card-header { background: #fce8e6; color: #c0392b; }
+    #view-import .file-card-header .file-meta {
+      font-weight: normal;
+      font-size: 11px;
+      color: #666;
+      white-space: nowrap;
+    }
+    #view-import .file-card-body {
+      padding: 8px 12px;
+      font-size: 11px;
+      line-height: 1.7;
+    }
+    #view-import .file-card-body .missing-line { color: #c0392b; }
+    #view-import .file-card-body .ignored-line { color: #999; }
+    #view-import .file-card-body .error-line { color: #c0392b; font-weight: bold; }
+    #view-import .match { color: #1e7e34; }
+    #view-import .nomatch { color: #c0392b; }
+
+    #view-import .totals-line {
+      margin-top: 14px;
+      font-size: 12px;
+      font-weight: bold;
+      color: #333;
+    }
+
+    /* ── Buttons ─────────────────────────────────────────────────────────────── */
+    #view-import .btn-primary {
+      padding: 9px 22px;
+      background: #1a73e8;
+      color: white;
+      border: none;
+      font-size: 13px;
+      font-weight: bold;
+      cursor: pointer;
+      border-radius: 4px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    #view-import .btn-primary:hover { background: #1557b0; }
+    #view-import .btn-primary:disabled { background: #aaa; cursor: default; }
+    #view-import .btn-secondary {
+      padding: 9px 18px;
+      background: #fff;
+      color: #1a73e8;
+      border: 1.5px solid #1a73e8;
+      font-size: 13px;
+      font-weight: bold;
+      cursor: pointer;
+      border-radius: 4px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    #view-import .btn-secondary:hover { background: #e8f0fe; }
+
+    /* ════════════════════════════════════════════════════════════════════════════
+       CONFLICT PANEL
+    ════════════════════════════════════════════════════════════════════════════ */
+    #view-import #conflictPanel { display: none; }
+
+    #view-import .bulk-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      background: #fef7e0;
+      border: 1px solid #f0d97a;
+      border-radius: 5px;
+      margin-bottom: 14px;
+      font-size: 12px;
+    }
+    #view-import .bulk-bar .bulk-label { font-weight: bold; color: #b06000; flex: 1; }
+    #view-import .bulk-bar button { padding: 6px 14px; font-size: 12px; }
+
+    /* Conflict cards render 2-up in the wide modal */
+    #view-import #conflictList {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      align-items: start;
+    }
+    #view-import .conflict-card {
+      border: 1px solid #dadce0;
+      border-radius: 5px;
+      overflow: hidden;
+    }
+    #view-import .conflict-card-header {
+      background: #f1f3f4;
+      padding: 7px 12px;
+      font-size: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    #view-import .conflict-card-header .vin { font-weight: bold; font-family: monospace; font-size: 12px; }
+    #view-import .conflict-card-header .meta { font-size: 11px; color: #666; white-space: nowrap; }
+    #view-import .conflict-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    #view-import .conflict-table th {
+      background: #fafafa;
+      padding: 5px 10px;
+      text-align: left;
+      border-bottom: 1px solid #e0e0e0;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      color: #888;
+    }
+    #view-import .conflict-table td {
+      padding: 5px 10px;
+      border-bottom: 1px solid #f0f0f0;
+      text-align: left;
+      vertical-align: top;
+      word-break: break-word;
+    }
+    #view-import .conflict-table td.field-name { font-weight: bold; color: #555; width: 130px; white-space: nowrap; }
+    #view-import .conflict-choice {
+      display: flex;
+      gap: 22px;
+      padding: 8px 12px;
+      background: #fafafa;
+      border-top: 1px solid #e0e0e0;
+      font-size: 12px;
+    }
+    #view-import .conflict-choice label { cursor: pointer; display: flex; align-items: center; gap: 5px; }
+    #view-import .variant-note { font-size: 10.5px; color: #b06000; padding: 4px 12px 8px; background: #fafafa; }
+    #view-import .more-conflicts {
+      grid-column: 1 / -1;
+      padding: 10px 12px;
+      background: #f1f3f4;
+      border-radius: 5px;
+      font-size: 12px;
+      color: #666;
+      text-align: center;
+    }
+
+    /* ════════════════════════════════════════════════════════════════════════════
+       REVIEW PANEL
+    ════════════════════════════════════════════════════════════════════════════ */
+    #view-import #reviewPanel { display: none; }
+
+    #view-import .review-hero {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    #view-import .review-hero .check { font-size: 24px; color: #1e7e34; }
+    #view-import .review-hero h3 { font-size: 15px; color: #1e7e34; margin: 0; }
+    #view-import .review-hero .total { font-size: 12px; color: #666; margin-top: 1px; }
+
+    #view-import .review-section { margin-bottom: 16px; }
+    #view-import .review-section-title {
+      font-size: 11px;
+      font-weight: bold;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #888;
+      margin-bottom: 7px;
+    }
+
+    #view-import .badge-row { display: flex; flex-wrap: wrap; gap: 6px; }
+    #view-import .badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: bold;
+      background: #e8f0fe;
+      color: #1a73e8;
+    }
+    #view-import .badge.status { background: #fef7e0; color: #b06000; }
+    #view-import .badge.warning { background: #fce8e6; color: #c0392b; }
+    #view-import .badge.neutral { background: #f1f3f4; color: #555; }
+
+    #view-import .divider {
+      border: none;
+      border-top: 1px solid #e0e0e0;
+      margin: 14px 0;
+    }
+
+    /* Location × Type table */
+    #view-import .table-wrap {
+      overflow-x: auto;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+    #view-import table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+    }
+    #view-import th {
+      background: #f1f3f4;
+      padding: 6px 10px;
+      text-align: right;
+      font-weight: bold;
+      white-space: nowrap;
+      border-bottom: 1px solid #ddd;
+    }
+    #view-import th:first-child { text-align: left; }
+    #view-import td {
+      padding: 5px 10px;
+      text-align: right;
+      border-bottom: 1px solid #f0f0f0;
+      white-space: nowrap;
+    }
+    #view-import td:first-child {
+      text-align: left;
+      max-width: 200px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: #333;
+    }
+    #view-import tr:last-child td { border-bottom: none; }
+    #view-import tr:hover td { background: #f8f9fa; }
+    #view-import td.total-col,
+  #view-import th.total-col {
+      font-weight: bold;
+      color: #333;
+      border-left: 1px solid #ddd;
+    }
+    /* ── Health issues section ───────────────────────────────────────────────── */
+    #view-import .health-section {
+      margin-top: 14px;
+      border: 1px solid #f5c6cb;
+      border-radius: 5px;
+      overflow: hidden;
+    }
+    #view-import .health-section.clean {
+      border-color: #c3e6cb;
+    }
+    #view-import .health-section-title {
+      padding: 7px 12px;
+      font-size: 11px;
+      font-weight: bold;
+      background: #fce8e6;
+      color: #c0392b;
+    }
+    #view-import .health-section.clean .health-section-title {
+      background: #e6f4ea;
+      color: #1e7e34;
+    }
+    #view-import .health-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 6px 12px;
+      font-size: 11px;
+      border-top: 1px solid #f5e6e6;
+    }
+    #view-import .health-section.clean .health-item {
+      border-top-color: #d4edda;
+    }
+    #view-import .health-icon { flex-shrink: 0; font-size: 13px; line-height: 1.4; }
+    #view-import .health-location { font-weight: bold; color: #333; }
+    #view-import .health-msg { color: #555; }
+</style>
+
+<script>
+// Expected SCRAPERDATA column headers in order
     var EXPECTED_HEADERS = [
       'VIN', 'Stock', 'Type', 'Year', 'Make', 'Model', 'Trim',
       'Ext Color', 'Status', 'Price', 'Body Style', 'Fuel Type',
@@ -559,7 +558,7 @@
       var files = document.getElementById('fileInput').files;
       if (!files || files.length === 0) return;
 
-      setStatus('Reading ' + files.length + ' file' + (files.length === 1 ? '' : 's') + '...', 'info');
+      setImportStatus('Reading ' + files.length + ' file' + (files.length === 1 ? '' : 's') + '...', 'info');
       document.getElementById('importBtn').disabled = true;
       parsedFiles = [];
 
@@ -690,13 +689,13 @@
 
       // All-or-nothing gate: every selected file must be valid.
       if (invalidCount > 0) {
-        setStatus('Fix or deselect the file' + (invalidCount === 1 ? '' : 's') + ' with errors before importing.', 'error');
+        setImportStatus('Fix or deselect the file' + (invalidCount === 1 ? '' : 's') + ' with errors before importing.', 'error');
         document.getElementById('importBtn').disabled = true;
       } else if (validCount === 0) {
-        setStatus('No valid files selected.', 'error');
+        setImportStatus('No valid files selected.', 'error');
         document.getElementById('importBtn').disabled = true;
       } else {
-        setStatus(totalRows.toLocaleString() + ' rows ready from ' + validCount +
+        setImportStatus(totalRows.toLocaleString() + ' rows ready from ' + validCount +
                   ' file' + (validCount === 1 ? '' : 's') + '.', 'info');
         document.getElementById('importBtn').disabled = false;
       }
@@ -704,11 +703,19 @@
 
     // ── Import (phase 1) ──────────────────────────────────────────────────────
     function runImport() {
-      var validFiles = parsedFiles.filter(function(f) { return f.valid; });
-      if (validFiles.length === 0) {
-        setStatus('Please select valid CSV file(s) first.', 'error');
+      // Mutual exclusion with dealer runs: an import rewrites SCRAPERDATA,
+      // which a run reads mid-flight. Impossible when modals were exclusive —
+      // required now that everything shares one dialog.
+      if (window.AppBusy && AppBusy.is('run')) {
+        setImportStatus('A dealer run is in progress — wait for it to finish before importing.', 'error');
         return;
       }
+      var validFiles = parsedFiles.filter(function(f) { return f.valid; });
+      if (validFiles.length === 0) {
+        setImportStatus('Please select valid CSV file(s) first.', 'error');
+        return;
+      }
+      if (window.AppBusy) AppBusy.set('import', true);
 
       var allRows   = [];
       var fileNames = [];
@@ -721,19 +728,23 @@
       var btn = document.getElementById('importBtn');
       btn.disabled    = true;
       btn.textContent = 'Importing...';
-      setStatus('Sending ' + allRows.length.toLocaleString() + ' rows to Google Sheets...', 'info');
+      setImportStatus('Sending ' + allRows.length.toLocaleString() + ' rows to Google Sheets...', 'info');
 
       google.script.run
         .withSuccessHandler(function(result) {
           btn.textContent = 'Import Data';
           if (result && result.needsResolution) {
+            // Stay "busy" through conflict resolution — the dataset is in a
+            // user-decision limbo until Apply or Cancel.
             showConflicts(result);
           } else {
+            if (window.AppBusy) AppBusy.set('import', false);
             showReview(result);
           }
         })
         .withFailureHandler(function(e) {
-          setStatus('Error: ' + e.message, 'error');
+          if (window.AppBusy) AppBusy.set('import', false);
+          setImportStatus('Error: ' + e.message, 'error');
           btn.disabled    = false;
           btn.textContent = 'Import Data';
         })
@@ -856,10 +867,12 @@
 
       google.script.run
         .withSuccessHandler(function(result) {
+          if (window.AppBusy) AppBusy.set('import', false);
           btn.textContent = 'Apply & Import';
           showReview(result);
         })
         .withFailureHandler(function(e) {
+          // Still in the conflict panel — keep the import marked busy.
           setConflictStatus('Error: ' + e.message, 'error');
           btn.disabled    = false;
           btn.textContent = 'Apply & Import';
@@ -870,11 +883,12 @@
     }
 
     function cancelConflicts() {
+      if (window.AppBusy) AppBusy.set('import', false);
       conflictState = null;
       document.getElementById('conflictPanel').style.display = 'none';
       document.getElementById('importForm').style.display    = 'flex';
       document.getElementById('importBtn').disabled = false;
-      setStatus('Import cancelled — nothing was written.', 'info');
+      setImportStatus('Import cancelled — nothing was written.', 'info');
     }
 
     // ── Review panel ──────────────────────────────────────────────────────────
@@ -980,6 +994,7 @@
     }
 
     function resetImport() {
+      if (window.AppBusy) AppBusy.set('import', false);  // safety
       parsedFiles    = [];
       pendingPayload = null;
       conflictState  = null;
@@ -989,7 +1004,7 @@
       document.getElementById('totalsLine').style.display  = 'none';
       document.getElementById('importBtn').disabled        = true;
       document.getElementById('importBtn').textContent     = 'Import Data';
-      setStatus('', 'empty');
+      setImportStatus('', 'empty');
       setMode('replace');
 
       // File input can't be cleared by value — replace the element
@@ -1006,8 +1021,8 @@
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
-    function setStatus(msg, type) {
-      var el       = document.getElementById('status');
+    function setImportStatus(msg, type) {
+      var el       = document.getElementById('importStatus');
       el.textContent = msg || ' ';
       el.className   = 'status-bar ' + (type || 'empty');
     }
@@ -1018,13 +1033,7 @@
       el.className   = 'status-bar ' + (type || 'empty');
     }
 
-    function escHtml(str) {
-      return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
-    }
+    // escHtml comes from SharedUtils (single shared copy).
 
     function escAttr(str) {
       return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
@@ -1074,6 +1083,16 @@
 
       return rows;
     }
-  </script>
-</body>
-</html>
+
+    // ── App integration ───────────────────────────────────────────────────────
+    // Close guard: an in-flight or conflict-pending import shouldn't be lost
+    // silently. (SharedUtils is included before view fragments, so AppGuards
+    // exists at parse time.)
+    if (window.AppGuards) {
+      AppGuards.register(function() {
+        return (window.AppBusy && AppBusy.is('import'))
+          ? 'An import is in progress or has unresolved VIN conflicts'
+          : null;
+      });
+    }
+</script>

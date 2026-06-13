@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    /* Standalone wrapper for one converted view fragment — powers the
+       "Classic menu" fallback with zero code duplication. */
+    html, body { height: 100%; margin: 0; padding: 0; }
+    body {
+      font-family: Arial, sans-serif;
+      font-size: 13px;
+      color: #333;
+      overflow: hidden;
+    }
+    .view { height: 100vh; }
+    .view[hidden] { display: none !important; }
+  </style>
+</head>
+<body class="standalone">
+
+  <!-- SharedUtils FIRST: the fragment registers guards/inits at parse time -->
+  <?!= include_('SharedUtils') ?>
+  <?!= include_(fragment) ?>
+
+  <script>
+    // In the classic (single-view) context, cross-view navigation falls back
+    // to today's behavior: the server replaces this dialog with the target one.
+    var CLASSIC_NAV = {
+      'view-run':    'promptRunDealer',
+      'view-import': 'openScraperImport',
+      'view-vinlog': 'openVINLogUpdater',
+      'view-rules':  'openRulesEditor',
+      'view-norm':   'openNormManager'
+    };
+    function navTo(viewId) {
+      if (CLASSIC_NAV[viewId]) google.script.run[CLASSIC_NAV[viewId]]();
+    }
+
+    function exitApp() {
+      var msgs = AppGuards.run();
+      if (msgs.length === 0 ||
+          confirm('Before you close:\n\n' + msgs.join('\n') + '\n\nClose anyway?')) {
+        google.script.host.close();
+      }
+    }
+
+    // Reveal and boot the single embedded view.
+    var v = document.querySelector('.view');
+    if (v) {
+      v.hidden = false;
+      if (window.VIEW_INITS && VIEW_INITS[v.id]) {
+        try { VIEW_INITS[v.id](); } catch (e) { /* surfaced by the view itself */ }
+      }
+      if (window.VIEW_SHOWN && VIEW_SHOWN[v.id]) {
+        try { VIEW_SHOWN[v.id](); } catch (e) {}
+      }
+    }
+  </script>
+</body>
+</html>

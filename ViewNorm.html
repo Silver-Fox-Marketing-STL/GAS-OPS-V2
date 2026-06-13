@@ -1,0 +1,397 @@
+<!-- ════════════════════════════════════════════════════════════════════════════
+     NORMALIZATION VIEW — converted from NormManager.html (modal) into an App
+     view fragment. All CSS is scoped under #view-norm; table height is sized
+     against the view container (not the window) so it works inside the shell.
+════════════════════════════════════════════════════════════════════════════ -->
+<div class="view" id="view-norm" hidden>
+
+  <div class="top-bar">
+    <label for="mapSelect">Map:</label>
+    <select id="mapSelect" onchange="onMapChange()">
+      <option value="type">Type — vehicle condition</option>
+      <option value="status">Status</option>
+      <option value="price">Price</option>
+      <option value="trim">Trim</option>
+      <option value="global">Global (all columns)</option>
+    </select>
+    <span id="entryCount"></span>
+    <span class="order-note">Rules match top-to-bottom — first match wins. Use ▲ ▼ to reorder.</span>
+  </div>
+
+  <div class="add-bar">
+    <div class="add-field">
+      <label>Raw value (from scraper)</label>
+      <input type="text" id="addRaw" placeholder="e.g.  Certified Pre-Owned" />
+    </div>
+    <div class="add-arrow">→</div>
+    <div class="add-field">
+      <label>Normalized value</label>
+      <input type="text" id="addNorm" placeholder="e.g.  CPO" />
+    </div>
+    <div class="add-buttons">
+      <button class="btn-secondary" onclick="clearAddForm()">Clear</button>
+      <button class="btn-primary"   onclick="addEntry()">+ Add</button>
+    </div>
+  </div>
+
+  <div id="normStatus" class="empty"></div>
+
+  <div class="table-wrap" id="tableWrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Raw Value</th>
+          <th class="col-arrow"></th>
+          <th>Normalized Value</th>
+          <th class="col-actions">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="entriesBody">
+        <tr class="state-row"><td colspan="4">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="footer" id="normFooter">
+    <button class="btn-secondary" onclick="exitApp()">Close SilverFox</button>
+  </div>
+
+</div>
+
+<style>
+  #view-norm * { box-sizing: border-box; margin: 0; padding: 0; }
+  #view-norm {
+    font-family: Arial, sans-serif;
+    font-size: 13px;
+    color: #333;
+    background: #fff;
+  }
+
+  /* ── Map selector ─────────────────────────────────────────────────────── */
+  #view-norm .top-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    border-bottom: 1px solid #e0e0e0;
+  }
+  #view-norm .top-bar label { font-weight: bold; white-space: nowrap; }
+  #view-norm select {
+    flex: 0 0 220px;
+    padding: 6px 8px;
+    font-size: 13px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+  }
+  #view-norm select:focus { outline: none; border-color: #1a73e8; }
+  #view-norm #entryCount { font-size: 12px; color: #888; }
+  #view-norm .order-note { font-size: 11px; color: #888; margin-left: auto; font-style: italic; }
+
+  /* ── Add entry bar ────────────────────────────────────────────────────── */
+  #view-norm .add-bar {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    padding: 10px 16px;
+    border-bottom: 1px solid #e0e0e0;
+    background: #f8f9fa;
+  }
+  #view-norm .add-field { display: flex; flex-direction: column; gap: 3px; flex: 1; }
+  #view-norm .add-field label { font-size: 11px; font-weight: bold; color: #555; white-space: nowrap; }
+  #view-norm .add-field input[type="text"] {
+    padding: 6px 8px;
+    font-size: 12px;
+    font-family: monospace;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    width: 100%;
+  }
+  #view-norm .add-field input[type="text"]:focus { outline: none; border-color: #1a73e8; }
+  #view-norm .add-arrow { font-size: 16px; color: #bbb; padding-bottom: 7px; flex-shrink: 0; }
+  #view-norm .add-buttons { display: flex; gap: 6px; flex-shrink: 0; padding-bottom: 1px; }
+
+  /* ── Status bar ───────────────────────────────────────────────────────── */
+  #view-norm #normStatus {
+    font-size: 12px;
+    padding: 5px 16px;
+    height: 28px;
+    line-height: 18px;
+  }
+  #view-norm #normStatus.empty   { background: none; }
+  #view-norm #normStatus.info    { background: #e8f0fe; color: #1a73e8; }
+  #view-norm #normStatus.success { background: #e6f4ea; color: #1e7e34; }
+  #view-norm #normStatus.error   { background: #fce8e6; color: #c0392b; }
+
+  /* ── Entries table ────────────────────────────────────────────────────── */
+  /* Height is set by JS — overflow-y: auto enables scroll once height is fixed */
+  #view-norm .table-wrap { overflow-y: auto; }
+
+  #view-norm table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  #view-norm thead th {
+    background: #f1f3f4;
+    padding: 7px 12px;
+    text-align: left;
+    font-size: 11px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    color: #555;
+    border-bottom: 1px solid #ddd;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+  #view-norm thead th.col-arrow   { width: 28px; padding: 7px 4px; }
+  #view-norm thead th.col-actions { text-align: center; width: 150px; white-space: nowrap; }
+  #view-norm tbody tr { border-bottom: 1px solid #f0f0f0; }
+  #view-norm tbody tr:last-child  { border-bottom: none; }
+  #view-norm tbody tr:hover { background: #fafafa; }
+  #view-norm td { padding: 5px 12px; vertical-align: middle; }
+  #view-norm td.col-input  { font-family: monospace; color: #444; }
+  #view-norm td.col-arrow  { color: #ccc; text-align: center; padding: 5px 4px; width: 28px; }
+  #view-norm td.col-output { font-family: monospace; font-weight: bold; color: #1a73e8; }
+  #view-norm td.col-actions { text-align: center; white-space: nowrap; width: 150px; }
+
+  /* Inline edit row */
+  #view-norm tr.editing td { background: #f0f6ff; padding: 5px 8px; }
+  #view-norm .edit-input {
+    width: 100%;
+    padding: 4px 6px;
+    font-size: 12px;
+    font-family: monospace;
+    border: 1px solid #1a73e8;
+    border-radius: 3px;
+  }
+  #view-norm .edit-input:focus { outline: none; }
+
+  /* Empty / loading states */
+  #view-norm .state-row td { text-align: center; padding: 28px; color: #aaa; font-size: 12px; }
+
+  /* ── Footer ───────────────────────────────────────────────────────────── */
+  #view-norm .footer {
+    display: flex;
+    justify-content: flex-end;
+    padding: 10px 16px;
+    border-top: 1px solid #e0e0e0;
+    background: #f8f9fa;
+  }
+
+  /* ── Buttons ──────────────────────────────────────────────────────────── */
+  #view-norm button {
+    padding: 6px 13px;
+    font-size: 12px;
+    font-weight: bold;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  #view-norm .btn-primary         { background: #1a73e8; color: #fff; }
+  #view-norm .btn-primary:hover   { background: #1557b0; }
+  #view-norm .btn-secondary       { background: #fff; color: #333; border: 1px solid #ccc; }
+  #view-norm .btn-secondary:hover { background: #f1f3f4; }
+  #view-norm .btn-icon            { padding: 3px 8px; font-size: 12px; background: #f1f3f4; border: 1px solid #ddd; border-radius: 3px; color: #555; margin: 0 1px; }
+  #view-norm .btn-icon:hover      { background: #e2e5e9; }
+  #view-norm .btn-icon.del        { background: #fce8e6; color: #c0392b; border-color: #f5c6c2; }
+  #view-norm .btn-icon.del:hover  { background: #f5c6c2; }
+  #view-norm .btn-icon.save       { background: #e6f4ea; color: #1e7e34; border-color: #b7dfbe; }
+  #view-norm .btn-icon.save:hover { background: #b7dfbe; }
+  #view-norm button:disabled      { opacity: 0.4; cursor: default; }
+</style>
+
+<script>
+  var currentMap  = 'type';
+  var currentData = [];
+  var editingRow  = null;
+
+  // ── Height calculation ────────────────────────────────────────────────────
+  // Sizes the table scroll area against the VIEW container (not the window —
+  // the app shell's header/sidebar make window.innerHeight wrong here), with
+  // all element queries scoped to this view (a global '.top-bar' query would
+  // also match other views in the shared App DOM).
+  function sizeNormTable() {
+    var view = document.getElementById('view-norm');
+    if (!view || view.hidden) return;  // hidden views measure 0 — skip
+
+    var used = 0;
+    ['.top-bar', '.add-bar', '.footer'].forEach(function(sel) {
+      var el = view.querySelector(sel);
+      if (el) used += el.getBoundingClientRect().height;
+    });
+    var st = document.getElementById('normStatus');
+    if (st) used += st.getBoundingClientRect().height;
+
+    var available = view.getBoundingClientRect().height - used - 2;
+    document.getElementById('tableWrap').style.height = Math.max(available, 120) + 'px';
+  }
+
+  window.addEventListener('resize', sizeNormTable);
+
+  // ── Init (lazy — first nav into the view) ────────────────────────────────
+  function initNormView() {
+    sizeNormTable();
+    loadEntries('type');
+  }
+
+  window.VIEW_INITS = window.VIEW_INITS || {};
+  window.VIEW_SHOWN = window.VIEW_SHOWN || {};
+  VIEW_INITS['view-norm'] = initNormView;
+  VIEW_SHOWN['view-norm'] = sizeNormTable;
+
+  function onMapChange() {
+    currentMap = document.getElementById('mapSelect').value;
+    editingRow = null;
+    clearAddForm();
+    sizeNormTable();
+    loadEntries(currentMap);
+  }
+
+  // ── Load ──────────────────────────────────────────────────────────────────
+  function loadEntries(mapName) {
+    setTbody('<tr class="state-row"><td colspan="4">Loading…</td></tr>');
+    document.getElementById('entryCount').textContent = '';
+    google.script.run
+      .withSuccessHandler(renderEntries)
+      .withFailureHandler(function(e) { setNormStatus(e.message, 'error'); })
+      .getNormEntries(mapName);
+  }
+
+  function renderEntries(data) {
+    currentData = data;
+    var count   = data.length;
+    document.getElementById('entryCount').textContent =
+      count + (count === 1 ? ' entry' : ' entries');
+
+    if (count === 0) {
+      setTbody('<tr class="state-row"><td colspan="4">No entries yet for this map.</td></tr>');
+      return;
+    }
+
+    var showOrder = true;
+    var rows = '';
+    data.forEach(function(entry, idx) {
+      rows += (editingRow === entry.sheetRow)
+        ? buildEditRow(entry)
+        : buildViewRow(entry, idx, count, showOrder);
+    });
+    setTbody(rows);
+  }
+
+  // ── Row builders ──────────────────────────────────────────────────────────
+  function buildViewRow(entry, idx, total, showOrder) {
+    var actions = '';
+    if (showOrder) {
+      actions += mkBtn('▲', "moveEntry(" + entry.sheetRow + ",'up')",   'btn-icon', idx === 0,         'Move up');
+      actions += mkBtn('▼', "moveEntry(" + entry.sheetRow + ",'down')", 'btn-icon', idx === total - 1, 'Move down');
+    }
+    actions += mkBtn('✏',  'startEdit('     + entry.sheetRow + ')', 'btn-icon',     false, 'Edit');
+    actions += mkBtn('✕',  'confirmDelete(' + entry.sheetRow + ')', 'btn-icon del', false, 'Delete');
+
+    return '<tr id="row-' + entry.sheetRow + '">' +
+      '<td class="col-input"  title="' + esc(entry.input)  + '">' + esc(entry.input)  + '</td>' +
+      '<td class="col-arrow">→</td>' +
+      '<td class="col-output" title="' + esc(entry.output) + '">' + esc(entry.output) + '</td>' +
+      '<td class="col-actions">' + actions + '</td>' +
+      '</tr>';
+  }
+
+  function buildEditRow(entry) {
+    return '<tr class="editing" id="row-' + entry.sheetRow + '">' +
+      '<td><input class="edit-input" id="edit-raw-'  + entry.sheetRow + '" value="' + esc(entry.input)  + '" /></td>' +
+      '<td class="col-arrow">→</td>' +
+      '<td><input class="edit-input" id="edit-norm-' + entry.sheetRow + '" value="' + esc(entry.output) + '" /></td>' +
+      '<td class="col-actions">' +
+        mkBtn('✓ Save', 'saveEdit('   + entry.sheetRow + ')', 'btn-icon save', false, 'Save') +
+        mkBtn('Cancel', 'cancelEdit()',                        'btn-icon',      false, 'Cancel') +
+      '</td></tr>';
+  }
+
+  function mkBtn(label, onclick, cls, disabled, title) {
+    return '<button class="' + cls + '" onclick="' + onclick + '"' +
+      (disabled ? ' disabled' : '') + ' title="' + (title || '') + '">' + label + '</button>';
+  }
+
+  function startEdit(sheetRow) {
+    editingRow = sheetRow;
+    renderEntries(currentData);
+    var el = document.getElementById('edit-raw-' + sheetRow);
+    if (el) { el.focus(); el.select(); }
+  }
+
+  function cancelEdit() { editingRow = null; renderEntries(currentData); }
+
+  // ── CRUD ──────────────────────────────────────────────────────────────────
+  function addEntry() {
+    var raw  = document.getElementById('addRaw').value.trim();
+    var norm = document.getElementById('addNorm').value.trim();
+    if (!raw || !norm) { setNormStatus('Both fields are required.', 'error'); return; }
+    setNormStatus('Adding…', 'info');
+    google.script.run
+      .withSuccessHandler(function(data) {
+        clearAddForm(); editingRow = null;
+        renderEntries(data); setNormStatus('Entry added.', 'success');
+      })
+      .withFailureHandler(function(e) { setNormStatus(e.message, 'error'); })
+      .addNormEntry(currentMap, raw, norm);
+  }
+
+  function saveEdit(sheetRow) {
+    var newInput  = document.getElementById('edit-raw-'  + sheetRow).value.trim();
+    var newOutput = document.getElementById('edit-norm-' + sheetRow).value.trim();
+    if (!newInput || !newOutput) { setNormStatus('Both fields are required.', 'error'); return; }
+    setNormStatus('Saving…', 'info');
+    google.script.run
+      .withSuccessHandler(function(data) {
+        editingRow = null; renderEntries(data); setNormStatus('Entry updated.', 'success');
+      })
+      .withFailureHandler(function(e) { setNormStatus(e.message, 'error'); })
+      .updateNormEntry(sheetRow, newInput, newOutput);
+  }
+
+  function confirmDelete(sheetRow) {
+    var entry = null;
+    for (var i = 0; i < currentData.length; i++) {
+      if (currentData[i].sheetRow === sheetRow) { entry = currentData[i]; break; }
+    }
+    if (!entry) return;
+    if (!confirm('Delete this entry?\n\n"' + entry.input + '"  →  "' + entry.output + '"')) return;
+    setNormStatus('Deleting…', 'info');
+    google.script.run
+      .withSuccessHandler(function(data) {
+        editingRow = null; renderEntries(data); setNormStatus('Entry deleted.', 'success');
+      })
+      .withFailureHandler(function(e) { setNormStatus(e.message, 'error'); })
+      .deleteNormEntry(sheetRow);
+  }
+
+  function moveEntry(sheetRow, direction) {
+    google.script.run
+      .withSuccessHandler(function(data) {
+        editingRow = null; renderEntries(data); setNormStatus('', 'empty');
+      })
+      .withFailureHandler(function(e) { setNormStatus(e.message, 'error'); })
+      .moveNormEntry(sheetRow, direction);
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function clearAddForm() {
+    document.getElementById('addRaw').value  = '';
+    document.getElementById('addNorm').value = '';
+  }
+
+  function setTbody(html) { document.getElementById('entriesBody').innerHTML = html; }
+
+  function setNormStatus(msg, type) {
+    var el = document.getElementById('normStatus');
+    el.textContent = msg || '';
+    el.className   = type || 'empty';
+  }
+
+  function esc(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+</script>

@@ -1,0 +1,178 @@
+<!-- ════════════════════════════════════════════════════════════════════════════
+     HOME VIEW — launcher cards + utilities + status strip
+════════════════════════════════════════════════════════════════════════════ -->
+<div class="view" id="view-home" hidden>
+  <div class="home-scroll">
+
+    <div class="home-status" id="homeStatus">
+      <span class="dot">&#9679;</span>
+      <span id="homeStatusText">Checking last scraper import&hellip;</span>
+    </div>
+
+    <div class="home-section-label">Workflows</div>
+    <div class="home-cards">
+      <div class="home-card" onclick="navTo('view-run')">
+        <div class="card-icon">&#9654;</div>
+        <div class="card-title">Run Order</div>
+        <div class="card-desc">Run a dealer order — CAO pre-fill or manual VINs, QR codes, CSV output.</div>
+      </div>
+      <div class="home-card" onclick="navTo('view-import')">
+        <div class="card-icon">&#11014;</div>
+        <div class="card-title">Import Data</div>
+        <div class="card-desc">Import scraper CSVs — replace everything or merge new files into the current data.</div>
+      </div>
+      <div class="home-card" onclick="navTo('view-vinlog')">
+        <div class="card-icon">&#128203;</div>
+        <div class="card-title">VIN Logs</div>
+        <div class="card-desc">Commit or roll back run results, and add VINs to a log manually.</div>
+      </div>
+      <div class="home-card" onclick="navTo('view-rules')">
+        <div class="card-icon">&#9881;</div>
+        <div class="card-title">Dealer Rules</div>
+        <div class="card-desc">Edit a dealer's type rules, filters, and targeting conditions.</div>
+      </div>
+      <div class="home-card" onclick="navTo('view-norm')">
+        <div class="card-icon">Aa</div>
+        <div class="card-title">Normalization</div>
+        <div class="card-desc">Manage the maps that clean up raw scraper values at import time.</div>
+      </div>
+    </div>
+
+    <div class="home-section-label">Utilities</div>
+    <div class="home-utils" id="homeUtils">
+      <button class="util-btn" id="utilTimestamp" onclick="runUtility(this, 'fillScraperDateTime')">&#8635; Update Scraper Timestamp</button>
+      <button class="util-btn" id="utilRunlog" onclick="runUtility(this, 'appOpenRunLog')">&#128202; View Run Log</button>
+      <button class="util-btn" id="utilNormref" onclick="runUtility(this, 'appRefreshNormReference')">&#128270; Refresh Norm/Field Reference</button>
+      <button class="util-btn" id="utilClearqr" onclick="confirmUtility(this, 'appEraseAllQRFolders', 'Clear the QR folders for ALL active dealers?')">&#129529; Clear QR Folders</button>
+      <button class="util-btn" id="utilCleanup" onclick="confirmUtility(this, 'appCleanUpOutputDocs', 'Trash output docs older than 30 days?')">&#128465; Clean Up Old Output Docs</button>
+    </div>
+
+  </div>
+</div>
+
+<style>
+  #view-home .home-scroll {
+    height: 100%;
+    overflow-y: auto;
+    padding: 22px 26px;
+  }
+
+  #view-home .home-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 14px;
+    background: #f8f9fa;
+    border: 1px solid #e0e0e0;
+    border-radius: 16px;
+    font-size: 12px;
+    color: #555;
+    margin-bottom: 22px;
+  }
+  #view-home .home-status .dot { color: #bbb; font-size: 10px; }
+  #view-home .home-status.fresh .dot { color: #1e7e34; }
+  #view-home .home-status.stale .dot { color: #e67e00; }
+
+  #view-home .home-section-label {
+    font-size: 11px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #888;
+    margin-bottom: 10px;
+  }
+
+  #view-home .home-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(215px, 1fr));
+    gap: 14px;
+    margin-bottom: 28px;
+  }
+  #view-home .home-card {
+    border: 1px solid #dadce0;
+    border-radius: 8px;
+    padding: 16px;
+    cursor: pointer;
+    background: #fff;
+    transition: box-shadow 0.12s, border-color 0.12s;
+    user-select: none;
+  }
+  #view-home .home-card:hover {
+    border-color: #1a73e8;
+    box-shadow: 0 1px 6px rgba(26,115,232,0.18);
+  }
+  #view-home .card-icon { font-size: 20px; margin-bottom: 8px; color: #1a73e8; font-weight: bold; }
+  #view-home .card-title { font-size: 14px; font-weight: bold; margin-bottom: 5px; }
+  #view-home .card-desc { font-size: 11.5px; color: #777; line-height: 1.5; }
+
+  #view-home .home-utils { display: flex; flex-wrap: wrap; gap: 10px; }
+  #view-home .util-btn {
+    padding: 9px 16px;
+    background: #fff;
+    color: #444;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    font-size: 12.5px;
+    font-weight: bold;
+    cursor: pointer;
+  }
+  #view-home .util-btn:hover:not(:disabled) { background: #f1f3f4; border-color: #999; }
+  #view-home .util-btn:disabled { opacity: 0.45; cursor: default; }
+</style>
+
+<script>
+  function initHomeView() {
+    google.script.run
+      .withSuccessHandler(function(s) {
+        var el   = document.getElementById('homeStatus');
+        var text = document.getElementById('homeStatusText');
+        if (s && s.lastImportDate) {
+          text.textContent = 'Last scraper import: ' + s.lastImportDate + ' ' + (s.lastImportTime || '');
+          // Fresh if the import date is today's date (display-string compare is
+          // fine here — both come from the same timezone formatting).
+          var today = new Date();
+          var pad = function(n) { return (n < 10 ? '0' : '') + n; };
+          var todayStr = today.getFullYear() + '/' + pad(today.getMonth() + 1) + '/' + pad(today.getDate());
+          el.className = 'home-status ' + (s.lastImportDate === todayStr ? 'fresh' : 'stale');
+        } else {
+          text.textContent = 'No scraper import timestamp found.';
+          el.className = 'home-status stale';
+        }
+      })
+      .withFailureHandler(function(e) {
+        document.getElementById('homeStatusText').textContent =
+          'Could not read import status: ' + e.message;
+      })
+      .getAppHomeStatus();
+  }
+
+  // Runs a server utility and toasts its {message}. The button is disabled
+  // while the call is in flight so double-clicks can't double-run it.
+  function runUtility(btn, serverFn) {
+    var original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Working…';
+    google.script.run
+      .withSuccessHandler(function(result) {
+        btn.disabled = false;
+        btn.textContent = original;
+        toast((result && result.message) ? result.message : 'Done.',
+              (result && result.ok === false) ? 'error' : 'success');
+        // Timestamp updates change the Home status strip — refresh it.
+        if (serverFn === 'fillScraperDateTime') initHomeView();
+      })
+      .withFailureHandler(function(e) {
+        btn.disabled = false;
+        btn.textContent = original;
+        toast('Error: ' + e.message, 'error');
+      })[serverFn]();
+  }
+
+  // Destructive utilities get a confirm first.
+  function confirmUtility(btn, serverFn, prompt) {
+    if (confirm(prompt)) runUtility(btn, serverFn);
+  }
+
+  window.VIEW_INITS = window.VIEW_INITS || {};
+  VIEW_INITS['view-home'] = initHomeView;
+</script>
