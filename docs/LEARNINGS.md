@@ -33,6 +33,15 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   `generateQRCodesParallel_`). Related: folders that only ever accumulate
   (the QR folders did, with duplicate filenames) make every later folder
   operation slower — clear at the start of the producing operation.
+- **A comparison table inside a narrow, `overflow:hidden` card silently drops
+  trailing columns.** The import conflict panel put cards in a 2-col grid
+  (wide-canvas rework); each half-width card had `overflow:hidden`, and the
+  inner `table-layout:auto` table with a fixed-width first column over-allocated
+  width to the middle column and pushed the third ("New") column past the
+  clipped edge — so it just wasn't visible, while the DOM still contained it.
+  For any side-by-side comparison table use `table-layout: fixed` (+ `width:100%`
+  and `word-break`) so every column gets allocated width and content wraps;
+  don't rely on a fixed-width card to fit an auto table.
 - **Formatting calls in loops are ~12× more expensive than block formatting.**
   The DASHBOARD's per-row stripe loop issued ~500 range ops per import; one
   `setBackgroundObjects(matrix)` + column-scoped alignment calls do the same

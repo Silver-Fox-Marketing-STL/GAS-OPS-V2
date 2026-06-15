@@ -342,7 +342,7 @@
     /* Conflict cards render 2-up in the wide modal */
     #view-import #conflictList {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 1fr;
       gap: 12px;
       align-items: start;
     }
@@ -363,7 +363,7 @@
     }
     #view-import .conflict-card-header .vin { font-weight: bold; font-family: monospace; font-size: 12px; }
     #view-import .conflict-card-header .meta { font-size: 11px; color: #666; white-space: nowrap; }
-    #view-import .conflict-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    #view-import .conflict-table { width: 100%; border-collapse: collapse; font-size: 11px; table-layout: fixed; }
     #view-import .conflict-table th {
       background: #fafafa;
       padding: 5px 10px;

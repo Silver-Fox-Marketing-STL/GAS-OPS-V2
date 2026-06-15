@@ -10,6 +10,9 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## [Unreleased]
 
+### Fixed
+- **Import conflict cards were hiding the "New" column.** The VIN-conflict resolution panel showed only the *Existing* side of each conflict — the *New* column was clipped out of view, so users couldn't compare the two occurrences. Cause was a CSS regression from the 1400×900 layout rework (`0c7f126`): `#conflictList` became a 2-column grid, halving each card's width, and the `overflow:hidden` card + default `table-layout:auto` table (with a fixed 130px Field column) pushed the third column past the clipped edge. Fix: `#conflictList` back to a single full-width column, and `table-layout: fixed` on `.conflict-table` so Field/Existing/New always get allocated width and long values wrap instead of clipping. Render logic, dedupe engine, and conflict count are unchanged.
+
 ### Performance — `feature/app-shell` efficiency sweep
 - **One bootstrap call per App session** — new `getAppBootstrap()` returns dealers + user profiles in a single execution; the App prefetches it while the user is on Home (shared `AppData` latch in SharedUtils), so Run Order and VIN Logs first visits populate instantly instead of firing three separate cold-start executions. Merge-mode caption now notes that Merge never removes sold vehicles (run a Main Import periodically).
 - **Import path trims** — DASHBOARD data-row formatting batched from ~500 per-row range ops to 7 block ops per refresh (`setBackgroundObjects` matrix for the stripes); column widths/frozen rows only set on first layout; `groupRowsByLocation_` switched from O(n²) `concat` re-copying to `push.apply` per bucket; `checkImportHealth_` reads only the last 2,000 IMPORT_STATS rows (rolling baselines need far less — keeps the read constant-time as the tab grows).
