@@ -851,6 +851,17 @@ function pasteVinsAndRun(dealerKey, vins, dealId, runId, bypassFilters, userKey,
   // Persist the selection so the dropdown pre-selects on next open.
   saveLastSelectedUser(userKey);
 
+  // De-duplicate the ordered VINs (case-insensitive, order-preserving) so a VIN
+  // can never be submitted twice — keeps ordered counts honest. The Run Order
+  // modal also dedupes at submit; this guarantees it regardless of entry path.
+  var seenVin_ = {};
+  vins = (vins || []).filter(function(v) {
+    var k = String(v).trim().toUpperCase();
+    if (k === '' || k === '*' || seenVin_[k]) return false;
+    seenVin_[k] = 1;
+    return true;
+  });
+
   var colLetter = config[CFG.ORDERS_COL];
   var ss    = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName('ORDERS');

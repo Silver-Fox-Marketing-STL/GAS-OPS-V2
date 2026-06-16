@@ -91,6 +91,7 @@
     <div class="col-right">
       <div class="cao-row" style="margin-top: 0;">
         <label for="vinInput">VINs / Stock Numbers</label>
+        <button id="fillTrBtn" onclick="fillFromTranscription()">&#128269; Fill from Transcription</button>
         <button id="caoBtn" onclick="prefillFromCAO()" disabled>&#x21BA; Pre-fill from CAO</button>
       </div>
 
@@ -229,13 +230,13 @@
     /* ── CAO row ─────────────────────────────────────────────────────────── */
     #view-run .cao-row { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
     #view-run .cao-row label { margin: 0; flex: 1; }
-    #view-run #caoBtn {
+    #view-run #caoBtn, #view-run #fillTrBtn {
       padding: 6px 12px; font-size: 12px; font-weight: bold;
       background: #fff; color: #1a73e8; border: 1.5px solid #1a73e8;
       border-radius: 4px; cursor: pointer; white-space: nowrap; width: auto; margin: 0;
     }
-    #view-run #caoBtn:hover { background: #e8f0fe; }
-    #view-run #caoBtn:disabled { background: #f5f5f5; color: #aaa; border-color: #ccc; cursor: default; }
+    #view-run #caoBtn:hover, #view-run #fillTrBtn:hover { background: #e8f0fe; }
+    #view-run #caoBtn:disabled, #view-run #fillTrBtn:disabled { background: #f5f5f5; color: #aaa; border-color: #ccc; cursor: default; }
 
     /* ── CAO summary ─────────────────────────────────────────────────────── */
     #view-run #caoSummary {
@@ -501,6 +502,42 @@
         .split('\n').map(function(v) { return v.trim(); }).filter(function(v) { return v !== ''; });
     }
 
+    // Appends VINs to the textarea WITHOUT clearing what's there, so CAO and
+    // Transcription fills stack into one combined list. (Dedup happens at submit.)
+    function appendVins(list) {
+      if (!list || !list.length) return;
+      var ta  = document.getElementById('vinInput');
+      var cur = ta.value.replace(/\s+$/, '');
+      ta.value = (cur === '' ? '' : cur + '\n') + list.join('\n');
+      updateRunVinCount(); updateButtons();
+    }
+
+    // Case-insensitive, order-preserving de-dup of a VIN list.
+    function dedupeVins(list) {
+      var seen = {}, out = [];
+      for (var i = 0; i < list.length; i++) {
+        var k = list[i].toUpperCase();
+        if (seen[k]) continue;
+        seen[k] = 1; out.push(list[i]);
+      }
+      return out;
+    }
+
+    // Pull the VINs the user typed/verified in the Transcription view (hidden
+    // views keep their state) and append them to the order list.
+    function fillFromTranscription() {
+      var src  = document.getElementById('trInput');
+      var list = !src ? [] : src.value.split(/\r?\n/)
+        .map(function(v) { return v.trim(); }).filter(function(v) { return v !== ''; });
+      if (!list.length) {
+        setRunStatus('No VINs in the Transcription tab yet — open Transcription and enter some first.', 'info');
+        return;
+      }
+      appendVins(list);
+      setRunStatus('Added ' + list.length + ' VIN' + (list.length === 1 ? '' : 's') +
+                   ' from Transcription.', 'success');
+    }
+
     function updateRunVinCount() {
       var count = getVins().length;
       document.getElementById('runVinCount').textContent =
@@ -557,13 +594,12 @@
 
       google.script.run
         .withSuccessHandler(function(result) {
-          document.getElementById('vinInput').value = result.vins.join('\n');
-          updateRunVinCount(); updateButtons();
+          appendVins(result.vins);
           showCaoSummary(result.summary);
           setRunStatus(result.vins.length === 0
             ? 'No net-new vehicles found after filters and dedup.'
-            : 'Pre-filled ' + result.vins.length + ' net-new VIN' +
-              (result.vins.length === 1 ? '' : 's') + '. Review and click Run.',
+            : 'Added ' + result.vins.length + ' net-new VIN' +
+              (result.vins.length === 1 ? '' : 's') + ' from CAO. Review and click Run.',
             result.vins.length === 0 ? 'info' : 'success');
           btn.disabled = false; btn.textContent = '↺ Pre-fill from CAO';
         })
@@ -876,12 +912,18 @@
       var name   = sel.options[sel.selectedIndex].text;
       var dealId      = document.getElementById('dealId').value.trim();
       var splitDealId = document.getElementById('splitDealId').value.trim();
-      var vins   = getVins();
+      var rawVins = getVins();
+      var vins    = dedupeVins(rawVins);     // no VIN ever submitted twice
+      var dupsRemoved = rawVins.length - vins.length;
       var runBtn = document.getElementById('runBtn');
 
       if (!userKey)          { setRunStatus('Please select a user.', 'error'); return; }
       if (!key)              { setRunStatus('Please select a dealer.', 'error'); return; }
       if (vins.length === 0) { setRunStatus('Please enter at least one VIN.', 'error'); return; }
+      if (dupsRemoved > 0) {
+        toast('Removed ' + dupsRemoved + ' duplicate VIN' + (dupsRemoved === 1 ? '' : 's') +
+              ' from the order.', 'info');
+      }
 
       // Mutual exclusion with imports: an import rewrites SCRAPERDATA, which
       // this run is about to read.
