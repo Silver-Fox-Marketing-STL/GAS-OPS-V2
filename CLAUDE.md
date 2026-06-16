@@ -33,7 +33,9 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
 - Repo: `Silver-Fox-Marketing-STL/GAS-OPS-V2` — `Code.gs` (~3,400 lines, 30 sections)
   plus the **SilverFox App** (single-modal SPA, June 2026): `App.html` shell
   (sidebar nav + `<?!= include_() ?>` templating), view fragments `ViewRun`,
-  `ViewImport`, `ViewVinLog`, `ViewRules`, `ViewNorm`, `ViewHome`, plus
+  `ViewImport`, `ViewVinLog`, `ViewRules`, `ViewNorm`, `ViewUtilities`,
+  `ViewHome` (workflow cards + a live DASHBOARD render via `getDashboardView`,
+  refreshed on every Home visit), plus
   `SharedUtils.html` (escHtml/toast/AppGuards/AppBusy — include FIRST) and
   `Classic.html` (standalone single-view wrapper for the deprecated Classic
   menu fallback; delete with `openViewStandalone_` at validation sign-off).

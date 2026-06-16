@@ -417,6 +417,20 @@ function getAppHomeStatus() {
   return { lastImportDate: vals[0], lastImportTime: vals[1] };
 }
 
+// Returns the DASHBOARD tab as a 2D array of display strings for the Home
+// view to render. getDisplayValues keeps it serializable (no Date objects) and
+// reflects whatever refreshDashboard_ wrote plus the live formula-driven run
+// sections (Run Log Summary / Most Recent Run / Runs By Dealer), so revisiting
+// Home after finalizing a run shows current numbers without re-importing.
+function getDashboardView() {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('DASHBOARD');
+  if (!sh) return { rows: [], error: 'DASHBOARD sheet not found.' };
+  var lastRow = sh.getLastRow();
+  if (lastRow < 1) return { rows: [] };
+  var lastCol = Math.min(sh.getLastColumn() || 1, 10);
+  return { rows: sh.getRange(1, 1, lastRow, lastCol).getDisplayValues() };
+}
+
 // Classic fallback: serves the converted App fragment standalone.
 function promptRunDealer() {
   openViewStandalone_('ViewRun', 'Run Dealer');

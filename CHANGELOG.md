@@ -10,6 +10,9 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## [Unreleased]
 
+### Added
+- **Live Dashboard on the App Home page + Utilities moved to its own sidebar page.** Home now renders the DASHBOARD sheet (Inventory Snapshot + TOTALS, Run Log Summary, Most Recent Run, Runs By Dealer) below the workflow cards, via a new `getDashboardView()` server function (returns the tab's display values) and a client renderer that stacks each section as a styled table. It **reloads on every visit to Home** (`VIEW_SHOWN`) and has a manual **Refresh** button, so the user can check current numbers between order runs without closing the app — the run sections are formula-driven over RUN_LOG, so they reflect freshly finalized runs. The five **Utilities** buttons moved off Home into a new **`ViewUtilities.html`** sidebar page (🔧 Utilities); the Home status strip is now derived from the dashboard's "Last Import" row (one round-trip instead of a separate `getAppHomeStatus` call). App shell updated: include, sidebar item, `NAV_TITLES`.
+
 ### Fixed
 - **Import conflict cards were hiding the "New" column.** The VIN-conflict resolution panel showed only the *Existing* side of each conflict — the *New* column was clipped out of view, so users couldn't compare the two occurrences. Cause was a CSS regression from the 1400×900 layout rework (`0c7f126`): `#conflictList` became a 2-column grid, halving each card's width, and the `overflow:hidden` card + default `table-layout:auto` table (with a fixed 130px Field column) pushed the third column past the clipped edge. Fix: `#conflictList` back to a single full-width column, and `table-layout: fixed` on `.conflict-table` so Field/Existing/New always get allocated width and long values wrap instead of clipping. Render logic, dedupe engine, and conflict count are unchanged.
 

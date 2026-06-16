@@ -1,12 +1,12 @@
 <!-- ════════════════════════════════════════════════════════════════════════════
-     HOME VIEW — launcher cards + utilities + status strip
+     HOME VIEW — status strip + workflow launcher cards + live Dashboard
 ════════════════════════════════════════════════════════════════════════════ -->
 <div class="view" id="view-home" hidden>
   <div class="home-scroll">
 
     <div class="home-status" id="homeStatus">
       <span class="dot">&#9679;</span>
-      <span id="homeStatusText">Checking last scraper import&hellip;</span>
+      <span id="homeStatusText">Loading dashboard&hellip;</span>
     </div>
 
     <div class="home-section-label">Workflows</div>
@@ -38,13 +38,12 @@
       </div>
     </div>
 
-    <div class="home-section-label">Utilities</div>
-    <div class="home-utils" id="homeUtils">
-      <button class="util-btn" id="utilTimestamp" onclick="runUtility(this, 'fillScraperDateTime')">&#8635; Update Scraper Timestamp</button>
-      <button class="util-btn" id="utilRunlog" onclick="runUtility(this, 'appOpenRunLog')">&#128202; View Run Log</button>
-      <button class="util-btn" id="utilNormref" onclick="runUtility(this, 'appRefreshNormReference')">&#128270; Refresh Norm/Field Reference</button>
-      <button class="util-btn" id="utilClearqr" onclick="confirmUtility(this, 'appEraseAllQRFolders', 'Clear the QR folders for ALL active dealers?')">&#129529; Clear QR Folders</button>
-      <button class="util-btn" id="utilCleanup" onclick="confirmUtility(this, 'appCleanUpOutputDocs', 'Trash output docs older than 30 days?')">&#128465; Clean Up Old Output Docs</button>
+    <div class="home-dash-head">
+      <div class="home-section-label" style="margin:0;">Dashboard</div>
+      <button class="dash-refresh" id="dashRefresh" onclick="loadHomeDashboard()">&#8635; Refresh</button>
+    </div>
+    <div id="homeDashboard" class="home-dash">
+      <div class="dash-empty">Loading dashboard&hellip;</div>
     </div>
 
   </div>
@@ -105,74 +104,175 @@
   #view-home .card-title { font-size: 14px; font-weight: bold; margin-bottom: 5px; }
   #view-home .card-desc { font-size: 11.5px; color: #777; line-height: 1.5; }
 
-  #view-home .home-utils { display: flex; flex-wrap: wrap; gap: 10px; }
-  #view-home .util-btn {
-    padding: 9px 16px;
+  /* ── Dashboard ──────────────────────────────────────────────────────────── */
+  #view-home .home-dash-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  #view-home .dash-refresh {
+    padding: 5px 12px;
     background: #fff;
     color: #444;
     border: 1px solid #ccc;
     border-radius: 5px;
-    font-size: 12.5px;
+    font-size: 11.5px;
     font-weight: bold;
     cursor: pointer;
   }
-  #view-home .util-btn:hover:not(:disabled) { background: #f1f3f4; border-color: #999; }
-  #view-home .util-btn:disabled { opacity: 0.45; cursor: default; }
+  #view-home .dash-refresh:hover:not(:disabled) { background: #f1f3f4; border-color: #999; }
+  #view-home .dash-refresh:disabled { opacity: 0.45; cursor: default; }
+
+  #view-home .home-dash { padding-bottom: 10px; }
+  #view-home .dash-empty { font-size: 12.5px; color: #888; padding: 16px 0; }
+
+  #view-home .dash-section {
+    font-size: 11.5px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: #fff;
+    background: #c06524;
+    padding: 7px 12px;
+    border-radius: 4px 4px 0 0;
+    margin-top: 18px;
+  }
+  #view-home .dash-section:first-child { margin-top: 0; }
+  #view-home .dash-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11.5px;
+    margin-bottom: 4px;
+  }
+  #view-home .dash-table td, #view-home .dash-table th {
+    padding: 5px 10px;
+    border-bottom: 1px solid #f0f0f0;
+    white-space: nowrap;
+  }
+  #view-home .dash-table tr.dash-hdr th {
+    background: #fafafa;
+    color: #888;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    font-weight: bold;
+    border-bottom: 1px solid #e0e0e0;
+  }
+  #view-home .dash-table tr:not(.dash-hdr):nth-child(even) td { background: #fcf9f6; }
+  #view-home .dash-table tr.dash-totals td {
+    background: #262626;
+    color: #fff;
+    font-weight: bold;
+  }
 </style>
 
 <script>
-  function initHomeView() {
+  // Loads the DASHBOARD sheet and renders it (plus the status strip). Re-runs
+  // on every visit to Home (VIEW_SHOWN) so numbers stay current after a run —
+  // the user never has to close the app to check the stats.
+  function loadHomeDashboard() {
+    var btn = document.getElementById('dashRefresh');
+    if (btn) btn.disabled = true;
     google.script.run
-      .withSuccessHandler(function(s) {
-        var el   = document.getElementById('homeStatus');
-        var text = document.getElementById('homeStatusText');
-        if (s && s.lastImportDate) {
-          text.textContent = 'Last scraper import: ' + s.lastImportDate + ' ' + (s.lastImportTime || '');
-          // Fresh if the import date is today's date (display-string compare is
-          // fine here — both come from the same timezone formatting).
-          var today = new Date();
-          var pad = function(n) { return (n < 10 ? '0' : '') + n; };
-          var todayStr = today.getFullYear() + '/' + pad(today.getMonth() + 1) + '/' + pad(today.getDate());
-          el.className = 'home-status ' + (s.lastImportDate === todayStr ? 'fresh' : 'stale');
-        } else {
-          text.textContent = 'No scraper import timestamp found.';
-          el.className = 'home-status stale';
-        }
+      .withSuccessHandler(function(res) {
+        if (btn) btn.disabled = false;
+        var rows = (res && res.rows) || [];
+        renderHomeStatus_(rows, res && res.error);
+        document.getElementById('homeDashboard').innerHTML =
+          rows.length ? renderDashboardRows_(rows)
+                      : '<div class="dash-empty">' + escHtml((res && res.error) || 'No dashboard data yet — run an import to populate it.') + '</div>';
       })
       .withFailureHandler(function(e) {
-        document.getElementById('homeStatusText').textContent =
-          'Could not read import status: ' + e.message;
+        if (btn) btn.disabled = false;
+        document.getElementById('homeStatusText').textContent = 'Could not load dashboard: ' + e.message;
+        document.getElementById('homeStatus').className = 'home-status stale';
+        document.getElementById('homeDashboard').innerHTML =
+          '<div class="dash-empty">Could not load dashboard: ' + escHtml(e.message) + '</div>';
       })
-      .getAppHomeStatus();
+      .getDashboardView();
   }
 
-  // Runs a server utility and toasts its {message}. The button is disabled
-  // while the call is in flight so double-clicks can't double-run it.
-  function runUtility(btn, serverFn) {
-    var original = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = 'Working…';
-    google.script.run
-      .withSuccessHandler(function(result) {
-        btn.disabled = false;
-        btn.textContent = original;
-        toast((result && result.message) ? result.message : 'Done.',
-              (result && result.ok === false) ? 'error' : 'success');
-        // Timestamp updates change the Home status strip — refresh it.
-        if (serverFn === 'fillScraperDateTime') initHomeView();
-      })
-      .withFailureHandler(function(e) {
-        btn.disabled = false;
-        btn.textContent = original;
-        toast('Error: ' + e.message, 'error');
-      })[serverFn]();
+  // Derives the status strip from the dashboard's "Last Import:" row, so Home
+  // needs only one server round-trip.
+  function renderHomeStatus_(rows, err) {
+    var el = document.getElementById('homeStatus');
+    var text = document.getElementById('homeStatusText');
+    var ts = '';
+    for (var i = 0; i < rows.length && i < 4; i++) {
+      if (String(rows[i][0]).trim().toLowerCase().indexOf('last import') === 0) {
+        ts = String(rows[i][1] || '').trim();
+        break;
+      }
+    }
+    if (!ts) {
+      text.textContent = err ? err : 'No scraper import recorded yet.';
+      el.className = 'home-status stale';
+      return;
+    }
+    text.textContent = 'Last scraper import: ' + ts;
+    // Dashboard timestamp is "YYYY-MM-DD HH:mm:ss" — fresh if dated today.
+    var datePart = ts.split(' ')[0];
+    var today = new Date();
+    var pad = function(n) { return (n < 10 ? '0' : '') + n; };
+    var todayStr = today.getFullYear() + '-' + pad(today.getMonth() + 1) + '-' + pad(today.getDate());
+    el.className = 'home-status ' + (datePart === todayStr ? 'fresh' : 'stale');
   }
 
-  // Destructive utilities get a confirm first.
-  function confirmUtility(btn, serverFn, prompt) {
-    if (confirm(prompt)) runUtility(btn, serverFn);
+  // Renders the DASHBOARD display-value grid into stacked, styled tables.
+  // Structure detection: a row with text only in column A is a section banner;
+  // the first multi-cell row after a banner is that section's column headers;
+  // the rest are data rows (a "TOTALS" first cell gets the totals style). The
+  // section's column count comes from its header row so trailing empty cells
+  // (the sheet is padded to 10 cols) don't render. Rows 1–2 (title + Last
+  // Import) are skipped — the status strip already shows them.
+  function renderDashboardRows_(rows) {
+    var html = '';
+    var inTable = false;
+    var expectHeader = false;
+    var sectionCols = 0;
+
+    function closeTable() { if (inTable) { html += '</tbody></table>'; inTable = false; } }
+    function lastNonEmpty(row) {
+      var n = 0;
+      for (var k = 0; k < row.length; k++) { if (String(row[k]).trim() !== '') n = k + 1; }
+      return n;
+    }
+
+    for (var r = 2; r < rows.length; r++) {
+      var row = rows[r];
+      var filled = lastNonEmpty(row);
+
+      if (filled === 0) { closeTable(); continue; }              // blank → end section
+
+      // Section banner: only column A has content.
+      if (filled === 1) {
+        closeTable();
+        html += '<div class="dash-section">' + escHtml(row[0]) + '</div>';
+        expectHeader = true;
+        continue;
+      }
+
+      if (!inTable) { html += '<table class="dash-table"><tbody>'; inTable = true; }
+
+      var isHeader = expectHeader;
+      if (isHeader) { expectHeader = false; sectionCols = filled; }
+      var cols = sectionCols || filled;
+      var isTotals = String(row[0]).trim().toUpperCase() === 'TOTALS';
+      var tag = isHeader ? 'th' : 'td';
+
+      html += '<tr class="' + (isHeader ? 'dash-hdr' : (isTotals ? 'dash-totals' : '')) + '">';
+      for (var c = 0; c < cols; c++) {
+        var v = (row[c] === undefined) ? '' : String(row[c]);
+        html += '<' + tag + ' style="text-align:' + (c === 0 ? 'left' : 'right') + '">' + escHtml(v) + '</' + tag + '>';
+      }
+      html += '</tr>';
+    }
+    closeTable();
+    return html;
   }
 
-  window.VIEW_INITS = window.VIEW_INITS || {};
-  VIEW_INITS['view-home'] = initHomeView;
+  // Refresh on every visit to Home so stats reflect the latest run/import.
+  window.VIEW_SHOWN = window.VIEW_SHOWN || {};
+  VIEW_SHOWN['view-home'] = loadHomeDashboard;
 </script>

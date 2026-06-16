@@ -116,6 +116,9 @@
       <div class="nav-item" id="nav-view-norm" onclick="navTo('view-norm')">
         <span class="icon">Aa</span> Normalization
       </div>
+      <div class="nav-item" id="nav-view-utilities" onclick="navTo('view-utilities')">
+        <span class="icon">&#128295;</span> Utilities
+      </div>
       <div class="nav-spacer"></div>
       <div class="nav-item" onclick="exitApp()">
         <span class="icon">&#10005;</span> Close SilverFox
@@ -135,6 +138,7 @@
         <?!= include_('ViewVinLog') ?>
         <?!= include_('ViewRules') ?>
         <?!= include_('ViewNorm') ?>
+        <?!= include_('ViewUtilities') ?>
       </div>
     </div>
 
@@ -148,7 +152,8 @@
       'view-import': 'Import Data',
       'view-vinlog': 'VIN Logs',
       'view-rules':  'Dealer Rules',
-      'view-norm':   'Normalization'
+      'view-norm':   'Normalization',
+      'view-utilities': 'Utilities'
     };
     var _viewInited = {};
 
@@ -186,7 +191,7 @@
 
     // Mark not-yet-migrated sections in the sidebar
     function markPendingViews() {
-      var ids = ['view-run', 'view-import', 'view-vinlog', 'view-rules', 'view-norm'];
+      var ids = ['view-run', 'view-import', 'view-vinlog', 'view-rules', 'view-norm', 'view-utilities'];
       ids.forEach(function(id) {
         if (!document.getElementById(id)) {
           var item = document.getElementById('nav-' + id);
