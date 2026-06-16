@@ -1,0 +1,141 @@
+<!-- ════════════════════════════════════════════════════════════════════════════
+     TRANSCRIPTION VIEW — live "is this VIN in the data?" check, in-app mirror
+     of the TRANSCRIPTION sheet's Found / Not Found ARRAYFORMULA.
+════════════════════════════════════════════════════════════════════════════ -->
+<div class="view" id="view-transcription" hidden>
+  <div class="tr-wrap">
+
+    <div class="tr-head">
+      <div class="tr-meta" id="trMeta">Loading VIN index&hellip;</div>
+      <button class="tr-refresh" id="trRefresh" onclick="loadTranscriptionIndex()">&#8635; Refresh</button>
+    </div>
+
+    <div class="tr-body">
+      <div class="tr-col tr-input-col">
+        <label class="tr-label" for="trInput">Paste or type VINs — one per line</label>
+        <textarea id="trInput" class="tr-input" spellcheck="false" autocomplete="off"
+                  oninput="renderTranscription()" placeholder="One VIN per line…"></textarea>
+      </div>
+      <div class="tr-col tr-results-col">
+        <div class="tr-counts" id="trCounts">&nbsp;</div>
+        <div id="trResults" class="tr-results">
+          <div class="tr-empty">Start typing on the left — each VIN shows <b>Found</b> or <b>Not Found</b> here in real time.</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<style>
+  #view-transcription .tr-wrap { height: 100%; display: flex; flex-direction: column; padding: 18px 22px; box-sizing: border-box; }
+
+  #view-transcription .tr-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  #view-transcription .tr-meta { font-size: 12px; color: #666; }
+  #view-transcription .tr-refresh {
+    padding: 6px 13px; background: #fff; color: #444; border: 1px solid #ccc;
+    border-radius: 5px; font-size: 12px; font-weight: bold; cursor: pointer;
+  }
+  #view-transcription .tr-refresh:hover:not(:disabled) { background: #f1f3f4; border-color: #999; }
+  #view-transcription .tr-refresh:disabled { opacity: 0.45; cursor: default; }
+
+  #view-transcription .tr-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  #view-transcription .tr-col { min-height: 0; display: flex; flex-direction: column; }
+  #view-transcription .tr-label { font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.4px; color: #888; margin-bottom: 6px; }
+  #view-transcription .tr-input {
+    flex: 1; min-height: 0; width: 100%; box-sizing: border-box;
+    resize: none; padding: 10px 12px; border: 1px solid #ccc; border-radius: 6px;
+    font-family: 'Consolas', 'Courier New', monospace; font-size: 13px; line-height: 1.7;
+  }
+  #view-transcription .tr-input:focus { outline: none; border-color: #1a73e8; }
+
+  #view-transcription .tr-counts { font-size: 12.5px; font-weight: bold; margin-bottom: 6px; min-height: 18px; }
+  #view-transcription .tr-counts .c-ok { color: #1e7e34; }
+  #view-transcription .tr-counts .c-no { color: #c0392b; }
+  #view-transcription .tr-counts .c-tot { color: #888; font-weight: normal; }
+
+  #view-transcription .tr-results {
+    flex: 1; min-height: 0; overflow-y: auto;
+    border: 1px solid #e0e0e0; border-radius: 6px; background: #fafafa;
+  }
+  #view-transcription .tr-empty { padding: 16px; font-size: 12.5px; color: #999; line-height: 1.6; }
+  #view-transcription .tr-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 12px; border-bottom: 1px solid #eee; background: #fff;
+  }
+  #view-transcription .tr-vin { font-family: 'Consolas', 'Courier New', monospace; font-size: 12.5px; color: #333; }
+  #view-transcription .tr-badge { font-size: 10.5px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.3px; padding: 2px 8px; border-radius: 10px; }
+  #view-transcription .tr-row.ok  .tr-badge { background: #e6f4ea; color: #1e7e34; }
+  #view-transcription .tr-row.no  .tr-badge { background: #fce8e6; color: #c0392b; }
+  #view-transcription .tr-row.no  { background: #fff8f7; }
+  #view-transcription .tr-note { padding: 8px 12px; font-size: 11px; color: #888; }
+</style>
+
+<script>
+  // null = not loaded yet; otherwise a {VIN: 1} lookup of the current data.
+  var trVinIndex = null;
+
+  function loadTranscriptionIndex() {
+    var btn = document.getElementById('trRefresh');
+    btn.disabled = true;
+    document.getElementById('trMeta').textContent = 'Loading VIN index…';
+    google.script.run
+      .withSuccessHandler(function(res) {
+        btn.disabled = false;
+        trVinIndex = {};
+        (res.vins || []).forEach(function(v) { trVinIndex[v] = 1; });
+        document.getElementById('trMeta').innerHTML =
+          '<b>' + (res.count || 0).toLocaleString() + '</b> VINs in the current data' +
+          (res.lastImport ? ' · imported ' + escHtml(res.lastImport) : '') +
+          ' — Refresh after a new import.';
+        renderTranscription();
+      })
+      .withFailureHandler(function(e) {
+        btn.disabled = false;
+        document.getElementById('trMeta').textContent = 'Could not load VIN index: ' + e.message;
+      })
+      .getTranscriptionVins();
+  }
+
+  function renderTranscription() {
+    var resultsEl = document.getElementById('trResults');
+    var countsEl  = document.getElementById('trCounts');
+
+    if (trVinIndex === null) {
+      resultsEl.innerHTML = '<div class="tr-empty">Loading the VIN index… one moment.</div>';
+      countsEl.innerHTML = '&nbsp;';
+      return;
+    }
+
+    var lines = document.getElementById('trInput').value.split(/\r?\n/);
+    var CAP = 500;
+    var found = 0, notFound = 0, total = 0, shown = 0, html = '';
+
+    for (var i = 0; i < lines.length; i++) {
+      var t = lines[i].trim();
+      if (!t) continue;
+      total++;
+      var ok = trVinIndex[t.toUpperCase()] === 1;
+      if (ok) found++; else notFound++;
+      if (shown < CAP) {
+        html += '<div class="tr-row ' + (ok ? 'ok' : 'no') + '">' +
+                '<span class="tr-vin">' + escHtml(t) + '</span>' +
+                '<span class="tr-badge">' + (ok ? 'Found' : 'Not Found') + '</span></div>';
+        shown++;
+      }
+    }
+    if (total > CAP) html += '<div class="tr-note">Showing the first ' + CAP + ' of ' + total + ' lines.</div>';
+
+    resultsEl.innerHTML = total ? html
+      : '<div class="tr-empty">Start typing on the left — each VIN shows <b>Found</b> or <b>Not Found</b> here in real time.</div>';
+    countsEl.innerHTML = total
+      ? '<span class="c-ok">' + found + ' Found</span> &middot; ' +
+        '<span class="c-no">' + notFound + ' Not Found</span> ' +
+        '<span class="c-tot">&middot; ' + total + ' total</span>'
+      : '&nbsp;';
+  }
+
+  // Load the index on first visit; Refresh re-pulls after an import.
+  window.VIEW_INITS = window.VIEW_INITS || {};
+  VIEW_INITS['view-transcription'] = function() { if (trVinIndex === null) loadTranscriptionIndex(); };
+</script>

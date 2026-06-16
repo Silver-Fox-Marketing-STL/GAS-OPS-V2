@@ -431,6 +431,28 @@ function getDashboardView() {
   return { rows: sh.getRange(1, 1, lastRow, lastCol).getDisplayValues() };
 }
 
+// Returns the full set of VINs currently in SCRAPERDATA (col A, normalized
+// upper/trim, deduped) plus the last-import timestamp. The Transcription view
+// loads this once and checks typed VINs against it instantly client-side —
+// the same "Found / Not Found" check as the TRANSCRIPTION sheet's ARRAYFORMULA,
+// without a round trip per keystroke. Refresh re-pulls after a new import.
+function getTranscriptionVins() {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('SCRAPERDATA');
+  if (!sh) return { vins: [], count: 0, lastImport: '' };
+  var out  = [];
+  var seen = {};
+  var lastRow = sh.getLastRow();
+  if (lastRow >= 2) {
+    var vals = sh.getRange(2, 1, lastRow - 1, 1).getValues();  // col A only — one fast read
+    for (var i = 0; i < vals.length; i++) {
+      var v = String(vals[i][0]).trim().toUpperCase();
+      if (v && v !== '*' && seen[v] !== 1) { seen[v] = 1; out.push(v); }
+    }
+  }
+  var ts = sh.getRange('W1:X1').getDisplayValues()[0];
+  return { vins: out, count: out.length, lastImport: (ts[0] + ' ' + (ts[1] || '')).trim() };
+}
+
 // Classic fallback: serves the converted App fragment standalone.
 function promptRunDealer() {
   openViewStandalone_('ViewRun', 'Run Dealer');
