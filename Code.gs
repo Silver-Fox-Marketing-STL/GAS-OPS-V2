@@ -1076,7 +1076,7 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     //     same run and same CSV.
     setProgress_(runId, 'Writing billing sheet...', 91);
     var billingSplit  = getBillingSplit_(config);
-    var billingResult = writeBillingSheet_(outputDoc, billingSplit);
+    var billingResult = writeBillingSheet_(outputDoc, billingSplit, getSourceSplit_(config));
 
     // 15. Read billing totals back from the sheet(s) we just wrote
     setProgress_(runId, 'Reading billing totals...', 93);
@@ -2011,7 +2011,7 @@ function finalizeRun(dealerKey, entry, dealId) {
  *                        group: {matchedCount, producedVins}|null}
  *                       or null if required sheets are missing
  */
-function writeBillingSheet_(outputDoc, billingSplit) {
+function writeBillingSheet_(outputDoc, billingSplit, sourceSplit) {
   var billingSheet = outputDoc.getSheetByName('BILLING');
   var omSheet      = outputDoc.getSheetByName('ORDERMATCH');
   var logSheet     = outputDoc.getSheetByName('LOG');
@@ -2079,7 +2079,7 @@ function writeBillingSheet_(outputDoc, billingSplit) {
   }
 
   renderBillingSheet_(billingSheet, primaryRows, totalOrdered - groupRows.length,
-                      notFoundList, logMap);
+                      notFoundList, logMap, sourceSplit);
 
   var vinOf = function(v) { return v.vin; };
   var nonBlank = function(v) { return v !== ''; };
@@ -2116,7 +2116,7 @@ function writeBillingSheet_(outputDoc, billingSplit) {
  * @param {Array}  notFoundList - ordered identifiers not matched in the scraper
  * @param {Object} logMap       - identifier → [prior ORDER_IDs]
  */
-function renderBillingSheet_(sheet, omRows, totalOrdered, notFoundList, logMap) {
+function renderBillingSheet_(sheet, omRows, totalOrdered, notFoundList, logMap, sourceSplit) {
   // ── Classify vehicles and find duplicates ────────────────────────────────
   var TYPE_ORDER   = ['New', 'PO', 'CPO', 'CPO-EL'];
   var typeGroups   = {};
@@ -2185,6 +2185,40 @@ function renderBillingSheet_(sheet, omRows, totalOrdered, notFoundList, logMap) 
   rows.push(['', 'Total Matched (check)', typeCheckSum,
              typeCheckSum === totalMatched ? '✓' : '⚠ mismatch — check ORDERMATCH']);
   rows.push(BLANK);
+
+  // Section 2b — By Source (dual-site source_split only): per-type qty for each
+  // website so the user can enter the correct quantity per SKU in Pipedrive.
+  // Labels are source-prefixed (e.g. "Main Site — PO") so they never collide
+  // with readBillingTotals_'s trimmed type labels (which feed the RUN_LOG).
+  if (sourceSplit) {
+    var SEC_LABEL  = sourceSplit.groupName;          // e.g. AUTOLOANPRO
+    var MAIN_LABEL = 'Main Site';
+    var marker     = String(sourceSplit.urlContains || '').toLowerCase();
+    var bySource   = {};   // { 'Main Site': {type: n}, 'AUTOLOANPRO': {type: n} }
+    bySource[MAIN_LABEL] = {}; bySource[SEC_LABEL] = {};
+    var srcTotal = {}; srcTotal[MAIN_LABEL] = 0; srcTotal[SEC_LABEL] = 0;
+
+    omRows.forEach(function(v) {
+      var src = (String(v.url || '').toLowerCase().indexOf(marker) !== -1) ? SEC_LABEL : MAIN_LABEL;
+      var t   = v.type || 'Unknown';
+      bySource[src][t] = (bySource[src][t] || 0) + 1;
+      srcTotal[src]++;
+    });
+
+    rows.push(['', '── BY SOURCE (QTY PER SKU) ──', '', '']);
+    [MAIN_LABEL, SEC_LABEL].forEach(function(src) {
+      var counts = bySource[src];
+      // Known types first (only if present), then any unexpected types present.
+      TYPE_ORDER.forEach(function(t) {
+        if (counts[t]) rows.push(['', src + ' — ' + t, counts[t], '']);
+      });
+      Object.keys(counts).forEach(function(t) {
+        if (TYPE_ORDER.indexOf(t) === -1) rows.push(['', src + ' — ' + t + ' ⚠', counts[t], '']);
+      });
+      rows.push(['', src + ' — TOTAL', srcTotal[src], '']);
+    });
+    rows.push(BLANK);
+  }
 
   // Section 3 — Duplicates by Type
   // Always write a row for every known type, even if dupes is 0 — keeps layout fixed.
