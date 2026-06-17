@@ -270,6 +270,8 @@ Live source of truth for all scraper data normalization rules. **Managed via Sil
 
 **`require_stock`:** Rejects vehicles where the stock column value is blank or `*`.
 
+**`require_url`:** Rejects vehicles whose Vehicle URL (col U) is blank or `*` — no link to build a QR from (reason `no_url`).
+
 **`require_price`:** Rejects vehicles where price is blank, `*`, `callforprice`, or non-positive. Currently enabled only for Glendale CDJR.
 
 **`seasoning`:** Filters on SCRAPERDATA col N (Date In Stock). A vehicle passes if `today - dateInStock >= required days`. Vehicles with unparseable dates pass through.
@@ -284,8 +286,8 @@ Two optional keys extend the flat rules above with granular, field-based targeti
 ```json
 { "field": "make", "op": "contains", "values": ["Cadillac"], "applies_to": ["New"] }
 ```
-- `field` — one of `type, year, make, model, trim, ext_color, status, price, body_style, fuel_type, msrp` (mapped to SCRAPERDATA indices by `FILTER_FIELD_INDEX` in Code.gs — the single source of truth, surfaced to the UI via `getRulesEditorBootstrap`).
-- `op` — `in`, `not_in`, `contains`, `not_contains` (string, case-insensitive), or `gte`, `lte` (numeric; price-safe — strips `$`/`,` before compare, since prices are stored as text).
+- `field` — **any data SCHEMA column** (key). Mapped to its SCRAPERDATA index by the cached, schema-driven `getFilterFieldIndex_()` (replaced the old static `FILTER_FIELD_INDEX`), so conditions can target every column **including ones added via the Data Sources screen**. The Rules editor Field dropdown reads the schema via `getRulesEditorBootstrap`. *(For CAO/run filtering to read appended columns, `getDealerScraperData_` returns full width; `pasteScraperData_` slices to the base 21 for the output doc.)*
+- `op` — `in`, `not_in`, `contains`, `not_contains` (string, case-insensitive), or `gte`, `lte` (numeric; price-safe — strips `$`/`,` before compare, since prices are stored as text), or **`drop_on_import`** — *not a CAO/run filter*: at IMPORT, drops rows whose `field` value contains any listed value (case-insensitive), **before dedup**, scoped to the dealer's Location (`getImportDropLocations_`/`dropRowsOnImport_`). Used to drop e.g. subprime cars from a dealer's direct feed so they never enter SCRAPERDATA. The import review reports the dropped count.
 - `values` — array. `contains`/`not_contains` match **any** value (OR).
 - `applies_to` — optional array of types; the condition is only evaluated for those types (others skip = pass). Omit = all types.
 - **Fail-open:** unknown field/op, empty values, or an unparseable number → the condition passes (a config typo can never silently empty a dealer's inventory).

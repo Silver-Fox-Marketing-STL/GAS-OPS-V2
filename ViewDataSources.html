@@ -98,6 +98,7 @@
   var dsFileHeaders  = [];     // headers from the chosen sample file
   var dsExampleRow   = [];     // first data row (for the Example column)
   var dsSavedMapping = {};     // { sourceHeaderLower: canonicalKey } for the current source
+  var dsSavedHeaders = [];     // [{header, key}] saved for the current source (for no-file render)
   var dsDealerKey    = '';
   var dsSourceName   = '';     // the selected named source (import format)
   var NEW_SOURCE     = '__new__';
@@ -129,6 +130,7 @@
     dsDealerKey = document.getElementById('dsDealer').value;
     dsSourceName = '';
     dsSavedMapping = {};
+    dsSavedHeaders = [];
     dsFileHeaders = [];
     document.getElementById('dsFile').disabled = true;
     document.getElementById('dsFile').value = '';
@@ -176,10 +178,11 @@
       sel.insertBefore(opt, sel.options[sel.options.length - 1]);  // before "+ New source…"
       sel.value = name;
       dsSourceName = name;
-      dsSavedMapping = {};
+      dsSavedMapping = {}; dsSavedHeaders = []; dsFileHeaders = []; dsExampleRow = [];
+      document.getElementById('dsFile').value = '';
       document.getElementById('dsDeleteBtn').style.display = 'none';
       enableFileForSource();
-      if (dsFileHeaders.length) renderDsMapping();
+      renderDsTable();
       setDsStatus('New source “' + name + '” — choose a sample file and map its headers, then Save.', 'info');
       return;
     }
@@ -193,14 +196,18 @@
     }
 
     dsSourceName = val;
+    dsFileHeaders = []; dsExampleRow = [];
+    document.getElementById('dsFile').value = '';
     document.getElementById('dsDeleteBtn').style.display = '';   // existing source → deletable
     enableFileForSource();
     setDsStatus('Loading saved mapping…', 'info');
     google.script.run
       .withSuccessHandler(function(m) {
-        dsSavedMapping = m || {};
-        setDsStatus('', '');
-        if (dsFileHeaders.length) renderDsMapping();
+        dsSavedMapping = (m && m.map) || {};
+        dsSavedHeaders = (m && m.headers) || [];
+        setDsStatus(dsSavedHeaders.length ? '' :
+          'No mapping saved for this source yet — choose a sample file and map its headers.', 'info');
+        renderDsTable();   // renders the saved mapping with NO file needed
       })
       .withFailureHandler(function(e) { setDsStatus('Could not load mapping: ' + e.message, 'error'); })
       .getSourceMapping(dsDealerKey, dsSourceName);
@@ -222,7 +229,7 @@
         dsFileHeaders = rows[0].map(function(h) { return String(h).trim(); });
         dsExampleRow  = rows[1] || [];
         setDsStatus('', '');
-        renderDsMapping();
+        renderDsTable();
       } catch (err) { setDsStatus('Could not parse file: ' + err.message, 'error'); }
     };
     reader.onerror = function() { setDsStatus('Could not read file.', 'error'); };
@@ -239,17 +246,25 @@
     return '';
   }
 
-  function renderDsMapping() {
+  // Renders the mapping table from the uploaded FILE headers (with example
+  // values) when a file is loaded, otherwise from the SAVED mapping headers
+  // (no file needed). Either way the dropdowns pre-fill from the saved mapping.
+  function renderDsMapping() { renderDsTable(); }
+  function renderDsTable() {
+    var useFile = dsFileHeaders.length > 0;
+    var headers = useFile ? dsFileHeaders : dsSavedHeaders.map(function(s) { return s.header; });
+    var wrap = document.getElementById('dsMapWrap');
+    if (!headers.length) { wrap.style.display = 'none'; return; }
+
     var body = document.getElementById('dsMapBody');
     var optionsHtml = '<option value="">— ignore this column —</option>' +
       dsSchema.map(function(c) { return '<option value="' + escHtml(c.key) + '">' + escHtml(c.label) + '</option>'; }).join('') +
       '<option value="' + ADD_COL + '">＋ Add new column…</option>';
 
     var html = '';
-    for (var i = 0; i < dsFileHeaders.length; i++) {
-      var h = dsFileHeaders[i];
-      var guess = guessKeyForHeader(h);
-      var ex = (dsExampleRow[i] === undefined) ? '' : String(dsExampleRow[i]);
+    for (var i = 0; i < headers.length; i++) {
+      var h = headers[i];
+      var ex = useFile && dsExampleRow[i] !== undefined ? String(dsExampleRow[i]) : '';
       if (ex.length > 22) ex = ex.slice(0, 22) + '…';
       html += '<tr data-src="' + escAttrDs(h) + '">' +
                 '<td class="ds-fileheader">' + escHtml(h) + '</td>' +
@@ -259,16 +274,15 @@
     }
     body.innerHTML = html;
 
-    // Apply guesses to the dropdowns.
+    // Pre-fill the dropdowns from the saved mapping (exact label match fallback).
     var rowsEl = body.querySelectorAll('tr');
     for (var r = 0; r < rowsEl.length; r++) {
-      var sel = rowsEl[r].querySelector('select');
-      sel.value = guessKeyForHeader(dsFileHeaders[r]);
+      rowsEl[r].querySelector('select').value = guessKeyForHeader(headers[r]);
     }
-
     document.getElementById('dsMapMeta').textContent =
-      dsFileHeaders.length + ' header' + (dsFileHeaders.length === 1 ? '' : 's') + ' in the file';
-    document.getElementById('dsMapWrap').style.display = 'block';
+      headers.length + ' header' + (headers.length === 1 ? '' : 's') +
+      (useFile ? ' in the file' : ' saved');
+    wrap.style.display = 'block';
     onDsMapChange();
   }
 

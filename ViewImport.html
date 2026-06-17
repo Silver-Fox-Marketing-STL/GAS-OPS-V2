@@ -930,6 +930,7 @@
       if (result.fileCount > 0)          badges.push({ text: result.fileCount + ' file' + (result.fileCount === 1 ? '' : 's'), cls: 'neutral' });
       if (result.mode)                   badges.push({ text: (result.mode === 'merge' ? 'Merge' : 'Replace') + ' mode', cls: 'neutral' });
       if (result.duplicatesRemoved > 0)  badges.push({ text: result.duplicatesRemoved.toLocaleString() + ' duplicates removed', cls: 'neutral' });
+      if (result.droppedOnImport > 0)    badges.push({ text: result.droppedOnImport.toLocaleString() + ' dropped on import', cls: 'status' });
       if (result.conflictsResolved > 0)  badges.push({ text: result.conflictsResolved.toLocaleString() + ' conflicts resolved', cls: 'status' });
       if (result.blankVinCount > 0)      badges.push({ text: result.blankVinCount.toLocaleString() + ' rows without VIN', cls: 'warning' });
       badges.forEach(function(bd) {

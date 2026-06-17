@@ -83,6 +83,14 @@
         <span class="toggle-label">Require Price</span>
         <span class="toggle-desc">Reject blank, *, callforprice, or ≤ 0</span>
       </div>
+      <div class="toggle-row">
+        <label class="toggle-switch">
+          <input type="checkbox" id="reqUrl" onchange="markFilterDirty()">
+          <span class="toggle-slider"></span>
+        </label>
+        <span class="toggle-label">Require URL</span>
+        <span class="toggle-desc">Reject vehicles with no Vehicle URL to build a link from</span>
+      </div>
 
       <!-- Allowed types -->
       <div class="section-label" style="margin-top: 18px;">Allowed Types</div>
@@ -883,6 +891,7 @@
       // Toggles
       document.getElementById('reqStock').checked = !!fr.require_stock;
       document.getElementById('reqPrice').checked = !!fr.require_price;
+      document.getElementById('reqUrl').checked   = !!fr.require_url;
 
       // Allowed types
       var allowed = fr.allowed_types || [];
@@ -960,6 +969,7 @@
       Object.keys(filterExtras).forEach(function(k) { rules[k] = filterExtras[k]; });
       rules.require_stock = document.getElementById('reqStock').checked;
       rules.require_price = document.getElementById('reqPrice').checked;
+      rules.require_url   = document.getElementById('reqUrl').checked;
       // Targeting conditions
       var conditions = [];
       document.querySelectorAll('#conditionsBody tr[data-cond-row]').forEach(function(row) {
@@ -1065,7 +1075,8 @@
     var condRowCounter = 0;
     var OP_LABELS = {
       in: 'is one of', not_in: 'is not one of', contains: 'contains',
-      not_contains: "doesn't contain", gte: 'at least (≥)', lte: 'at most (≤)'
+      not_contains: "doesn't contain", gte: 'at least (≥)', lte: 'at most (≤)',
+      drop_on_import: 'DROP on import (contains)'
     };
 
     function prettyFieldLabel_(f) {
@@ -1080,10 +1091,15 @@
       var tr = document.createElement('tr');
       tr.setAttribute('data-cond-row', 'cond_' + condRowCounter);
 
-      var fields = availableFilterFields.length ? availableFilterFields
+      // availableFilterFields is the full data schema as {key,label}; the fallback
+      // is plain strings. Normalize both to {key,label}.
+      var rawFields = availableFilterFields.length ? availableFilterFields
         : ['type','year','make','model','trim','ext_color','status','price','body_style','fuel_type','msrp'];
+      var fields = rawFields.map(function(f) {
+        return (typeof f === 'string') ? { key: f, label: prettyFieldLabel_(f) } : f;
+      });
       var fieldOpts = fields.map(function(f) {
-        return '<option value="' + f + '"' + (f === field ? ' selected' : '') + '>' + prettyFieldLabel_(f) + '</option>';
+        return '<option value="' + escHtml(f.key) + '"' + (f.key === field ? ' selected' : '') + '>' + escHtml(f.label) + '</option>';
       }).join('');
 
       var ops = availableFilterOps.length ? availableFilterOps

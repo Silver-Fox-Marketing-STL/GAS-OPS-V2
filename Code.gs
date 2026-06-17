@@ -501,6 +501,12 @@ function importScraperData(mappedData, mode, resolutions, fileNames, token) {
   var baseRows     = (mode === 'merge') ? readExistingScraperRows_(sheet) : [];
   var currentToken = computeImportToken_(sheet);
 
+  // Drop-on-import: remove rows a dealer flags for dropping (e.g. subprime cars
+  // from a direct feed) BEFORE dedup, so they never enter SCRAPERDATA or flag a
+  // conflict. Location-scoped per dealer.
+  var dropResult = dropRowsOnImport_(mappedData, getImportDropLocations_());
+  mappedData = dropResult.rows;
+
   // Dual-site dealers (source_split) auto-resolve same-VIN main-vs-secondary URL
   // collisions to the main listing — scoped to their Location only.
   var splitLocs = getSourceSplitLocations_();
@@ -528,6 +534,7 @@ function importScraperData(mappedData, mode, resolutions, fileNames, token) {
       conflicts:         conflictsOut,
       conflictsTotal:    d.conflicts.length,
       duplicatesRemoved: d.duplicatesRemoved,
+      droppedOnImport:   dropResult.dropped,
       existingRowCount:  baseRows.length,
       newRowCount:       mappedData.length,
       token:             currentToken
@@ -610,6 +617,7 @@ function importScraperData(mappedData, mode, resolutions, fileNames, token) {
       healthIssues:      healthIssues,
       mode:              mode,
       duplicatesRemoved: d.duplicatesRemoved,
+      droppedOnImport:   dropResult.dropped,
       conflictsResolved: resolutions ? d.conflicts.length : 0,
       blankVinCount:     d.blankVinCount,
       fileCount:         (fileNames || []).length
@@ -1262,9 +1270,11 @@ function getDealerScraperData_(scraperLocationName) {
 
   var sheetFirstRow = firstMatch + 2;
   var spanRows      = lastMatch - firstMatch + 1;
-  // Run path uses only the BASE canonical columns A–U (21) — the output template
-  // + ORDERMATCH QUERY ("SELECT … A:U") never touch appended (V+) store-only cols.
-  var data = sheet.getRange(sheetFirstRow, 1, spanRows, 21).getValues();
+  // Full canonical width so CAO/run filtering (applyFilteringRules_ /
+  // evaluateCondition_) can read appended columns. pasteScraperData_ slices
+  // back to the base 21 before writing the output doc (the template + ORDERMATCH
+  // "SELECT … A:U" QUERY only use the first 21).
+  var data = sheet.getRange(sheetFirstRow, 1, spanRows, getSchemaColCount_()).getValues();
 
   return data.filter(function(row) {
     return String(row[19]).trim() === scraperLocationName;
@@ -1283,8 +1293,10 @@ function pasteScraperData_(outputDoc, data) {
   var sheet = outputDoc.getSheetByName('SCRAPERDATA');
   if (sheet.getLastRow() > 1) sheet.getRange(2, 1, sheet.getLastRow() - 1, 21).clearContent();
   if (data.length > 0) {
+    // Output doc only needs the base 21 (template + A:U QUERY) — slice off any
+    // appended store-only columns the filtering read brought along.
     var cleanData = data.map(function(row) {
-      var r = row.slice();
+      var r = row.slice(0, 21);
       r[0] = String(r[0]); // VIN
       r[1] = String(r[1]); // Stock
       return r;
@@ -2773,16 +2785,23 @@ function moveNormEntry(sheetRow, direction) {
 // SECTION 21: FILTERING RULES ENGINE
 // ============================================================================
 
-// Field name -> SCRAPERDATA 0-based column index. Single source of truth for the
-// targeting-conditions engine (evaluateCondition_) and surfaced to the Rules
-// Editor UI via getRulesEditorBootstrap so the dropdowns never drift from here.
-var FILTER_FIELD_INDEX = {
-  type: 2, year: 3, make: 4, model: 5, trim: 6, ext_color: 7,
-  status: 8, price: 9, body_style: 10, fuel_type: 11, msrp: 12
-};
+// Field key -> SCRAPERDATA 0-based column index. Derived dynamically from the
+// data SCHEMA (getDataSchema_) so EVERY column — including ones added via the
+// Data Sources screen — is targetable by a condition, and the Rules Editor field
+// dropdown reads the same source. Cached per execution (invalidated with
+// _dataSchema_ in addSchemaColumn). The base-21 keys/indices are identical to
+// the old hard-coded map (type=2 … msrp=12), so it's fully backward-compatible.
+var _filterFieldIndex_ = null;
+function getFilterFieldIndex_() {
+  if (_filterFieldIndex_) return _filterFieldIndex_;
+  var m = {};
+  getDataSchema_().forEach(function(c) { m[c.key] = c.index; });
+  _filterFieldIndex_ = m;
+  return m;
+}
 // Fields compared numerically (gte/lte). All others are string ops.
 var FILTER_NUMERIC_FIELDS = { price: true, msrp: true, year: true };
-var FILTER_OPS = ['in', 'not_in', 'contains', 'not_contains', 'gte', 'lte'];
+var FILTER_OPS = ['in', 'not_in', 'contains', 'not_contains', 'gte', 'lte', 'drop_on_import'];
 
 function getDealerFilterRules_(config) {
   var defaults = {
@@ -2790,6 +2809,7 @@ function getDealerFilterRules_(config) {
     excludeStatus:   [],
     requireStock:    false,
     requirePrice:    false,
+    requireUrl:      false,
     minPrice:        null,
     maxPrice:        null,
     seasoning:       [],
@@ -2813,6 +2833,7 @@ function getDealerFilterRules_(config) {
     excludeStatus:   Array.isArray(parsed.exclude_status)  ? parsed.exclude_status : [],
     requireStock:    parsed.require_stock === true,
     requirePrice:    parsed.require_price === true,
+    requireUrl:      parsed.require_url === true,
     minPrice:        (typeof parsed.min_price === 'number') ? parsed.min_price     : null,
     maxPrice:        (typeof parsed.max_price === 'number') ? parsed.max_price     : null,
     seasoning:       Array.isArray(parsed.seasoning)       ? parsed.seasoning      : [],
@@ -2942,6 +2963,59 @@ function getSourceSplitLocations_() {
   return out;
 }
 
+/**
+ * Returns a map { scraper_location_name(lower) → [ {field, values} ] } of
+ * "drop on import" conditions, for every dealer whose filtering_rules.conditions
+ * include an op:"drop_on_import" entry. Used by the import to drop matching rows
+ * (e.g. subprime cars from a dealer's direct feed) BEFORE dedup, scoped to that
+ * dealer's Location only. Fail-safe → {}.
+ */
+function getImportDropLocations_() {
+  var out = {};
+  try {
+    var data = getConfigSS_().getSheetByName('DEALERS').getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      var loc = String(data[i][CFG.SCRAPER_LOCATION] || '').trim().toLowerCase();
+      if (!loc) continue;
+      var fr = getDealerFilterRules_(data[i]);
+      var drops = (fr.conditions || []).filter(function(c) {
+        return c && String(c.op).toLowerCase() === 'drop_on_import' &&
+               c.field && Array.isArray(c.values) && c.values.length > 0;
+      }).map(function(c) {
+        return { field: String(c.field).toLowerCase(),
+                 values: c.values.map(function(v) { return String(v).toLowerCase(); }) };
+      });
+      if (drops.length) out[loc] = (out[loc] || []).concat(drops);
+    }
+  } catch (e) { Logger.log('getImportDropLocations_: ' + e.message); }
+  return out;
+}
+
+/**
+ * Drops incoming rows matching any dealer's drop_on_import condition (Location-
+ * scoped, contains-match, case-insensitive). Returns {rows, dropped}. Runs before
+ * dedup so dropped rows never flag a conflict. Rows are full canonical width here,
+ * so a newly-added column (e.g. "Subprime") is readable via the schema index.
+ */
+function dropRowsOnImport_(rows, dropLocs) {
+  if (!dropLocs || !Object.keys(dropLocs).length) return { rows: rows, dropped: 0 };
+  var fieldIx = getFilterFieldIndex_();
+  var dropped = 0;
+  var kept = rows.filter(function(row) {
+    var conds = dropLocs[String(row[19] || '').trim().toLowerCase()];   // Location = index 19
+    if (!conds) return true;
+    for (var i = 0; i < conds.length; i++) {
+      var idx = fieldIx[conds[i].field];
+      if (idx === undefined) continue;                  // unknown field → keep (fail-open)
+      var cell = String(row[idx] || '').toLowerCase();
+      var hit = conds[i].values.some(function(v) { return v !== '' && cell.indexOf(v) !== -1; });
+      if (hit) { dropped++; return false; }
+    }
+    return true;
+  });
+  return { rows: kept, dropped: dropped };
+}
+
 function applyFilteringRules_(vehicles, filterRules, phase) {
   if (!phase) phase = 'run';  // 'cao' = CAO pre-fill, 'run' = order run
   var passed   = [];
@@ -2972,6 +3046,14 @@ function applyFilteringRules_(vehicles, filterRules, phase) {
     if (filterRules.requirePrice) {
       if (isNaN(price) || price <= 0) {
         rejected.push({ row: row, reason: 'no_price', detail: vin });
+        return;
+      }
+    }
+
+    if (filterRules.requireUrl) {
+      var url = String(row[20] || '').trim();   // Vehicle URL = col U (index 20)
+      if (url === '' || url === '*') {
+        rejected.push({ row: row, reason: 'no_url', detail: vin });
         return;
       }
     }
@@ -3085,8 +3167,12 @@ function evaluateCondition_(row, condition) {
   var ok = { pass: true, reason: null };
   if (!condition || !condition.field || !condition.op) return ok;
 
-  var field = String(condition.field).toLowerCase();
-  if (!FILTER_FIELD_INDEX.hasOwnProperty(field)) {
+  // drop_on_import is handled at import time (dropRowsOnImport_), never here.
+  if (String(condition.op).toLowerCase() === 'drop_on_import') return ok;
+
+  var field   = String(condition.field).toLowerCase();
+  var fieldIx = getFilterFieldIndex_();
+  if (!fieldIx.hasOwnProperty(field)) {
     Logger.log('evaluateCondition_: unknown field "' + condition.field + '" — skipping (fail-open).');
     return ok;
   }
@@ -3095,7 +3181,7 @@ function evaluateCondition_(row, condition) {
   if (values.length === 0) return ok;  // empty values = no-op
 
   var op     = String(condition.op).toLowerCase();
-  var cell   = String(row[FILTER_FIELD_INDEX[field]] || '').trim();
+  var cell   = String(row[fieldIx[field]] || '').trim();
   var reason = 'cond:' + field;
   var fail   = { pass: false, reason: reason };
 
@@ -3593,12 +3679,12 @@ function getRulesEditorBootstrap() {
     if (key !== '') schemas.push(key);
   }
 
-  // Targeting-condition metadata so the Rules Editor builds its field/operator
-  // dropdowns from the engine's single source of truth (FILTER_FIELD_INDEX).
+  // Targeting-condition metadata. Field list is the full data SCHEMA (key+label)
+  // so conditions can target EVERY column, including ones added via Data Sources.
   return {
     dealers: dealers,
     schemas: schemas,
-    filterFields:        Object.keys(FILTER_FIELD_INDEX),
+    filterFields:        getDataSchema_().map(function(c) { return { key: c.key, label: c.label }; }),
     filterOps:           FILTER_OPS,
     filterNumericFields: Object.keys(FILTER_NUMERIC_FIELDS)
   };
@@ -3758,7 +3844,7 @@ function getOrSeedSchemaSheet_() {
   cols.forEach(function(c, i) { rows.push([i, c.key, c.label, c.normalized ? 'TRUE' : 'FALSE']); });
   sh.clearContents();
   sh.getRange(1, 1, rows.length, 4).setValues(rows);
-  _dataSchema_ = null;
+  _dataSchema_ = null; _filterFieldIndex_ = null;
   return sh;
 }
 
@@ -3797,7 +3883,7 @@ function addSchemaColumn(label) {
   }
   data.getRange(1, need).setValue(label);
 
-  _dataSchema_ = null;                          // invalidate cache → next read sees the new column
+  _dataSchema_ = null; _filterFieldIndex_ = null;   // invalidate caches → next read sees the new column
   Logger.log('addSchemaColumn: "' + label + '" (key=' + key + ') at index ' + newIndex + '.');
   return { schema: getDataSchema_(), key: key, label: label };
 }
@@ -3827,23 +3913,25 @@ function getOrCreateSourceMappingsSheet_() {
   return sh;
 }
 
-// Public: one (dealer, source)'s saved mapping → { sourceHeaderLower: canonicalFieldKey }.
+// Public: one (dealer, source)'s saved mapping. Returns both the lowercased
+// lookup (for pre-filling a file's headers) and the ordered original-case
+// headers (so the screen can render the saved mapping with NO file uploaded).
 function getSourceMapping(dealerKey, sourceName) {
-  var out = {};
+  var byLower = {}, headers = [];
   sourceName = String(sourceName || '').trim();
   try {
     var sh = getConfigSS_().getSheetByName(SOURCE_MAPPINGS_TAB);
-    if (!sh || sh.getLastRow() < 2) return out;
+    if (!sh || sh.getLastRow() < 2) return { map: byLower, headers: headers };
     var data = sh.getDataRange().getValues();
     for (var i = 1; i < data.length; i++) {
       if (String(data[i][0]).trim() !== String(dealerKey).trim()) continue;
       if (sourceName && String(data[i][1]).trim() !== sourceName) continue;
       var src = String(data[i][2] || '').trim();
       var key = String(data[i][3] || '').trim();
-      if (src && key) out[src.toLowerCase()] = key;
+      if (src && key) { byLower[src.toLowerCase()] = key; headers.push({ header: src, key: key }); }
     }
   } catch (e) { Logger.log('getSourceMapping: ' + e.message); }
-  return out;
+  return { map: byLower, headers: headers };
 }
 
 // Public: the named sources configured for a dealer → [{name, headerCount}].
