@@ -320,6 +320,24 @@ Two optional keys extend the flat rules above with granular, field-based targeti
 
 **Effects when active and the run contains group vehicles:** the output doc gets **BILLING** (primary account — group units excluded; carries the not-found list) plus **BILLING_<group_name>** (created on demand; identical five-section layout); the post-run panel shows **two finalization cards** (one per account, each requiring its own deal ID to finalize — see v2.10), producing up to **two RUN_LOG rows** (notes col U = `SPLIT:PRIMARY` / `SPLIT:<group>`; same output_doc_id) plus matching ORDER_STATS rows. Either card can instead be abandoned. Commit/rollback in the VIN Log Updater works per account against the dealer's **single** VIN log tab — group VINs are logged under the group's deal ID; duplicate detection is identifier-based and unaffected. Zero group units in a run → BILLING_<group> is still written (zeroed) but there is no group card (note: `split: 0 <group> units` on the primary entry). Sheet-side QUERYs that count RUN_LOG rows see a fully-finalized split run as two rows — filter on `notes` if exact run counts matter.
 
+### Source split — dual-site dealers *(added June 2026 — branch `feature/frank-leta-dual-site`, pending deploy)*
+
+**`source_split`** — optional object for a dealer whose single Location spans **two websites** (Frank Leta's main site + the AutoLoanPro subprime site, which is a superset). One run, **one billing sheet, one Pipedrive deal**, but **two CSV outputs** split by URL domain. The inverse of `billing_split` (which splits billing and keeps one CSV).
+
+```json
+"source_split": { "group_name": "AUTOLOANPRO", "url_contains": "autoloanpro" }
+```
+
+- `url_contains` — substring matched (case-insensitive) against the Vehicle URL to identify the **secondary-site** listing.
+- `group_name` — suffix for the secondary CSV sheet (`CSV` → `CSV_AUTOLOANPRO`) and the dedup scope label.
+- **Fail-safe:** absent/malformed → `getSourceSplit_` returns null and the run is a normal single-CSV run.
+
+**Two effects:**
+1. **Run (`buildCSVSheet_`):** matched cars whose URL contains the marker go to **`CSV_<group>`**; the rest to the normal **`CSV`** (per type rule; same schema/UTM). Both sheets always written (secondary may be empty). QR per-row already points at each car's own URL. **Billing, the deal, and RUN_LOG are unchanged — one of each** (no `billing_split` here).
+2. **Import (`dedupeScraperRows_`, via `getSourceSplitLocations_`):** the "main first, then secondary" waterfall is resolved at import — when the same VIN appears with a main-site URL and a marker URL **within a Location that has `source_split` configured**, the **main** listing is kept automatically (no conflict prompt), regardless of import order or whether the feeds arrive together or as separate re-run merges. **Scoped strictly by Location**, so no other dealer's dedup is touched. Net SCRAPERDATA: one row per VIN — main URL for cars on both sites, AutoLoanPro URL only for subprime-only cars.
+
+**Activation:** add `source_split` to Frank Leta's `filtering_rules` (col W) alongside the existing keys. Inert until present (and until marker URLs exist in the data — e.g. a manually-imported AutoLoanPro feed).
+
 ### Where filtering is applied
 
 **At CAO pre-fill time** (`getCaoVins`, phase `cao`): applied to raw SCRAPERDATA rows, then VIN log dedup. Both `conditions` and `cao_exclude_types` are active.
