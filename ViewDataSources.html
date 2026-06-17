@@ -1,0 +1,271 @@
+<!-- ════════════════════════════════════════════════════════════════════════════
+     DATA SOURCES VIEW — per-dealer header mapping configuration.
+     Pick a dealer + a sample CSV, map its headers to the canonical schema, and
+     save. The normal Import screen then honors the saved mapping as an alias,
+     so renamed/reordered headers land in the right columns automatically.
+════════════════════════════════════════════════════════════════════════════ -->
+<div class="view" id="view-datasources" hidden>
+  <div class="ds-scroll">
+
+    <div class="ds-intro">
+      Map a scraper feed whose column headers differ in name or order onto the standard data columns.
+      Pick the dealer, choose a sample file from that feed, line up each header, and <b>Save Mapping</b> —
+      future imports of that feed map automatically.
+    </div>
+
+    <div class="ds-controls">
+      <div class="ds-field">
+        <label for="dsDealer">Dealer</label>
+        <select id="dsDealer" onchange="onDsDealerChange()"><option value="">Loading…</option></select>
+      </div>
+      <div class="ds-field">
+        <label for="dsFile">Sample file from this feed</label>
+        <input type="file" id="dsFile" accept=".csv,text/csv" onchange="onDsFile(this)" disabled>
+      </div>
+    </div>
+
+    <div id="dsStatus" class="ds-status"></div>
+
+    <div id="dsMapWrap" style="display:none;">
+      <div class="ds-maphead">
+        <span class="ds-section">Header mapping</span>
+        <span id="dsMapMeta" class="ds-meta"></span>
+      </div>
+      <table class="ds-table">
+        <thead><tr><th style="width:42%">File header</th><th style="width:8%">Example</th><th>Maps to canonical column</th></tr></thead>
+        <tbody id="dsMapBody"></tbody>
+      </table>
+
+      <div id="dsUnmapped" class="ds-unmapped"></div>
+
+      <div class="ds-actions">
+        <button class="ds-btn primary" id="dsSaveBtn" onclick="saveDsMapping()" disabled>Save Mapping</button>
+        <span id="dsSaveNote" class="ds-meta"></span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<style>
+  #view-datasources .ds-scroll { height: 100%; overflow-y: auto; padding: 20px 24px; box-sizing: border-box; }
+  #view-datasources .ds-intro { font-size: 12.5px; color: #666; line-height: 1.6; margin-bottom: 18px; max-width: 880px; }
+
+  #view-datasources .ds-controls { display: flex; gap: 22px; flex-wrap: wrap; margin-bottom: 14px; }
+  #view-datasources .ds-field { display: flex; flex-direction: column; gap: 5px; }
+  #view-datasources .ds-field label { font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.4px; color: #888; }
+  #view-datasources select, #view-datasources input[type=file] { font-size: 13px; padding: 6px 8px; border: 1px solid #ccc; border-radius: 5px; min-width: 260px; }
+  #view-datasources select:focus { outline: none; border-color: #1a73e8; }
+
+  #view-datasources .ds-status { font-size: 12px; margin: 8px 0; min-height: 16px; }
+  #view-datasources .ds-status.info { color: #1a73e8; }
+  #view-datasources .ds-status.error { color: #c0392b; }
+  #view-datasources .ds-status.success { color: #1e7e34; }
+
+  #view-datasources .ds-maphead { display: flex; align-items: baseline; gap: 10px; margin: 16px 0 8px; }
+  #view-datasources .ds-section { font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.4px; color: #888; }
+  #view-datasources .ds-meta { font-size: 11.5px; color: #888; }
+
+  #view-datasources .ds-table { width: 100%; border-collapse: collapse; font-size: 12.5px; table-layout: fixed; }
+  #view-datasources .ds-table th { text-align: left; padding: 6px 10px; border-bottom: 1px solid #e0e0e0; font-size: 10px; text-transform: uppercase; letter-spacing: 0.3px; color: #888; }
+  #view-datasources .ds-table td { padding: 5px 10px; border-bottom: 1px solid #f1f1f1; vertical-align: middle; word-break: break-word; }
+  #view-datasources .ds-fileheader { font-family: 'Consolas','Courier New',monospace; font-size: 12px; }
+  #view-datasources .ds-example { color: #999; font-size: 11px; font-family: 'Consolas','Courier New',monospace; }
+  #view-datasources .ds-table select { width: 100%; min-width: 0; font-size: 12.5px; padding: 4px 6px; }
+  #view-datasources .ds-table tr.ds-ignored td { background: #fafafa; color: #aaa; }
+  #view-datasources .ds-table tr.ds-required-missing select { border-color: #c0392b; }
+
+  #view-datasources .ds-unmapped { font-size: 11.5px; color: #b06000; margin: 10px 0 4px; line-height: 1.6; }
+  #view-datasources .ds-unmapped .ok { color: #1e7e34; }
+
+  #view-datasources .ds-actions { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
+  #view-datasources .ds-btn { padding: 9px 18px; border-radius: 5px; font-size: 13px; font-weight: bold; cursor: pointer; border: 1px solid #ccc; background: #fff; color: #444; }
+  #view-datasources .ds-btn.primary { background: #1a73e8; color: #fff; border-color: #1a73e8; }
+  #view-datasources .ds-btn.primary:disabled { background: #9bc0f5; border-color: #9bc0f5; cursor: default; }
+</style>
+
+<script>
+  var dsSchema       = [];     // [{index,key,label,normalized}]
+  var dsFileHeaders  = [];     // headers from the chosen sample file
+  var dsExampleRow   = [];     // first data row (for the Example column)
+  var dsSavedMapping = {};     // { sourceHeaderLower: canonicalKey } for the current dealer
+  var dsDealerKey    = '';
+
+  function setDsStatus(msg, type) {
+    var el = document.getElementById('dsStatus');
+    el.textContent = msg || '';
+    el.className = 'ds-status ' + (type || '');
+  }
+
+  function initDataSourcesView() {
+    google.script.run
+      .withSuccessHandler(function(b) {
+        dsSchema = (b && b.schema) || [];
+        var sel = document.getElementById('dsDealer');
+        sel.innerHTML = '<option value="">-- Select a dealer --</option>';
+        (b.dealers || []).forEach(function(d) {
+          var o = document.createElement('option');
+          o.value = d.key; o.text = d.name;
+          sel.appendChild(o);
+        });
+      })
+      .withFailureHandler(function(e) { setDsStatus('Could not load: ' + e.message, 'error'); })
+      .getDataSourcesBootstrap();
+  }
+
+  function onDsDealerChange() {
+    dsDealerKey = document.getElementById('dsDealer').value;
+    document.getElementById('dsFile').disabled = !dsDealerKey;
+    if (!dsDealerKey) { document.getElementById('dsMapWrap').style.display = 'none'; return; }
+    setDsStatus('Loading saved mapping…', 'info');
+    google.script.run
+      .withSuccessHandler(function(m) {
+        dsSavedMapping = m || {};
+        setDsStatus('', '');
+        if (dsFileHeaders.length) renderDsMapping();   // re-apply if a file is already loaded
+      })
+      .withFailureHandler(function(e) { setDsStatus('Could not load mapping: ' + e.message, 'error'); })
+      .getSourceMapping(dsDealerKey);
+  }
+
+  function onDsFile(input) {
+    var file = input.files && input.files[0];
+    if (!file) return;
+    setDsStatus('Reading ' + file.name + '…', 'info');
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      try {
+        var rows = dsParseCSV(String(e.target.result).replace(/^﻿/, ''));
+        if (rows.length < 1) { setDsStatus('File looks empty.', 'error'); return; }
+        dsFileHeaders = rows[0].map(function(h) { return String(h).trim(); });
+        dsExampleRow  = rows[1] || [];
+        setDsStatus('', '');
+        renderDsMapping();
+      } catch (err) { setDsStatus('Could not parse file: ' + err.message, 'error'); }
+    };
+    reader.onerror = function() { setDsStatus('Could not read file.', 'error'); };
+    reader.readAsText(file);
+  }
+
+  // Best-guess canonical key for a file header: saved mapping → exact label match → none.
+  function guessKeyForHeader(h) {
+    var hl = h.toLowerCase();
+    if (dsSavedMapping[hl]) return dsSavedMapping[hl];
+    for (var i = 0; i < dsSchema.length; i++) {
+      if (dsSchema[i].label.toLowerCase() === hl) return dsSchema[i].key;
+    }
+    return '';
+  }
+
+  function renderDsMapping() {
+    var body = document.getElementById('dsMapBody');
+    var optionsHtml = '<option value="">— ignore this column —</option>' +
+      dsSchema.map(function(c) { return '<option value="' + escHtml(c.key) + '">' + escHtml(c.label) + '</option>'; }).join('');
+
+    var html = '';
+    for (var i = 0; i < dsFileHeaders.length; i++) {
+      var h = dsFileHeaders[i];
+      var guess = guessKeyForHeader(h);
+      var ex = (dsExampleRow[i] === undefined) ? '' : String(dsExampleRow[i]);
+      if (ex.length > 22) ex = ex.slice(0, 22) + '…';
+      html += '<tr data-src="' + escAttrDs(h) + '">' +
+                '<td class="ds-fileheader">' + escHtml(h) + '</td>' +
+                '<td class="ds-example">' + escHtml(ex) + '</td>' +
+                '<td><select onchange="onDsMapChange()">' + optionsHtml + '</select></td>' +
+              '</tr>';
+    }
+    body.innerHTML = html;
+
+    // Apply guesses to the dropdowns.
+    var rowsEl = body.querySelectorAll('tr');
+    for (var r = 0; r < rowsEl.length; r++) {
+      var sel = rowsEl[r].querySelector('select');
+      sel.value = guessKeyForHeader(dsFileHeaders[r]);
+    }
+
+    document.getElementById('dsMapMeta').textContent =
+      dsFileHeaders.length + ' header' + (dsFileHeaders.length === 1 ? '' : 's') + ' in the file';
+    document.getElementById('dsMapWrap').style.display = 'block';
+    onDsMapChange();
+  }
+
+  // Read the dropdowns → { sourceHeader: canonicalKey } (skips ignored).
+  function collectDsMapping() {
+    var rowsEl = document.getElementById('dsMapBody').querySelectorAll('tr');
+    var mapping = {};
+    var usedKeys = {};
+    for (var r = 0; r < rowsEl.length; r++) {
+      var src = rowsEl[r].getAttribute('data-src');
+      var key = rowsEl[r].querySelector('select').value;
+      if (key) { mapping[src] = key; usedKeys[key] = true; }
+    }
+    return { mapping: mapping, usedKeys: usedKeys };
+  }
+
+  function onDsMapChange() {
+    var res = collectDsMapping();
+    // Highlight ignored rows; flag missing required (VIN) + list unmapped canonical cols.
+    var rowsEl = document.getElementById('dsMapBody').querySelectorAll('tr');
+    for (var r = 0; r < rowsEl.length; r++) {
+      var sel = rowsEl[r].querySelector('select');
+      rowsEl[r].className = sel.value ? '' : 'ds-ignored';
+      rowsEl[r].classList.toggle('ds-required-missing', false);
+    }
+    var hasVin = !!res.usedKeys['vin'];
+    var unmapped = dsSchema.filter(function(c) { return !res.usedKeys[c.key]; }).map(function(c) { return c.label; });
+    var el = document.getElementById('dsUnmapped');
+    if (!hasVin) {
+      el.innerHTML = '⚠ <b>VIN is required</b> — map one file header to VIN before saving.';
+    } else if (unmapped.length) {
+      el.innerHTML = 'Canonical columns left blank (no file header maps to them): ' + unmapped.map(escHtml).join(', ') + '.';
+    } else {
+      el.innerHTML = '<span class="ok">✓ All canonical columns are mapped.</span>';
+    }
+    document.getElementById('dsSaveBtn').disabled = !hasVin || !dsDealerKey;
+  }
+
+  function saveDsMapping() {
+    var res = collectDsMapping();
+    if (!res.usedKeys['vin']) { setDsStatus('Map a header to VIN first.', 'error'); return; }
+    var btn = document.getElementById('dsSaveBtn');
+    btn.disabled = true; btn.textContent = 'Saving…';
+    google.script.run
+      .withSuccessHandler(function(out) {
+        btn.textContent = 'Save Mapping'; btn.disabled = false;
+        setDsStatus('Saved ' + (out && out.saved) + ' header mapping(s) for this dealer. The Import screen will use them automatically.', 'success');
+      })
+      .withFailureHandler(function(e) {
+        btn.textContent = 'Save Mapping'; btn.disabled = false;
+        setDsStatus('Save failed: ' + e.message, 'error');
+      })
+      .saveSourceMapping(dsDealerKey, JSON.stringify(res.mapping));
+  }
+
+  // Local, self-contained CSV parser (quote-aware) so this view doesn't depend
+  // on ViewImport being loaded (Classic standalone).
+  function dsParseCSV(text) {
+    var rows = [], row = [], field = '', inQuote = false, i = 0;
+    text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    while (i < text.length) {
+      var ch = text[i];
+      if (inQuote) {
+        if (ch === '"') { if (text[i + 1] === '"') { field += '"'; i += 2; continue; } else { inQuote = false; } }
+        else { field += ch; }
+      } else {
+        if (ch === '"') { inQuote = true; }
+        else if (ch === ',') { row.push(field); field = ''; }
+        else if (ch === '\n') { row.push(field); field = ''; if (row.some(function(v){return v!=='';})||rows.length===0) rows.push(row); row = []; i++; continue; }
+        else { field += ch; }
+      }
+      i++;
+    }
+    row.push(field);
+    if (row.some(function(v){return v!=='';})) rows.push(row);
+    return rows;
+  }
+
+  function escAttrDs(s) { return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+
+  window.VIEW_INITS = window.VIEW_INITS || {};
+  VIEW_INITS['view-datasources'] = initDataSourcesView;
+</script>

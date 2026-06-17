@@ -3601,6 +3601,28 @@ function getSourceMapping(dealerKey) {
   return out;
 }
 
+// Public: global header-alias lookup for the bulk importer →
+// { sourceHeaderLower: canonicalHeaderLabel }. Union of every dealer's saved
+// mapping (header names are consistent in meaning across feeds), so the normal
+// Import screen can resolve a renamed header to its canonical column without
+// knowing which dealer the file is for. Empty until mappings are saved.
+function getHeaderAliasMap() {
+  var keyToLabel = {};
+  getDataSchema_().forEach(function(c) { keyToLabel[c.key] = c.label; });
+  var out = {};
+  try {
+    var sh = getConfigSS_().getSheetByName(SOURCE_MAPPINGS_TAB);
+    if (!sh || sh.getLastRow() < 2) return out;
+    var data = sh.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      var src = String(data[i][1] || '').trim();
+      var key = String(data[i][2] || '').trim();
+      if (src && keyToLabel[key]) out[src.toLowerCase()] = keyToLabel[key];
+    }
+  } catch (e) { Logger.log('getHeaderAliasMap: ' + e.message); }
+  return out;
+}
+
 // Public: replace a dealer's saved mapping. `mappingJson` = { sourceHeader: canonicalFieldKey }.
 // Auto-creates the SOURCE_MAPPINGS tab on first use (additive, safe).
 function saveSourceMapping(dealerKey, mappingJson) {

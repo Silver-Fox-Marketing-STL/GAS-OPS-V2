@@ -110,6 +110,9 @@
       <div class="nav-item" id="nav-view-import" onclick="navTo('view-import')">
         <span class="icon">&#11014;</span> Import Data
       </div>
+      <div class="nav-item" id="nav-view-datasources" onclick="navTo('view-datasources')">
+        <span class="icon">&#128452;</span> Data Sources
+      </div>
       <div class="nav-item" id="nav-view-vinlog" onclick="navTo('view-vinlog')">
         <span class="icon">&#128203;</span> VIN Logs
       </div>
@@ -138,6 +141,7 @@
         <?!= include_('ViewHome') ?>
         <?!= include_('ViewRun') ?>
         <?!= include_('ViewImport') ?>
+        <?!= include_('ViewDataSources') ?>
         <?!= include_('ViewVinLog') ?>
         <?!= include_('ViewTranscription') ?>
         <?!= include_('ViewRules') ?>
@@ -155,6 +159,7 @@
       'view-run':    'Run Order',
       'view-transcription': 'Transcription',
       'view-import': 'Import Data',
+      'view-datasources': 'Data Sources',
       'view-vinlog': 'VIN Logs',
       'view-rules':  'Dealer Rules',
       'view-norm':   'Normalization',
@@ -196,7 +201,7 @@
 
     // Mark not-yet-migrated sections in the sidebar
     function markPendingViews() {
-      var ids = ['view-run', 'view-import', 'view-vinlog', 'view-transcription', 'view-rules', 'view-norm', 'view-utilities'];
+      var ids = ['view-run', 'view-import', 'view-datasources', 'view-vinlog', 'view-transcription', 'view-rules', 'view-norm', 'view-utilities'];
       ids.forEach(function(id) {
         if (!document.getElementById(id)) {
           var item = document.getElementById('nav-' + id);

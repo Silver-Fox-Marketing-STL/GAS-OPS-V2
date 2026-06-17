@@ -534,6 +534,21 @@
       'Postal Code', 'Region', 'Country', 'Location', 'Vechile URL'
     ];
 
+    // Canonical column list + saved header aliases come from the server (Data
+    // Sources config). EXPECTED_HEADERS above is the seed/fallback used until
+    // the server responds (and if the SCHEMA tab is absent it returns the same
+    // 21). headerAliasMap maps a source header name → its canonical label.
+    var headerAliasMap = {};
+
+    function loadImportSchema_() {
+      google.script.run.withSuccessHandler(function(h) {
+        if (h && h.length) EXPECTED_HEADERS = h;
+      }).withFailureHandler(function(){}).getCanonicalHeaders();
+      google.script.run.withSuccessHandler(function(m) {
+        headerAliasMap = m || {};
+      }).withFailureHandler(function(){}).getHeaderAliasMap();
+    }
+
     var MAX_CONFLICT_CARDS = 200;   // detail cards rendered; bulk buttons cover the rest
 
     var parsedFiles   = [];         // [{name, rows, rowCount, matchedCount, missing, ignored, valid, error}]
@@ -597,7 +612,14 @@
 
         var fileHeaders      = result[0].map(function(h) { return h.trim(); });
         var dataRows         = result.slice(1);
-        var fileHeadersLower = fileHeaders.map(function(h) { return h.toLowerCase(); });
+        // Resolve any saved header aliases (configured in Data Sources) to their
+        // canonical labels before matching — so a renamed header lands in the
+        // right column. Resolution changes only the NAME used for matching, not
+        // the column position, so columnMapping still indexes the file row.
+        var fileHeadersResolved = fileHeaders.map(function(h) {
+          return headerAliasMap[h.toLowerCase()] || h;
+        });
+        var fileHeadersLower = fileHeadersResolved.map(function(h) { return h.toLowerCase(); });
         var expectedLower    = EXPECTED_HEADERS.map(function(h) { return h.toLowerCase(); });
 
         var columnMapping = EXPECTED_HEADERS.map(function(expected) {
@@ -606,8 +628,8 @@
 
         out.matchedCount = columnMapping.filter(function(i) { return i !== -1; }).length;
         out.missing = EXPECTED_HEADERS.filter(function(_, i) { return columnMapping[i] === -1; });
-        out.ignored = fileHeaders.filter(function(h) {
-          return expectedLower.indexOf(h.toLowerCase()) === -1;
+        out.ignored = fileHeaders.filter(function(h, i) {
+          return expectedLower.indexOf(fileHeadersLower[i]) === -1;
         });
 
         var vinFileIdx = columnMapping[0];
@@ -1095,4 +1117,11 @@
           : null;
       });
     }
+
+    // Refresh the canonical headers + saved aliases on first open and on every
+    // return (so a mapping just saved in Data Sources is picked up here).
+    window.VIEW_INITS = window.VIEW_INITS || {};
+    window.VIEW_SHOWN = window.VIEW_SHOWN || {};
+    VIEW_INITS['view-import'] = loadImportSchema_;
+    VIEW_SHOWN['view-import'] = loadImportSchema_;
 </script>
