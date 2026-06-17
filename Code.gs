@@ -3718,28 +3718,62 @@ function getDataSourcesBootstrap() {
   return { schema: getDataSchema_(), dealers: getActiveDealersForUI() };
 }
 
-// Public: a dealer's saved header mapping → { sourceHeaderLower: canonicalFieldKey }.
-function getSourceMapping(dealerKey) {
+// SOURCE_MAPPINGS columns (0-indexed): dealer_key | source_name | source_header
+// | canonical_field_key. A "source" is a named import FORMAT a dealer receives
+// (e.g. "Dealer internal CSV") — a dealer can have several, each with its own
+// header mapping, and they never clobber each other.
+function getOrCreateSourceMappingsSheet_() {
+  var ss = getConfigSS_();
+  var sh = ss.getSheetByName(SOURCE_MAPPINGS_TAB);
+  if (!sh) {
+    sh = ss.insertSheet(SOURCE_MAPPINGS_TAB);
+    sh.getRange(1, 1, 1, 4).setValues([['dealer_key', 'source_name', 'source_header', 'canonical_field_key']]);
+  }
+  return sh;
+}
+
+// Public: one (dealer, source)'s saved mapping → { sourceHeaderLower: canonicalFieldKey }.
+function getSourceMapping(dealerKey, sourceName) {
   var out = {};
+  sourceName = String(sourceName || '').trim();
   try {
     var sh = getConfigSS_().getSheetByName(SOURCE_MAPPINGS_TAB);
     if (!sh || sh.getLastRow() < 2) return out;
-    var data = sh.getDataRange().getValues();  // dealer_key | source_header | canonical_field_key
+    var data = sh.getDataRange().getValues();
     for (var i = 1; i < data.length; i++) {
       if (String(data[i][0]).trim() !== String(dealerKey).trim()) continue;
-      var src = String(data[i][1] || '').trim();
-      var key = String(data[i][2] || '').trim();
+      if (sourceName && String(data[i][1]).trim() !== sourceName) continue;
+      var src = String(data[i][2] || '').trim();
+      var key = String(data[i][3] || '').trim();
       if (src && key) out[src.toLowerCase()] = key;
     }
   } catch (e) { Logger.log('getSourceMapping: ' + e.message); }
   return out;
 }
 
+// Public: the named sources configured for a dealer → [{name, headerCount}].
+function getSourcesForDealer(dealerKey) {
+  var counts = {}, order = [];
+  try {
+    var sh = getConfigSS_().getSheetByName(SOURCE_MAPPINGS_TAB);
+    if (!sh || sh.getLastRow() < 2) return [];
+    var data = sh.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][0]).trim() !== String(dealerKey).trim()) continue;
+      var name = String(data[i][1] || '').trim();
+      if (!name) continue;
+      if (!counts.hasOwnProperty(name)) { counts[name] = 0; order.push(name); }
+      counts[name]++;
+    }
+  } catch (e) { Logger.log('getSourcesForDealer: ' + e.message); }
+  return order.map(function(n) { return { name: n, headerCount: counts[n] }; });
+}
+
 // Public: global header-alias lookup for the bulk importer →
-// { sourceHeaderLower: canonicalHeaderLabel }. Union of every dealer's saved
-// mapping (header names are consistent in meaning across feeds), so the normal
-// Import screen can resolve a renamed header to its canonical column without
-// knowing which dealer the file is for. Empty until mappings are saved.
+// { sourceHeaderLower: canonicalHeaderLabel }. Union of EVERY saved mapping
+// across all dealers and sources, so the normal Import screen resolves a renamed
+// header to its canonical column without knowing the source. The scraper's
+// headers are already canonical, so they're unaffected. Empty until mappings exist.
 function getHeaderAliasMap() {
   var keyToLabel = {};
   getDataSchema_().forEach(function(c) { keyToLabel[c.key] = c.label; });
@@ -3749,45 +3783,62 @@ function getHeaderAliasMap() {
     if (!sh || sh.getLastRow() < 2) return out;
     var data = sh.getDataRange().getValues();
     for (var i = 1; i < data.length; i++) {
-      var src = String(data[i][1] || '').trim();
-      var key = String(data[i][2] || '').trim();
+      var src = String(data[i][2] || '').trim();
+      var key = String(data[i][3] || '').trim();
       if (src && keyToLabel[key]) out[src.toLowerCase()] = keyToLabel[key];
     }
   } catch (e) { Logger.log('getHeaderAliasMap: ' + e.message); }
   return out;
 }
 
-// Public: replace a dealer's saved mapping. `mappingJson` = { sourceHeader: canonicalFieldKey }.
-// Auto-creates the SOURCE_MAPPINGS tab on first use (additive, safe).
-function saveSourceMapping(dealerKey, mappingJson) {
+// Public: replace ONE (dealer, source) block — preserving every other dealer
+// AND every other source of the same dealer. `mappingJson` = { sourceHeader: canonicalFieldKey }.
+function saveSourceMapping(dealerKey, sourceName, mappingJson) {
   if (!dealerKey) throw new Error('No dealer selected.');
+  sourceName = String(sourceName || '').trim();
+  if (!sourceName) throw new Error('No source name.');
   var mapping;
   try { mapping = JSON.parse(mappingJson); }
   catch (e) { throw new Error('Invalid mapping JSON: ' + e.message); }
 
-  var ss = getConfigSS_();
-  var sh = ss.getSheetByName(SOURCE_MAPPINGS_TAB);
-  if (!sh) {
-    sh = ss.insertSheet(SOURCE_MAPPINGS_TAB);
-    sh.getRange(1, 1, 1, 3).setValues([['dealer_key', 'source_header', 'canonical_field_key']]);
-  }
-
-  // Rewrite this dealer's block, preserving every other dealer's rows.
+  var sh   = getOrCreateSourceMappingsSheet_();
   var data = sh.getDataRange().getValues();
   var kept = [];
   for (var i = 1; i < data.length; i++) {
-    var dk = String(data[i][0]).trim();
-    if (dk !== '' && dk !== String(dealerKey).trim()) kept.push([data[i][0], data[i][1], data[i][2]]);
+    var dk = String(data[i][0]).trim(), sn = String(data[i][1]).trim();
+    if (dk === '') continue;
+    if (!(dk === String(dealerKey).trim() && sn === sourceName)) {   // keep all OTHER blocks
+      kept.push([data[i][0], data[i][1], data[i][2], data[i][3]]);
+    }
   }
   Object.keys(mapping).forEach(function(src) {
     var key = String(mapping[src] || '').trim();
-    if (String(src).trim() && key) kept.push([dealerKey, src, key]);
+    if (String(src).trim() && key) kept.push([dealerKey, sourceName, src, key]);
   });
 
-  if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, 3).clearContent();
-  if (kept.length) sh.getRange(2, 1, kept.length, 3).setValues(kept);
-  Logger.log('saveSourceMapping: ' + dealerKey + ' → ' + Object.keys(mapping).length + ' header(s).');
+  if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, 4).clearContent();
+  if (kept.length) sh.getRange(2, 1, kept.length, 4).setValues(kept);
+  Logger.log('saveSourceMapping: ' + dealerKey + ' / ' + sourceName + ' → ' + Object.keys(mapping).length + ' header(s).');
   return { saved: Object.keys(mapping).length };
+}
+
+// Public: delete one (dealer, source) block entirely.
+function deleteSource(dealerKey, sourceName) {
+  sourceName = String(sourceName || '').trim();
+  var sh = getConfigSS_().getSheetByName(SOURCE_MAPPINGS_TAB);
+  if (!sh || sh.getLastRow() < 2) return { deleted: 0 };
+  var data = sh.getDataRange().getValues();
+  var kept = [], deleted = 0;
+  for (var i = 1; i < data.length; i++) {
+    var dk = String(data[i][0]).trim(), sn = String(data[i][1]).trim();
+    if (dk === '') continue;
+    if (dk === String(dealerKey).trim() && sn === sourceName) { deleted++; continue; }
+    kept.push([data[i][0], data[i][1], data[i][2], data[i][3]]);
+  }
+  if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, 4).clearContent();
+  if (kept.length) sh.getRange(2, 1, kept.length, 4).setValues(kept);
+  Logger.log('deleteSource: ' + dealerKey + ' / ' + sourceName + ' → removed ' + deleted + ' row(s).');
+  return { deleted: deleted };
 }
 
 

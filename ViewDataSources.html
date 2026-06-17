@@ -19,10 +19,15 @@
         <select id="dsDealer" onchange="onDsDealerChange()"><option value="">Loading…</option></select>
       </div>
       <div class="ds-field">
-        <label for="dsFile">Sample file from this feed</label>
+        <label for="dsSource">Data source (import format)</label>
+        <select id="dsSource" onchange="onDsSourceChange()" disabled><option value="">-- Select a dealer first --</option></select>
+      </div>
+      <div class="ds-field">
+        <label for="dsFile">Sample file from this source</label>
         <input type="file" id="dsFile" accept=".csv,text/csv" onchange="onDsFile(this)" disabled>
       </div>
     </div>
+    <div class="ds-sourcehint">The default scraper feed needs no source here — it already matches the standard columns. Add a source only for a <b>different format</b> (e.g. a dealer's internal CSV export with different headers or extra fields). Each source's mapping is independent; configuring one never affects another or the scraper import.</div>
 
     <div id="dsStatus" class="ds-status"></div>
 
@@ -40,6 +45,7 @@
 
       <div class="ds-actions">
         <button class="ds-btn primary" id="dsSaveBtn" onclick="saveDsMapping()" disabled>Save Mapping</button>
+        <button class="ds-btn danger" id="dsDeleteBtn" onclick="deleteDsSource()" style="display:none;">Delete this source</button>
         <span id="dsSaveNote" class="ds-meta"></span>
       </div>
     </div>
@@ -50,6 +56,9 @@
 <style>
   #view-datasources .ds-scroll { height: 100%; overflow-y: auto; padding: 20px 24px; box-sizing: border-box; }
   #view-datasources .ds-intro { font-size: 12.5px; color: #666; line-height: 1.6; margin-bottom: 18px; max-width: 880px; }
+  #view-datasources .ds-sourcehint { font-size: 11.5px; color: #888; line-height: 1.6; margin: 6px 0 4px; max-width: 880px; }
+  #view-datasources .ds-btn.danger { border-color: #e0b4b0; color: #b03a2e; background: #fff; }
+  #view-datasources .ds-btn.danger:hover { background: #fbeae8; border-color: #c0392b; }
 
   #view-datasources .ds-controls { display: flex; gap: 22px; flex-wrap: wrap; margin-bottom: 14px; }
   #view-datasources .ds-field { display: flex; flex-direction: column; gap: 5px; }
@@ -88,8 +97,10 @@
   var dsSchema       = [];     // [{index,key,label,normalized}]
   var dsFileHeaders  = [];     // headers from the chosen sample file
   var dsExampleRow   = [];     // first data row (for the Example column)
-  var dsSavedMapping = {};     // { sourceHeaderLower: canonicalKey } for the current dealer
+  var dsSavedMapping = {};     // { sourceHeaderLower: canonicalKey } for the current source
   var dsDealerKey    = '';
+  var dsSourceName   = '';     // the selected named source (import format)
+  var NEW_SOURCE     = '__new__';
 
   function setDsStatus(msg, type) {
     var el = document.getElementById('dsStatus');
@@ -115,17 +126,87 @@
 
   function onDsDealerChange() {
     dsDealerKey = document.getElementById('dsDealer').value;
-    document.getElementById('dsFile').disabled = !dsDealerKey;
-    if (!dsDealerKey) { document.getElementById('dsMapWrap').style.display = 'none'; return; }
+    dsSourceName = '';
+    dsSavedMapping = {};
+    dsFileHeaders = [];
+    document.getElementById('dsFile').disabled = true;
+    document.getElementById('dsFile').value = '';
+    document.getElementById('dsMapWrap').style.display = 'none';
+    document.getElementById('dsDeleteBtn').style.display = 'none';
+    var srcSel = document.getElementById('dsSource');
+    if (!dsDealerKey) {
+      srcSel.disabled = true;
+      srcSel.innerHTML = '<option value="">-- Select a dealer first --</option>';
+      return;
+    }
+    setDsStatus('Loading this dealer’s sources…', 'info');
+    google.script.run
+      .withSuccessHandler(function(sources) {
+        populateSourceDropdown(sources || []);
+        setDsStatus('', '');
+      })
+      .withFailureHandler(function(e) { setDsStatus('Could not load sources: ' + e.message, 'error'); })
+      .getSourcesForDealer(dsDealerKey);
+  }
+
+  function populateSourceDropdown(sources) {
+    var sel = document.getElementById('dsSource');
+    var html = '<option value="">-- Select or add a source --</option>';
+    sources.forEach(function(s) {
+      html += '<option value="' + escAttrDs(s.name) + '">' + escHtml(s.name) +
+              ' (' + s.headerCount + ' header' + (s.headerCount === 1 ? '' : 's') + ')</option>';
+    });
+    html += '<option value="' + NEW_SOURCE + '">+ New source…</option>';
+    sel.innerHTML = html;
+    sel.disabled = false;
+    sel.value = '';
+  }
+
+  function onDsSourceChange() {
+    var sel = document.getElementById('dsSource');
+    var val = sel.value;
+
+    if (val === NEW_SOURCE) {
+      var name = (window.prompt('Name this data source (the import format), e.g. "Dealer internal CSV":') || '').trim();
+      if (!name) { sel.value = dsSourceName || ''; return; }
+      // Add it as a selectable option and select it (created on first Save).
+      var opt = document.createElement('option');
+      opt.value = name; opt.text = name + ' (new)';
+      sel.insertBefore(opt, sel.options[sel.options.length - 1]);  // before "+ New source…"
+      sel.value = name;
+      dsSourceName = name;
+      dsSavedMapping = {};
+      document.getElementById('dsDeleteBtn').style.display = 'none';
+      enableFileForSource();
+      if (dsFileHeaders.length) renderDsMapping();
+      setDsStatus('New source “' + name + '” — choose a sample file and map its headers, then Save.', 'info');
+      return;
+    }
+
+    if (!val) {
+      dsSourceName = '';
+      document.getElementById('dsFile').disabled = true;
+      document.getElementById('dsMapWrap').style.display = 'none';
+      document.getElementById('dsDeleteBtn').style.display = 'none';
+      return;
+    }
+
+    dsSourceName = val;
+    document.getElementById('dsDeleteBtn').style.display = '';   // existing source → deletable
+    enableFileForSource();
     setDsStatus('Loading saved mapping…', 'info');
     google.script.run
       .withSuccessHandler(function(m) {
         dsSavedMapping = m || {};
         setDsStatus('', '');
-        if (dsFileHeaders.length) renderDsMapping();   // re-apply if a file is already loaded
+        if (dsFileHeaders.length) renderDsMapping();
       })
       .withFailureHandler(function(e) { setDsStatus('Could not load mapping: ' + e.message, 'error'); })
-      .getSourceMapping(dsDealerKey);
+      .getSourceMapping(dsDealerKey, dsSourceName);
+  }
+
+  function enableFileForSource() {
+    document.getElementById('dsFile').disabled = false;
   }
 
   function onDsFile(input) {
@@ -221,10 +302,11 @@
     } else {
       el.innerHTML = '<span class="ok">✓ All canonical columns are mapped.</span>';
     }
-    document.getElementById('dsSaveBtn').disabled = !hasVin || !dsDealerKey;
+    document.getElementById('dsSaveBtn').disabled = !hasVin || !dsDealerKey || !dsSourceName;
   }
 
   function saveDsMapping() {
+    if (!dsSourceName) { setDsStatus('Select or add a source first.', 'error'); return; }
     var res = collectDsMapping();
     if (!res.usedKeys['vin']) { setDsStatus('Map a header to VIN first.', 'error'); return; }
     var btn = document.getElementById('dsSaveBtn');
@@ -232,13 +314,40 @@
     google.script.run
       .withSuccessHandler(function(out) {
         btn.textContent = 'Save Mapping'; btn.disabled = false;
-        setDsStatus('Saved ' + (out && out.saved) + ' header mapping(s) for this dealer. The Import screen will use them automatically.', 'success');
+        setDsStatus('Saved ' + (out && out.saved) + ' header mapping(s) for source “' + dsSourceName +
+                    '”. The Import screen will use them automatically.', 'success');
+        // Refresh the source list so a brand-new source shows its real count.
+        google.script.run.withSuccessHandler(function(sources) {
+          populateSourceDropdown(sources || []);
+          document.getElementById('dsSource').value = dsSourceName;
+          document.getElementById('dsDeleteBtn').style.display = '';
+        }).getSourcesForDealer(dsDealerKey);
       })
       .withFailureHandler(function(e) {
         btn.textContent = 'Save Mapping'; btn.disabled = false;
         setDsStatus('Save failed: ' + e.message, 'error');
       })
-      .saveSourceMapping(dsDealerKey, JSON.stringify(res.mapping));
+      .saveSourceMapping(dsDealerKey, dsSourceName, JSON.stringify(res.mapping));
+  }
+
+  function deleteDsSource() {
+    if (!dsSourceName) return;
+    if (!window.confirm('Delete the source “' + dsSourceName + '” and its header mapping? ' +
+        'This does not change any data already imported.')) return;
+    google.script.run
+      .withSuccessHandler(function() {
+        setDsStatus('Deleted source “' + dsSourceName + '”.', 'success');
+        dsSourceName = '';
+        document.getElementById('dsMapWrap').style.display = 'none';
+        document.getElementById('dsFile').disabled = true;
+        document.getElementById('dsFile').value = '';
+        document.getElementById('dsDeleteBtn').style.display = 'none';
+        google.script.run.withSuccessHandler(function(sources) {
+          populateSourceDropdown(sources || []);
+        }).getSourcesForDealer(dsDealerKey);
+      })
+      .withFailureHandler(function(e) { setDsStatus('Delete failed: ' + e.message, 'error'); })
+      .deleteSource(dsDealerKey, dsSourceName);
   }
 
   // Local, self-contained CSV parser (quote-aware) so this view doesn't depend
