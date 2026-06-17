@@ -502,7 +502,10 @@ function importScraperData(mappedData, mode, resolutions, fileNames, token) {
   var baseRows     = (mode === 'merge') ? readExistingScraperRows_(sheet) : [];
   var currentToken = computeImportToken_(sheet);
 
-  var d = dedupeScraperRows_(baseRows, mappedData, fileNames || []);
+  // Dual-site dealers (source_split) auto-resolve same-VIN main-vs-secondary URL
+  // collisions to the main listing — scoped to their Location only.
+  var splitLocs = getSourceSplitLocations_();
+  var d = dedupeScraperRows_(baseRows, mappedData, fileNames || [], splitLocs);
 
   // ── Phase 1 gate: conflicts found, no resolutions yet → return, write nothing.
   if (d.conflicts.length > 0 && !resolutions) {
@@ -675,7 +678,7 @@ function diffCols_(a, b) {
  *   rows = ordered keep-list (incumbents in place); each conflict carries
  *   keptIndex so a 'new' resolution substitutes the challenger in position.
  */
-function dedupeScraperRows_(baseRows, newRows, fileNames) {
+function dedupeScraperRows_(baseRows, newRows, fileNames, splitLocs) {
   var kept              = [];
   var keyToKeptIdx      = {};
   var incumbentSource   = {};
@@ -683,6 +686,8 @@ function dedupeScraperRows_(baseRows, newRows, fileNames) {
   var conflictOrder     = [];
   var duplicatesRemoved = 0;
   var blankVinCount     = 0;
+  splitLocs = splitLocs || {};
+  var LOC_COL = 19, URL_COL = 20;  // SCRAPERDATA Location (T) + Vehicle URL (U)
 
   // Resolve which uploaded file the i-th concatenated new row came from.
   function sourceForNewRow(i) {
@@ -713,6 +718,32 @@ function dedupeScraperRows_(baseRows, newRows, fileNames) {
 
     var incumbent = kept[keyToKeptIdx[key]];
     if (rowsEqual_(incumbent, row)) { duplicatesRemoved++; return; }
+
+    // Dual-site URL priority (source_split): when the same VIN appears with a
+    // secondary-site URL and a main-site URL within a configured dealer's
+    // Location, keep the MAIN listing — automatically, no conflict, order-
+    // independent. Scoped by Location so no other dealer is ever affected.
+    var loc    = String(row[LOC_COL]).trim().toLowerCase();
+    var marker = splitLocs[loc];
+    if (marker && String(incumbent[LOC_COL]).trim().toLowerCase() === loc) {
+      var incSec = String(incumbent[URL_COL]).toLowerCase().indexOf(marker) !== -1;
+      var chSec  = String(row[URL_COL]).toLowerCase().indexOf(marker) !== -1;
+      if (incSec !== chSec) {
+        if (incSec && !chSec) {
+          // challenger is the main listing → it wins; replace the incumbent.
+          kept[keyToKeptIdx[key]] = row;
+          incumbentSource[key]    = source;
+          if (conflictsByVin[key]) {           // drop any conflict an earlier challenger formed
+            delete conflictsByVin[key];
+            var oi = conflictOrder.indexOf(key);
+            if (oi !== -1) conflictOrder.splice(oi, 1);
+          }
+        }
+        // (incumbent main, challenger secondary → keep incumbent; drop challenger)
+        duplicatesRemoved++;
+        return;
+      }
+    }
 
     var c = conflictsByVin[key];
     if (c && rowsEqual_(c.incoming.row, row)) { duplicatesRemoved++; return; }
@@ -1033,9 +1064,11 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     setProgress_(runId, links.length + ' QR codes complete. Writing paths...', 82);
     writeQRPaths_(outputDoc, config[CFG.QR_PREFIX], links.length, qrBasePath);
 
-    // 13. Build CSV sheet(s) based on type rules
+    // 13. Build CSV sheet(s) based on type rules. A dual-site dealer
+    //     (source_split) additionally splits each CSV by URL domain
+    //     (e.g. main vs AutoLoanPro) — one billing/deal, separate CSVs.
     setProgress_(runId, 'Building CSV output...', 88);
-    buildCSVSheet_(outputDoc, typeRules);
+    buildCSVSheet_(outputDoc, typeRules, getSourceSplit_(config));
 
     // 14. Write BILLING sheet(s) from ORDERMATCH + LOG data. An optional
     //     billing_split in filtering_rules renders group vehicles (e.g. Sprinter
@@ -1043,7 +1076,7 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     //     same run and same CSV.
     setProgress_(runId, 'Writing billing sheet...', 91);
     var billingSplit  = getBillingSplit_(config);
-    var billingResult = writeBillingSheet_(outputDoc, billingSplit);
+    var billingResult = writeBillingSheet_(outputDoc, billingSplit, getSourceSplit_(config));
 
     // 15. Read billing totals back from the sheet(s) we just wrote
     setProgress_(runId, 'Reading billing totals...', 93);
@@ -1740,7 +1773,7 @@ var FIELD_TO_COL = {
   'PRICE_TAGLINE':      21
 };
 
-function buildCSVSheet_(outputDoc, typeRules) {
+function buildCSVSheet_(outputDoc, typeRules, sourceSplit) {
   var omSheet = outputDoc.getSheetByName('ORDERMATCH');
   var lastRow = omSheet.getLastRow();
   if (lastRow < 2) { Logger.log('No ORDERMATCH data for CSV.'); return; }
@@ -1749,6 +1782,7 @@ function buildCSVSheet_(outputDoc, typeRules) {
     .filter(function(row) { return String(row[0]).trim() !== ''; });
 
   var isSingleRule = typeRules.length === 1;
+  var URL_COL = 8;  // ORDERMATCH Vehicle URL (col I)
 
   var groups = {};
   typeRules.forEach(function(rule) { groups[rule.match] = []; });
@@ -1759,23 +1793,38 @@ function buildCSVSheet_(outputDoc, typeRules) {
     groups[rule.match].push(row);
   });
 
-  typeRules.forEach(function(rule) {
-    var rows        = groups[rule.match] || [];
-    var fieldCodes  = getCsvSchema_(rule.csv_schema) || getCsvSchema_('SCP');
-    var sheetName   = isSingleRule
-      ? 'CSV'
-      : 'CSV_' + String(rule.match).replace(/[^a-zA-Z0-9]/g, '_').toUpperCase();
-
+  // Renders one CSV sheet from a set of ORDERMATCH rows + a type rule's schema.
+  function writeGroup_(rule, rows, sheetName) {
+    var fieldCodes = getCsvSchema_(rule.csv_schema) || getCsvSchema_('SCP');
     var dataRows = rows.map(function(row) {
       return fieldCodes.map(function(code) {
         var col = FIELD_TO_COL[code];
         return col ? row[col - 1] : '';
       });
     });
-
-    var displayHeaders = dedupFieldCodeHeaders_(fieldCodes);
-    writeCSVSheet_(outputDoc, sheetName, displayHeaders, dataRows);
+    writeCSVSheet_(outputDoc, sheetName, dedupFieldCodeHeaders_(fieldCodes), dataRows);
     Logger.log('CSV sheet "' + sheetName + '" written: ' + dataRows.length + ' rows, schema: ' + rule.csv_schema);
+  }
+
+  typeRules.forEach(function(rule) {
+    var rows     = groups[rule.match] || [];
+    var baseName = isSingleRule
+      ? 'CSV'
+      : 'CSV_' + String(rule.match).replace(/[^a-zA-Z0-9]/g, '_').toUpperCase();
+
+    if (!sourceSplit) { writeGroup_(rule, rows, baseName); return; }
+
+    // Dual-site source split: rows whose URL contains the marker go to a
+    // separate <base>_<group> CSV; the rest to the primary CSV. Same schema.
+    // Both sheets are always written (secondary may be empty) for a consistent
+    // output layout. Billing / deal / RUN_LOG are unaffected (one of each).
+    var primary = [], secondary = [];
+    rows.forEach(function(row) {
+      if (String(row[URL_COL]).toLowerCase().indexOf(sourceSplit.urlContains) !== -1) secondary.push(row);
+      else primary.push(row);
+    });
+    writeGroup_(rule, primary,   baseName);
+    writeGroup_(rule, secondary, baseName + '_' + sourceSplit.groupName);
   });
 }
 
@@ -1962,7 +2011,7 @@ function finalizeRun(dealerKey, entry, dealId) {
  *                        group: {matchedCount, producedVins}|null}
  *                       or null if required sheets are missing
  */
-function writeBillingSheet_(outputDoc, billingSplit) {
+function writeBillingSheet_(outputDoc, billingSplit, sourceSplit) {
   var billingSheet = outputDoc.getSheetByName('BILLING');
   var omSheet      = outputDoc.getSheetByName('ORDERMATCH');
   var logSheet     = outputDoc.getSheetByName('LOG');
@@ -2030,7 +2079,7 @@ function writeBillingSheet_(outputDoc, billingSplit) {
   }
 
   renderBillingSheet_(billingSheet, primaryRows, totalOrdered - groupRows.length,
-                      notFoundList, logMap);
+                      notFoundList, logMap, sourceSplit);
 
   var vinOf = function(v) { return v.vin; };
   var nonBlank = function(v) { return v !== ''; };
@@ -2067,7 +2116,7 @@ function writeBillingSheet_(outputDoc, billingSplit) {
  * @param {Array}  notFoundList - ordered identifiers not matched in the scraper
  * @param {Object} logMap       - identifier → [prior ORDER_IDs]
  */
-function renderBillingSheet_(sheet, omRows, totalOrdered, notFoundList, logMap) {
+function renderBillingSheet_(sheet, omRows, totalOrdered, notFoundList, logMap, sourceSplit) {
   // ── Classify vehicles and find duplicates ────────────────────────────────
   var TYPE_ORDER   = ['New', 'PO', 'CPO', 'CPO-EL'];
   var typeGroups   = {};
@@ -2136,6 +2185,40 @@ function renderBillingSheet_(sheet, omRows, totalOrdered, notFoundList, logMap) 
   rows.push(['', 'Total Matched (check)', typeCheckSum,
              typeCheckSum === totalMatched ? '✓' : '⚠ mismatch — check ORDERMATCH']);
   rows.push(BLANK);
+
+  // Section 2b — By Source (dual-site source_split only): per-type qty for each
+  // website so the user can enter the correct quantity per SKU in Pipedrive.
+  // Labels are source-prefixed (e.g. "Main Site — PO") so they never collide
+  // with readBillingTotals_'s trimmed type labels (which feed the RUN_LOG).
+  if (sourceSplit) {
+    var SEC_LABEL  = sourceSplit.groupName;          // e.g. AUTOLOANPRO
+    var MAIN_LABEL = 'Main Site';
+    var marker     = String(sourceSplit.urlContains || '').toLowerCase();
+    var bySource   = {};   // { 'Main Site': {type: n}, 'AUTOLOANPRO': {type: n} }
+    bySource[MAIN_LABEL] = {}; bySource[SEC_LABEL] = {};
+    var srcTotal = {}; srcTotal[MAIN_LABEL] = 0; srcTotal[SEC_LABEL] = 0;
+
+    omRows.forEach(function(v) {
+      var src = (String(v.url || '').toLowerCase().indexOf(marker) !== -1) ? SEC_LABEL : MAIN_LABEL;
+      var t   = v.type || 'Unknown';
+      bySource[src][t] = (bySource[src][t] || 0) + 1;
+      srcTotal[src]++;
+    });
+
+    rows.push(['', '── BY SOURCE (QTY PER SKU) ──', '', '']);
+    [MAIN_LABEL, SEC_LABEL].forEach(function(src) {
+      var counts = bySource[src];
+      // Known types first (only if present), then any unexpected types present.
+      TYPE_ORDER.forEach(function(t) {
+        if (counts[t]) rows.push(['', src + ' — ' + t, counts[t], '']);
+      });
+      Object.keys(counts).forEach(function(t) {
+        if (TYPE_ORDER.indexOf(t) === -1) rows.push(['', src + ' — ' + t + ' ⚠', counts[t], '']);
+      });
+      rows.push(['', src + ' — TOTAL', srcTotal[src], '']);
+    });
+    rows.push(BLANK);
+  }
 
   // Section 3 — Duplicates by Type
   // Always write a row for every known type, even if dupes is 0 — keeps layout fixed.
@@ -2774,6 +2857,57 @@ function isInBillingGroup_(vehicle, split) {
     if (split.op === 'contains' ? cell.indexOf(v) !== -1 : cell === v) return true;
   }
   return false;
+}
+
+/**
+ * Parses the optional `source_split` key from a dealer's filtering_rules (col W).
+ * For a single-feed dealer whose inventory spans two websites (e.g. Frank Leta's
+ * main site + the AutoLoanPro subprime site), it splits the MATCHED vehicles into
+ * a second CSV by URL domain, while keeping ONE billing sheet and ONE deal. The
+ * "main first, then secondary" waterfall is resolved at import time (see
+ * getSourceSplitLocations_ / dedupeScraperRows_), so the run is a normal single
+ * QUERY and this only routes the CSV output.
+ * Fail-safe: absent/malformed → null (run behaves as a normal single-CSV run).
+ *
+ * @param {Array} config - dealer config row
+ * @return {Object|null} {groupName, urlContains} or null
+ */
+function getSourceSplit_(config) {
+  var raw = config[CFG.FILTER_RULES];
+  if (!raw || String(raw).trim() === '' || String(raw).trim() === '{}') return null;
+  var parsed;
+  try { parsed = JSON.parse(raw); } catch (e) { return null; }
+
+  var ss = parsed.source_split;
+  if (!ss || typeof ss !== 'object') return null;
+
+  var groupName   = String(ss.group_name || '').trim().toUpperCase().replace(/[^A-Z0-9_]/g, '');
+  var urlContains = String(ss.url_contains || '').trim().toLowerCase();
+  if (!groupName || !urlContains) {
+    Logger.log('getSourceSplit_: invalid source_split for ' + config[CFG.KEY] + ' — ignoring (fail-safe).');
+    return null;
+  }
+  return { groupName: groupName, urlContains: urlContains };
+}
+
+/**
+ * Returns a map { scraper_location_name(lower) → url_contains(lower) } for every
+ * dealer that has a valid source_split. The import dedup uses it to apply the
+ * main-over-secondary URL priority ONLY within a configured dual-site dealer's
+ * Location — so no other dealer's import is ever touched. Fail-safe → {}.
+ */
+function getSourceSplitLocations_() {
+  var out = {};
+  try {
+    var data = getConfigSS_().getSheetByName('DEALERS').getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      var loc = String(data[i][CFG.SCRAPER_LOCATION] || '').trim().toLowerCase();
+      if (!loc) continue;
+      var split = getSourceSplit_(data[i]);
+      if (split) out[loc] = split.urlContains;
+    }
+  } catch (e) { Logger.log('getSourceSplitLocations_: ' + e.message); }
+  return out;
 }
 
 function applyFilteringRules_(vehicles, filterRules, phase) {
