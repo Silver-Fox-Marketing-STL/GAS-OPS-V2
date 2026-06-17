@@ -42,6 +42,19 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   For any side-by-side comparison table use `table-layout: fixed` (+ `width:100%`
   and `word-break`) so every column gets allocated width and content wraps;
   don't rely on a fixed-width card to fit an auto table.
+- **Growing a fixed-width sheet schema: append-only + relocate the edge marker.**
+  SCRAPERDATA was a hard-coded 21 columns (A–U) with the scraper timestamp parked
+  just past it at `W1:X1`. To let new columns be added at runtime: (1) move the
+  timestamp OUT to an isolated `META` tab first (a marker adjacent to the data
+  area blocks growth and gets clobbered once columns reach it); (2) make the width
+  a single dynamic source of truth (`getSchemaColCount_()` reading a `SCHEMA`
+  config tab, **cached per execution** — it's on the per-row dedup hot path);
+  (3) **only append** (col V+) — never insert/reorder, so every fixed index
+  (`NORM_COL`, `FILTER_FIELD_INDEX`, Location=19, URL=20, the `SELECT A:U` QUERY)
+  stays valid; (4) keep the *run* path (output template + QUERY) at the base 21 —
+  only the *master import* path goes dynamic; a new column is store-only until
+  separately wired downstream. Normalize row width right before `setValues` so a
+  stale client width can't throw.
 - **Formatting calls in loops are ~12× more expensive than block formatting.**
   The DASHBOARD's per-row stripe loop issued ~500 range ops per import; one
   `setBackgroundObjects(matrix)` + column-scoped alignment calls do the same

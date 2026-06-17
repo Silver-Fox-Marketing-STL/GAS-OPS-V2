@@ -408,13 +408,12 @@ function openViewStandalone_(fragmentName, title) {
 }
 
 /**
- * Home-page status strip: last scraper import timestamp from SCRAPERDATA
- * W1:X1 (written by fillScraperDateTime on every import).
+ * Home-page status strip: last scraper import timestamp from the META tab
+ * (written by fillScraperDateTime on every import).
  */
 function getAppHomeStatus() {
-  var vals = SpreadsheetApp.getActiveSpreadsheet()
-    .getSheetByName('SCRAPERDATA').getRange('W1:X1').getDisplayValues()[0];
-  return { lastImportDate: vals[0], lastImportTime: vals[1] };
+  var ts = getTimestampMeta_(SpreadsheetApp.getActiveSpreadsheet());
+  return { lastImportDate: ts.date, lastImportTime: ts.time };
 }
 
 // Returns the DASHBOARD tab as a 2D array of display strings for the Home
@@ -449,8 +448,8 @@ function getTranscriptionVins() {
       if (v && v !== '*' && seen[v] !== 1) { seen[v] = 1; out.push(v); }
     }
   }
-  var ts = sh.getRange('W1:X1').getDisplayValues()[0];
-  return { vins: out, count: out.length, lastImport: (ts[0] + ' ' + (ts[1] || '')).trim() };
+  var ts = getTimestampMeta_(SpreadsheetApp.getActiveSpreadsheet());
+  return { vins: out, count: out.length, lastImport: (ts.date + ' ' + ts.time).trim() };
 }
 
 // Classic fallback: serves the converted App fragment standalone.
@@ -562,9 +561,10 @@ function importScraperData(mappedData, mode, resolutions, fileNames, token) {
     var review = computeImportReview_(finalRows);
 
     // ── Mutations begin here ──
+    var colN    = getSchemaColCount_();   // canonical width (21 until a column is added)
     var lastRow = sheet.getLastRow();
     if (lastRow > 1) {
-      sheet.getRange(2, 1, lastRow - 1, 21).clearContent();
+      sheet.getRange(2, 1, lastRow - 1, colN).clearContent();
     }
 
     // Force plain text on columns that Sheets auto-converts, causing QUERY
@@ -574,7 +574,15 @@ function importScraperData(mappedData, mode, resolutions, fileNames, token) {
     sheet.getRange(2, 10, finalRows.length, 1).setNumberFormat('@'); // Price (col J)
     sheet.getRange(2, 14, finalRows.length, 1).setNumberFormat('@'); // Date In Stock (col N)
 
-    sheet.getRange(2, 1, finalRows.length, 21).setValues(finalRows);
+    // Normalize every row to exactly colN wide — guards against a stale client
+    // width after a schema column was added (new columns default to '*').
+    finalRows = finalRows.map(function(r) {
+      if (r.length === colN) return r;
+      var row = r.slice(0, colN);
+      while (row.length < colN) row.push('*');
+      return row;
+    });
+    sheet.getRange(2, 1, finalRows.length, colN).setValues(finalRows);
 
     sheet.getRange(2, 1, finalRows.length, 2).setNumberFormat('@');
     sheet.getRange(2, 10, finalRows.length, 1).setNumberFormat('@');
@@ -582,7 +590,7 @@ function importScraperData(mappedData, mode, resolutions, fileNames, token) {
 
     // Count how many columns actually had data (non-empty in at least one row)
     var colCount = 0;
-    for (var c = 0; c < 21; c++) {
+    for (var c = 0; c < colN; c++) {
       for (var r = 0; r < finalRows.length; r++) {
         if (finalRows[r][c] !== '' && finalRows[r][c] !== '*') { colCount++; break; }
       }
@@ -611,21 +619,20 @@ function importScraperData(mappedData, mode, resolutions, fileNames, token) {
   }
 }
 
-/** Reads all existing SCRAPERDATA rows (A2:U) for merge mode. */
+/** Reads all existing SCRAPERDATA rows (canonical width) for merge mode. */
 function readExistingScraperRows_(sheet) {
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
-  return sheet.getRange(2, 1, lastRow - 1, 21).getValues();
+  return sheet.getRange(2, 1, lastRow - 1, getSchemaColCount_()).getValues();
 }
 
 /**
  * Optimistic-concurrency token for the two-phase import: changes whenever an
- * import writes (row count and/or the W1:X1 scraper timestamp change).
+ * import writes (row count and/or the scraper timestamp change).
  */
 function computeImportToken_(sheet) {
-  var d = sheet.getRange('W1').getDisplayValue();
-  var t = sheet.getRange('X1').getDisplayValue();
-  return sheet.getLastRow() + '|' + d + ' ' + t;
+  var ts = getTimestampMeta_(sheet.getParent());
+  return sheet.getLastRow() + '|' + ts.date + ' ' + ts.time;
 }
 
 /**
@@ -646,15 +653,16 @@ function cellsEqual_(a, b) {
 }
 
 function rowsEqual_(a, b) {
-  for (var c = 0; c < 21; c++) {
+  var n = getSchemaColCount_();
+  for (var c = 0; c < n; c++) {
     if (!cellsEqual_(a[c], b[c])) return false;
   }
   return true;
 }
 
 function diffCols_(a, b) {
-  var diffs = [];
-  for (var c = 0; c < 21; c++) {
+  var diffs = [], n = getSchemaColCount_();
+  for (var c = 0; c < n; c++) {
     if (!cellsEqual_(a[c], b[c])) diffs.push(c);
   }
   return diffs;
@@ -1254,6 +1262,8 @@ function getDealerScraperData_(scraperLocationName) {
 
   var sheetFirstRow = firstMatch + 2;
   var spanRows      = lastMatch - firstMatch + 1;
+  // Run path uses only the BASE canonical columns A–U (21) — the output template
+  // + ORDERMATCH QUERY ("SELECT … A:U") never touch appended (V+) store-only cols.
   var data = sheet.getRange(sheetFirstRow, 1, spanRows, 21).getValues();
 
   return data.filter(function(row) {
@@ -2453,14 +2463,41 @@ function writeConfigCache_(outputDoc, config) {
 // SECTION 18: UTILITIES
 // ============================================================================
 
+// The scraper-import timestamp lives in a dedicated META tab (A1=date, B1=time),
+// relocated from SCRAPERDATA!W1:X1 so appended schema columns (col V+) can grow
+// without colliding with it. HELPERS A1:B1 keeps a secondary copy.
+var META_TAB = 'META';
+
+function getOrCreateMetaSheet_(ss) {
+  var m = ss.getSheetByName(META_TAB);
+  if (!m) {
+    m = ss.insertSheet(META_TAB);
+    m.getRange('A1:B1').setNumberFormat('@');
+  }
+  return m;
+}
+
+// Reads {date, time}. META first; falls back to the legacy SCRAPERDATA!W1:X1
+// ONLY if the META tab doesn't exist yet (pre-migration safety).
+function getTimestampMeta_(ss) {
+  var m = ss.getSheetByName(META_TAB);
+  if (m) {
+    var v = m.getRange('A1:B1').getDisplayValues()[0];
+    return { date: String(v[0] || ''), time: String(v[1] || '') };
+  }
+  var s = ss.getSheetByName('SCRAPERDATA').getRange('W1:X1').getDisplayValues()[0];
+  return { date: String(s[0] || ''), time: String(s[1] || '') };
+}
+
 function fillScraperDateTime() {
   var ss  = getMasterSS_();
   var now = new Date();
   var d   = Utilities.formatDate(now, 'America/Chicago', 'yyyy/MM/dd');
   var t   = Utilities.formatDate(now, 'America/Chicago', 'HH:mm:ss');
-  ss.getSheetByName('SCRAPERDATA').getRange('W1').setValue(d);
-  ss.getSheetByName('SCRAPERDATA').getRange('X1').setValue(t);
-  ss.getSheetByName('HELPERS').getRange('A1').setValue(d);
+  var m   = getOrCreateMetaSheet_(ss);
+  m.getRange('A1').setValue(d);
+  m.getRange('B1').setValue(t);
+  ss.getSheetByName('HELPERS').getRange('A1').setValue(d);   // secondary backup
   ss.getSheetByName('HELPERS').getRange('B1').setValue(t);
   // Return for App callers (menu invocations ignore this).
   return { message: 'Scraper timestamp set to ' + d + ' ' + t + '.' };
@@ -2472,16 +2509,11 @@ function appOpenRunLog() {
   return { message: 'RUN_LOG tab opened behind this window.' };
 }
 
+// The scraper timestamp moved out of SCRAPERDATA W1:X1 into the isolated META
+// tab (so schema columns can grow), so the old "restore W1:X1 if cleared" guard
+// is obsolete. Kept as a no-op hook in case future onEdit logic is needed.
 function onEdit(e) {
-  var sheet = e.range.getSheet();
-  if (sheet.getName() !== 'SCRAPERDATA') return;
-  if (e.range.getRow() !== 1) return;
-  var col = e.range.getColumn();
-  if (col !== 23 && col !== 24) return;
-  if (e.range.getValue() !== '') return;
-  var helpers = e.source.getSheetByName('HELPERS');
-  sheet.getRange('W1').setValue(helpers.getRange('A1').getValue());
-  sheet.getRange('X1').setValue(helpers.getRange('B1').getValue());
+  return;
 }
 
 // Menu action: jump to the RUN_LOG tab. Must use getActiveSpreadsheet() —
@@ -3684,10 +3716,15 @@ function dataSchemaFallback_() {
 }
 
 // Internal: the canonical schema — from the SCHEMA tab if present, else fallback.
+// Cached for the lifetime of one execution (read by getSchemaColCount_ on the
+// per-row dedup hot path). addSchemaColumn invalidates it after appending.
+var _dataSchema_ = null;
 function getDataSchema_() {
+  if (_dataSchema_) return _dataSchema_;
+  var result;
   try {
     var sh = getConfigSS_().getSheetByName(SCHEMA_TAB);
-    if (!sh || sh.getLastRow() < 2) return dataSchemaFallback_();
+    if (!sh || sh.getLastRow() < 2) { _dataSchema_ = dataSchemaFallback_(); return _dataSchema_; }
     var data = sh.getDataRange().getValues();  // header + rows: col_index | field_key | header_label | normalized
     var cols = [];
     for (var i = 1; i < data.length; i++) {
@@ -3696,16 +3733,74 @@ function getDataSchema_() {
       if (!key || !label) continue;
       cols.push({ index: cols.length, key: key, label: label, normalized: isTrue_(data[i][3]) });
     }
-    return cols.length ? cols : dataSchemaFallback_();
+    result = cols.length ? cols : dataSchemaFallback_();
   } catch (e) {
     Logger.log('getDataSchema_: falling back (' + e.message + ')');
-    return dataSchemaFallback_();
+    result = dataSchemaFallback_();
   }
+  _dataSchema_ = result;
+  return result;
 }
 
-// Internal: canonical column count (drives the dynamic-width logic added in
-// Phase B; equals 21 until a column is appended).
+// Internal: canonical column count — the single source of truth for SCRAPERDATA
+// width. Equals 21 until a column is appended via addSchemaColumn. Cached.
 function getSchemaColCount_() { return getDataSchema_().length; }
+
+// Internal: ensure the SCHEMA tab exists and lists the current canonical columns,
+// seeding it with today's set (the 21 fallback) the first time. Returns the sheet.
+function getOrSeedSchemaSheet_() {
+  var ss = getConfigSS_();
+  var sh = ss.getSheetByName(SCHEMA_TAB);
+  if (sh && sh.getLastRow() >= 2) return sh;
+  if (!sh) sh = ss.insertSheet(SCHEMA_TAB);
+  var cols = getDataSchema_();   // fallback 21 if the tab was empty/absent
+  var rows = [['col_index', 'field_key', 'header_label', 'normalized']];
+  cols.forEach(function(c, i) { rows.push([i, c.key, c.label, c.normalized ? 'TRUE' : 'FALSE']); });
+  sh.clearContents();
+  sh.getRange(1, 1, rows.length, 4).setValues(rows);
+  _dataSchema_ = null;
+  return sh;
+}
+
+// Public: append a brand-new canonical column (END only) and widen SCRAPERDATA.
+// The column is STORE-ONLY — captured/compared/written by the import, but NOT
+// surfaced in the ORDERMATCH QUERY / CSV / filters / stats until separately
+// wired (the SELECT A:U QUERY, FIELD_TO_COL, FILTER_FIELD_INDEX are unchanged).
+// Append-only keeps every fixed index (≤ col U) valid.
+function addSchemaColumn(label) {
+  label = String(label || '').trim();
+  if (!label) throw new Error('Column name is required.');
+
+  var sh       = getOrSeedSchemaSheet_();
+  var existing = getDataSchema_();
+  var lbl = label.toLowerCase();
+  for (var i = 0; i < existing.length; i++) {
+    if (existing[i].label.toLowerCase() === lbl) {
+      throw new Error('A column named "' + label + '" already exists.');
+    }
+  }
+
+  // Unique snake_case key from the label.
+  var base = lbl.replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'col';
+  var keys = {}; existing.forEach(function(c) { keys[c.key] = 1; });
+  var key = base, n = 2;
+  while (keys[key]) { key = base + '_' + n; n++; }
+
+  var newIndex = existing.length;             // 0-based; also = old count
+  sh.appendRow([newIndex, key, label, 'FALSE']);
+
+  // Widen the master SCRAPERDATA grid and label the new column's header (row 1).
+  var data = getMasterSS_().getSheetByName('SCRAPERDATA');
+  var need = newIndex + 1;                     // 1-based column number for the new col
+  if (data.getMaxColumns() < need) {
+    data.insertColumnsAfter(data.getMaxColumns(), need - data.getMaxColumns());
+  }
+  data.getRange(1, need).setValue(label);
+
+  _dataSchema_ = null;                          // invalidate cache → next read sees the new column
+  Logger.log('addSchemaColumn: "' + label + '" (key=' + key + ') at index ' + newIndex + '.');
+  return { schema: getDataSchema_(), key: key, label: label };
+}
 
 // Public (client-callable): ordered canonical header labels — replaces the
 // hard-coded EXPECTED_HEADERS in the import views.

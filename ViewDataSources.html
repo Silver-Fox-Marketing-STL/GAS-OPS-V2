@@ -101,6 +101,7 @@
   var dsDealerKey    = '';
   var dsSourceName   = '';     // the selected named source (import format)
   var NEW_SOURCE     = '__new__';
+  var ADD_COL        = '__addcol__';
 
   function setDsStatus(msg, type) {
     var el = document.getElementById('dsStatus');
@@ -241,7 +242,8 @@
   function renderDsMapping() {
     var body = document.getElementById('dsMapBody');
     var optionsHtml = '<option value="">— ignore this column —</option>' +
-      dsSchema.map(function(c) { return '<option value="' + escHtml(c.key) + '">' + escHtml(c.label) + '</option>'; }).join('');
+      dsSchema.map(function(c) { return '<option value="' + escHtml(c.key) + '">' + escHtml(c.label) + '</option>'; }).join('') +
+      '<option value="' + ADD_COL + '">＋ Add new column…</option>';
 
     var html = '';
     for (var i = 0; i < dsFileHeaders.length; i++) {
@@ -252,7 +254,7 @@
       html += '<tr data-src="' + escAttrDs(h) + '">' +
                 '<td class="ds-fileheader">' + escHtml(h) + '</td>' +
                 '<td class="ds-example">' + escHtml(ex) + '</td>' +
-                '<td><select onchange="onDsMapChange()">' + optionsHtml + '</select></td>' +
+                '<td><select onchange="onDsColSelect(this)">' + optionsHtml + '</select></td>' +
               '</tr>';
     }
     body.innerHTML = html;
@@ -278,9 +280,39 @@
     for (var r = 0; r < rowsEl.length; r++) {
       var src = rowsEl[r].getAttribute('data-src');
       var key = rowsEl[r].querySelector('select').value;
-      if (key) { mapping[src] = key; usedKeys[key] = true; }
+      if (key && key !== ADD_COL) { mapping[src] = key; usedKeys[key] = true; }
     }
     return { mapping: mapping, usedKeys: usedKeys };
+  }
+
+  // Dropdown change handler — intercepts the "＋ Add new column…" choice.
+  function onDsColSelect(sel) {
+    if (sel.value !== ADD_COL) { onDsMapChange(); return; }
+    sel.value = '';   // reset; we set it to the new key on success
+    var label = (window.prompt('Name the new data column (e.g. "Lender Name"):') || '').trim();
+    if (!label) { onDsMapChange(); return; }
+    if (!window.confirm('Add a new column “' + label + '” to the data schema?\n\n' +
+        'This is a global, permanent, append-only change. The column is stored on import ' +
+        'but not shown on graphics/filters until separately wired.')) { onDsMapChange(); return; }
+
+    setDsStatus('Adding column “' + label + '”…', 'info');
+    google.script.run
+      .withSuccessHandler(function(res) {
+        dsSchema = res.schema || dsSchema;
+        // Inject the new option into every mapping dropdown (before "＋ Add…").
+        var selects = document.querySelectorAll('#dsMapBody select');
+        for (var i = 0; i < selects.length; i++) {
+          var opt = document.createElement('option');
+          opt.value = res.key; opt.text = res.label;
+          var addOpt = selects[i].querySelector('option[value="' + ADD_COL + '"]');
+          selects[i].insertBefore(opt, addOpt);
+        }
+        sel.value = res.key;   // map the triggering row to the new column
+        setDsStatus('Added column “' + res.label + '”. It’s now mappable for every source.', 'success');
+        onDsMapChange();
+      })
+      .withFailureHandler(function(e) { setDsStatus('Add column failed: ' + e.message, 'error'); onDsMapChange(); })
+      .addSchemaColumn(label);
   }
 
   function onDsMapChange() {
