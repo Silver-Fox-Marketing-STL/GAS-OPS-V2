@@ -160,6 +160,28 @@
       </div>
       <div class="pill-hint">These types are skipped during CAO auto-fill but still print when entered manually. Keep them in <strong>Allowed Types</strong> so manual runs aren't blocked.</div>
 
+      <!-- Dual-site source split -->
+      <div class="section-label" style="margin-top: 18px;">Dual-Site Source Split</div>
+      <div class="toggle-row">
+        <label class="toggle-switch">
+          <input type="checkbox" id="sourceSplitEnable" onchange="markFilterDirty()">
+          <span class="toggle-slider"></span>
+        </label>
+        <span class="toggle-label">Split output by website</span>
+        <span class="toggle-desc">For a dealer whose inventory spans two sites (e.g. a subprime site)</span>
+      </div>
+      <div class="price-row">
+        <div class="price-field">
+          <label for="sourceSplitGroupName">Secondary group name</label>
+          <input type="text" id="sourceSplitGroupName" placeholder="AUTOLOANPRO" oninput="markFilterDirty()" />
+        </div>
+        <div class="price-field">
+          <label for="sourceSplitUrlContains">Secondary URL contains</label>
+          <input type="text" id="sourceSplitUrlContains" placeholder="autoloanpro" oninput="markFilterDirty()" />
+        </div>
+      </div>
+      <div class="pill-hint">Matched cars whose Vehicle URL contains the marker go to a separate <strong>CSV_&lt;group&gt;</strong> (and a BY-SOURCE billing breakdown) — still <strong>one billing sheet and one Pipedrive deal</strong>. Overlapping VINs across the two sites auto-resolve to the main site at import. Leave the toggle off (or either field blank) to disable.</div>
+
     </div>
     <div class="save-row">
       <div id="filterUnsaved" style="font-size:11px;color:#e67e00;align-self:center;display:none;">Unsaved changes</div>
@@ -848,7 +870,8 @@
     // (e.g. billing_split) is stashed in filterExtras and re-merged on save so a
     // round-trip through this editor never silently drops it.
     var FILTER_MANAGED_KEYS = ['require_stock', 'require_price', 'allowed_types',
-      'exclude_status', 'min_price', 'max_price', 'seasoning', 'conditions', 'cao_exclude_types'];
+      'exclude_status', 'min_price', 'max_price', 'seasoning', 'conditions', 'cao_exclude_types',
+      'source_split'];
     var filterExtras = {};
 
     function applyFilteringRulesToUI(fr) {
@@ -900,6 +923,14 @@
       document.querySelectorAll('#caoExcludeTypes .pill').forEach(function(pill) {
         pill.classList.toggle('active', caoEx.indexOf(pill.dataset.type) !== -1);
       });
+
+      // Dual-site source split
+      var ssplit = fr.source_split || {};
+      var ssName = String(ssplit.group_name || '');
+      var ssUrl  = String(ssplit.url_contains || '');
+      document.getElementById('sourceSplitEnable').checked  = !!(ssName && ssUrl);
+      document.getElementById('sourceSplitGroupName').value = ssName;
+      document.getElementById('sourceSplitUrlContains').value = ssUrl;
     }
 
     function collectFilteringRules() {
@@ -967,6 +998,18 @@
       if (seasoning.length > 0) rules.seasoning = seasoning;
       if (conditions.length > 0) rules.conditions = conditions;
       if (caoExclude.length > 0) rules.cao_exclude_types = caoExclude;
+
+      // Dual-site source split — only emitted when enabled AND both fields are
+      // filled (otherwise omitted so the key stays inert, matching the server's
+      // getSourceSplit_ fail-safe). Normalize to mirror the server (group name
+      // upper-cased to [A-Z0-9_], url marker lower-cased).
+      var ssOn   = document.getElementById('sourceSplitEnable').checked;
+      var ssName = document.getElementById('sourceSplitGroupName').value
+                     .trim().toUpperCase().replace(/[^A-Z0-9_]/g, '');
+      var ssUrl  = document.getElementById('sourceSplitUrlContains').value.trim().toLowerCase();
+      if (ssOn && ssName && ssUrl) {
+        rules.source_split = { group_name: ssName, url_contains: ssUrl };
+      }
 
       return rules;
     }
