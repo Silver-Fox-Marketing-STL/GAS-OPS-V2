@@ -3518,6 +3518,124 @@ function saveDealerFilterRules(dealerKey, filteringRulesJson) {
 
 
 // ============================================================================
+// SECTION 30B: DATA SOURCES — configurable header mapping + canonical schema
+// ============================================================================
+//
+// Lets scraper feeds with different header NAMES / column ORDER map onto the
+// canonical SCRAPERDATA columns, configured per dealer in the Data Sources
+// screen. The canonical column list lives in an OPTIONAL `SCHEMA` tab in
+// SF_DEALER_CONFIG; when it's absent the code falls back to the hard-coded 21
+// (today's exact behavior), so this is fully backward-compatible. Saved
+// per-dealer mappings live in an OPTIONAL `SOURCE_MAPPINGS` tab, auto-created
+// on first save. No sheet change is required to deploy this code safely.
+
+var SCHEMA_TAB          = 'SCHEMA';
+var SOURCE_MAPPINGS_TAB = 'SOURCE_MAPPINGS';
+
+// The canonical 21 columns in SCRAPERDATA A–U order. `label` is matched against
+// incoming file headers and intentionally mirrors the live scraper feeds —
+// including the long-standing 'Vechile URL' spelling — so fallback behavior is
+// byte-identical to the old hard-coded EXPECTED_HEADERS.
+function dataSchemaFallback_() {
+  var defs = [
+    ['vin','VIN',false], ['stock','Stock',false], ['type','Type',true],
+    ['year','Year',false], ['make','Make',false], ['model','Model',false],
+    ['trim','Trim',true], ['ext_color','Ext Color',false], ['status','Status',true],
+    ['price','Price',true], ['body_style','Body Style',false], ['fuel_type','Fuel Type',false],
+    ['msrp','MSRP',false], ['date_in_stock','Date In Stock',false], ['street_address','Street Address',false],
+    ['locality','Locality',false], ['postal_code','Postal Code',false], ['region','Region',false],
+    ['country','Country',false], ['location','Location',false], ['vehicle_url','Vechile URL',false]
+  ];
+  return defs.map(function(d, i) { return { index: i, key: d[0], label: d[1], normalized: d[2] }; });
+}
+
+// Internal: the canonical schema — from the SCHEMA tab if present, else fallback.
+function getDataSchema_() {
+  try {
+    var sh = getConfigSS_().getSheetByName(SCHEMA_TAB);
+    if (!sh || sh.getLastRow() < 2) return dataSchemaFallback_();
+    var data = sh.getDataRange().getValues();  // header + rows: col_index | field_key | header_label | normalized
+    var cols = [];
+    for (var i = 1; i < data.length; i++) {
+      var key   = String(data[i][1] || '').trim();
+      var label = String(data[i][2] || '').trim();
+      if (!key || !label) continue;
+      cols.push({ index: cols.length, key: key, label: label, normalized: isTrue_(data[i][3]) });
+    }
+    return cols.length ? cols : dataSchemaFallback_();
+  } catch (e) {
+    Logger.log('getDataSchema_: falling back (' + e.message + ')');
+    return dataSchemaFallback_();
+  }
+}
+
+// Internal: canonical column count (drives the dynamic-width logic added in
+// Phase B; equals 21 until a column is appended).
+function getSchemaColCount_() { return getDataSchema_().length; }
+
+// Public (client-callable): ordered canonical header labels — replaces the
+// hard-coded EXPECTED_HEADERS in the import views.
+function getCanonicalHeaders() {
+  return getDataSchema_().map(function(c) { return c.label; });
+}
+
+// Public: single round-trip bootstrap for the Data Sources screen.
+function getDataSourcesBootstrap() {
+  return { schema: getDataSchema_(), dealers: getActiveDealersForUI() };
+}
+
+// Public: a dealer's saved header mapping → { sourceHeaderLower: canonicalFieldKey }.
+function getSourceMapping(dealerKey) {
+  var out = {};
+  try {
+    var sh = getConfigSS_().getSheetByName(SOURCE_MAPPINGS_TAB);
+    if (!sh || sh.getLastRow() < 2) return out;
+    var data = sh.getDataRange().getValues();  // dealer_key | source_header | canonical_field_key
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][0]).trim() !== String(dealerKey).trim()) continue;
+      var src = String(data[i][1] || '').trim();
+      var key = String(data[i][2] || '').trim();
+      if (src && key) out[src.toLowerCase()] = key;
+    }
+  } catch (e) { Logger.log('getSourceMapping: ' + e.message); }
+  return out;
+}
+
+// Public: replace a dealer's saved mapping. `mappingJson` = { sourceHeader: canonicalFieldKey }.
+// Auto-creates the SOURCE_MAPPINGS tab on first use (additive, safe).
+function saveSourceMapping(dealerKey, mappingJson) {
+  if (!dealerKey) throw new Error('No dealer selected.');
+  var mapping;
+  try { mapping = JSON.parse(mappingJson); }
+  catch (e) { throw new Error('Invalid mapping JSON: ' + e.message); }
+
+  var ss = getConfigSS_();
+  var sh = ss.getSheetByName(SOURCE_MAPPINGS_TAB);
+  if (!sh) {
+    sh = ss.insertSheet(SOURCE_MAPPINGS_TAB);
+    sh.getRange(1, 1, 1, 3).setValues([['dealer_key', 'source_header', 'canonical_field_key']]);
+  }
+
+  // Rewrite this dealer's block, preserving every other dealer's rows.
+  var data = sh.getDataRange().getValues();
+  var kept = [];
+  for (var i = 1; i < data.length; i++) {
+    var dk = String(data[i][0]).trim();
+    if (dk !== '' && dk !== String(dealerKey).trim()) kept.push([data[i][0], data[i][1], data[i][2]]);
+  }
+  Object.keys(mapping).forEach(function(src) {
+    var key = String(mapping[src] || '').trim();
+    if (String(src).trim() && key) kept.push([dealerKey, src, key]);
+  });
+
+  if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, 3).clearContent();
+  if (kept.length) sh.getRange(2, 1, kept.length, 3).setValues(kept);
+  Logger.log('saveSourceMapping: ' + dealerKey + ' → ' + Object.keys(mapping).length + ' header(s).');
+  return { saved: Object.keys(mapping).length };
+}
+
+
+// ============================================================================
 // SECTION 28: USER PROFILES
 // ============================================================================
 //
