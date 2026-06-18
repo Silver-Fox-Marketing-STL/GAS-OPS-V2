@@ -2799,9 +2799,13 @@ function getFilterFieldIndex_() {
   _filterFieldIndex_ = m;
   return m;
 }
-// Fields compared numerically (gte/lte). All others are string ops.
+// Fields compared numerically (gte/lte/gt/lt). All others are string ops.
 var FILTER_NUMERIC_FIELDS = { price: true, msrp: true, year: true };
-var FILTER_OPS = ['in', 'not_in', 'contains', 'not_contains', 'gte', 'lte', 'drop_on_import'];
+// Condition operators usable in a targeting_rules predicate. (drop_on_import is no
+// longer an op — "drop on import" is now a rule ACTION; see TARGETING_ACTIONS.)
+var FILTER_OPS = ['in', 'not_in', 'contains', 'not_contains', 'gte', 'lte', 'gt', 'lt'];
+// Rule actions: what to DO when a targeting rule's condition group matches.
+var TARGETING_ACTIONS = ['drop_on_import', 'exclude_cao', 'exclude_order'];
 
 function getDealerFilterRules_(config) {
   var defaults = {
@@ -2813,7 +2817,7 @@ function getDealerFilterRules_(config) {
     minPrice:        null,
     maxPrice:        null,
     seasoning:       [],
-    conditions:      [],
+    targetingRules:  [],
     caoExcludeTypes: []
   };
 
@@ -2836,8 +2840,8 @@ function getDealerFilterRules_(config) {
     requireUrl:      parsed.require_url === true,
     minPrice:        (typeof parsed.min_price === 'number') ? parsed.min_price     : null,
     maxPrice:        (typeof parsed.max_price === 'number') ? parsed.max_price     : null,
-    seasoning:       Array.isArray(parsed.seasoning)       ? parsed.seasoning      : [],
-    conditions:      Array.isArray(parsed.conditions)        ? parsed.conditions        : [],
+    seasoning:       Array.isArray(parsed.seasoning)        ? parsed.seasoning         : [],
+    targetingRules:  Array.isArray(parsed.targeting_rules)  ? parsed.targeting_rules   : [],
     caoExcludeTypes: Array.isArray(parsed.cao_exclude_types) ? parsed.cao_exclude_types : []
   };
 }
@@ -2964,11 +2968,10 @@ function getSourceSplitLocations_() {
 }
 
 /**
- * Returns a map { scraper_location_name(lower) → [ {field, values} ] } of
- * "drop on import" conditions, for every dealer whose filtering_rules.conditions
- * include an op:"drop_on_import" entry. Used by the import to drop matching rows
- * (e.g. subprime cars from a dealer's direct feed) BEFORE dedup, scoped to that
- * dealer's Location only. Fail-safe → {}.
+ * Returns a map { scraper_location_name(lower) → [rule, …] } of targeting_rules
+ * whose action is "drop_on_import", for every dealer. Used by the import to drop
+ * matching rows (e.g. subprime cars from a dealer's direct feed) BEFORE dedup,
+ * scoped to that dealer's Location only. Fail-safe → {}.
  */
 function getImportDropLocations_() {
   var out = {};
@@ -2978,12 +2981,8 @@ function getImportDropLocations_() {
       var loc = String(data[i][CFG.SCRAPER_LOCATION] || '').trim().toLowerCase();
       if (!loc) continue;
       var fr = getDealerFilterRules_(data[i]);
-      var drops = (fr.conditions || []).filter(function(c) {
-        return c && String(c.op).toLowerCase() === 'drop_on_import' &&
-               c.field && Array.isArray(c.values) && c.values.length > 0;
-      }).map(function(c) {
-        return { field: String(c.field).toLowerCase(),
-                 values: c.values.map(function(v) { return String(v).toLowerCase(); }) };
+      var drops = (fr.targetingRules || []).filter(function(rule) {
+        return rule && String(rule.action).toLowerCase() === 'drop_on_import' && rule.group;
       });
       if (drops.length) out[loc] = (out[loc] || []).concat(drops);
     }
@@ -2992,24 +2991,20 @@ function getImportDropLocations_() {
 }
 
 /**
- * Drops incoming rows matching any dealer's drop_on_import condition (Location-
- * scoped, contains-match, case-insensitive). Returns {rows, dropped}. Runs before
- * dedup so dropped rows never flag a conflict. Rows are full canonical width here,
- * so a newly-added column (e.g. "Subprime") is readable via the schema index.
+ * Drops incoming rows that match any dealer's drop_on_import targeting rule
+ * (Location-scoped, evaluated by the same nested-group engine the run path uses).
+ * Returns {rows, dropped}. Runs before dedup so dropped rows never flag a conflict.
+ * Rows are full canonical width here, so a newly-added column (e.g. "Subprime") is
+ * readable via the schema index.
  */
 function dropRowsOnImport_(rows, dropLocs) {
   if (!dropLocs || !Object.keys(dropLocs).length) return { rows: rows, dropped: 0 };
-  var fieldIx = getFilterFieldIndex_();
   var dropped = 0;
   var kept = rows.filter(function(row) {
-    var conds = dropLocs[String(row[19] || '').trim().toLowerCase()];   // Location = index 19
-    if (!conds) return true;
-    for (var i = 0; i < conds.length; i++) {
-      var idx = fieldIx[conds[i].field];
-      if (idx === undefined) continue;                  // unknown field → keep (fail-open)
-      var cell = String(row[idx] || '').toLowerCase();
-      var hit = conds[i].values.some(function(v) { return v !== '' && cell.indexOf(v) !== -1; });
-      if (hit) { dropped++; return false; }
+    var rules = dropLocs[String(row[19] || '').trim().toLowerCase()];   // Location = index 19
+    if (!rules) return true;
+    for (var i = 0; i < rules.length; i++) {
+      if (ruleMatches_(row, rules[i])) { dropped++; return false; }
     }
     return true;
   });
@@ -3117,27 +3112,27 @@ function applyFilteringRules_(vehicles, filterRules, phase) {
       }
     }
 
-    // Targeting conditions — apply in BOTH phases (the Bypass checkbox is the
-    // per-run override). Run last so legacy rejection reasons keep precedence.
-    if (Array.isArray(filterRules.conditions) && filterRules.conditions.length > 0) {
-      var condFailed = false;
-      for (var ci = 0; ci < filterRules.conditions.length; ci++) {
-        var cond = filterRules.conditions[ci];
-        if (Array.isArray(cond.applies_to) && cond.applies_to.length > 0) {
-          var typeInScope = cond.applies_to.some(function(t) {
-            return String(t).toLowerCase() === typeLower;
-          });
-          if (!typeInScope) continue;  // condition not scoped to this type -> skip (pass)
-        }
-        var ev = evaluateCondition_(row, cond);
-        if (!ev.pass) {
-          rejected.push({ row: row, reason: ev.reason,
-            detail: cond.field + ' ' + cond.op + ' ' + JSON.stringify(cond.values) });
-          condFailed = true;
+    // Targeting rules — action-on-match. A rule's nested condition group is
+    // evaluated against the row; if it matches, the row is excluded. exclude_order
+    // rules apply in BOTH phases; exclude_cao rules apply only during CAO pre-fill.
+    // drop_on_import rules are handled at import time (dropRowsOnImport_), never
+    // here. The Bypass checkbox is the per-run override (skips this whole call).
+    if (Array.isArray(filterRules.targetingRules) && filterRules.targetingRules.length > 0) {
+      var excludedByRule = false;
+      for (var ti = 0; ti < filterRules.targetingRules.length; ti++) {
+        var rule   = filterRules.targetingRules[ti];
+        if (!rule) continue;
+        var action = String(rule.action || '').toLowerCase();
+        var applies = (action === 'exclude_order') ||
+                      (action === 'exclude_cao' && phase === 'cao');
+        if (!applies) continue;
+        if (ruleMatches_(row, rule)) {
+          rejected.push({ row: row, reason: 'rule:' + action, detail: describeRule_(rule) });
+          excludedByRule = true;
           break;
         }
       }
-      if (condFailed) return;
+      if (excludedByRule) return;
     }
 
     // CAO-only: "manual-only" types are skipped during auto-fill but still print
@@ -3159,40 +3154,46 @@ function applyFilteringRules_(vehicles, filterRules, phase) {
   return { passed: passed, rejected: rejected };
 }
 
-// Evaluates one targeting condition against a single SCRAPERDATA row.
-// Returns { pass: bool, reason: string|null }. Fails OPEN on any misconfiguration
-// (unknown field/op, empty values, unparseable number) so a config typo can never
-// silently empty a dealer's inventory.
-function evaluateCondition_(row, condition) {
-  var ok = { pass: true, reason: null };
-  if (!condition || !condition.field || !condition.op) return ok;
+// ── Targeting rule engine ────────────────────────────────────────────────────
+// A targeting rule is { action, group }. A group is { match: 'all'|'any',
+// children: [ condition | group, … ] }. A condition is { field, op, values }.
+// The engine evaluates whether a row MATCHES a rule's group; the caller then
+// performs the rule's action (drop_on_import / exclude_cao / exclude_order).
+//
+// Polarity note: unlike the old `conditions` (inclusion — "keep if it matches"),
+// a rule fires an EXCLUSION when it matches. So every predicate here fails SAFE:
+// any misconfiguration (unknown field/op, empty values, unparseable number, empty
+// group) returns FALSE (no match → no action), so a config typo can never silently
+// mass-exclude a dealer's inventory. (Opposite of evaluateCondition_'s fail-open,
+// which was correct for inclusion.)
 
-  // drop_on_import is handled at import time (dropRowsOnImport_), never here.
-  if (String(condition.op).toLowerCase() === 'drop_on_import') return ok;
+// Evaluates one condition leaf against a single SCRAPERDATA row. Returns bool.
+function conditionMatches_(row, cond) {
+  if (!cond || !cond.field || !cond.op) return false;
 
-  var field   = String(condition.field).toLowerCase();
+  var field   = String(cond.field).toLowerCase();
   var fieldIx = getFilterFieldIndex_();
   if (!fieldIx.hasOwnProperty(field)) {
-    Logger.log('evaluateCondition_: unknown field "' + condition.field + '" — skipping (fail-open).');
-    return ok;
+    Logger.log('conditionMatches_: unknown field "' + cond.field + '" — no match (fail-safe).');
+    return false;
   }
 
-  var values = Array.isArray(condition.values) ? condition.values : [];
-  if (values.length === 0) return ok;  // empty values = no-op
+  var values = Array.isArray(cond.values) ? cond.values : [];
+  if (values.length === 0) return false;  // empty values = no match
 
-  var op     = String(condition.op).toLowerCase();
-  var cell   = String(row[fieldIx[field]] || '').trim();
-  var reason = 'cond:' + field;
-  var fail   = { pass: false, reason: reason };
+  var op   = String(cond.op).toLowerCase();
+  var cell = String(row[fieldIx[field]] || '').trim();
 
   // Numeric operators — price-safe coercion (prices are stored as text; strip $ and ,).
-  if (op === 'gte' || op === 'lte') {
+  if (op === 'gte' || op === 'lte' || op === 'gt' || op === 'lt') {
     var num = parseFloat(cell.replace(/[$,]/g, ''));
-    if (isNaN(num)) return ok;  // missing/garbage number — fail-open
+    if (isNaN(num)) return false;  // missing/garbage number — no match (fail-safe)
     var threshold = parseFloat(String(values[0]).replace(/[$,]/g, ''));
-    if (isNaN(threshold)) return ok;
-    if (op === 'gte') return (num >= threshold) ? ok : fail;
-    return (num <= threshold) ? ok : fail;
+    if (isNaN(threshold)) return false;
+    if (op === 'gte') return num >= threshold;
+    if (op === 'lte') return num <= threshold;
+    if (op === 'gt')  return num >  threshold;
+    return num < threshold;  // lt
   }
 
   // String operators — case-insensitive.
@@ -3200,18 +3201,53 @@ function evaluateCondition_(row, condition) {
   var lowerVals = values.map(function(v) { return String(v).toLowerCase(); });
 
   switch (op) {
-    case 'in':
-      return (lowerVals.indexOf(cellLower) !== -1) ? ok : fail;
-    case 'not_in':
-      return (lowerVals.indexOf(cellLower) === -1) ? ok : fail;
-    case 'contains':
-      return lowerVals.some(function(v) { return v !== '' && cellLower.indexOf(v) !== -1; }) ? ok : fail;
-    case 'not_contains':
-      return lowerVals.every(function(v) { return v === '' || cellLower.indexOf(v) === -1; }) ? ok : fail;
+    case 'in':           return lowerVals.indexOf(cellLower) !== -1;
+    case 'not_in':       return lowerVals.indexOf(cellLower) === -1;
+    case 'contains':     return lowerVals.some(function(v) { return v !== '' && cellLower.indexOf(v) !== -1; });
+    case 'not_contains': return lowerVals.every(function(v) { return v === '' || cellLower.indexOf(v) === -1; });
     default:
-      Logger.log('evaluateCondition_: unknown op "' + condition.op + '" — skipping (fail-open).');
-      return ok;
+      Logger.log('conditionMatches_: unknown op "' + cond.op + '" — no match (fail-safe).');
+      return false;
   }
+}
+
+// Evaluates a condition group recursively. 'all' = every child matches (AND),
+// 'any' = some child matches (OR). Empty/invalid group → false (fail-safe).
+// A child with a `children` array is a nested group; otherwise it's a condition.
+function groupMatches_(row, group) {
+  if (!group || !Array.isArray(group.children) || group.children.length === 0) return false;
+  var any = String(group.match || 'all').toLowerCase() === 'any';
+  for (var i = 0; i < group.children.length; i++) {
+    var child = group.children[i];
+    var m = (child && Array.isArray(child.children))
+      ? groupMatches_(row, child)
+      : conditionMatches_(row, child);
+    if (any && m)  return true;    // ANY: first match wins
+    if (!any && !m) return false;  // ALL: first miss fails
+  }
+  return !any;  // ANY with none matched → false; ALL with none missed → true
+}
+
+// A rule matches when its root group matches.
+function ruleMatches_(row, rule) {
+  if (!rule || !rule.group) return false;
+  return groupMatches_(row, rule.group);
+}
+
+// Short human-readable description of a rule for the rejection-reason detail.
+function describeRule_(rule) {
+  if (!rule || !rule.group) return '';
+  return describeGroup_(rule.group);
+}
+function describeGroup_(group) {
+  if (!group || !Array.isArray(group.children) || !group.children.length) return '()';
+  var joiner = (String(group.match || 'all').toLowerCase() === 'any') ? ' OR ' : ' AND ';
+  var parts = group.children.map(function(child) {
+    if (child && Array.isArray(child.children)) return '(' + describeGroup_(child) + ')';
+    if (!child || !child.field) return '?';
+    return child.field + ' ' + child.op + ' ' + JSON.stringify(child.values || []);
+  });
+  return parts.join(joiner);
 }
 
 function parseDateInStock_(val) {
@@ -3686,6 +3722,7 @@ function getRulesEditorBootstrap() {
     schemas: schemas,
     filterFields:        getDataSchema_().map(function(c) { return { key: c.key, label: c.label }; }),
     filterOps:           FILTER_OPS,
+    filterActions:       TARGETING_ACTIONS,
     filterNumericFields: Object.keys(FILTER_NUMERIC_FIELDS)
   };
 }

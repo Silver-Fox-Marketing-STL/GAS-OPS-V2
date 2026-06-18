@@ -276,29 +276,35 @@ Live source of truth for all scraper data normalization rules. **Managed via Sil
 
 **`seasoning`:** Filters on SCRAPERDATA col N (Date In Stock). A vehicle passes if `today - dateInStock >= required days`. Vehicles with unparseable dates pass through.
 
-**Rejection reasons** (shown in CAO summary and logged during runs): `no_stock`, `no_price`, `type`, `status`, `price_low`, `price_high`, `seasoning`, plus `cao_excluded` and one `cond:<field>` per targeting condition (e.g. `cond:make`). The CAO summary renders these dynamically.
+**Rejection reasons** (shown in CAO summary and logged during runs): `no_stock`, `no_price`, `no_url`, `type`, `status`, `price_low`, `price_high`, `seasoning`, plus `cao_excluded` (from `cao_exclude_types`) and `rule:exclude_order` / `rule:exclude_cao` (from `targeting_rules`). The CAO summary renders these dynamically.
 
-### Targeting conditions & CAO exclusions *(added June 2026)*
+### Targeting rules & CAO exclusions *(targeting_rules added June 2026 — branch `feature/data-sources`, pending deploy; replaces `conditions`)*
 
 Two optional keys extend the flat rules above with granular, field-based targeting — fully configurable in the **Edit Dealer Rules** modal (Filtering tab), no code per dealer.
 
-**`conditions`** — an array of generic field criteria, evaluated after all the flat rules (first rejection still wins). Each:
+**`targeting_rules`** — an array of **IF (nested AND/OR conditions) THEN action** rules. Replaces the old flat `conditions` array (and its `applies_to`). Each rule:
 ```json
-{ "field": "make", "op": "contains", "values": ["Cadillac"], "applies_to": ["New"] }
+{ "action": "exclude_order",
+  "group": { "match": "all",
+             "children": [ { "field": "type",  "op": "in", "values": ["PO","CPO"] },
+                           { "field": "price", "op": "lt", "values": [35000] } ] } }
 ```
-- `field` — **any data SCHEMA column** (key). Mapped to its SCRAPERDATA index by the cached, schema-driven `getFilterFieldIndex_()` (replaced the old static `FILTER_FIELD_INDEX`), so conditions can target every column **including ones added via the Data Sources screen**. The Rules editor Field dropdown reads the schema via `getRulesEditorBootstrap`. *(For CAO/run filtering to read appended columns, `getDealerScraperData_` returns full width; `pasteScraperData_` slices to the base 21 for the output doc.)*
-- `op` — `in`, `not_in`, `contains`, `not_contains` (string, case-insensitive), or `gte`, `lte` (numeric; price-safe — strips `$`/`,` before compare, since prices are stored as text), or **`drop_on_import`** — *not a CAO/run filter*: at IMPORT, drops rows whose `field` value contains any listed value (case-insensitive), **before dedup**, scoped to the dealer's Location (`getImportDropLocations_`/`dropRowsOnImport_`). Used to drop e.g. subprime cars from a dealer's direct feed so they never enter SCRAPERDATA. The import review reports the dropped count.
-- `values` — array. `contains`/`not_contains` match **any** value (OR).
-- `applies_to` — optional array of types; the condition is only evaluated for those types (others skip = pass). Omit = all types.
-- **Fail-open:** unknown field/op, empty values, or an unparseable number → the condition passes (a config typo can never silently empty a dealer's inventory).
-- **Applied in both phases** (CAO + run time). The "Bypass filtering rules" checkbox is the per-run override.
+- **`action`** — what to DO when the rule's condition group matches the vehicle:
+  - `drop_on_import` — at IMPORT, the row is dropped **before dedup**, scoped to the dealer's Location (`getImportDropLocations_`/`dropRowsOnImport_`); it never enters SCRAPERDATA. (Used to drop e.g. subprime cars from a dealer's direct feed. The import review reports the dropped count.)
+  - `exclude_cao` — skipped during CAO auto-fill **only** (still prints when entered manually).
+  - `exclude_order` — skipped during CAO **and** order runs (the "Bypass filtering rules" checkbox is the per-run override).
+- **`group`** — `{ match: "all"|"any", children: [...] }`. `all` = AND (every child matches), `any` = OR (some child matches). A child is either a **condition** `{field, op, values}` or a **nested group** — so `(A AND B) OR C` is expressible. An empty group matches nothing (fail-safe).
+- **condition `field`** — **any data SCHEMA column** (key), mapped to its SCRAPERDATA index by the cached, schema-driven `getFilterFieldIndex_()` (replaced the static `FILTER_FIELD_INDEX`), so a rule can target every column **including ones added via the Data Sources screen**. The Rules editor Field dropdown reads the schema via `getRulesEditorBootstrap`. *(For CAO/run filtering to read appended columns, `getDealerScraperData_` returns full width; `pasteScraperData_` slices to the base 21 for the output doc.)*
+- **condition `op`** — `in`, `not_in`, `contains`, `not_contains` (string, case-insensitive; `contains`/`not_contains` match **any** value — OR), or `gte`, `lte`, `gt`, `lt` (numeric; price-safe — strips `$`/`,` before compare, since prices are stored as text). *(`gt`/`lt` were added for this model; the `drop_on_import` operator was removed — it's now an action.)*
+- **Fail-SAFE (note the polarity flip from the old `conditions`):** a rule fires an **exclusion** when it matches, so every predicate fails to **no-match** on misconfiguration — unknown field/op, empty values, unparseable number, or an empty group → **the rule does not fire** (the vehicle is kept). A config typo can never silently mass-exclude a dealer's inventory. *(The old `conditions` were inclusion filters and failed OPEN — kept the vehicle on misconfig — which was the correct direction for inclusion. Same end result: misconfig → vehicle kept.)*
+- Engine: `conditionMatches_` (leaf predicate) → `groupMatches_` (recursive AND/OR) → `ruleMatches_`; `applyFilteringRules_` runs `exclude_order` rules in both phases and `exclude_cao` rules in CAO only. Rejection reason is `rule:exclude_order` / `rule:exclude_cao` (tallied dynamically in the CAO summary).
 
-**`cao_exclude_types`** — array of types removed from CAO auto-fill **only**. They still print when entered manually (no bypass needed). This is the "manual-only type" mechanism. Keep the type in `allowed_types` so manual runs aren't blocked by the legacy gate.
+**`cao_exclude_types`** — array of types removed from CAO auto-fill **only** (the "manual-only type" mechanism — they still print when entered manually). **Unchanged by the targeting_rules overhaul** — these remain a separate, simple set of pills in the editor (the easy path), coexisting with the more capable `exclude_cao` action. Keep the type in `allowed_types` so manual runs aren't blocked.
 
-**Example dealers:**
-- *Bommarito Cadillac* — all used; New only if Cadillac: `{"conditions":[{"field":"make","op":"contains","values":["Cadillac"],"applies_to":["New"]}]}`
-- *Pundmann Ford* — exclude commercial + F-250: `{"conditions":[{"field":"model","op":"not_contains","values":["F-250","F250"]},{"field":"body_style","op":"not_contains","values":["commercial"]}]}`
-- *Dave Sinclair St. Peters* — CAO only used ≥ $35k, New manual-only: `{"cao_exclude_types":["New"],"conditions":[{"field":"price","op":"gte","values":[35000],"applies_to":["PO","CPO","CPO-EL"]}]}`
+**Example dealers** (post-migration — see `docs/targeting_rules_migration.md` for full before/after):
+- *Bommarito Cadillac / Dave Sinclair St. Peters* — exclude used under $35k from orders: `{"action":"exclude_order","group":{"match":"all","children":[{"field":"type","op":"in","values":["PO","CPO"]},{"field":"price","op":"lt","values":[35000]}]}}`
+- *Pundmann Ford* — exclude trucks (model OR trim contains an `any` list) from orders, plus used <2022 and used <$35k as two `all` rules; New-from-CAO still handled by the unchanged `cao_exclude_types:["New"]` pill.
+- *Frank Leta Honda* — drop subprime on import: `{"action":"drop_on_import","group":{"match":"all","children":[{"field":"subprime","op":"contains","values":["Subprime"]}]}}`
 
 ### Billing split *(added June 2026 — branch `feature/billing-split`, pending deploy)*
 
@@ -342,9 +348,9 @@ Two optional keys extend the flat rules above with granular, field-based targeti
 
 ### Where filtering is applied
 
-**At CAO pre-fill time** (`getCaoVins`, phase `cao`): applied to raw SCRAPERDATA rows, then VIN log dedup. Both `conditions` and `cao_exclude_types` are active.
+**At CAO pre-fill time** (`getCaoVins`, phase `cao`): applied to raw SCRAPERDATA rows, then VIN log dedup. `targeting_rules` (`exclude_order` + `exclude_cao` actions) and `cao_exclude_types` are all active.
 
-**At run time, step 8.5** (`runDealer`, phase `run`): applied to the ordered VINs array before the ORDERMATCH QUERY is written. `conditions` are active; `cao_exclude_types` is **not** (so manual-only types print). If all VINs are filtered, the run aborts with a descriptive error.
+**At run time, step 8.5** (`runDealer`, phase `run`): applied to the ordered VINs array before the ORDERMATCH QUERY is written. `targeting_rules` `exclude_order` actions are active; `exclude_cao` actions and `cao_exclude_types` are **not** (so manual-only types print). `drop_on_import` actions never run here — they fire at import time. If all VINs are filtered, the run aborts with a descriptive error.
 
 **Bypass:** The Run Dealer modal has a "Bypass filtering rules" checkbox. When enabled, step 8.5 is skipped entirely — the per-run override for manual orders.
 
@@ -657,9 +663,11 @@ Bound to SF_SYSTEM_MASTER.
 | `getBillingSplit_` | `(config)` | Parses/validates the optional `billing_split` key from `filtering_rules` (col W). Returns `{groupName, dealLabel, field, op, values}` or **null** on absence/misconfig (fail-safe — run behaves as unsplit). |
 | `isInBillingGroup_` | `(vehicle, split)` | Tests one parsed ORDERMATCH vehicle object against a billing split (case-insensitive `contains`/`in`, OR across values). |
 | `getCaoVins` | `(dealerKey)` | Pulls current inventory, applies filtering_rules, deduplicates against VIN log. Returns `{vins, summary}`. Called by Run Dealer modal. |
-| `getDealerFilterRules_` | `(config)` | Parses `filtering_rules` JSON from dealer config row. Returns structured object with safe defaults (incl. `conditions`, `caoExcludeTypes`). |
-| `applyFilteringRules_` | `(vehicles, filterRules, phase)` | Filters SCRAPERDATA-format rows. `phase` ('cao'/'run', default 'run') gates `cao_exclude_types` (CAO only); `conditions` apply in both. Returns `{passed, rejected}` with per-vehicle rejection reasons (incl. `cond:<field>`, `cao_excluded`). |
-| `evaluateCondition_` | `(row, condition)` | Evaluates one targeting condition (`{field, op, values}`) against a SCRAPERDATA row via `FILTER_FIELD_INDEX`. Returns `{pass, reason}`. Fails OPEN on unknown field/op, empty values, or unparseable number. |
+| `getDealerFilterRules_` | `(config)` | Parses `filtering_rules` JSON from dealer config row. Returns structured object with safe defaults (incl. `targetingRules`, `caoExcludeTypes`). |
+| `applyFilteringRules_` | `(vehicles, filterRules, phase)` | Filters SCRAPERDATA-format rows. `phase` ('cao'/'run', default 'run') gates `cao_exclude_types` + `exclude_cao` rules (CAO only); `exclude_order` rules apply in both. Returns `{passed, rejected}` with per-vehicle rejection reasons (incl. `rule:exclude_order`, `rule:exclude_cao`, `cao_excluded`). |
+| `conditionMatches_` | `(row, cond)` | Evaluates one targeting condition leaf (`{field, op, values}`) against a SCRAPERDATA row via `getFilterFieldIndex_()`. Returns **bool**. Ops `in/not_in/contains/not_contains/gte/lte/gt/lt`, price-safe numeric coercion. **Fails SAFE** (no match) on unknown field/op, empty values, or unparseable number — so an exclusion can't fire on a typo. |
+| `groupMatches_` | `(row, group)` | Recursive AND/OR evaluator: `match:"all"` = every child matches, `"any"` = some child matches; a child is a condition or a nested group; empty group → false (fail-safe). |
+| `ruleMatches_` | `(row, rule)` | True when `rule.group` matches the row. Drives both the import drop pass and `applyFilteringRules_`. |
 | `getConfigSS_` | `()` | Returns the SF_DEALER_CONFIG Spreadsheet object, opening it only on the first call per script execution. All config reads use this instead of direct `openById` calls. |
 | `getDealerConfig_` | `(dealerKey)` | Reads dealer row from SF_DEALER_CONFIG DEALERS tab via `getConfigSS_()`. |
 | `getTypeRules_` | `(config)` | Parses `type_rules` JSON. Falls back to SCP default if absent. |

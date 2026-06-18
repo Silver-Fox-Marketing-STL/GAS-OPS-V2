@@ -139,24 +139,11 @@
       </table>
       <button class="btn-add-season" onclick="addSeasoningRow()">+ Add Seasoning Rule</button>
 
-      <!-- Targeting Conditions -->
-      <div class="section-label" style="margin-top: 18px;">Targeting Conditions</div>
-      <div class="pill-hint">Field-based include/exclude. Applied to CAO auto-fill <em>and</em> manual runs (the Bypass checkbox overrides per run). Make/Model are raw text — list keyword variants like <code>F-250</code> and <code>F250</code>. Leave Applies-To empty to apply to all types.</div>
-      <table class="seasoning-table" id="conditionsTable">
-        <thead>
-          <tr>
-            <th style="width:110px">Field</th>
-            <th style="width:135px">Operator</th>
-            <th>Values (comma-separated)</th>
-            <th style="width:160px">Applies To</th>
-            <th style="width:60px"></th>
-          </tr>
-        </thead>
-        <tbody id="conditionsBody">
-          <tr id="conditionsEmpty"><td colspan="5" class="placeholder">No targeting conditions configured.</td></tr>
-        </tbody>
-      </table>
-      <button class="btn-add-season" onclick="addConditionRow()">+ Add Condition</button>
+      <!-- Targeting Rules -->
+      <div class="section-label" style="margin-top: 18px;">Targeting Rules</div>
+      <div class="pill-hint"><strong>IF</strong> a vehicle matches the conditions (combined with nested AND/OR), <strong>THEN</strong> take the action. Actions: <em>Drop on import</em> (never enters SCRAPERDATA), <em>Exclude from CAO</em> (skipped in auto-fill only), <em>Exclude from orders</em> (skipped in CAO <em>and</em> runs; the Bypass checkbox overrides per run). Make/Model are raw text — list keyword variants like <code>F-250</code> and <code>F250</code>. A rule with no conditions does nothing.</div>
+      <div id="targetingRulesWrap" class="tr-wrap"></div>
+      <button class="btn-add-season" onclick="addTargetingRule()">+ Add Rule</button>
 
       <!-- Exclude from CAO auto-fill -->
       <div class="section-label" style="margin-top: 18px;">Exclude from CAO Auto-Fill</div>
@@ -218,6 +205,58 @@
          not the whole App. */
       position: relative;
     }
+
+    /* ── Targeting Rules builder ─────────────────────────────────────────────── */
+    #view-rules .tr-wrap { display: flex; flex-direction: column; gap: 10px; }
+    #view-rules .tr-rule {
+      border: 1px solid #d0d7de; border-radius: 6px; background: #fafbfc;
+    }
+    #view-rules .tr-rule-head {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      padding: 8px 10px; border-bottom: 1px solid #e6e9ec;
+      background: #eef3f8; border-radius: 6px 6px 0 0;
+    }
+    #view-rules .tr-rule-head .tr-if { font-weight: bold; color: #444; }
+    #view-rules .tr-action {
+      padding: 4px 6px; font-size: 12px; border: 1px solid #1a73e8;
+      border-radius: 4px; background: #fff; font-weight: bold; color: #1a56b8;
+    }
+    #view-rules .tr-rule-body { padding: 8px 10px; }
+    #view-rules .tr-group {
+      border: 1px dashed #b9c2cc; border-radius: 5px; padding: 6px 8px;
+      background: #fff;
+    }
+    #view-rules .tr-group .tr-group { background: #f5f7f9; margin-top: 4px; }
+    #view-rules .tr-group-head {
+      display: flex; align-items: center; gap: 6px; margin-bottom: 6px;
+      font-size: 12px; color: #555;
+    }
+    #view-rules .tr-match {
+      padding: 2px 5px; font-size: 11px; border: 1px solid #ccc; border-radius: 4px;
+      font-weight: bold;
+    }
+    #view-rules .tr-children { display: flex; flex-direction: column; gap: 5px; }
+    #view-rules .tr-cond {
+      display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    }
+    #view-rules .tr-cond select, #view-rules .tr-cond input {
+      padding: 3px 5px; font-size: 12px; border: 1px solid #ccc; border-radius: 4px;
+    }
+    #view-rules .tr-field { min-width: 110px; }
+    #view-rules .tr-op { min-width: 130px; }
+    #view-rules .tr-values { flex: 1; min-width: 140px; }
+    #view-rules .tr-x {
+      border: none; background: #f0f0f0; color: #999; cursor: pointer;
+      border-radius: 4px; padding: 2px 7px; font-size: 13px; line-height: 1;
+    }
+    #view-rules .tr-x:hover { background: #fde0e0; color: #c0392b; }
+    #view-rules .tr-group-actions { margin-top: 6px; display: flex; gap: 6px; }
+    #view-rules .tr-add {
+      border: 1px solid #ccc; background: #fff; color: #1a56b8; cursor: pointer;
+      border-radius: 4px; padding: 2px 8px; font-size: 11px;
+    }
+    #view-rules .tr-add:hover { background: #eef3f8; }
+    #view-rules .tr-empty { color: #999; font-style: italic; font-size: 12px; padding: 4px 0; }
 
     /* ── Top bar ─────────────────────────────────────────────────────────────── */
     #view-rules .top-bar {
@@ -618,9 +657,10 @@
 <script>
     var currentDealerKey = null;
     var availableSchemas = [];
-    var availableFilterFields = [];
-    var availableFilterOps    = [];
-    var filterNumericFields   = [];
+    var availableFilterFields  = [];
+    var availableFilterOps     = [];
+    var availableFilterActions = [];
+    var filterNumericFields    = [];
     var typeRules        = [];   // live working copy
     var typeDirty        = false;
     var filterDirty      = false;
@@ -630,10 +670,11 @@
       google.script.run
         .withSuccessHandler(function(data) {
           // data = { dealers, schemas, filterFields, filterOps, filterNumericFields }
-          availableSchemas      = data.schemas;
-          availableFilterFields = data.filterFields || [];
-          availableFilterOps    = data.filterOps || [];
-          filterNumericFields   = data.filterNumericFields || [];
+          availableSchemas       = data.schemas;
+          availableFilterFields  = data.filterFields || [];
+          availableFilterOps     = data.filterOps || [];
+          availableFilterActions = data.filterActions || ['drop_on_import', 'exclude_cao', 'exclude_order'];
+          filterNumericFields    = data.filterNumericFields || [];
           populateDealerDropdown(data.dealers);
           populateSchemaDropdown(data.schemas);
           document.getElementById('loadingOverlay').classList.add('hidden');
@@ -877,14 +918,19 @@
     // Keys this editor manages via UI controls. Anything else in filtering_rules
     // (e.g. billing_split) is stashed in filterExtras and re-merged on save so a
     // round-trip through this editor never silently drops it.
-    var FILTER_MANAGED_KEYS = ['require_stock', 'require_price', 'allowed_types',
-      'exclude_status', 'min_price', 'max_price', 'seasoning', 'conditions', 'cao_exclude_types',
+    var FILTER_MANAGED_KEYS = ['require_stock', 'require_price', 'require_url', 'allowed_types',
+      'exclude_status', 'min_price', 'max_price', 'seasoning', 'targeting_rules', 'cao_exclude_types',
       'source_split'];
     var filterExtras = {};
 
     function applyFilteringRulesToUI(fr) {
       filterExtras = {};
       Object.keys(fr || {}).forEach(function(k) {
+        // `conditions` is the LEGACY targeting key — superseded by `targeting_rules`
+        // and no longer read by the engine. Drop it on load so it can't be silently
+        // re-saved as an inert passthrough (a dealer not yet migrated will simply
+        // show no rules until its config is migrated).
+        if (k === 'conditions') return;
         if (FILTER_MANAGED_KEYS.indexOf(k) === -1) filterExtras[k] = fr[k];
       });
 
@@ -918,14 +964,9 @@
         });
       }
 
-      // Targeting conditions
-      var cbody = document.getElementById('conditionsBody');
-      cbody.innerHTML = '<tr id="conditionsEmpty"><td colspan="5" class="placeholder">No targeting conditions configured.</td></tr>';
-      if (fr.conditions && fr.conditions.length > 0) {
-        fr.conditions.forEach(function(c) {
-          addConditionRow(c.field, c.op, (c.values || []).join(', '), c.applies_to || []);
-        });
-      }
+      // Targeting rules (nested IF→THEN-action builder)
+      targetingRulesModel = deserializeTargetingRules(fr.targeting_rules || []);
+      renderTargetingRules();
 
       // Exclude from CAO auto-fill
       var caoEx = fr.cao_exclude_types || [];
@@ -970,31 +1011,8 @@
       rules.require_stock = document.getElementById('reqStock').checked;
       rules.require_price = document.getElementById('reqPrice').checked;
       rules.require_url   = document.getElementById('reqUrl').checked;
-      // Targeting conditions
-      var conditions = [];
-      document.querySelectorAll('#conditionsBody tr[data-cond-row]').forEach(function(row) {
-        var field = row.querySelector('.cond-field').value;
-        var op    = row.querySelector('.cond-op').value;
-        var vals  = row.querySelector('.cond-values').value
-                      .split(',').map(function(s){ return s.trim(); }).filter(function(s){ return s !== ''; });
-        if (!field || !op || vals.length === 0) return;  // skip incomplete rows
-
-        var values;
-        if (op === 'gte' || op === 'lte') {
-          var n = parseFloat(String(vals[0]).replace(/[$,]/g, ''));
-          if (isNaN(n)) return;  // skip invalid numeric threshold
-          values = [n];
-        } else {
-          values = vals;
-        }
-
-        var appliesTo = [];
-        row.querySelectorAll('.cond-applies .pill.active').forEach(function(p){ appliesTo.push(p.dataset.type); });
-
-        var cond = { field: field, op: op, values: values };
-        if (appliesTo.length > 0) cond.applies_to = appliesTo;
-        conditions.push(cond);
-      });
+      // Targeting rules — serialize the nested model (prunes empty conditions/groups/rules)
+      var targetingRules = serializeTargetingRules();
 
       var caoExclude = [];
       document.querySelectorAll('#caoExcludeTypes .pill.active').forEach(function(p) {
@@ -1006,7 +1024,7 @@
       if (minP !== '' && minP !== null) rules.min_price = parseFloat(minP);
       if (maxP !== '' && maxP !== null) rules.max_price = parseFloat(maxP);
       if (seasoning.length > 0) rules.seasoning = seasoning;
-      if (conditions.length > 0) rules.conditions = conditions;
+      if (targetingRules.length > 0) rules.targeting_rules = targetingRules;
       if (caoExclude.length > 0) rules.cao_exclude_types = caoExclude;
 
       // Dual-site source split — only emitted when enabled AND both fields are
@@ -1071,79 +1089,211 @@
       markFilterDirty();
     }
 
-    // ── Targeting conditions ─────────────────────────────────────────────────────
-    var condRowCounter = 0;
+    // ── Targeting Rules (nested IF→THEN-action builder) ──────────────────────────
+    // Client source of truth: an array of { action, group } where a group is
+    // { id, match:'all'|'any', children:[ condition | group ] } and a condition is
+    // { id, field, op, values:'<comma text>' }. The model is mutated on edit and
+    // re-rendered on structural changes; the Values input updates the model in place
+    // (no re-render) to preserve focus.
+    var targetingRulesModel = [];
+    var trIdCounter = 0;
+    function trNextId() { return 'n' + (++trIdCounter); }
+
     var OP_LABELS = {
       in: 'is one of', not_in: 'is not one of', contains: 'contains',
       not_contains: "doesn't contain", gte: 'at least (≥)', lte: 'at most (≤)',
-      drop_on_import: 'DROP on import (contains)'
+      gt: 'greater than (>)', lt: 'less than (<)'
     };
+    var ACTION_LABELS = {
+      drop_on_import: 'Drop on import', exclude_cao: 'Exclude from CAO',
+      exclude_order: 'Exclude from orders'
+    };
+    var NUMERIC_OPS = { gte: true, lte: true, gt: true, lt: true };
 
     function prettyFieldLabel_(f) {
       return f.replace(/_/g, ' ').replace(/\b\w/g, function(c){ return c.toUpperCase(); });
     }
-
-    function addConditionRow(field, op, valuesStr, appliesTo) {
-      var emptyRow = document.getElementById('conditionsEmpty');
-      if (emptyRow) emptyRow.remove();
-
-      condRowCounter++;
-      var tr = document.createElement('tr');
-      tr.setAttribute('data-cond-row', 'cond_' + condRowCounter);
-
-      // availableFilterFields is the full data schema as {key,label}; the fallback
-      // is plain strings. Normalize both to {key,label}.
-      var rawFields = availableFilterFields.length ? availableFilterFields
+    function trFields_() {
+      var raw = availableFilterFields.length ? availableFilterFields
         : ['type','year','make','model','trim','ext_color','status','price','body_style','fuel_type','msrp'];
-      var fields = rawFields.map(function(f) {
+      return raw.map(function(f) {
         return (typeof f === 'string') ? { key: f, label: prettyFieldLabel_(f) } : f;
       });
-      var fieldOpts = fields.map(function(f) {
-        return '<option value="' + escHtml(f.key) + '"' + (f.key === field ? ' selected' : '') + '>' + escHtml(f.label) + '</option>';
-      }).join('');
-
-      var ops = availableFilterOps.length ? availableFilterOps
-        : ['in','not_in','contains','not_contains','gte','lte'];
-      var opOpts = ops.map(function(o) {
-        return '<option value="' + o + '"' + (o === op ? ' selected' : '') + '>' + (OP_LABELS[o] || o) + '</option>';
-      }).join('');
-
-      var applies = appliesTo || [];
-      var appliesPills = ['New','PO','CPO','CPO-EL'].map(function(t) {
-        var active = applies.indexOf(t) !== -1 ? ' active' : '';
-        return '<span class="pill' + active + '" data-type="' + t + '" ' +
-          'style="font-size:10px;padding:2px 6px;margin:1px;" onclick="toggleCondPill(this)">' + t + '</span>';
-      }).join('');
-
-      var valEsc = String(valuesStr || '').replace(/"/g, '&quot;');
-
-      tr.innerHTML =
-        '<td><select class="cond-field" onchange="markFilterDirty()">' + fieldOpts + '</select></td>' +
-        '<td><select class="cond-op" onchange="markFilterDirty()">' + opOpts + '</select></td>' +
-        '<td><input type="text" class="cond-values" value="' + valEsc + '" placeholder="e.g. Cadillac, F-250" oninput="markFilterDirty()" style="width:100%;box-sizing:border-box;" /></td>' +
-        '<td class="cond-applies"><div class="pill-group" style="gap:2px;flex-wrap:wrap;">' + appliesPills + '</div></td>' +
-        '<td><button class="btn-remove-season" onclick="removeConditionRow(this)">Remove</button></td>';
-
-      document.getElementById('conditionsBody').appendChild(tr);
-      markFilterDirty();
+    }
+    function trOps_() {
+      return availableFilterOps.length ? availableFilterOps
+        : ['in','not_in','contains','not_contains','gte','lte','gt','lt'];
+    }
+    function trActions_() {
+      return availableFilterActions.length ? availableFilterActions
+        : ['drop_on_import','exclude_cao','exclude_order'];
+    }
+    function trDefaultField_() {
+      var f = trFields_();
+      return f.length ? f[0].key : 'type';
     }
 
-    function toggleCondPill(span) {
-      span.classList.toggle('active');
-      markFilterDirty();
+    // ── Model factories ──
+    function newCondition_()  { return { id: trNextId(), field: trDefaultField_(), op: 'contains', values: '' }; }
+    function newGroup_()      { return { id: trNextId(), match: 'all', children: [] }; }
+    function newRule_()       { return { action: 'exclude_order', group: newGroup_() }; }
+
+    // ── Deserialize server JSON → client model (assign ids; values array → text) ──
+    function deserializeTargetingRules(arr) {
+      if (!Array.isArray(arr)) return [];
+      return arr.map(function(rule) {
+        var action = (rule && ACTION_LABELS[String(rule.action)]) ? rule.action : 'exclude_order';
+        return { action: action, group: deserializeGroup_(rule && rule.group) };
+      });
+    }
+    function deserializeGroup_(g) {
+      var grp = newGroup_();
+      if (!g || typeof g !== 'object') return grp;
+      grp.match = (String(g.match).toLowerCase() === 'any') ? 'any' : 'all';
+      grp.children = (Array.isArray(g.children) ? g.children : []).map(function(ch) {
+        if (ch && Array.isArray(ch.children)) return deserializeGroup_(ch);
+        return {
+          id: trNextId(),
+          field: (ch && ch.field) ? String(ch.field) : trDefaultField_(),
+          op: (ch && ch.op) ? String(ch.op) : 'contains',
+          values: (ch && Array.isArray(ch.values)) ? ch.values.join(', ') : String((ch && ch.values) || '')
+        };
+      });
+      return grp;
     }
 
-    function removeConditionRow(btn) {
-      var row = btn.closest('tr');
-      row.remove();
-      var tbody = document.getElementById('conditionsBody');
-      if (tbody.querySelectorAll('tr[data-cond-row]').length === 0) {
-        var emptyRow = document.createElement('tr');
-        emptyRow.id = 'conditionsEmpty';
-        emptyRow.innerHTML = '<td colspan="5" class="placeholder">No targeting conditions configured.</td>';
-        tbody.appendChild(emptyRow);
+    // ── Serialize client model → server JSON (prune empties) ──
+    function serializeTargetingRules() {
+      var out = [];
+      targetingRulesModel.forEach(function(rule) {
+        var grp = serializeGroup_(rule.group);
+        if (grp.children.length === 0) return;  // prune rules with no usable conditions
+        out.push({ action: rule.action, group: grp });
+      });
+      return out;
+    }
+    function serializeGroup_(group) {
+      var children = [];
+      (group.children || []).forEach(function(ch) {
+        if (ch.children) {
+          var sg = serializeGroup_(ch);
+          if (sg.children.length > 0) children.push(sg);  // prune empty nested groups
+          return;
+        }
+        var vals = String(ch.values || '').split(',')
+                     .map(function(s){ return s.trim(); }).filter(function(s){ return s !== ''; });
+        if (!ch.field || !ch.op || vals.length === 0) return;  // prune incomplete conditions
+        var values;
+        if (NUMERIC_OPS[ch.op]) {
+          var n = parseFloat(String(vals[0]).replace(/[$,]/g, ''));
+          values = isNaN(n) ? vals : [n];   // keep raw if unparseable (engine is price-safe)
+        } else {
+          values = vals;
+        }
+        children.push({ field: ch.field, op: ch.op, values: values });
+      });
+      return { match: group.match || 'all', children: children };
+    }
+
+    // ── Model lookup helpers ──
+    function trFindNode_(id) {
+      for (var k = 0; k < targetingRulesModel.length; k++) {
+        if (targetingRulesModel[k].group.id === id) return targetingRulesModel[k].group;
       }
-      markFilterDirty();
+      var loc = trFindParentArray_(id);
+      return loc ? loc.arr[loc.index] : null;
+    }
+    function trFindParentArray_(id) {
+      function search(children) {
+        for (var i = 0; i < children.length; i++) {
+          if (children[i].id === id) return { arr: children, index: i };
+          if (children[i].children) {
+            var r = search(children[i].children);
+            if (r) return r;
+          }
+        }
+        return null;
+      }
+      for (var k = 0; k < targetingRulesModel.length; k++) {
+        var r = search(targetingRulesModel[k].group.children);
+        if (r) return r;
+      }
+      return null;
+    }
+
+    // ── Mutations ──
+    function addTargetingRule()       { targetingRulesModel.push(newRule_()); renderTargetingRules(); markFilterDirty(); }
+    function removeTargetingRule(idx) { targetingRulesModel.splice(idx, 1); renderTargetingRules(); markFilterDirty(); }
+    function setRuleAction(idx, val)  { if (targetingRulesModel[idx]) targetingRulesModel[idx].action = val; markFilterDirty(); }
+    function setGroupMatch(id, val)   { var g = trFindNode_(id); if (g) g.match = val; markFilterDirty(); }
+    function addCondition(groupId)    { var g = trFindNode_(groupId); if (g) g.children.push(newCondition_()); renderTargetingRules(); markFilterDirty(); }
+    function addGroup(groupId)        { var g = trFindNode_(groupId); if (g) g.children.push(newGroup_()); renderTargetingRules(); markFilterDirty(); }
+    function removeNode(id)           { var loc = trFindParentArray_(id); if (loc) loc.arr.splice(loc.index, 1); renderTargetingRules(); markFilterDirty(); }
+    function setCondField(id, val)    { var n = trFindNode_(id); if (n) n.field = val; markFilterDirty(); }
+    function setCondOp(id, val)       { var n = trFindNode_(id); if (n) n.op = val; markFilterDirty(); }
+    function setCondValues(id, val)   { var n = trFindNode_(id); if (n) n.values = val; markFilterDirty(); }  // no re-render (focus)
+
+    // ── Render ──
+    function renderTargetingRules() {
+      var wrap = document.getElementById('targetingRulesWrap');
+      if (!targetingRulesModel.length) {
+        wrap.innerHTML = '<div class="tr-empty">No targeting rules configured.</div>';
+        return;
+      }
+      wrap.innerHTML = targetingRulesModel.map(renderRule_).join('');
+    }
+    function renderRule_(rule, idx) {
+      var actOpts = trActions_().map(function(a) {
+        return '<option value="' + escHtml(a) + '"' + (a === rule.action ? ' selected' : '') + '>' +
+          escHtml(ACTION_LABELS[a] || a) + '</option>';
+      }).join('');
+      return '<div class="tr-rule">' +
+        '<div class="tr-rule-head">' +
+          '<span class="tr-if">IF matched →</span>' +
+          '<select class="tr-action" onchange="setRuleAction(' + idx + ', this.value)">' + actOpts + '</select>' +
+          '<button class="tr-x" title="Remove rule" onclick="removeTargetingRule(' + idx + ')" style="margin-left:auto;">✕ Remove Rule</button>' +
+        '</div>' +
+        '<div class="tr-rule-body">' + renderGroup_(rule.group, true) + '</div>' +
+      '</div>';
+    }
+    function renderGroup_(group, isRoot) {
+      var matchSel = '<select class="tr-match" onchange="setGroupMatch(\'' + group.id + '\', this.value)">' +
+        '<option value="all"' + (group.match !== 'any' ? ' selected' : '') + '>ALL (AND)</option>' +
+        '<option value="any"' + (group.match === 'any' ? ' selected' : '') + '>ANY (OR)</option>' +
+        '</select>';
+      var removeBtn = isRoot ? '' :
+        '<button class="tr-x" title="Remove group" onclick="removeNode(\'' + group.id + '\')" style="margin-left:auto;">✕</button>';
+      var kids = group.children.length
+        ? group.children.map(function(ch) {
+            return ch.children ? renderGroup_(ch, false) : renderCondition_(ch);
+          }).join('')
+        : '<div class="tr-empty">No conditions yet.</div>';
+      return '<div class="tr-group">' +
+        '<div class="tr-group-head">Match ' + matchSel + ' of the following:' + removeBtn + '</div>' +
+        '<div class="tr-children">' + kids + '</div>' +
+        '<div class="tr-group-actions">' +
+          '<button class="tr-add" onclick="addCondition(\'' + group.id + '\')">+ Condition</button>' +
+          '<button class="tr-add" onclick="addGroup(\'' + group.id + '\')">+ Group</button>' +
+        '</div>' +
+      '</div>';
+    }
+    function renderCondition_(cond) {
+      var fieldOpts = trFields_().map(function(f) {
+        return '<option value="' + escHtml(f.key) + '"' + (f.key === cond.field ? ' selected' : '') + '>' +
+          escHtml(f.label) + '</option>';
+      }).join('');
+      var opOpts = trOps_().map(function(o) {
+        return '<option value="' + escHtml(o) + '"' + (o === cond.op ? ' selected' : '') + '>' +
+          escHtml(OP_LABELS[o] || o) + '</option>';
+      }).join('');
+      var valEsc = String(cond.values || '').replace(/"/g, '&quot;');
+      return '<div class="tr-cond">' +
+        '<select class="tr-field" onchange="setCondField(\'' + cond.id + '\', this.value)">' + fieldOpts + '</select>' +
+        '<select class="tr-op" onchange="setCondOp(\'' + cond.id + '\', this.value)">' + opOpts + '</select>' +
+        '<input type="text" class="tr-values" value="' + valEsc + '" placeholder="e.g. Cadillac, F-250" ' +
+          'oninput="setCondValues(\'' + cond.id + '\', this.value)" />' +
+        '<button class="tr-x" title="Remove condition" onclick="removeNode(\'' + cond.id + '\')">✕</button>' +
+      '</div>';
     }
 
     function saveFilterRules() {
@@ -1187,9 +1337,13 @@
       document.getElementById('maxPrice').value = '';
       var tbody = document.getElementById('seasoningBody');
       tbody.innerHTML = '<tr id="seasoningEmpty"><td colspan="3" class="placeholder">No seasoning rules configured.</td></tr>';
-      var cbody = document.getElementById('conditionsBody');
-      cbody.innerHTML = '<tr id="conditionsEmpty"><td colspan="5" class="placeholder">No targeting conditions configured.</td></tr>';
+      targetingRulesModel = [];
+      renderTargetingRules();
+      document.getElementById('reqUrl').checked = false;
       document.querySelectorAll('#caoExcludeTypes .pill').forEach(function(p) { p.classList.remove('active'); });
+      document.getElementById('sourceSplitEnable').checked = false;
+      document.getElementById('sourceSplitGroupName').value = '';
+      document.getElementById('sourceSplitUrlContains').value = '';
       filterDirty = false;
       updateFilterDirty();
     }

@@ -160,19 +160,27 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
 - Non-critical writes (stats, dashboard) get their own try/catch so they can
   never fail a production run; the same isolation rule applies to the planned
   Pipedrive push.
-- **User-configurable rule engines should fail OPEN.** The `filtering_rules`
-  targeting `conditions` engine (`evaluateCondition_`) passes the vehicle on any
-  misconfiguration — unknown field/op, empty values, unparseable number — so a
-  non-programmer's typo in the Rules Editor can never silently empty a dealer's
-  inventory. The wrong direction (fail-closed) hides config errors as "no cars".
+- **A rule engine's safe-failure direction follows its polarity — keep the
+  vehicle either way.** The original `filtering_rules` `conditions` were *inclusion*
+  filters ("keep only if it matches") and so failed **OPEN** — `evaluateCondition_`
+  *passed* the vehicle on any misconfig (unknown field/op, empty values, bad number).
+  The June 2026 `targeting_rules` rewrite flipped to *exclusion-on-match* ("if it
+  matches, ACT") — so the predicate (`conditionMatches_`/`groupMatches_`) now fails
+  **SAFE = no-match** (returns false, plus empty group → false). Opposite boolean,
+  **same real-world outcome: a non-programmer's typo can never silently empty a
+  dealer's inventory.** The lesson is to pick the failure value by what it *does*
+  (keep the car), not by a fixed "always return true." Inverting an inclusion config
+  to an exclusion one also inverts every op (`not_contains`↔`contains`, `gte`↔`lt`,
+  `lte`↔`gt`) — which is why `gt`/`lt` had to be added alongside `gte`/`lte`.
 - **Make/Model are RAW (un-normalized) in SCRAPERDATA** (only Type/Trim/Status/
   Price are normalized). For targeting on make/model, prefer `contains` and list
   keyword variants (`F-250` *and* `F250`) — exact-match (`in`) is brittle against
   feed inconsistency. Numeric ops on price must strip `$`/`,` first (prices are text).
-- **One field→column map, surfaced to the UI.** `FILTER_FIELD_INDEX` is the single
-  source of truth for condition fields; `getRulesEditorBootstrap` returns its keys
-  so the Rules Editor dropdowns can't drift from the engine. Duplicating the list in
-  HTML would be a latent divergence bug.
+- **One field→column map, surfaced to the UI.** The cached, schema-driven
+  `getFilterFieldIndex_()` (which replaced the static `FILTER_FIELD_INDEX`) is the
+  single source of truth for condition fields; `getRulesEditorBootstrap` returns the
+  schema fields + ops + actions so the Rules Editor dropdowns can't drift from the
+  engine. Duplicating the list in HTML would be a latent divergence bug.
 - **Never clear a sheet before the pipeline that refills it has finished.** The old
   `importScraperData` cleared SCRAPERDATA first, then normalized/wrote — any throw
   mid-pipeline left the sheet empty. Destructive writes belong at the END, after all
