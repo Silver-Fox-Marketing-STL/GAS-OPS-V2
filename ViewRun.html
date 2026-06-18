@@ -158,6 +158,8 @@
       font-size: 13px;
       border: 1px solid var(--border-2);
       border-radius: 4px;
+      background: var(--bg);
+      color: var(--text);
     }
     #view-run textarea {
       flex: 1;
@@ -167,6 +169,7 @@
       font-size: 12px;
       line-height: 1.6;
       background: var(--bg);
+      color: var(--text);
     }
     #view-run .vin-count { font-size: 11px; color: var(--text-3); margin-top: 4px; min-height: 16px; }
     #view-run .field-hint { font-size: 11px; color: var(--text-3); margin-top: 3px; }
@@ -253,7 +256,7 @@
     /* ── Run / Cancel buttons ────────────────────────────────────────────── */
     #view-run .btn-row { display: flex; gap: 10px; margin-top: 16px; }
     #view-run .btn-primary {
-      flex: 1; padding: 10px; background: var(--accent); color: white;
+      flex: 1; padding: 10px; background: var(--accent); color: var(--on-accent);
       border: none; font-size: 14px; font-weight: bold; cursor: pointer; border-radius: 4px;
     }
     #view-run .btn-primary:hover { background: var(--accent-hover); }
@@ -319,7 +322,7 @@
       flex: 1;
       padding: 9px 12px;
       background: var(--success);
-      color: white;
+      color: var(--on-success);
       border: none;
       border-radius: 4px;
       font-size: 13px;
@@ -353,10 +356,11 @@
     #view-run .finalize-card-body input {
       flex: 1; min-width: 0; padding: 6px 8px; font-size: 12px;
       border: 1px solid var(--border); border-radius: 4px;
+      background: var(--bg); color: var(--text);
     }
     #view-run .card-finalize-btn {
       padding: 6px 12px; font-size: 12px; border: none; border-radius: 4px;
-      background: var(--accent); color: var(--bg); cursor: pointer; white-space: nowrap;
+      background: var(--accent); color: var(--on-accent); cursor: pointer; white-space: nowrap;
     }
     #view-run .card-finalize-btn:hover { background: var(--accent-hover); }
     #view-run .card-finalize-btn:disabled { background: var(--text-muted); cursor: default; }
