@@ -4285,16 +4285,22 @@ function checkImportHealth_(ss, currentTs, locationDetail) {
     var allData = sheet.getRange(startRow, 1, lastRow - startRow + 1, 13).getValues();
 
     // Build per-location history: { locationName: [ {total, new, po, cpo, cpo_el, no_price, no_stock}, ... ] }
+    // Also track, per prior-import timestamp, which locations carried real
+    // inventory (total > 0) — used below to detect a genuine same-name
+    // disappearance without false-flagging a renamed/retired feed name.
     var history = {};
+    var priorImportLocs = {};   // { timestamp: { locationName: true } }  (only total > 0)
     for (var i = 0; i < allData.length; i++) {
       var row = allData[i];
       var ts  = String(row[0]).trim();
       var loc = String(row[1]).trim();
       if (!loc || ts === currentTs) continue;  // skip blank rows and current import
 
+      var totalForRow = Number(row[2]) || 0;
+
       if (!history[loc]) history[loc] = [];
       history[loc].push({
-        total:      Number(row[2])  || 0,
+        total:      totalForRow,
         new:        Number(row[3])  || 0,
         po:         Number(row[4])  || 0,
         cpo:        Number(row[5])  || 0,
@@ -4305,6 +4311,11 @@ function checkImportHealth_(ss, currentTs, locationDetail) {
         no_price:   Number(row[11]) || 0,
         no_stock:   Number(row[12]) || 0
       });
+
+      if (totalForRow > 0 && ts) {
+        if (!priorImportLocs[ts]) priorImportLocs[ts] = {};
+        priorImportLocs[ts][loc] = true;
+      }
     }
 
     // Evaluate each location in the current import
@@ -4412,23 +4423,44 @@ function checkImportHealth_(ss, currentTs, locationDetail) {
       }
     });
 
-    // Check for locations that had data historically but are now ABSENT from this import
+    // Check for locations that were present in the MOST RECENT PRIOR import but
+    // are now ABSENT from this one.
+    //
+    // We compare against only the immediately-preceding import — NOT the whole
+    // history tail — so that a renamed/retired scraper location name ages out
+    // after a single import. (The old exact-string compare against all of
+    // `history` flagged a stale name "missing" forever, because current data
+    // only ever carries the NEW name and the old name lingers in the 2,000-row
+    // tail.) A genuine same-name disappearance (present last import, gone this
+    // import) is still caught.
     var currentLocations = {};
     locations.forEach(function(l) { currentLocations[l] = true; });
-    Object.keys(history).forEach(function(loc) {
-      if (currentLocations[loc]) return;  // present in this import, skip
-      var hist = history[loc];
-      if (hist.length < 2) return;        // not enough history to flag
-      var hadData = hist.some(function(h) { return h.total > 0; });
-      if (!hadData) return;
-      // Location had data in prior imports but is missing entirely from this one
-      issues.push({
-        location: loc,
-        severity: 'error',
-        message:  'Location missing from this import entirely (historical avg: ' +
-                  Math.round(avg_(hist, 'total')) + ' vehicles)'
+
+    // Find the latest prior-import timestamp (< currentTs). Timestamps are
+    // 'yyyy-MM-dd HH:mm:ss' display strings, which sort lexicographically.
+    var priorTimestamps = Object.keys(priorImportLocs);
+    var latestPriorTs = null;
+    for (var p = 0; p < priorTimestamps.length; p++) {
+      var t = priorTimestamps[p];
+      if (t < currentTs && (latestPriorTs === null || t > latestPriorTs)) {
+        latestPriorTs = t;
+      }
+    }
+
+    if (latestPriorTs !== null) {
+      var lastImportLocs = priorImportLocs[latestPriorTs];  // { loc: true }, total > 0 only
+      Object.keys(lastImportLocs).forEach(function(loc) {
+        if (currentLocations[loc]) return;  // still present in this import, skip
+        // Present (with data) in the most-recent-prior import, absent now.
+        var hist = history[loc] || [];
+        issues.push({
+          location: loc,
+          severity: 'error',
+          message:  'Location missing from this import entirely (historical avg: ' +
+                    Math.round(avg_(hist, 'total')) + ' vehicles)'
+        });
       });
-    });
+    }
 
   } catch (e) {
     Logger.log('checkImportHealth_: failed (non-fatal): ' + e.message);
