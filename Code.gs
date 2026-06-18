@@ -610,6 +610,11 @@ function importScraperData(mappedData, mode, resolutions, fileNames, token) {
 
     var importTimestamp = Utilities.formatDate(new Date(), 'America/Chicago', 'yyyy-MM-dd HH:mm:ss');
     writeImportStats_(ss, importTimestamp, review.locationDetail);
+    // Force the IMPORT_STATS append to land before the health read so
+    // checkImportHealth_'s getLastRow()/tail-read deterministically see the
+    // current import's just-written rows (which it then excludes by timestamp).
+    // Without this, a stale getLastRow() can shift the HEALTH_TAIL_ROWS window.
+    SpreadsheetApp.flush();
     var healthIssues = checkImportHealth_(ss, importTimestamp, review.locationDetail);
     refreshDashboard_(ss, importTimestamp, review.locationDetail);
 
