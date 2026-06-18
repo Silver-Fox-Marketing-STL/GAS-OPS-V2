@@ -97,6 +97,15 @@
      declarations are migrated to these tokens view-by-view. */
   body { font-family: var(--font-body); background: var(--bg); color: var(--text); }
 
+  /* Interim readability guard: a not-yet-tokenized view still paints a white
+     background, but in dark mode the themed body color (near-white) would leak
+     into any text that inherits its color → white-on-white. Until each view is
+     migrated, pin it to a readable light context (hardcoded light values, NOT
+     tokens, so it does NOT follow the theme). A migrated view's #view-xxx root
+     overrides this (ID specificity beats this single class). Remove once all
+     views are tokenized. */
+  .view { background: #ffffff; color: #221a14; }
+
   /* Opt-in hierarchy utilities (used during view migration) */
   .u-h1 { font-family: var(--font-head); font-weight: 800; font-size: var(--fs-h1); color: var(--text); letter-spacing: -.01em; }
   .u-h2 { font-family: var(--font-head); font-weight: 700; font-size: var(--fs-h2); color: var(--text); }
