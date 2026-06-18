@@ -389,12 +389,15 @@
     #view-rules .btn-reorder:disabled { opacity: 0.3; cursor: default; }
     #view-rules .rule-fields {
       flex: 1;
+      min-width: 0;   /* allow the flex item to shrink so the delete button stays in view */
       display: grid;
       grid-template-columns: 90px 1fr 1fr;
       gap: 6px;
       align-items: center;
     }
-    #view-rules .rule-field { display: flex; flex-direction: column; gap: 2px; }
+    /* min-width:0 lets the 1fr columns shrink below content width so a long UTM
+       string truncates with an ellipsis instead of pushing the card wider. */
+    #view-rules .rule-field { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
     #view-rules .rule-field-label { font-size: 10px; color: var(--text-3); font-weight: bold; text-transform: uppercase; }
     #view-rules .rule-field-val {
       font-size: 12px;
@@ -816,11 +819,11 @@
           '</div>' +
           '<div class="rule-field">' +
             '<div class="rule-field-label">CSV Schema</div>' +
-            '<div class="rule-field-val">' + escHtml(rule.csv_schema || '—') + '</div>' +
+            '<div class="rule-field-val" title="' + escHtml(rule.csv_schema || '') + '">' + escHtml(rule.csv_schema || '—') + '</div>' +
           '</div>' +
           '<div class="rule-field">' +
             '<div class="rule-field-label">UTM Medium</div>' +
-            '<div class="rule-field-val">' + escHtml(rule.utm || '—') + '</div>' +
+            '<div class="rule-field-val" title="' + escHtml(rule.utm || '') + '">' + escHtml(rule.utm || '—') + '</div>' +
           '</div>';
 
         // Delete button (always show, including catch-all — user may want to rebuild)
