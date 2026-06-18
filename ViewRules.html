@@ -132,6 +132,11 @@
           <div class="pill-hint">Selected statuses will be excluded. Typically only OFFLOT is excluded.</div>
         </div>
 
+      </div><!-- /.filter-grid -->
+
+      <!-- Row 2: Price Range + Seasoning, side by side -->
+      <div class="filter-grid-2">
+
         <!-- Price range -->
         <div class="filter-card">
           <div class="section-label">Price Range</div>
@@ -147,25 +152,25 @@
           </div>
         </div>
 
-      </div><!-- /.filter-grid -->
+        <!-- Seasoning -->
+        <div class="filter-card">
+          <div class="section-label">Seasoning (Days on Lot)</div>
+          <table class="seasoning-table">
+            <thead>
+              <tr>
+                <th style="width:120px">Type</th>
+                <th>Days Required</th>
+                <th style="width:60px"></th>
+              </tr>
+            </thead>
+            <tbody id="seasoningBody">
+              <tr id="seasoningEmpty"><td colspan="3" class="placeholder">No seasoning rules configured.</td></tr>
+            </tbody>
+          </table>
+          <button class="btn-add-season" onclick="addSeasoningRow()">+ Add Seasoning Rule</button>
+        </div>
 
-      <!-- Seasoning -->
-      <div class="filter-card filter-card--full">
-        <div class="section-label">Seasoning (Days on Lot)</div>
-        <table class="seasoning-table">
-          <thead>
-            <tr>
-              <th style="width:120px">Type</th>
-              <th>Days Required</th>
-              <th style="width:60px"></th>
-            </tr>
-          </thead>
-          <tbody id="seasoningBody">
-            <tr id="seasoningEmpty"><td colspan="3" class="placeholder">No seasoning rules configured.</td></tr>
-          </tbody>
-        </table>
-        <button class="btn-add-season" onclick="addSeasoningRow()">+ Add Seasoning Rule</button>
-      </div>
+      </div><!-- /.filter-grid-2 -->
 
       <!-- Targeting Rules -->
       <div class="filter-card filter-card--full">
@@ -325,10 +330,19 @@
     /* ── Content within a panel ──────────────────────────────────────────────── */
     #view-rules .panel-scroll { padding: 16px 18px; }
 
-    /* responsive card grid — lays the compact filtering sections across the width */
+    /* Row 1: Flags / Allowed Types / Exclude-from-CAO / Exclude Status — four
+       equal-width cards stretched to the tallest one's height. */
     #view-rules .filter-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+      align-items: stretch;
+      margin-bottom: 14px;
+    }
+    /* Row 2: Price Range + Seasoning side by side. */
+    #view-rules .filter-grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 14px;
       align-items: start;
       margin-bottom: 14px;
