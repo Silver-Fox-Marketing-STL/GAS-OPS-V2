@@ -17,6 +17,11 @@ node-based unit tests.
 Read `CLAUDE.md` (Working rules + Invariants) and `docs/LEARNINGS.md` so you know
 what "correct" means here. Use `git status`/`git diff --stat` to see what changed.
 
+> **Windows env note:** in Node helper scripts, enumerate files with
+> `fs.readdirSync`/`fs.globSync` (or the Glob tool), **not** by shelling out to `ls`
+> via `child_process` — `{shell:'/bin/bash'}` throws `ENOENT` on this box. `node --check`
+> and the regex `<script>`-extraction patterns work fine.
+
 ## Standard checks (run what's relevant to the diff)
 1. **Apps Script syntax:** `cp Code.gs` to a temp `.js` and `node --check` it
    (delete the temp after). It's ES5/V8-compatible JS.
