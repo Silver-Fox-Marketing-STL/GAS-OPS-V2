@@ -1,7 +1,13 @@
 # Targeting Rules Migration — `conditions` → `targeting_rules`
 
-**Apply during the Data Sources v2 deploy window, on the cloned copies first, then live.**
-Rollback tag: `stable-post-frankleta`.
+> **✅ DONE — completed live June 17, 2026.** All 4 dealers migrated and verified
+> (0 stale `conditions` keys sheet-wide; 25 behavioral-equivalence checks against the
+> deployed engine; UI round-trip confirmed). Code merged to `main`; rollback tag for
+> this state is **`stable-post-targeting-rules`**. This file is retained as the
+> before/after record and rollback reference.
+
+**Original plan: apply during the Data Sources v2 deploy window, on the cloned copies first, then live.**
+Pre-deploy rollback tag was `stable-post-frankleta`.
 
 The filtering engine no longer reads the legacy `conditions` key or the `drop_on_import`
 **operator**. Targeting is now an array of **IF (nested AND/OR conditions) THEN action**
