@@ -27,26 +27,27 @@
       </div>
 
       <div class="section-label" style="margin-top: 20px;">Add Rule</div>
+      <div class="add-rule-hint">Map a vehicle type to its output. Rules apply top-to-bottom — first match wins; use <code>*</code> as a catch-all. Types are post-normalization (New / PO / CPO / CPO-EL).</div>
       <div class="add-rule-form">
         <div class="form-field">
-          <label for="newMatch">Match Type</label>
+          <label for="newMatch">When type is</label>
           <select id="newMatch">
             <option value="New">New</option>
             <option value="PO">PO</option>
             <option value="CPO">CPO</option>
             <option value="CPO-EL">CPO-EL</option>
-            <option value="*">* (catch-all)</option>
+            <option value="*">* (any)</option>
           </select>
-          <div class="field-hint-small">Post-normalization type</div>
         </div>
+        <div class="add-rule-arrow" aria-hidden="true">&#8594;</div>
         <div class="form-field">
-          <label for="newSchema">CSV Schema</label>
+          <label for="newSchema">Use CSV schema</label>
           <select id="newSchema">
             <option value="">-- Loading… --</option>
           </select>
         </div>
         <div class="form-field">
-          <label for="newUtm">UTM Medium</label>
+          <label for="newUtm">UTM medium</label>
           <input type="text" id="newUtm" placeholder="e.g. VDP_ShortCut" />
         </div>
         <button class="btn-add-rule" onclick="addTypeRule()">+ Add</button>
@@ -102,6 +103,16 @@
       </div>
       <div class="pill-hint">All selected = all types allowed. Deselect all to allow everything (no restriction).</div>
 
+      <!-- Exclude from CAO auto-fill -->
+      <div class="section-label" style="margin-top: 18px;">Exclude from CAO Auto-Fill</div>
+      <div class="pill-group" id="caoExcludeTypes">
+        <div class="pill type-new"  data-type="New"    onclick="togglePill(this)">New</div>
+        <div class="pill type-po"   data-type="PO"     onclick="togglePill(this)">PO</div>
+        <div class="pill type-cpo"  data-type="CPO"    onclick="togglePill(this)">CPO</div>
+        <div class="pill type-cpoel" data-type="CPO-EL" onclick="togglePill(this)">CPO-EL</div>
+      </div>
+      <div class="pill-hint">These types are skipped during CAO auto-fill but still print when entered manually. Keep them in <strong>Allowed Types</strong> so manual runs aren't blocked.</div>
+
       <!-- Excluded statuses -->
       <div class="section-label" style="margin-top: 18px;">Exclude Status</div>
       <div class="pill-group" id="excludeStatus">
@@ -144,16 +155,6 @@
       <div class="pill-hint"><strong>IF</strong> a vehicle matches the conditions (combined with nested AND/OR), <strong>THEN</strong> take the action. Actions: <em>Drop on import</em> (never enters SCRAPERDATA), <em>Exclude from CAO</em> (skipped in auto-fill only), <em>Exclude from orders</em> (skipped in CAO <em>and</em> runs; the Bypass checkbox overrides per run). Make/Model are raw text — list keyword variants like <code>F-250</code> and <code>F250</code>. A rule with no conditions does nothing.</div>
       <div id="targetingRulesWrap" class="tr-wrap"></div>
       <button class="btn-add-season" onclick="addTargetingRule()">+ Add Rule</button>
-
-      <!-- Exclude from CAO auto-fill -->
-      <div class="section-label" style="margin-top: 18px;">Exclude from CAO Auto-Fill</div>
-      <div class="pill-group" id="caoExcludeTypes">
-        <div class="pill type-new"  data-type="New"    onclick="togglePill(this)">New</div>
-        <div class="pill type-po"   data-type="PO"     onclick="togglePill(this)">PO</div>
-        <div class="pill type-cpo"  data-type="CPO"    onclick="togglePill(this)">CPO</div>
-        <div class="pill type-cpoel" data-type="CPO-EL" onclick="togglePill(this)">CPO-EL</div>
-      </div>
-      <div class="pill-hint">These types are skipped during CAO auto-fill but still print when entered manually. Keep them in <strong>Allowed Types</strong> so manual runs aren't blocked.</div>
 
       <!-- Dual-site source split -->
       <div class="section-label" style="margin-top: 18px;">Dual-Site Source Split</div>
@@ -431,18 +432,32 @@
     #view-rules .btn-delete-rule:hover { background: var(--danger-weak); border-color: var(--danger); }
 
     /* ── Add rule form ───────────────────────────────────────────────────────── */
+    #view-rules .add-rule-hint { font-size: 11px; color: var(--text-3); line-height: 1.5; margin: 5px 0 8px; }
+    #view-rules .add-rule-hint code {
+      font-family: monospace; background: var(--surface-2);
+      padding: 0 4px; border-radius: 3px; color: var(--text-2);
+    }
     #view-rules .add-rule-form {
       display: grid;
-      grid-template-columns: 110px 1fr 1fr auto;
-      gap: 8px;
-      align-items: flex-end;
-      padding: 10px 12px;
+      /* fixed-width selects (so they're not stretched) + flexible UTM input;
+         the arrow makes the type → output mapping read as a sentence. */
+      grid-template-columns: 128px auto 168px minmax(150px, 1fr) auto;
+      gap: 10px;
+      align-items: end;
+      padding: 12px;
       border: 1px solid var(--border);
-      border-radius: 5px;
+      border-radius: var(--radius);
       background: var(--surface);
-      margin-top: 10px;
+      margin-top: 4px;
     }
-    #view-rules .add-rule-form .form-field { display: flex; flex-direction: column; gap: 3px; }
+    #view-rules .add-rule-form .form-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+    #view-rules .add-rule-arrow {
+      align-self: end;
+      padding-bottom: 7px;
+      color: var(--accent);
+      font-size: 15px;
+      font-weight: bold;
+    }
     #view-rules .add-rule-form label { font-size: 11px; font-weight: bold; color: var(--text-2); }
     #view-rules .add-rule-form select,
   #view-rules .add-rule-form input[type="text"] {
