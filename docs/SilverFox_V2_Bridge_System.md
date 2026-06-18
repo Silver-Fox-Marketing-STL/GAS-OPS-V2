@@ -884,13 +884,13 @@ V3's PostgreSQL migration eliminates this problem class entirely — IMPORT_STAT
 - **MBCC/Sprinter shared inventory — resolved (v2.9/v2.10, June 12 2026):** Option B (one run, two billing outputs) deployed and configured. MBCC's `filtering_rules` carries the `billing_split` key (`field: "model", op: "contains", values: ["Sprinter", "Metris"]`); split runs produce BILLING + BILLING_SPRINTER and two finalization cards with independent deal IDs. Live-test verification per the v2.9/v2.10 changelog entries is the remaining step.
 - **Auffenberg Hybrid order:** Run Dealer modal doesn't support two-stream (CAO + manual) orders or type override on manual stream. Needs modal additions when Maintenance/Hybrid order types are implemented.
 - **Maintenance and Hybrid order types:** Designed and documented but not yet in the Run Dealer modal.
-- **`scraper_location_name` mismatches:** BMW of West St. Louis, Serra Honda O'Fallon, and Joe Machens CDJR (now CDJR of Columbia) were identified as potential mismatches. CDJR of Columbia confirmed: `scraper_location_name` is "Joe Machens Chrysler Dodge Jeep Ram" (legacy scraper feed name). System functions correctly — this is a pending cleanup item only.
+- **`scraper_location_name` mismatches — audited June 18, 2026 (all 29 active dealers); BMW resolved.** **BMW of West St. Louis was the only genuine drift.** The scraper feed renamed the location to "BMW of West St. Louis" (with a period), but DEALERS col J still held "BMW of West St Louis" (no period) — an exact-match miss that made `getDealerScraperData_` pull **zero** inventory for BMW (CAO and runs broken) and threw a false import-health "missing location" warning. **Fixed by setting J6 to "BMW of West St. Louis"** (live sheet edit, not a code change). **Serra Honda O'Fallon and CDJR of Columbia are NOT drift** — their config values match the feed (CDJR's is the legacy "Joe Machens Chrysler Dodge Jeep Ram", which the system reads correctly). 12 dealers were "unconfirmed" only because they weren't in the latest import. *(The health "missing location" check was hardened the same day so a future feed-name rename ages out after one import instead of false-flagging forever — see the [Unreleased] CHANGELOG.)*
 
 ### Housekeeping
 - Fix `#ERROR!` cells in README tabs of SF_SYSTEM_MASTER and SF_DEALER_CONFIG (cosmetic)
 - Delete `VINLogMigration.gs` and `FolderSetup.gs` from Apps Script
 - Fix legacy field names in `_CONFIG_CACHE` row 1 (cosmetic)
-- Resolve remaining `scraper_location_name` mismatches for BMW of West St. Louis and Serra Honda O'Fallon
+- ~~Resolve remaining `scraper_location_name` mismatches for BMW of West St. Louis and Serra Honda O'Fallon~~ — done (June 18, 2026 audit): BMW corrected; Serra Honda O'Fallon confirmed not drift (see Active Issues)
 - Delete `test-write-access.txt` from the GitHub repo root (leftover MCP write test — remove locally with `git rm` and push)
 
 ---
