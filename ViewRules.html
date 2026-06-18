@@ -11,7 +11,7 @@
     </select>
   </div>
 
-  <!-- Both panels shown side by side (wide modal) — each saves independently -->
+  <!-- Type Rules stacked over Filtering Rules (full-width); each saves independently -->
   <div class="panels-row">
 
   <!-- ════════════════════════════════════════════════════════════════════════════
@@ -54,7 +54,7 @@
       </div>
     </div>
     <div class="save-row">
-      <div id="typeUnsaved" style="font-size:11px;color:#e67e00;align-self:center;display:none;">Unsaved changes</div>
+      <div id="typeUnsaved" style="font-size:11px;color:var(--warning);align-self:center;display:none;">Unsaved changes</div>
       <button class="btn-primary" id="saveTypeBtn" onclick="saveTypeRules()" disabled>Save Type Rules</button>
     </div>
   </div>
@@ -66,121 +66,142 @@
     <div class="panel-title-bar">Filtering Rules</div>
     <div class="panel-scroll">
 
-      <!-- Toggles -->
-      <div class="section-label">Flags</div>
-      <div class="toggle-row">
-        <label class="toggle-switch">
-          <input type="checkbox" id="reqStock" onchange="markFilterDirty()">
-          <span class="toggle-slider"></span>
-        </label>
-        <span class="toggle-label">Require Stock Number</span>
-        <span class="toggle-desc">Reject vehicles where stock is blank or *</span>
-      </div>
-      <div class="toggle-row">
-        <label class="toggle-switch">
-          <input type="checkbox" id="reqPrice" onchange="markFilterDirty()">
-          <span class="toggle-slider"></span>
-        </label>
-        <span class="toggle-label">Require Price</span>
-        <span class="toggle-desc">Reject blank, *, callforprice, or ≤ 0</span>
-      </div>
-      <div class="toggle-row">
-        <label class="toggle-switch">
-          <input type="checkbox" id="reqUrl" onchange="markFilterDirty()">
-          <span class="toggle-slider"></span>
-        </label>
-        <span class="toggle-label">Require URL</span>
-        <span class="toggle-desc">Reject vehicles with no Vehicle URL to build a link from</span>
-      </div>
+      <!-- Compact sections laid out across the full width -->
+      <div class="filter-grid">
 
-      <!-- Allowed types -->
-      <div class="section-label" style="margin-top: 18px;">Allowed Types</div>
-      <div class="pill-group" id="allowedTypes">
-        <div class="pill type-new"  data-type="New"    onclick="togglePill(this)">New</div>
-        <div class="pill type-po"   data-type="PO"     onclick="togglePill(this)">PO</div>
-        <div class="pill type-cpo"  data-type="CPO"    onclick="togglePill(this)">CPO</div>
-        <div class="pill type-cpoel" data-type="CPO-EL" onclick="togglePill(this)">CPO-EL</div>
-      </div>
-      <div class="pill-hint">All selected = all types allowed. Deselect all to allow everything (no restriction).</div>
-
-      <!-- Exclude from CAO auto-fill -->
-      <div class="section-label" style="margin-top: 18px;">Exclude from CAO Auto-Fill</div>
-      <div class="pill-group" id="caoExcludeTypes">
-        <div class="pill type-new"  data-type="New"    onclick="togglePill(this)">New</div>
-        <div class="pill type-po"   data-type="PO"     onclick="togglePill(this)">PO</div>
-        <div class="pill type-cpo"  data-type="CPO"    onclick="togglePill(this)">CPO</div>
-        <div class="pill type-cpoel" data-type="CPO-EL" onclick="togglePill(this)">CPO-EL</div>
-      </div>
-      <div class="pill-hint">These types are skipped during CAO auto-fill but still print when entered manually. Keep them in <strong>Allowed Types</strong> so manual runs aren't blocked.</div>
-
-      <!-- Excluded statuses -->
-      <div class="section-label" style="margin-top: 18px;">Exclude Status</div>
-      <div class="pill-group" id="excludeStatus">
-        <div class="pill" data-status="ONLOT"  onclick="toggleStatusPill(this)">ONLOT</div>
-        <div class="pill" data-status="OFFLOT" onclick="toggleStatusPill(this)">OFFLOT</div>
-      </div>
-      <div class="pill-hint">Selected statuses will be excluded. Typically only OFFLOT is excluded.</div>
-
-      <!-- Price range -->
-      <div class="section-label" style="margin-top: 18px;">Price Range</div>
-      <div class="price-row">
-        <div class="price-field">
-          <label for="minPrice">Minimum Price ($)</label>
-          <input type="number" id="minPrice" placeholder="No floor" min="0" oninput="markFilterDirty()" />
+        <!-- Flags -->
+        <div class="filter-card">
+          <div class="section-label">Flags</div>
+          <div class="toggle-row">
+            <label class="toggle-switch">
+              <input type="checkbox" id="reqStock" onchange="markFilterDirty()">
+              <span class="toggle-slider"></span>
+            </label>
+            <span class="toggle-label">Require Stock Number</span>
+            <span class="toggle-desc">Reject vehicles where stock is blank or *</span>
+          </div>
+          <div class="toggle-row">
+            <label class="toggle-switch">
+              <input type="checkbox" id="reqPrice" onchange="markFilterDirty()">
+              <span class="toggle-slider"></span>
+            </label>
+            <span class="toggle-label">Require Price</span>
+            <span class="toggle-desc">Reject blank, *, callforprice, or ≤ 0</span>
+          </div>
+          <div class="toggle-row">
+            <label class="toggle-switch">
+              <input type="checkbox" id="reqUrl" onchange="markFilterDirty()">
+              <span class="toggle-slider"></span>
+            </label>
+            <span class="toggle-label">Require URL</span>
+            <span class="toggle-desc">Reject vehicles with no Vehicle URL to build a link from</span>
+          </div>
         </div>
-        <div class="price-field">
-          <label for="maxPrice">Maximum Price ($)</label>
-          <input type="number" id="maxPrice" placeholder="No ceiling" min="0" oninput="markFilterDirty()" />
+
+        <!-- Allowed types -->
+        <div class="filter-card">
+          <div class="section-label">Allowed Types</div>
+          <div class="pill-group" id="allowedTypes">
+            <div class="pill type-new"  data-type="New"    onclick="togglePill(this)">New</div>
+            <div class="pill type-po"   data-type="PO"     onclick="togglePill(this)">PO</div>
+            <div class="pill type-cpo"  data-type="CPO"    onclick="togglePill(this)">CPO</div>
+            <div class="pill type-cpoel" data-type="CPO-EL" onclick="togglePill(this)">CPO-EL</div>
+          </div>
+          <div class="pill-hint">All selected = all types allowed. Deselect all to allow everything (no restriction).</div>
         </div>
-      </div>
+
+        <!-- Exclude from CAO auto-fill -->
+        <div class="filter-card">
+          <div class="section-label">Exclude from CAO Auto-Fill</div>
+          <div class="pill-group" id="caoExcludeTypes">
+            <div class="pill type-new"  data-type="New"    onclick="togglePill(this)">New</div>
+            <div class="pill type-po"   data-type="PO"     onclick="togglePill(this)">PO</div>
+            <div class="pill type-cpo"  data-type="CPO"    onclick="togglePill(this)">CPO</div>
+            <div class="pill type-cpoel" data-type="CPO-EL" onclick="togglePill(this)">CPO-EL</div>
+          </div>
+          <div class="pill-hint">These types are skipped during CAO auto-fill but still print when entered manually. Keep them in <strong>Allowed Types</strong> so manual runs aren't blocked.</div>
+        </div>
+
+        <!-- Excluded statuses -->
+        <div class="filter-card">
+          <div class="section-label">Exclude Status</div>
+          <div class="pill-group" id="excludeStatus">
+            <div class="pill" data-status="ONLOT"  onclick="toggleStatusPill(this)">ONLOT</div>
+            <div class="pill" data-status="OFFLOT" onclick="toggleStatusPill(this)">OFFLOT</div>
+          </div>
+          <div class="pill-hint">Selected statuses will be excluded. Typically only OFFLOT is excluded.</div>
+        </div>
+
+        <!-- Price range -->
+        <div class="filter-card">
+          <div class="section-label">Price Range</div>
+          <div class="price-row">
+            <div class="price-field">
+              <label for="minPrice">Minimum Price ($)</label>
+              <input type="number" id="minPrice" placeholder="No floor" min="0" oninput="markFilterDirty()" />
+            </div>
+            <div class="price-field">
+              <label for="maxPrice">Maximum Price ($)</label>
+              <input type="number" id="maxPrice" placeholder="No ceiling" min="0" oninput="markFilterDirty()" />
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /.filter-grid -->
 
       <!-- Seasoning -->
-      <div class="section-label" style="margin-top: 18px;">Seasoning (Days on Lot)</div>
-      <table class="seasoning-table">
-        <thead>
-          <tr>
-            <th style="width:120px">Type</th>
-            <th>Days Required</th>
-            <th style="width:60px"></th>
-          </tr>
-        </thead>
-        <tbody id="seasoningBody">
-          <tr id="seasoningEmpty"><td colspan="3" class="placeholder">No seasoning rules configured.</td></tr>
-        </tbody>
-      </table>
-      <button class="btn-add-season" onclick="addSeasoningRow()">+ Add Seasoning Rule</button>
+      <div class="filter-card filter-card--full">
+        <div class="section-label">Seasoning (Days on Lot)</div>
+        <table class="seasoning-table">
+          <thead>
+            <tr>
+              <th style="width:120px">Type</th>
+              <th>Days Required</th>
+              <th style="width:60px"></th>
+            </tr>
+          </thead>
+          <tbody id="seasoningBody">
+            <tr id="seasoningEmpty"><td colspan="3" class="placeholder">No seasoning rules configured.</td></tr>
+          </tbody>
+        </table>
+        <button class="btn-add-season" onclick="addSeasoningRow()">+ Add Seasoning Rule</button>
+      </div>
 
       <!-- Targeting Rules -->
-      <div class="section-label" style="margin-top: 18px;">Targeting Rules</div>
-      <div class="pill-hint"><strong>IF</strong> a vehicle matches the conditions (combined with nested AND/OR), <strong>THEN</strong> take the action. Actions: <em>Drop on import</em> (never enters SCRAPERDATA), <em>Exclude from CAO</em> (skipped in auto-fill only), <em>Exclude from orders</em> (skipped in CAO <em>and</em> runs; the Bypass checkbox overrides per run). Make/Model are raw text — list keyword variants like <code>F-250</code> and <code>F250</code>. A rule with no conditions does nothing.</div>
-      <div id="targetingRulesWrap" class="tr-wrap"></div>
-      <button class="btn-add-season" onclick="addTargetingRule()">+ Add Rule</button>
+      <div class="filter-card filter-card--full">
+        <div class="section-label">Targeting Rules</div>
+        <div class="pill-hint"><strong>IF</strong> a vehicle matches the conditions (combined with nested AND/OR), <strong>THEN</strong> take the action. Actions: <em>Drop on import</em> (never enters SCRAPERDATA), <em>Exclude from CAO</em> (skipped in auto-fill only), <em>Exclude from orders</em> (skipped in CAO <em>and</em> runs; the Bypass checkbox overrides per run). Make/Model are raw text — list keyword variants like <code>F-250</code> and <code>F250</code>. A rule with no conditions does nothing.</div>
+        <div id="targetingRulesWrap" class="tr-wrap"></div>
+        <button class="btn-add-season" onclick="addTargetingRule()">+ Add Rule</button>
+      </div>
 
       <!-- Dual-site source split -->
-      <div class="section-label" style="margin-top: 18px;">Dual-Site Source Split</div>
-      <div class="toggle-row">
-        <label class="toggle-switch">
-          <input type="checkbox" id="sourceSplitEnable" onchange="markFilterDirty()">
-          <span class="toggle-slider"></span>
-        </label>
-        <span class="toggle-label">Split output by website</span>
-        <span class="toggle-desc">For a dealer whose inventory spans two sites (e.g. a subprime site)</span>
-      </div>
-      <div class="price-row">
-        <div class="price-field">
-          <label for="sourceSplitGroupName">Secondary group name</label>
-          <input type="text" id="sourceSplitGroupName" placeholder="AUTOLOANPRO" oninput="markFilterDirty()" />
+      <div class="filter-card filter-card--full">
+        <div class="section-label">Dual-Site Source Split</div>
+        <div class="toggle-row">
+          <label class="toggle-switch">
+            <input type="checkbox" id="sourceSplitEnable" onchange="markFilterDirty()">
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="toggle-label">Split output by website</span>
+          <span class="toggle-desc">For a dealer whose inventory spans two sites (e.g. a subprime site)</span>
         </div>
-        <div class="price-field">
-          <label for="sourceSplitUrlContains">Secondary URL contains</label>
-          <input type="text" id="sourceSplitUrlContains" placeholder="autoloanpro" oninput="markFilterDirty()" />
+        <div class="price-row">
+          <div class="price-field">
+            <label for="sourceSplitGroupName">Secondary group name</label>
+            <input type="text" id="sourceSplitGroupName" placeholder="AUTOLOANPRO" oninput="markFilterDirty()" />
+          </div>
+          <div class="price-field">
+            <label for="sourceSplitUrlContains">Secondary URL contains</label>
+            <input type="text" id="sourceSplitUrlContains" placeholder="autoloanpro" oninput="markFilterDirty()" />
+          </div>
         </div>
+        <div class="pill-hint">Matched cars whose Vehicle URL contains the marker go to a separate <strong>CSV_&lt;group&gt;</strong> (and a BY-SOURCE billing breakdown) — still <strong>one billing sheet and one Pipedrive deal</strong>. Overlapping VINs across the two sites auto-resolve to the main site at import. Leave the toggle off (or either field blank) to disable.</div>
       </div>
-      <div class="pill-hint">Matched cars whose Vehicle URL contains the marker go to a separate <strong>CSV_&lt;group&gt;</strong> (and a BY-SOURCE billing breakdown) — still <strong>one billing sheet and one Pipedrive deal</strong>. Overlapping VINs across the two sites auto-resolve to the main site at import. Leave the toggle off (or either field blank) to disable.</div>
 
     </div>
     <div class="save-row">
-      <div id="filterUnsaved" style="font-size:11px;color:#e67e00;align-self:center;display:none;">Unsaved changes</div>
+      <div id="filterUnsaved" style="font-size:11px;color:var(--warning);align-self:center;display:none;">Unsaved changes</div>
       <button class="btn-primary" id="saveFilterBtn" onclick="saveFilterRules()" disabled>Save Filtering Rules</button>
     </div>
   </div>
@@ -278,32 +299,47 @@
     }
     #view-rules #rulesDealerSelect:focus { outline: none; border-color: var(--accent); }
 
-    /* ── Side-by-side panels (wide modal — was tabbed) ──────────────────────── */
+    /* ── Stacked panels (Type Rules over Filtering Rules, full-width) ────────── */
     #view-rules .panels-row {
       display: flex;
-      flex: 1;
-      overflow: hidden;
-    }
-    #view-rules .tab-panel {
-      display: flex;
-      overflow: hidden;
       flex-direction: column;
-      min-width: 0;
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
     }
-    #view-rules #panel-type { flex: 0 0 42%; border-right: 1px solid var(--border); }
-    #view-rules #panel-filter { flex: 1; }
+    #view-rules .tab-panel { display: block; min-width: 0; }
+    #view-rules #panel-type { border-bottom: 1px solid var(--border); }
     #view-rules .panel-title-bar {
-      padding: 9px 16px;
-      font-size: 13px;
-      font-weight: bold;
+      position: sticky;     /* keep the section header in view while scrolling */
+      top: 0;
+      z-index: 2;
+      padding: 10px 18px;
+      font-family: var(--font-head);
+      font-size: var(--fs-h3);
+      font-weight: 700;
       color: var(--accent);
       border-bottom: 2px solid var(--accent);
       background: var(--surface);
-      flex-shrink: 0;
     }
 
-    /* ── Section within panel ────────────────────────────────────────────────── */
-    #view-rules .panel-scroll { flex: 1; overflow-y: auto; padding: 14px 16px; }
+    /* ── Content within a panel ──────────────────────────────────────────────── */
+    #view-rules .panel-scroll { padding: 16px 18px; }
+
+    /* responsive card grid — lays the compact filtering sections across the width */
+    #view-rules .filter-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+      gap: 14px;
+      align-items: start;
+      margin-bottom: 14px;
+    }
+    #view-rules .filter-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 14px;
+    }
+    #view-rules .filter-card--full { margin-bottom: 14px; }
 
     /* ── Status bar ──────────────────────────────────────────────────────────── */
     #view-rules #rulesStatus {
