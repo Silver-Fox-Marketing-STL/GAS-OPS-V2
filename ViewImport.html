@@ -126,10 +126,10 @@
 <style>
 #view-import * { box-sizing: border-box; margin: 0; padding: 0; }
     #view-import {
-      font-family: Arial, sans-serif;
+      font-family: var(--font-body);
       font-size: 13px;
-      color: #333;
-      background: #fff;
+      color: var(--text);
+      background: var(--bg);
       display: flex;
       flex-direction: column;
       height: 100%;
@@ -139,7 +139,7 @@
     /* ── Header ──────────────────────────────────────────────────────────────── */
     #view-import .modal-header {
       padding: 14px 18px 10px;
-      border-bottom: 1px solid #e0e0e0;
+      border-bottom: 1px solid var(--border);
       flex-shrink: 0;
     }
     #view-import .modal-header h3 {
@@ -149,7 +149,7 @@
     }
     #view-import .modal-header .subtitle {
       font-size: 11px;
-      color: #888;
+      color: var(--text-3);
     }
 
     /* ── Scrollable content area ─────────────────────────────────────────────── */
@@ -161,7 +161,7 @@
 
     /* ── Bottom action bar ───────────────────────────────────────────────────── */
     #view-import .modal-footer {
-      border-top: 1px solid #e0e0e0;
+      border-top: 1px solid var(--border);
       padding: 10px 18px;
       flex-shrink: 0;
       display: flex;
@@ -177,9 +177,9 @@
       line-height: 18px;
     }
     #view-import .status-bar.empty { background: none; color: transparent; }
-    #view-import .status-bar.info { background: #e8f0fe; color: #1a73e8; }
-    #view-import .status-bar.success { background: #e6f4ea; color: #1e7e34; }
-    #view-import .status-bar.error { background: #fce8e6; color: #c0392b; }
+    #view-import .status-bar.info { background: var(--accent-weak); color: var(--accent); }
+    #view-import .status-bar.success { background: var(--success-weak); color: var(--success); }
+    #view-import .status-bar.error { background: var(--danger-weak); color: var(--danger); }
 
     /* ── Two-column import form (wide modal) ─────────────────────────────────── */
     #view-import .import-cols { display: flex; gap: 20px; align-items: flex-start; }
@@ -192,11 +192,11 @@
       min-width: 0;
     }
     #view-import .files-placeholder {
-      border: 1px dashed #dadce0;
+      border: 1px dashed var(--border);
       border-radius: 5px;
       padding: 40px 20px;
       text-align: center;
-      color: #aaa;
+      color: var(--text-muted);
       font-size: 12px;
     }
 
@@ -206,7 +206,7 @@
       flex-direction: column;
       gap: 0;
       margin-bottom: 14px;
-      border: 1px solid #dadce0;
+      border: 1px solid var(--border);
       border-radius: 5px;
       overflow: hidden;
     }
@@ -214,11 +214,11 @@
       flex: 1;
       padding: 10px 14px;
       cursor: pointer;
-      background: #fff;
-      border-top: 1px solid #dadce0;
+      background: var(--bg);
+      border-top: 1px solid var(--border);
     }
     #view-import .mode-option:first-child { border-top: none; }
-    #view-import .mode-option.active { background: #e8f0fe; }
+    #view-import .mode-option.active { background: var(--accent-weak); }
     #view-import .mode-option .mode-title {
       font-weight: bold;
       font-size: 13px;
@@ -226,10 +226,10 @@
       align-items: center;
       gap: 7px;
     }
-    #view-import .mode-option.active .mode-title { color: #1a73e8; }
+    #view-import .mode-option.active .mode-title { color: var(--accent); }
     #view-import .mode-option .mode-desc {
       font-size: 11px;
-      color: #888;
+      color: var(--text-3);
       margin-top: 3px;
       line-height: 1.4;
     }
@@ -249,28 +249,28 @@
     /* ── Per-file cards (right column) ───────────────────────────────────────── */
     #view-import #fileCards { margin-top: 0; }
     #view-import .file-card {
-      border: 1px solid #dadce0;
+      border: 1px solid var(--border);
       border-radius: 5px;
       overflow: hidden;
       margin-bottom: 10px;
     }
-    #view-import .file-card.invalid { border-color: #e8a09a; }
+    #view-import .file-card.invalid { border-color: var(--danger); }
     #view-import .file-card-header {
-      background: #f1f3f4;
+      background: var(--surface-2);
       padding: 7px 12px;
       font-size: 12px;
       font-weight: bold;
-      border-bottom: 1px solid #e0e0e0;
+      border-bottom: 1px solid var(--border);
       display: flex;
       justify-content: space-between;
       align-items: center;
       gap: 10px;
     }
-    #view-import .file-card.invalid .file-card-header { background: #fce8e6; color: #c0392b; }
+    #view-import .file-card.invalid .file-card-header { background: var(--danger-weak); color: var(--danger); }
     #view-import .file-card-header .file-meta {
       font-weight: normal;
       font-size: 11px;
-      color: #666;
+      color: var(--text-2);
       white-space: nowrap;
     }
     #view-import .file-card-body {
@@ -278,23 +278,23 @@
       font-size: 11px;
       line-height: 1.7;
     }
-    #view-import .file-card-body .missing-line { color: #c0392b; }
-    #view-import .file-card-body .ignored-line { color: #999; }
-    #view-import .file-card-body .error-line { color: #c0392b; font-weight: bold; }
-    #view-import .match { color: #1e7e34; }
-    #view-import .nomatch { color: #c0392b; }
+    #view-import .file-card-body .missing-line { color: var(--danger); }
+    #view-import .file-card-body .ignored-line { color: var(--text-3); }
+    #view-import .file-card-body .error-line { color: var(--danger); font-weight: bold; }
+    #view-import .match { color: var(--success); }
+    #view-import .nomatch { color: var(--danger); }
 
     #view-import .totals-line {
       margin-top: 14px;
       font-size: 12px;
       font-weight: bold;
-      color: #333;
+      color: var(--text);
     }
 
     /* ── Buttons ─────────────────────────────────────────────────────────────── */
     #view-import .btn-primary {
       padding: 9px 22px;
-      background: #1a73e8;
+      background: var(--accent);
       color: white;
       border: none;
       font-size: 13px;
@@ -304,13 +304,13 @@
       white-space: nowrap;
       flex-shrink: 0;
     }
-    #view-import .btn-primary:hover { background: #1557b0; }
-    #view-import .btn-primary:disabled { background: #aaa; cursor: default; }
+    #view-import .btn-primary:hover { background: var(--accent-hover); }
+    #view-import .btn-primary:disabled { background: var(--text-muted); cursor: default; }
     #view-import .btn-secondary {
       padding: 9px 18px;
-      background: #fff;
-      color: #1a73e8;
-      border: 1.5px solid #1a73e8;
+      background: var(--bg);
+      color: var(--accent);
+      border: 1.5px solid var(--accent);
       font-size: 13px;
       font-weight: bold;
       cursor: pointer;
@@ -318,7 +318,7 @@
       white-space: nowrap;
       flex-shrink: 0;
     }
-    #view-import .btn-secondary:hover { background: #e8f0fe; }
+    #view-import .btn-secondary:hover { background: var(--accent-weak); }
 
     /* ════════════════════════════════════════════════════════════════════════════
        CONFLICT PANEL
@@ -330,13 +330,13 @@
       align-items: center;
       gap: 10px;
       padding: 10px 12px;
-      background: #fef7e0;
-      border: 1px solid #f0d97a;
+      background: var(--warning-weak);
+      border: 1px solid var(--warning);
       border-radius: 5px;
       margin-bottom: 14px;
       font-size: 12px;
     }
-    #view-import .bulk-bar .bulk-label { font-weight: bold; color: #b06000; flex: 1; }
+    #view-import .bulk-bar .bulk-label { font-weight: bold; color: var(--warning-strong); flex: 1; }
     #view-import .bulk-bar button { padding: 6px 14px; font-size: 12px; }
 
     /* Conflict cards render 2-up in the wide modal */
@@ -347,58 +347,58 @@
       align-items: start;
     }
     #view-import .conflict-card {
-      border: 1px solid #dadce0;
+      border: 1px solid var(--border);
       border-radius: 5px;
       overflow: hidden;
     }
     #view-import .conflict-card-header {
-      background: #f1f3f4;
+      background: var(--surface-2);
       padding: 7px 12px;
       font-size: 12px;
       display: flex;
       justify-content: space-between;
       align-items: center;
       gap: 10px;
-      border-bottom: 1px solid #e0e0e0;
+      border-bottom: 1px solid var(--border);
     }
     #view-import .conflict-card-header .vin { font-weight: bold; font-family: monospace; font-size: 12px; }
-    #view-import .conflict-card-header .meta { font-size: 11px; color: #666; white-space: nowrap; }
+    #view-import .conflict-card-header .meta { font-size: 11px; color: var(--text-2); white-space: nowrap; }
     #view-import .conflict-table { width: 100%; border-collapse: collapse; font-size: 11px; table-layout: fixed; }
     #view-import .conflict-table th {
-      background: #fafafa;
+      background: var(--bg);
       padding: 5px 10px;
       text-align: left;
-      border-bottom: 1px solid #e0e0e0;
+      border-bottom: 1px solid var(--border);
       font-size: 10px;
       text-transform: uppercase;
       letter-spacing: 0.3px;
-      color: #888;
+      color: var(--text-3);
     }
     #view-import .conflict-table td {
       padding: 5px 10px;
-      border-bottom: 1px solid #f0f0f0;
+      border-bottom: 1px solid var(--border);
       text-align: left;
       vertical-align: top;
       word-break: break-word;
     }
-    #view-import .conflict-table td.field-name { font-weight: bold; color: #555; width: 130px; white-space: nowrap; }
+    #view-import .conflict-table td.field-name { font-weight: bold; color: var(--text-2); width: 130px; white-space: nowrap; }
     #view-import .conflict-choice {
       display: flex;
       gap: 22px;
       padding: 8px 12px;
-      background: #fafafa;
-      border-top: 1px solid #e0e0e0;
+      background: var(--bg);
+      border-top: 1px solid var(--border);
       font-size: 12px;
     }
     #view-import .conflict-choice label { cursor: pointer; display: flex; align-items: center; gap: 5px; }
-    #view-import .variant-note { font-size: 10.5px; color: #b06000; padding: 4px 12px 8px; background: #fafafa; }
+    #view-import .variant-note { font-size: 10.5px; color: var(--warning-strong); padding: 4px 12px 8px; background: var(--bg); }
     #view-import .more-conflicts {
       grid-column: 1 / -1;
       padding: 10px 12px;
-      background: #f1f3f4;
+      background: var(--surface-2);
       border-radius: 5px;
       font-size: 12px;
-      color: #666;
+      color: var(--text-2);
       text-align: center;
     }
 
@@ -413,9 +413,9 @@
       gap: 10px;
       margin-bottom: 14px;
     }
-    #view-import .review-hero .check { font-size: 24px; color: #1e7e34; }
-    #view-import .review-hero h3 { font-size: 15px; color: #1e7e34; margin: 0; }
-    #view-import .review-hero .total { font-size: 12px; color: #666; margin-top: 1px; }
+    #view-import .review-hero .check { font-size: 24px; color: var(--success); }
+    #view-import .review-hero h3 { font-size: 15px; color: var(--success); margin: 0; }
+    #view-import .review-hero .total { font-size: 12px; color: var(--text-2); margin-top: 1px; }
 
     #view-import .review-section { margin-bottom: 16px; }
     #view-import .review-section-title {
@@ -423,7 +423,7 @@
       font-weight: bold;
       text-transform: uppercase;
       letter-spacing: 0.5px;
-      color: #888;
+      color: var(--text-3);
       margin-bottom: 7px;
     }
 
@@ -434,23 +434,23 @@
       border-radius: 12px;
       font-size: 12px;
       font-weight: bold;
-      background: #e8f0fe;
-      color: #1a73e8;
+      background: var(--accent-weak);
+      color: var(--accent);
     }
-    #view-import .badge.status { background: #fef7e0; color: #b06000; }
-    #view-import .badge.warning { background: #fce8e6; color: #c0392b; }
-    #view-import .badge.neutral { background: #f1f3f4; color: #555; }
+    #view-import .badge.status { background: var(--warning-weak); color: var(--warning-strong); }
+    #view-import .badge.warning { background: var(--danger-weak); color: var(--danger); }
+    #view-import .badge.neutral { background: var(--surface-2); color: var(--text-2); }
 
     #view-import .divider {
       border: none;
-      border-top: 1px solid #e0e0e0;
+      border-top: 1px solid var(--border);
       margin: 14px 0;
     }
 
     /* Location × Type table */
     #view-import .table-wrap {
       overflow-x: auto;
-      border: 1px solid #ddd;
+      border: 1px solid var(--border);
       border-radius: 4px;
     }
     #view-import table {
@@ -459,18 +459,18 @@
       font-size: 11px;
     }
     #view-import th {
-      background: #f1f3f4;
+      background: var(--surface-2);
       padding: 6px 10px;
       text-align: right;
       font-weight: bold;
       white-space: nowrap;
-      border-bottom: 1px solid #ddd;
+      border-bottom: 1px solid var(--border);
     }
     #view-import th:first-child { text-align: left; }
     #view-import td {
       padding: 5px 10px;
       text-align: right;
-      border-bottom: 1px solid #f0f0f0;
+      border-bottom: 1px solid var(--border);
       white-space: nowrap;
     }
     #view-import td:first-child {
@@ -478,36 +478,36 @@
       max-width: 200px;
       overflow: hidden;
       text-overflow: ellipsis;
-      color: #333;
+      color: var(--text);
     }
     #view-import tr:last-child td { border-bottom: none; }
-    #view-import tr:hover td { background: #f8f9fa; }
+    #view-import tr:hover td { background: var(--surface); }
     #view-import td.total-col,
   #view-import th.total-col {
       font-weight: bold;
-      color: #333;
-      border-left: 1px solid #ddd;
+      color: var(--text);
+      border-left: 1px solid var(--border);
     }
     /* ── Health issues section ───────────────────────────────────────────────── */
     #view-import .health-section {
       margin-top: 14px;
-      border: 1px solid #f5c6cb;
+      border: 1px solid var(--danger);
       border-radius: 5px;
       overflow: hidden;
     }
     #view-import .health-section.clean {
-      border-color: #c3e6cb;
+      border-color: var(--success);
     }
     #view-import .health-section-title {
       padding: 7px 12px;
       font-size: 11px;
       font-weight: bold;
-      background: #fce8e6;
-      color: #c0392b;
+      background: var(--danger-weak);
+      color: var(--danger);
     }
     #view-import .health-section.clean .health-section-title {
-      background: #e6f4ea;
-      color: #1e7e34;
+      background: var(--success-weak);
+      color: var(--success);
     }
     #view-import .health-item {
       display: flex;
@@ -515,14 +515,17 @@
       gap: 8px;
       padding: 6px 12px;
       font-size: 11px;
-      border-top: 1px solid #f5e6e6;
+      border-top: 1px solid var(--danger-weak);
     }
     #view-import .health-section.clean .health-item {
-      border-top-color: #d4edda;
+      border-top-color: var(--success-weak);
     }
     #view-import .health-icon { flex-shrink: 0; font-size: 13px; line-height: 1.4; }
-    #view-import .health-location { font-weight: bold; color: #333; }
-    #view-import .health-msg { color: #555; }
+    #view-import .health-location { font-weight: bold; color: var(--text); }
+    #view-import .health-msg { color: var(--text-2); }
+
+    /* themed root (overrides the interim .view light guard) */
+    #view-import { background: var(--bg); color: var(--text); }
 </style>
 
 <script>

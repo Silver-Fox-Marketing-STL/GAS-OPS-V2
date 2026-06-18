@@ -55,42 +55,45 @@
 
 <style>
   #view-datasources .ds-scroll { height: 100%; overflow-y: auto; padding: 20px 24px; box-sizing: border-box; }
-  #view-datasources .ds-intro { font-size: 12.5px; color: #666; line-height: 1.6; margin-bottom: 18px; max-width: 880px; }
-  #view-datasources .ds-sourcehint { font-size: 11.5px; color: #888; line-height: 1.6; margin: 6px 0 4px; max-width: 880px; }
-  #view-datasources .ds-btn.danger { border-color: #e0b4b0; color: #b03a2e; background: #fff; }
-  #view-datasources .ds-btn.danger:hover { background: #fbeae8; border-color: #c0392b; }
+  #view-datasources .ds-intro { font-size: 12.5px; color: var(--text-2); line-height: 1.6; margin-bottom: 18px; max-width: 880px; }
+  #view-datasources .ds-sourcehint { font-size: 11.5px; color: var(--text-3); line-height: 1.6; margin: 6px 0 4px; max-width: 880px; }
+  #view-datasources .ds-btn.danger { border-color: var(--danger); color: var(--danger); background: var(--bg); }
+  #view-datasources .ds-btn.danger:hover { background: var(--danger-weak); border-color: var(--danger); }
 
   #view-datasources .ds-controls { display: flex; gap: 22px; flex-wrap: wrap; margin-bottom: 14px; }
   #view-datasources .ds-field { display: flex; flex-direction: column; gap: 5px; }
-  #view-datasources .ds-field label { font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.4px; color: #888; }
-  #view-datasources select, #view-datasources input[type=file] { font-size: 13px; padding: 6px 8px; border: 1px solid #ccc; border-radius: 5px; min-width: 260px; }
-  #view-datasources select:focus { outline: none; border-color: #1a73e8; }
+  #view-datasources .ds-field label { font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text-3); }
+  #view-datasources select, #view-datasources input[type=file] { font-size: 13px; padding: 6px 8px; border: 1px solid var(--border-2); border-radius: 5px; min-width: 260px; }
+  #view-datasources select:focus { outline: none; border-color: var(--accent); }
 
   #view-datasources .ds-status { font-size: 12px; margin: 8px 0; min-height: 16px; }
-  #view-datasources .ds-status.info { color: #1a73e8; }
-  #view-datasources .ds-status.error { color: #c0392b; }
-  #view-datasources .ds-status.success { color: #1e7e34; }
+  #view-datasources .ds-status.info { color: var(--accent); }
+  #view-datasources .ds-status.error { color: var(--danger); }
+  #view-datasources .ds-status.success { color: var(--success); }
 
   #view-datasources .ds-maphead { display: flex; align-items: baseline; gap: 10px; margin: 16px 0 8px; }
-  #view-datasources .ds-section { font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.4px; color: #888; }
-  #view-datasources .ds-meta { font-size: 11.5px; color: #888; }
+  #view-datasources .ds-section { font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text-3); }
+  #view-datasources .ds-meta { font-size: 11.5px; color: var(--text-3); }
 
   #view-datasources .ds-table { width: 100%; border-collapse: collapse; font-size: 12.5px; table-layout: fixed; }
-  #view-datasources .ds-table th { text-align: left; padding: 6px 10px; border-bottom: 1px solid #e0e0e0; font-size: 10px; text-transform: uppercase; letter-spacing: 0.3px; color: #888; }
-  #view-datasources .ds-table td { padding: 5px 10px; border-bottom: 1px solid #f1f1f1; vertical-align: middle; word-break: break-word; }
+  #view-datasources .ds-table th { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 10px; text-transform: uppercase; letter-spacing: 0.3px; color: var(--text-3); }
+  #view-datasources .ds-table td { padding: 5px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; word-break: break-word; }
   #view-datasources .ds-fileheader { font-family: 'Consolas','Courier New',monospace; font-size: 12px; }
-  #view-datasources .ds-example { color: #999; font-size: 11px; font-family: 'Consolas','Courier New',monospace; }
+  #view-datasources .ds-example { color: var(--text-3); font-size: 11px; font-family: 'Consolas','Courier New',monospace; }
   #view-datasources .ds-table select { width: 100%; min-width: 0; font-size: 12.5px; padding: 4px 6px; }
-  #view-datasources .ds-table tr.ds-ignored td { background: #fafafa; color: #aaa; }
-  #view-datasources .ds-table tr.ds-required-missing select { border-color: #c0392b; }
+  #view-datasources .ds-table tr.ds-ignored td { background: var(--bg); color: var(--text-muted); }
+  #view-datasources .ds-table tr.ds-required-missing select { border-color: var(--danger); }
 
-  #view-datasources .ds-unmapped { font-size: 11.5px; color: #b06000; margin: 10px 0 4px; line-height: 1.6; }
-  #view-datasources .ds-unmapped .ok { color: #1e7e34; }
+  #view-datasources .ds-unmapped { font-size: 11.5px; color: var(--warning-strong); margin: 10px 0 4px; line-height: 1.6; }
+  #view-datasources .ds-unmapped .ok { color: var(--success); }
 
   #view-datasources .ds-actions { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
-  #view-datasources .ds-btn { padding: 9px 18px; border-radius: 5px; font-size: 13px; font-weight: bold; cursor: pointer; border: 1px solid #ccc; background: #fff; color: #444; }
-  #view-datasources .ds-btn.primary { background: #1a73e8; color: #fff; border-color: #1a73e8; }
-  #view-datasources .ds-btn.primary:disabled { background: #9bc0f5; border-color: #9bc0f5; cursor: default; }
+  #view-datasources .ds-btn { padding: 9px 18px; border-radius: 5px; font-size: 13px; font-weight: bold; cursor: pointer; border: 1px solid var(--border-2); background: var(--bg); color: var(--text); }
+  #view-datasources .ds-btn.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+  #view-datasources .ds-btn.primary:disabled { background: var(--border-2); border-color: var(--border-2); cursor: default; }
+
+    /* themed root (overrides the interim .view light guard) */
+    #view-datasources { background: var(--bg); color: var(--text); }
 </style>
 
 <script>

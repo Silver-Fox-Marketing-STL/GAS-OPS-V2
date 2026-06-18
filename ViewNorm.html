@@ -61,10 +61,10 @@
 <style>
   #view-norm * { box-sizing: border-box; margin: 0; padding: 0; }
   #view-norm {
-    font-family: Arial, sans-serif;
+    font-family: var(--font-body);
     font-size: 13px;
-    color: #333;
-    background: #fff;
+    color: var(--text);
+    background: var(--bg);
   }
 
   /* ── Map selector ─────────────────────────────────────────────────────── */
@@ -73,19 +73,19 @@
     align-items: center;
     gap: 12px;
     padding: 10px 16px;
-    border-bottom: 1px solid #e0e0e0;
+    border-bottom: 1px solid var(--border);
   }
   #view-norm .top-bar label { font-weight: bold; white-space: nowrap; }
   #view-norm select {
     flex: 0 0 220px;
     padding: 6px 8px;
     font-size: 13px;
-    border: 1px solid #ccc;
+    border: 1px solid var(--border-2);
     border-radius: 4px;
   }
-  #view-norm select:focus { outline: none; border-color: #1a73e8; }
-  #view-norm #entryCount { font-size: 12px; color: #888; }
-  #view-norm .order-note { font-size: 11px; color: #888; margin-left: auto; font-style: italic; }
+  #view-norm select:focus { outline: none; border-color: var(--accent); }
+  #view-norm #entryCount { font-size: 12px; color: var(--text-3); }
+  #view-norm .order-note { font-size: 11px; color: var(--text-3); margin-left: auto; font-style: italic; }
 
   /* ── Add entry bar ────────────────────────────────────────────────────── */
   #view-norm .add-bar {
@@ -93,21 +93,21 @@
     align-items: flex-end;
     gap: 8px;
     padding: 10px 16px;
-    border-bottom: 1px solid #e0e0e0;
-    background: #f8f9fa;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
   }
   #view-norm .add-field { display: flex; flex-direction: column; gap: 3px; flex: 1; }
-  #view-norm .add-field label { font-size: 11px; font-weight: bold; color: #555; white-space: nowrap; }
+  #view-norm .add-field label { font-size: 11px; font-weight: bold; color: var(--text-2); white-space: nowrap; }
   #view-norm .add-field input[type="text"] {
     padding: 6px 8px;
     font-size: 12px;
     font-family: monospace;
-    border: 1px solid #ccc;
+    border: 1px solid var(--border-2);
     border-radius: 4px;
     width: 100%;
   }
-  #view-norm .add-field input[type="text"]:focus { outline: none; border-color: #1a73e8; }
-  #view-norm .add-arrow { font-size: 16px; color: #bbb; padding-bottom: 7px; flex-shrink: 0; }
+  #view-norm .add-field input[type="text"]:focus { outline: none; border-color: var(--accent); }
+  #view-norm .add-arrow { font-size: 16px; color: var(--text-muted); padding-bottom: 7px; flex-shrink: 0; }
   #view-norm .add-buttons { display: flex; gap: 6px; flex-shrink: 0; padding-bottom: 1px; }
 
   /* ── Status bar ───────────────────────────────────────────────────────── */
@@ -118,9 +118,9 @@
     line-height: 18px;
   }
   #view-norm #normStatus.empty   { background: none; }
-  #view-norm #normStatus.info    { background: #e8f0fe; color: #1a73e8; }
-  #view-norm #normStatus.success { background: #e6f4ea; color: #1e7e34; }
-  #view-norm #normStatus.error   { background: #fce8e6; color: #c0392b; }
+  #view-norm #normStatus.info    { background: var(--accent-weak); color: var(--accent); }
+  #view-norm #normStatus.success { background: var(--success-weak); color: var(--success); }
+  #view-norm #normStatus.error   { background: var(--danger-weak); color: var(--danger); }
 
   /* ── Entries table ────────────────────────────────────────────────────── */
   /* Height is set by JS — overflow-y: auto enables scroll once height is fixed */
@@ -128,52 +128,52 @@
 
   #view-norm table { width: 100%; border-collapse: collapse; font-size: 12px; }
   #view-norm thead th {
-    background: #f1f3f4;
+    background: var(--surface-2);
     padding: 7px 12px;
     text-align: left;
     font-size: 11px;
     font-weight: bold;
     text-transform: uppercase;
     letter-spacing: 0.3px;
-    color: #555;
-    border-bottom: 1px solid #ddd;
+    color: var(--text-2);
+    border-bottom: 1px solid var(--border);
     position: sticky;
     top: 0;
     z-index: 1;
   }
   #view-norm thead th.col-arrow   { width: 28px; padding: 7px 4px; }
   #view-norm thead th.col-actions { text-align: center; width: 150px; white-space: nowrap; }
-  #view-norm tbody tr { border-bottom: 1px solid #f0f0f0; }
+  #view-norm tbody tr { border-bottom: 1px solid var(--border); }
   #view-norm tbody tr:last-child  { border-bottom: none; }
-  #view-norm tbody tr:hover { background: #fafafa; }
+  #view-norm tbody tr:hover { background: var(--bg); }
   #view-norm td { padding: 5px 12px; vertical-align: middle; }
-  #view-norm td.col-input  { font-family: monospace; color: #444; }
-  #view-norm td.col-arrow  { color: #ccc; text-align: center; padding: 5px 4px; width: 28px; }
-  #view-norm td.col-output { font-family: monospace; font-weight: bold; color: #1a73e8; }
+  #view-norm td.col-input  { font-family: monospace; color: var(--text); }
+  #view-norm td.col-arrow  { color: var(--border-2); text-align: center; padding: 5px 4px; width: 28px; }
+  #view-norm td.col-output { font-family: monospace; font-weight: bold; color: var(--accent); }
   #view-norm td.col-actions { text-align: center; white-space: nowrap; width: 150px; }
 
   /* Inline edit row */
-  #view-norm tr.editing td { background: #f0f6ff; padding: 5px 8px; }
+  #view-norm tr.editing td { background: var(--accent-weak); padding: 5px 8px; }
   #view-norm .edit-input {
     width: 100%;
     padding: 4px 6px;
     font-size: 12px;
     font-family: monospace;
-    border: 1px solid #1a73e8;
+    border: 1px solid var(--accent);
     border-radius: 3px;
   }
   #view-norm .edit-input:focus { outline: none; }
 
   /* Empty / loading states */
-  #view-norm .state-row td { text-align: center; padding: 28px; color: #aaa; font-size: 12px; }
+  #view-norm .state-row td { text-align: center; padding: 28px; color: var(--text-muted); font-size: 12px; }
 
   /* ── Footer ───────────────────────────────────────────────────────────── */
   #view-norm .footer {
     display: flex;
     justify-content: flex-end;
     padding: 10px 16px;
-    border-top: 1px solid #e0e0e0;
-    background: #f8f9fa;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
   }
 
   /* ── Buttons ──────────────────────────────────────────────────────────── */
@@ -186,17 +186,20 @@
     cursor: pointer;
     white-space: nowrap;
   }
-  #view-norm .btn-primary         { background: #1a73e8; color: #fff; }
-  #view-norm .btn-primary:hover   { background: #1557b0; }
-  #view-norm .btn-secondary       { background: #fff; color: #333; border: 1px solid #ccc; }
-  #view-norm .btn-secondary:hover { background: #f1f3f4; }
-  #view-norm .btn-icon            { padding: 3px 8px; font-size: 12px; background: #f1f3f4; border: 1px solid #ddd; border-radius: 3px; color: #555; margin: 0 1px; }
-  #view-norm .btn-icon:hover      { background: #e2e5e9; }
-  #view-norm .btn-icon.del        { background: #fce8e6; color: #c0392b; border-color: #f5c6c2; }
-  #view-norm .btn-icon.del:hover  { background: #f5c6c2; }
-  #view-norm .btn-icon.save       { background: #e6f4ea; color: #1e7e34; border-color: #b7dfbe; }
-  #view-norm .btn-icon.save:hover { background: #b7dfbe; }
+  #view-norm .btn-primary         { background: var(--accent); color: var(--bg); }
+  #view-norm .btn-primary:hover   { background: var(--accent-hover); }
+  #view-norm .btn-secondary       { background: var(--bg); color: var(--text); border: 1px solid var(--border-2); }
+  #view-norm .btn-secondary:hover { background: var(--surface-2); }
+  #view-norm .btn-icon            { padding: 3px 8px; font-size: 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 3px; color: var(--text-2); margin: 0 1px; }
+  #view-norm .btn-icon:hover      { background: var(--border); }
+  #view-norm .btn-icon.del        { background: var(--danger-weak); color: var(--danger); border-color: var(--danger); }
+  #view-norm .btn-icon.del:hover  { background: var(--danger); }
+  #view-norm .btn-icon.save       { background: var(--success-weak); color: var(--success); border-color: var(--success); }
+  #view-norm .btn-icon.save:hover { background: var(--success); }
   #view-norm button:disabled      { opacity: 0.4; cursor: default; }
+
+    /* themed root (overrides the interim .view light guard) */
+    #view-norm { background: var(--bg); color: var(--text); }
 </style>
 
 <script>

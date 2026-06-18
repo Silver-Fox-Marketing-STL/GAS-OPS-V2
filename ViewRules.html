@@ -193,10 +193,10 @@
 <style>
 #view-rules * { box-sizing: border-box; margin: 0; padding: 0; }
     #view-rules {
-      font-family: Arial, sans-serif;
+      font-family: var(--font-body);
       font-size: 13px;
-      color: #333;
-      background: #fff;
+      color: var(--text);
+      background: var(--bg);
       display: flex;
       flex-direction: column;
       height: 100%;
@@ -209,30 +209,30 @@
     /* ── Targeting Rules builder ─────────────────────────────────────────────── */
     #view-rules .tr-wrap { display: flex; flex-direction: column; gap: 10px; }
     #view-rules .tr-rule {
-      border: 1px solid #d0d7de; border-radius: 6px; background: #fafbfc;
+      border: 1px solid var(--border); border-radius: 6px; background: var(--bg);
     }
     #view-rules .tr-rule-head {
       display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-      padding: 8px 10px; border-bottom: 1px solid #e6e9ec;
-      background: #eef3f8; border-radius: 6px 6px 0 0;
+      padding: 8px 10px; border-bottom: 1px solid var(--border);
+      background: var(--accent-weak); border-radius: 6px 6px 0 0;
     }
-    #view-rules .tr-rule-head .tr-if { font-weight: bold; color: #444; }
+    #view-rules .tr-rule-head .tr-if { font-weight: bold; color: var(--text); }
     #view-rules .tr-action {
-      padding: 4px 6px; font-size: 12px; border: 1px solid #1a73e8;
-      border-radius: 4px; background: #fff; font-weight: bold; color: #1a56b8;
+      padding: 4px 6px; font-size: 12px; border: 1px solid var(--accent);
+      border-radius: 4px; background: var(--bg); font-weight: bold; color: var(--accent-hover);
     }
     #view-rules .tr-rule-body { padding: 8px 10px; }
     #view-rules .tr-group {
-      border: 1px dashed #b9c2cc; border-radius: 5px; padding: 6px 8px;
-      background: #fff;
+      border: 1px dashed var(--border-2); border-radius: 5px; padding: 6px 8px;
+      background: var(--bg);
     }
-    #view-rules .tr-group .tr-group { background: #f5f7f9; margin-top: 4px; }
+    #view-rules .tr-group .tr-group { background: var(--surface-2); margin-top: 4px; }
     #view-rules .tr-group-head {
       display: flex; align-items: center; gap: 6px; margin-bottom: 6px;
-      font-size: 12px; color: #555;
+      font-size: 12px; color: var(--text-2);
     }
     #view-rules .tr-match {
-      padding: 2px 5px; font-size: 11px; border: 1px solid #ccc; border-radius: 4px;
+      padding: 2px 5px; font-size: 11px; border: 1px solid var(--border-2); border-radius: 4px;
       font-weight: bold;
     }
     #view-rules .tr-children { display: flex; flex-direction: column; gap: 5px; }
@@ -240,23 +240,23 @@
       display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
     }
     #view-rules .tr-cond select, #view-rules .tr-cond input {
-      padding: 3px 5px; font-size: 12px; border: 1px solid #ccc; border-radius: 4px;
+      padding: 3px 5px; font-size: 12px; border: 1px solid var(--border-2); border-radius: 4px;
     }
     #view-rules .tr-field { min-width: 110px; }
     #view-rules .tr-op { min-width: 130px; }
     #view-rules .tr-values { flex: 1; min-width: 140px; }
     #view-rules .tr-x {
-      border: none; background: #f0f0f0; color: #999; cursor: pointer;
+      border: none; background: var(--border); color: var(--text-3); cursor: pointer;
       border-radius: 4px; padding: 2px 7px; font-size: 13px; line-height: 1;
     }
-    #view-rules .tr-x:hover { background: #fde0e0; color: #c0392b; }
+    #view-rules .tr-x:hover { background: var(--danger-weak); color: var(--danger); }
     #view-rules .tr-group-actions { margin-top: 6px; display: flex; gap: 6px; }
     #view-rules .tr-add {
-      border: 1px solid #ccc; background: #fff; color: #1a56b8; cursor: pointer;
+      border: 1px solid var(--border-2); background: var(--bg); color: var(--accent-hover); cursor: pointer;
       border-radius: 4px; padding: 2px 8px; font-size: 11px;
     }
-    #view-rules .tr-add:hover { background: #eef3f8; }
-    #view-rules .tr-empty { color: #999; font-style: italic; font-size: 12px; padding: 4px 0; }
+    #view-rules .tr-add:hover { background: var(--accent-weak); }
+    #view-rules .tr-empty { color: var(--text-3); font-style: italic; font-size: 12px; padding: 4px 0; }
 
     /* ── Top bar ─────────────────────────────────────────────────────────────── */
     #view-rules .top-bar {
@@ -264,7 +264,7 @@
       align-items: center;
       gap: 12px;
       padding: 10px 16px;
-      border-bottom: 1px solid #e0e0e0;
+      border-bottom: 1px solid var(--border);
       flex-shrink: 0;
     }
     #view-rules .top-bar label { font-weight: bold; white-space: nowrap; }
@@ -272,10 +272,10 @@
       flex: 1;
       padding: 6px 8px;
       font-size: 13px;
-      border: 1px solid #ccc;
+      border: 1px solid var(--border-2);
       border-radius: 4px;
     }
-    #view-rules #rulesDealerSelect:focus { outline: none; border-color: #1a73e8; }
+    #view-rules #rulesDealerSelect:focus { outline: none; border-color: var(--accent); }
 
     /* ── Side-by-side panels (wide modal — was tabbed) ──────────────────────── */
     #view-rules .panels-row {
@@ -289,15 +289,15 @@
       flex-direction: column;
       min-width: 0;
     }
-    #view-rules #panel-type { flex: 0 0 42%; border-right: 1px solid #e0e0e0; }
+    #view-rules #panel-type { flex: 0 0 42%; border-right: 1px solid var(--border); }
     #view-rules #panel-filter { flex: 1; }
     #view-rules .panel-title-bar {
       padding: 9px 16px;
       font-size: 13px;
       font-weight: bold;
-      color: #1a73e8;
-      border-bottom: 2px solid #1a73e8;
-      background: #f8f9fa;
+      color: var(--accent);
+      border-bottom: 2px solid var(--accent);
+      background: var(--surface);
       flex-shrink: 0;
     }
 
@@ -311,12 +311,12 @@
       height: 28px;
       line-height: 18px;
       flex-shrink: 0;
-      border-top: 1px solid #e0e0e0;
+      border-top: 1px solid var(--border);
     }
     #view-rules #rulesStatus.empty { background: none; }
-    #view-rules #rulesStatus.info { background: #e8f0fe; color: #1a73e8; }
-    #view-rules #rulesStatus.success { background: #e6f4ea; color: #1e7e34; }
-    #view-rules #rulesStatus.error { background: #fce8e6; color: #c0392b; }
+    #view-rules #rulesStatus.info { background: var(--accent-weak); color: var(--accent); }
+    #view-rules #rulesStatus.success { background: var(--success-weak); color: var(--success); }
+    #view-rules #rulesStatus.error { background: var(--danger-weak); color: var(--danger); }
 
     /* ── Loading overlay ─────────────────────────────────────────────────────── */
     #view-rules #loadingOverlay {
@@ -327,14 +327,14 @@
       align-items: center;
       justify-content: center;
       font-size: 13px;
-      color: #888;
+      color: var(--text-3);
       z-index: 100;
     }
     #view-rules #loadingOverlay.hidden { display: none; }
 
     /* ── Empty / placeholder states ──────────────────────────────────────────── */
     #view-rules .placeholder {
-      color: #aaa;
+      color: var(--text-muted);
       font-size: 12px;
       font-style: italic;
       padding: 16px 0;
@@ -347,7 +347,7 @@
       font-weight: bold;
       text-transform: uppercase;
       letter-spacing: 0.4px;
-      color: #888;
+      color: var(--text-3);
       margin-bottom: 8px;
       margin-top: 18px;
     }
@@ -363,12 +363,12 @@
       align-items: center;
       gap: 8px;
       padding: 8px 10px;
-      border: 1px solid #e0e0e0;
+      border: 1px solid var(--border);
       border-radius: 5px;
-      background: #fafafa;
+      background: var(--bg);
       margin-bottom: 6px;
     }
-    #view-rules .rule-card.catch-all { border-color: #bbb; background: #f1f3f4; }
+    #view-rules .rule-card.catch-all { border-color: var(--text-muted); background: var(--surface-2); }
     #view-rules .rule-order-btns {
       display: flex;
       flex-direction: column;
@@ -376,16 +376,16 @@
     }
     #view-rules .btn-reorder {
       width: 22px; height: 18px;
-      background: #fff;
-      border: 1px solid #ccc;
+      background: var(--bg);
+      border: 1px solid var(--border-2);
       border-radius: 3px;
       font-size: 9px;
       cursor: pointer;
-      color: #555;
+      color: var(--text-2);
       display: flex; align-items: center; justify-content: center;
       padding: 0;
     }
-    #view-rules .btn-reorder:hover:not(:disabled) { background: #e8f0fe; border-color: #1a73e8; color: #1a73e8; }
+    #view-rules .btn-reorder:hover:not(:disabled) { background: var(--accent-weak); border-color: var(--accent); color: var(--accent); }
     #view-rules .btn-reorder:disabled { opacity: 0.3; cursor: default; }
     #view-rules .rule-fields {
       flex: 1;
@@ -395,11 +395,11 @@
       align-items: center;
     }
     #view-rules .rule-field { display: flex; flex-direction: column; gap: 2px; }
-    #view-rules .rule-field-label { font-size: 10px; color: #999; font-weight: bold; text-transform: uppercase; }
+    #view-rules .rule-field-label { font-size: 10px; color: var(--text-3); font-weight: bold; text-transform: uppercase; }
     #view-rules .rule-field-val {
       font-size: 12px;
       font-family: monospace;
-      color: #222;
+      color: var(--text);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -410,22 +410,22 @@
       border-radius: 10px;
       font-size: 11px;
       font-weight: bold;
-      background: #e8f0fe;
-      color: #1a73e8;
+      background: var(--accent-weak);
+      color: var(--accent);
     }
-    #view-rules .rule-badge.catch { background: #f1f3f4; color: #888; }
+    #view-rules .rule-badge.catch { background: var(--surface-2); color: var(--text-3); }
     #view-rules .btn-delete-rule {
       padding: 4px 9px;
-      background: #fff;
-      border: 1px solid #ccc;
+      background: var(--bg);
+      border: 1px solid var(--border-2);
       border-radius: 3px;
       font-size: 11px;
-      color: #c0392b;
+      color: var(--danger);
       cursor: pointer;
       white-space: nowrap;
       flex-shrink: 0;
     }
-    #view-rules .btn-delete-rule:hover { background: #fce8e6; border-color: #c0392b; }
+    #view-rules .btn-delete-rule:hover { background: var(--danger-weak); border-color: var(--danger); }
 
     /* ── Add rule form ───────────────────────────────────────────────────────── */
     #view-rules .add-rule-form {
@@ -434,25 +434,25 @@
       gap: 8px;
       align-items: flex-end;
       padding: 10px 12px;
-      border: 1px solid #dadce0;
+      border: 1px solid var(--border);
       border-radius: 5px;
-      background: #f8f9fa;
+      background: var(--surface);
       margin-top: 10px;
     }
     #view-rules .add-rule-form .form-field { display: flex; flex-direction: column; gap: 3px; }
-    #view-rules .add-rule-form label { font-size: 11px; font-weight: bold; color: #555; }
+    #view-rules .add-rule-form label { font-size: 11px; font-weight: bold; color: var(--text-2); }
     #view-rules .add-rule-form select,
   #view-rules .add-rule-form input[type="text"] {
       padding: 6px 8px;
       font-size: 12px;
       font-family: monospace;
-      border: 1px solid #ccc;
+      border: 1px solid var(--border-2);
       border-radius: 4px;
       width: 100%;
     }
     #view-rules .add-rule-form select:focus,
-  #view-rules .add-rule-form input[type="text"]:focus { outline: none; border-color: #1a73e8; }
-    #view-rules .field-hint-small { font-size: 10px; color: #aaa; margin-top: 2px; }
+  #view-rules .add-rule-form input[type="text"]:focus { outline: none; border-color: var(--accent); }
+    #view-rules .field-hint-small { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
 
     /* ── Save button row ─────────────────────────────────────────────────────── */
     #view-rules .save-row {
@@ -460,12 +460,12 @@
       justify-content: flex-end;
       gap: 8px;
       padding: 12px 16px;
-      border-top: 1px solid #e0e0e0;
+      border-top: 1px solid var(--border);
       flex-shrink: 0;
     }
     #view-rules .btn-primary {
       padding: 8px 20px;
-      background: #1a73e8;
+      background: var(--accent);
       color: white;
       border: none;
       font-size: 13px;
@@ -473,23 +473,23 @@
       cursor: pointer;
       border-radius: 4px;
     }
-    #view-rules .btn-primary:hover { background: #1557b0; }
-    #view-rules .btn-primary:disabled { background: #aaa; cursor: default; }
+    #view-rules .btn-primary:hover { background: var(--accent-hover); }
+    #view-rules .btn-primary:disabled { background: var(--text-muted); cursor: default; }
     #view-rules .btn-secondary {
       padding: 8px 16px;
-      background: #fff;
-      color: #555;
-      border: 1px solid #ccc;
+      background: var(--bg);
+      color: var(--text-2);
+      border: 1px solid var(--border-2);
       font-size: 13px;
       cursor: pointer;
       border-radius: 4px;
     }
-    #view-rules .btn-secondary:hover { background: #f5f5f5; }
+    #view-rules .btn-secondary:hover { background: var(--surface); }
 
     /* ── Order matters note ──────────────────────────────────────────────────── */
     #view-rules .order-note {
       font-size: 11px;
-      color: #888;
+      color: var(--text-3);
       font-style: italic;
       margin-top: 6px;
       margin-bottom: 2px;
@@ -505,7 +505,7 @@
       align-items: center;
       gap: 10px;
       padding: 8px 0;
-      border-bottom: 1px solid #f0f0f0;
+      border-bottom: 1px solid var(--border);
     }
     #view-rules .toggle-row:last-child { border-bottom: none; }
     #view-rules .toggle-switch {
@@ -517,7 +517,7 @@
     #view-rules .toggle-slider {
       position: absolute;
       inset: 0;
-      background: #ccc;
+      background: var(--border-2);
       border-radius: 20px;
       cursor: pointer;
       transition: background 0.2s;
@@ -527,14 +527,14 @@
       position: absolute;
       width: 14px; height: 14px;
       left: 3px; top: 3px;
-      background: #fff;
+      background: var(--bg);
       border-radius: 50%;
       transition: transform 0.2s;
     }
-    #view-rules .toggle-switch input:checked + .toggle-slider { background: #1a73e8; }
+    #view-rules .toggle-switch input:checked + .toggle-slider { background: var(--accent); }
     #view-rules .toggle-switch input:checked + .toggle-slider:before { transform: translateX(16px); }
-    #view-rules .toggle-label { font-size: 13px; color: #333; }
-    #view-rules .toggle-desc { font-size: 11px; color: #aaa; margin-left: auto; }
+    #view-rules .toggle-label { font-size: 13px; color: var(--text); }
+    #view-rules .toggle-desc { font-size: 11px; color: var(--text-muted); margin-left: auto; }
 
     /* ── Pill buttons ────────────────────────────────────────────────────────── */
     #view-rules .pill-group {
@@ -545,23 +545,23 @@
     }
     #view-rules .pill {
       padding: 5px 13px;
-      border: 1.5px solid #ccc;
+      border: 1.5px solid var(--border-2);
       border-radius: 20px;
       font-size: 12px;
       font-weight: bold;
       cursor: pointer;
-      color: #666;
-      background: #fff;
+      color: var(--text-2);
+      background: var(--bg);
       transition: all 0.15s;
       user-select: none;
     }
-    #view-rules .pill:hover { border-color: #1a73e8; color: #1a73e8; }
-    #view-rules .pill.active { background: #1a73e8; border-color: #1a73e8; color: #fff; }
-    #view-rules .pill.type-new.active { background: #1e7e34; border-color: #1e7e34; }
-    #view-rules .pill.type-po.active { background: #e67e00; border-color: #e67e00; }
-    #view-rules .pill.type-cpo.active { background: #6f42c1; border-color: #6f42c1; }
-    #view-rules .pill.type-cpoel.active { background: #1a73e8; border-color: #1a73e8; }
-    #view-rules .pill-hint { font-size: 11px; color: #aaa; margin-top: 4px; }
+    #view-rules .pill:hover { border-color: var(--accent); color: var(--accent); }
+    #view-rules .pill.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+    #view-rules .pill.type-new.active { background: var(--type-new); border-color: var(--type-new); color: var(--on-type); }
+    #view-rules .pill.type-po.active { background: var(--type-po); border-color: var(--type-po); color: var(--on-type); }
+    #view-rules .pill.type-cpo.active { background: var(--type-cpo); border-color: var(--type-cpo); color: var(--on-type); }
+    #view-rules .pill.type-cpoel.active { background: var(--type-cpoel); border-color: var(--type-cpoel); color: var(--on-type); }
+    #view-rules .pill-hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
 
     /* ── Price range ─────────────────────────────────────────────────────────── */
     #view-rules .price-row {
@@ -571,15 +571,15 @@
       margin-top: 6px;
     }
     #view-rules .price-field { display: flex; flex-direction: column; gap: 3px; }
-    #view-rules .price-field label { font-size: 11px; font-weight: bold; color: #555; }
+    #view-rules .price-field label { font-size: 11px; font-weight: bold; color: var(--text-2); }
     #view-rules .price-field input[type="number"] {
       padding: 6px 8px;
       font-size: 13px;
-      border: 1px solid #ccc;
+      border: 1px solid var(--border-2);
       border-radius: 4px;
       width: 100%;
     }
-    #view-rules .price-field input[type="number"]:focus { outline: none; border-color: #1a73e8; }
+    #view-rules .price-field input[type="number"]:focus { outline: none; border-color: var(--accent); }
 
     /* ── Seasoning table ─────────────────────────────────────────────────────── */
     #view-rules .seasoning-table {
@@ -589,19 +589,19 @@
       margin-top: 6px;
     }
     #view-rules .seasoning-table thead th {
-      background: #f1f3f4;
+      background: var(--surface-2);
       padding: 6px 10px;
       text-align: left;
       font-size: 11px;
       font-weight: bold;
       text-transform: uppercase;
       letter-spacing: 0.3px;
-      color: #666;
-      border-bottom: 1px solid #e0e0e0;
+      color: var(--text-2);
+      border-bottom: 1px solid var(--border);
     }
     #view-rules .seasoning-table tbody td {
       padding: 6px 8px;
-      border-bottom: 1px solid #f0f0f0;
+      border-bottom: 1px solid var(--border);
       vertical-align: middle;
     }
     #view-rules .seasoning-table tbody tr:last-child td { border-bottom: none; }
@@ -609,40 +609,40 @@
   #view-rules .seasoning-table input[type="number"] {
       padding: 5px 7px;
       font-size: 12px;
-      border: 1px solid #ccc;
+      border: 1px solid var(--border-2);
       border-radius: 4px;
       width: 100%;
     }
     #view-rules .seasoning-table select:focus,
-  #view-rules .seasoning-table input[type="number"]:focus { outline: none; border-color: #1a73e8; }
+  #view-rules .seasoning-table input[type="number"]:focus { outline: none; border-color: var(--accent); }
     #view-rules .btn-remove-season {
       padding: 3px 8px;
-      background: #fff;
-      border: 1px solid #ccc;
+      background: var(--bg);
+      border: 1px solid var(--border-2);
       border-radius: 3px;
       font-size: 11px;
-      color: #c0392b;
+      color: var(--danger);
       cursor: pointer;
     }
-    #view-rules .btn-remove-season:hover { background: #fce8e6; border-color: #c0392b; }
+    #view-rules .btn-remove-season:hover { background: var(--danger-weak); border-color: var(--danger); }
     #view-rules .btn-add-season {
       margin-top: 8px;
       padding: 5px 12px;
-      background: #fff;
-      border: 1px solid #1a73e8;
+      background: var(--bg);
+      border: 1px solid var(--accent);
       border-radius: 4px;
       font-size: 12px;
-      color: #1a73e8;
+      color: var(--accent);
       cursor: pointer;
       font-weight: bold;
     }
-    #view-rules .btn-add-season:hover { background: #e8f0fe; }
+    #view-rules .btn-add-season:hover { background: var(--accent-weak); }
 
     /* ── Add rule button ─────────────────────────────────────────────────────── */
     #view-rules .btn-add-rule {
       padding: 6px 14px;
-      background: #1a73e8;
-      color: #fff;
+      background: var(--accent);
+      color: var(--bg);
       border: none;
       border-radius: 4px;
       font-size: 12px;
@@ -651,7 +651,10 @@
       white-space: nowrap;
       align-self: flex-end;
     }
-    #view-rules .btn-add-rule:hover { background: #1557b0; }
+    #view-rules .btn-add-rule:hover { background: var(--accent-hover); }
+
+    /* themed root (overrides the interim .view light guard) */
+    #view-rules { background: var(--bg); color: var(--text); }
 </style>
 
 <script>
