@@ -439,10 +439,11 @@
     }
     #view-rules .add-rule-form {
       display: grid;
-      /* fixed-width selects (so they're not stretched) + flexible UTM input;
-         the arrow makes the type → output mapping read as a sentence. */
-      grid-template-columns: 128px auto 168px minmax(150px, 1fr) auto;
-      gap: 10px;
+      /* Capped-but-shrinkable selects (minmax 0..cap, so they never stretch AND
+         never force overflow) + flexible UTM input; the arrow makes the
+         type → output mapping read as a sentence. */
+      grid-template-columns: minmax(0, 118px) auto minmax(0, 160px) minmax(90px, 1fr) auto;
+      gap: 8px;
       align-items: end;
       padding: 12px;
       border: 1px solid var(--border);
