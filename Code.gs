@@ -390,7 +390,9 @@ function include_(name) {
  * into App.html via include_() and switched client-side (no dialog swaps).
  */
 function openApp() {
-  var html = HtmlService.createTemplateFromFile('App').evaluate()
+  var t = HtmlService.createTemplateFromFile('App');
+  t.initialTheme = getThemePreference();   // '' when unset → head script follows the OS
+  var html = t.evaluate()
     .setWidth(MODAL_WIDTH)
     .setHeight(MODAL_HEIGHT);
   SpreadsheetApp.getUi().showModalDialog(html, 'SilverFox');
@@ -403,6 +405,7 @@ function openApp() {
 function openViewStandalone_(fragmentName, title) {
   var t = HtmlService.createTemplateFromFile('Classic');
   t.fragment = fragmentName;
+  t.initialTheme = getThemePreference();   // same persisted theme as the App
   var html = t.evaluate().setWidth(MODAL_WIDTH).setHeight(MODAL_HEIGHT);
   SpreadsheetApp.getUi().showModalDialog(html, title);
 }
@@ -847,8 +850,9 @@ function groupRowsByLocation_(rows) {
  */
 function getAppBootstrap() {
   return {
-    dealers: getActiveDealersForUI(),
-    users:   getUserProfilesForModal()
+    dealers:  getActiveDealersForUI(),
+    users:    getUserProfilesForModal(),
+    appTheme: getThemePreference()
   };
 }
 
@@ -4149,6 +4153,26 @@ function getLastSelectedUser() {
 function saveLastSelectedUser(userKey) {
   if (userKey && String(userKey).trim() !== '') {
     PropertiesService.getUserProperties().setProperty('last_selected_user', String(userKey).trim());
+  }
+}
+
+/**
+ * Returns the saved app theme for this Google account: 'light' | 'dark' | ''
+ * ('' = no explicit choice yet → the client's head script follows the OS).
+ * @returns {string}
+ */
+function getThemePreference() {
+  var t = PropertiesService.getUserProperties().getProperty('app_theme');
+  return (t === 'light' || t === 'dark') ? t : '';
+}
+
+/**
+ * Persists the app theme choice. Ignores anything but 'light'/'dark' (fail-safe).
+ * @param {string} theme
+ */
+function saveThemePreference(theme) {
+  if (theme === 'light' || theme === 'dark') {
+    PropertiesService.getUserProperties().setProperty('app_theme', theme);
   }
 }
 
