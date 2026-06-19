@@ -4745,14 +4745,20 @@ var PD_PROP = {
 
 var PIPEDRIVE_TAB = 'PIPEDRIVE';
 
-// 0-based column indices for the PIPEDRIVE tab (A–K).
+// 0-based column indices for the PIPEDRIVE tab (A–K). Per (dealer_key, group):
+// org + product map (now {type:{product_id,variation_id?}}) + deal defaults +
+// FIELD_OVERRIDES (col J) — per-dealer overrides of the GLOBAL deal-field rules.
 var PDCFG = {
   DEALER_KEY: 0, GROUP: 1, ORG_ID: 2, ORG_NAME: 3, PRODUCT_MAP: 4,
   TITLE_TEMPLATE: 5, PIPELINE_ID: 6, STAGE_ID: 7, CURRENCY: 8,
-  FIELD_MAP: 9, ACTIVE: 10
+  FIELD_OVERRIDES: 9, ACTIVE: 10
 };
 var PIPEDRIVE_HEADERS = ['dealer_key', 'group', 'org_id', 'org_name', 'product_map',
-  'deal_title_template', 'pipeline_id', 'stage_id', 'currency', 'field_map', 'active'];
+  'deal_title_template', 'pipeline_id', 'stage_id', 'currency', 'field_overrides', 'active'];
+
+// Global Pipedrive settings (deal-field rules) live in their own key/value tab.
+var PIPEDRIVE_SETTINGS_TAB = 'PIPEDRIVE_SETTINGS';
+var PD_RULES_KEY = 'deal_field_rules';
 
 // Canonical billing types → billing-totals keys (gross + dupes).
 var PD_TYPE_KEYS = [
@@ -4994,7 +5000,7 @@ function pdRowToConfig_(row) {
     pipelineId:    String(row[PDCFG.PIPELINE_ID] || '').trim(),
     stageId:       String(row[PDCFG.STAGE_ID] || '').trim(),
     currency:      String(row[PDCFG.CURRENCY] || '').trim(),
-    fieldMap:      pdParseJson_(row[PDCFG.FIELD_MAP], []),
+    fieldOverrides: pdParseJson_(row[PDCFG.FIELD_OVERRIDES], {}),
     active:        isTrue_(row[PDCFG.ACTIVE])
   };
 }
@@ -5046,14 +5052,16 @@ function getPipedriveDealerEditorData(dealerKey) {
     dealerName: config[CFG.NAME],
     groups:     groups,
     types:      PD_TYPE_KEYS.map(function(t) { return t.type; }),
-    saved:      saved
+    saved:      saved,
+    globalRules: getPipedriveGlobalRules_()   // so the panel can list overridable rules
   };
 }
 
 /**
  * Client-callable. Replaces all PIPEDRIVE rows for a dealer with the supplied
  * per-group rows. rows = [{group, orgId, orgName, productMap, titleTemplate,
- * pipelineId, stageId, currency, fieldMap, active}].
+ * pipelineId, stageId, currency, fieldOverrides, active}]. `productMap` values
+ * are {product_id, variation_id?}; `fieldOverrides` is keyed by global rule id.
  */
 function savePipedriveDealerConfig(dealerKey, rows) {
   if (!dealerKey) throw new Error('dealerKey required.');
@@ -5076,7 +5084,7 @@ function savePipedriveDealerConfig(dealerKey, rows) {
     line[PDCFG.PIPELINE_ID]    = r.pipelineId || '';
     line[PDCFG.STAGE_ID]       = r.stageId || '';
     line[PDCFG.CURRENCY]       = r.currency || '';
-    line[PDCFG.FIELD_MAP]      = JSON.stringify(r.fieldMap || []);
+    line[PDCFG.FIELD_OVERRIDES] = JSON.stringify(r.fieldOverrides || {});
     line[PDCFG.ACTIVE]         = (r.active === false) ? false : true;
     return line;
   });
@@ -5086,41 +5094,152 @@ function savePipedriveDealerConfig(dealerKey, rows) {
   return { ok: true, saved: toWrite.length };
 }
 
+// ── Global deal-field rules (PIPEDRIVE_SETTINGS tab) ───────────────────────
+
+function getOrCreatePipedriveSettingsSheet_() {
+  var ss = getConfigSS_();
+  var sh = ss.getSheetByName(PIPEDRIVE_SETTINGS_TAB);
+  if (!sh) {
+    sh = ss.insertSheet(PIPEDRIVE_SETTINGS_TAB);
+    sh.getRange(1, 1, 1, 2).setValues([['key', 'value']]);
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+
+/** Reads the global deal-field rules array from the PIPEDRIVE_SETTINGS tab ([] if absent). */
+function getPipedriveGlobalRules_() {
+  var sh = getConfigSS_().getSheetByName(PIPEDRIVE_SETTINGS_TAB);
+  if (!sh) return [];
+  var data = sh.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]).trim() === PD_RULES_KEY) {
+      var rules = pdParseJson_(data[i][1], []);
+      return Array.isArray(rules) ? rules : [];
+    }
+  }
+  return [];
+}
+
+/** Client-callable. Returns the global deal-field rules. */
+function getPipedriveGlobalSettings() {
+  return { rules: getPipedriveGlobalRules_() };
+}
+
+/**
+ * Client-callable. Persists the global deal-field rules. Assigns a stable id to
+ * any rule missing one (preserving existing ids) so per-dealer overrides keep
+ * referencing the right rule.
+ */
+function savePipedriveGlobalSettings(rules) {
+  rules = Array.isArray(rules) ? rules : [];
+  var maxN = 0;
+  rules.forEach(function(r) {
+    if (r && r.id) { var m = /^r(\d+)$/.exec(String(r.id)); if (m) maxN = Math.max(maxN, parseInt(m[1], 10)); }
+  });
+  rules.forEach(function(r) { if (r && !r.id) r.id = 'r' + (++maxN); });
+
+  var sh = getOrCreatePipedriveSettingsSheet_();
+  var data = sh.getDataRange().getValues();
+  var rowNum = -1;
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]).trim() === PD_RULES_KEY) { rowNum = i + 1; break; }
+  }
+  var json = JSON.stringify(rules);
+  if (rowNum > 0) sh.getRange(rowNum, 2).setValue(json);
+  else            sh.getRange(sh.getLastRow() + 1, 1, 1, 2).setValues([[PD_RULES_KEY, json]]);
+  return { ok: true, count: rules.length };
+}
+
+/**
+ * Client-callable bootstrap for the global Pipedrive Settings screen:
+ * connection status + live deal/org field defs (for the rule builder) + the
+ * saved global rules. Reuses the cached catalog from getPipedriveConfigBootstrap.
+ */
+function getPipedriveSettingsBootstrap(refresh) {
+  var status = getPipedriveStatus();
+  if (!status.configured) return { configured: false };
+  var cat = getPipedriveConfigBootstrap(refresh);
+  return {
+    configured: true,
+    defaults:   status.defaults,
+    dealFields: cat.dealFields || [],
+    orgFields:  cat.orgFields || [],
+    rules:      getPipedriveGlobalRules_()
+  };
+}
+
+// ── Product variations (lazy, per product) ─────────────────────────────────
+
+function pdListProductVariations_(productId) {
+  if (!productId) return [];
+  return pdListAllV1_('/products/' + productId + '/variations').map(function(v) {
+    return { id: v.id, name: v.name, prices: v.prices || [] };
+  });
+}
+
+/** Client-callable: a product's variations, for the per-dealer product grid. */
+function getProductVariations(productId) {
+  return pdListProductVariations_(productId);
+}
+
 // ── Line items from billing totals × the group's product map ───────────────
 
 /**
  * Builds PD deal line items. Quantity per type = gross − dupes (net billable).
- * Types sharing a product are summed. Returns [{product_id, quantity,
- * item_price, name}].
- * @param {Object} billing    readBillingTotals_ result
- * @param {Object} productMap {type: product_id} for the relevant group
- * @param {Array}  products   pdListProducts_ result (price + name lookup)
- * @param {string} currency   target currency for item_price
+ * Same product+variation across types are summed; different variations stay
+ * distinct lines. Returns [{product_id, quantity, item_price, name,
+ * product_variation_id?}].
+ * @param {Object} billing             readBillingTotals_ result
+ * @param {Object} productMap          {type: {product_id, variation_id?}} (a bare id is tolerated)
+ * @param {Array}  products            pdListProducts_ result (price + name lookup)
+ * @param {string} currency            target currency for item_price
+ * @param {Object} variationsByProduct {productId: [{id,name,prices}]} for products with a chosen variation
  */
-function buildLineItems_(billing, productMap, products, currency) {
+function buildLineItems_(billing, productMap, products, currency, variationsByProduct) {
   if (!billing || !productMap) return [];
   var byId = {};
   (products || []).forEach(function(p) { byId[String(p.id)] = p; });
+  variationsByProduct = variationsByProduct || {};
   currency = (currency || 'USD').toUpperCase();
+
+  function priceFrom(prices) {
+    prices = prices || [];
+    for (var i = 0; i < prices.length; i++) {
+      if (String(prices[i].currency).toUpperCase() === currency) return Number(prices[i].price) || 0;
+    }
+    return prices.length ? (Number(prices[0].price) || 0) : 0;
+  }
+  function variationOf(pid, vid) {
+    var list = variationsByProduct[String(pid)] || [];
+    for (var i = 0; i < list.length; i++) if (String(list[i].id) === String(vid)) return list[i];
+    return null;
+  }
 
   var agg = {};
   PD_TYPE_KEYS.forEach(function(t) {
-    var pid = productMap[t.type];
+    var entry = productMap[t.type];
+    if (entry === undefined || entry === null || entry === '') return;
+    var pid, vid = null;
+    if (typeof entry === 'object') { pid = entry.product_id; vid = entry.variation_id || null; }
+    else { pid = entry; }   // bare id (tolerated)
     if (pid === undefined || pid === null || pid === '') return;
     var qty = (Number(billing[t.gross]) || 0) - (Number(billing[t.dupes]) || 0);
     if (qty <= 0) return;
-    var key = String(pid);
+
+    var key = String(pid) + '|' + (vid || '');
     if (!agg[key]) {
-      var prod = byId[key], price = 0, name = '';
-      if (prod) {
-        name = prod.name || '';
-        var prices = prod.prices || [];
-        for (var i = 0; i < prices.length; i++) {
-          if (String(prices[i].currency).toUpperCase() === currency) { price = Number(prices[i].price) || 0; break; }
-        }
-        if (price === 0 && prices.length) price = Number(prices[0].price) || 0;
+      var prod = byId[String(pid)], name = prod ? (prod.name || '') : '', price = 0;
+      if (vid) {
+        var v = variationOf(pid, vid);
+        price = v ? priceFrom(v.prices) : (prod ? priceFrom(prod.prices) : 0);
+        if (v && v.name) name = name ? (name + ' — ' + v.name) : v.name;
+      } else {
+        price = prod ? priceFrom(prod.prices) : 0;
       }
-      agg[key] = { product_id: pid, quantity: 0, item_price: price, name: name };
+      var li = { product_id: pid, quantity: 0, item_price: price, name: name };
+      if (vid) li.product_variation_id = vid;
+      agg[key] = li;
     }
     agg[key].quantity += qty;
   });
@@ -5161,45 +5280,170 @@ function pdListDealProducts_(dealId) {
 function pdAttachProducts_(dealId, lineItems) {
   if (!lineItems || !lineItems.length) return { ok: true, attached: 0, skipped: 0 };
   var existing = {};
-  pdListDealProducts_(dealId).forEach(function(p) { existing[String(p.product_id)] = true; });
+  pdListDealProducts_(dealId).forEach(function(p) {
+    existing[String(p.product_id) + '|' + (p.product_variation_id || '')] = true;
+  });
 
   var attached = 0, skipped = 0, errs = [];
   for (var i = 0; i < lineItems.length; i++) {
     var li = lineItems[i];
-    if (existing[String(li.product_id)]) { skipped++; continue; }
-    var r = pdFetch_('post', '/deals/' + dealId + '/products', {
-      product_id: li.product_id, item_price: li.item_price, quantity: li.quantity
-    });
+    var k = String(li.product_id) + '|' + (li.product_variation_id || '');
+    if (existing[k]) { skipped++; continue; }
+    var body = { product_id: li.product_id, item_price: li.item_price, quantity: li.quantity };
+    if (li.product_variation_id) body.product_variation_id = li.product_variation_id;
+    var r = pdFetch_('post', '/deals/' + dealId + '/products', body);
     if (r.ok) attached++; else errs.push('product ' + li.product_id + ': ' + r.error);
   }
   if (errs.length) return { ok: false, attached: attached, skipped: skipped, error: errs.join('; ') };
   return { ok: true, attached: attached, skipped: skipped };
 }
 
-/**
- * Resolves an org→deal field map into a deal custom_fields object by reading the
- * org's custom-field values and translating per rule. Returns {} when fieldMap
- * is empty — so the push ships dark until Phase 3 config exists.
- */
-function pdResolveFieldMap_(orgId, fieldMap, currency) {
-  if (!orgId || !fieldMap || !fieldMap.length) return {};
-  var keys = fieldMap.map(function(m) { return m.org_field; }).filter(Boolean);
-  var org = pdGetOrgWithCustomFields_(orgId, keys);
-  if (!org || !org.custom_fields) return {};
-  var out = {};
-  fieldMap.forEach(function(m) {
-    if (!m.org_field || !m.deal_field) return;
-    var val = org.custom_fields[m.org_field];
-    if (val === undefined || val === null || val === '') return;
-    var id = (val && val.id !== undefined) ? val.id : val;
-    if (m.type === 'enum' || m.type === 'set') {
-      if (m.option_map) { var mapped = m.option_map[String(id)]; if (mapped !== undefined) out[m.deal_field] = mapped; }
-      else out[m.deal_field] = id;
-    } else if (m.type === 'monetary') {
-      out[m.deal_field] = (val && val.value !== undefined) ? val.value : val;
-      out[m.deal_field + '_currency'] = (val && val.currency) ? val.currency : (currency || 'USD');
+// ── Org-condition engine (mirror of the targeting engine, on org fields) ────
+// Parallel to conditionMatches_/groupMatches_ — those are left UNTOUCHED. Here
+// the "row" is an org's custom_fields object keyed by Pipedrive org-field key.
+
+var PD_NUMERIC_OPS = { gte: true, lte: true, gt: true, lt: true };
+
+/** Pulls a comparable scalar from an org custom-field value (scalar | {id} | {value}). */
+function pdOrgFieldValue_(orgFields, key) {
+  var v = (orgFields && key) ? orgFields[key] : undefined;
+  if (v === undefined || v === null) return undefined;
+  if (typeof v === 'object') {
+    if (v.value !== undefined && v.value !== null) return v.value;
+    if (v.id !== undefined && v.id !== null) return v.id;
+    return undefined;
+  }
+  return v;
+}
+
+/** One condition leaf against an org's fields. Fails SAFE (false) on any misconfig. */
+function pdOrgConditionMatches_(orgFields, cond) {
+  if (!cond || !cond.field || !cond.op) return false;
+  var vals = cond.values;
+  if (!vals || !vals.length) return false;
+  var raw = pdOrgFieldValue_(orgFields, cond.field);
+  if (raw === undefined) return false;   // org doesn't have the field → no match
+  var op = String(cond.op).toLowerCase();
+
+  if (PD_NUMERIC_OPS[op]) {
+    var n = parseFloat(String(raw).replace(/[$,]/g, ''));
+    var t = parseFloat(String(vals[0]).replace(/[$,]/g, ''));
+    if (isNaN(n) || isNaN(t)) return false;
+    if (op === 'gte') return n >= t;
+    if (op === 'lte') return n <= t;
+    if (op === 'gt')  return n > t;
+    return n < t;
+  }
+  var cell = String(raw).toLowerCase();
+  var list = vals.map(function(x) { return String(x).toLowerCase(); });
+  if (op === 'in')           return list.indexOf(cell) !== -1;
+  if (op === 'not_in')       return list.indexOf(cell) === -1;
+  if (op === 'contains')     { for (var i = 0; i < list.length; i++) if (cell.indexOf(list[i]) !== -1) return true; return false; }
+  if (op === 'not_contains') { for (var j = 0; j < list.length; j++) if (cell.indexOf(list[j]) !== -1) return false; return true; }
+  return false;   // unknown op → no match
+}
+
+/** Recursive AND/OR over an org's fields. Empty group → false (fail-safe). */
+function pdOrgGroupMatches_(orgFields, group) {
+  if (!group || !group.children || !group.children.length) return false;
+  var all = String(group.match || 'all').toLowerCase() !== 'any';
+  for (var i = 0; i < group.children.length; i++) {
+    var ch = group.children[i];
+    var m = (ch && ch.children) ? pdOrgGroupMatches_(orgFields, ch) : pdOrgConditionMatches_(orgFields, ch);
+    if (all && !m) return false;
+    if (!all && m) return true;
+  }
+  return all;   // AND: none failed → true. OR: none matched → false.
+}
+
+/** Writes a resolved value into the deal-update map, honoring type (monetary companion). */
+function pdSetDealField_(out, dealField, type, value, currency) {
+  if (!dealField || value === undefined || value === null || value === '') return;
+  if (type === 'monetary') {
+    if (typeof value === 'object') {
+      if (value.value === undefined || value.value === null || value.value === '') return;
+      out[dealField] = value.value;
+      out[dealField + '_currency'] = value.currency || currency || 'USD';
     } else {
-      out[m.deal_field] = (val && val.value !== undefined) ? val.value : val;
+      out[dealField] = value;
+      out[dealField + '_currency'] = currency || 'USD';
+    }
+  } else {
+    out[dealField] = (typeof value === 'object' && value.id !== undefined) ? value.id : value;
+  }
+}
+
+/** All org-field keys referenced by a set of rules (copy org_field + conditional condition fields). */
+function pdCollectOrgKeys_(rules) {
+  var keys = {};
+  function walk(group) {
+    if (!group || !group.children) return;
+    group.children.forEach(function(ch) {
+      if (ch && ch.children) walk(ch);
+      else if (ch && ch.field) keys[ch.field] = true;
+    });
+  }
+  rules.forEach(function(r) {
+    if (!r) return;
+    if (r.mode === 'conditional') walk(r.group);
+    else if (r.org_field) keys[r.org_field] = true;   // copy (default mode)
+  });
+  return Object.keys(keys);
+}
+
+/**
+ * Resolves the effective deal-field map for one push: global rules with
+ * per-(dealer,group) overrides applied, evaluated against the org's fields.
+ * Returns a flat {dealFieldKey: value} map (v1 top-level shape, incl. monetary
+ * `_currency`). Pure given its inputs — the caller passes the global rules and
+ * the override object so it stays unit-testable.
+ *
+ * @param {string} orgId
+ * @param {Array}  globalRules  getPipedriveGlobalRules_()
+ * @param {Object} overrides    per-(dealer,group) field_overrides: {ruleId: {off:true} | <replacement rule>}
+ * @param {string} currency
+ */
+function pdResolveDealFields_(orgId, globalRules, overrides, currency) {
+  if (!orgId || !globalRules || !globalRules.length) return {};
+  overrides = overrides || {};
+
+  var effective = [];
+  globalRules.forEach(function(rule) {
+    if (!rule || !rule.deal_field) return;
+    var ov = rule.id ? overrides[rule.id] : null;
+    if (ov) {
+      if (ov.off === true) return;          // disabled for this dealer
+      effective.push(ov);                   // full replacement (copy|conditional)
+    } else {
+      effective.push(rule);
+    }
+  });
+  if (!effective.length) return {};
+
+  var org = pdGetOrgWithCustomFields_(orgId, pdCollectOrgKeys_(effective));
+  if (!org || !org.custom_fields) return {};
+  var cf = org.custom_fields, out = {};
+
+  effective.forEach(function(rule) {
+    if (!rule.deal_field) return;
+    if (rule.mode === 'conditional') {
+      var picked = pdOrgGroupMatches_(cf, rule.group) ? rule.then_value : rule.else_value;
+      pdSetDealField_(out, rule.deal_field, rule.type, picked, currency);
+    } else {   // copy (default)
+      if (!rule.org_field) return;
+      var raw = cf[rule.org_field];
+      if (raw === undefined || raw === null || raw === '') return;
+      var id = (raw && raw.id !== undefined) ? raw.id : raw;
+      if ((rule.type === 'enum' || rule.type === 'set') && rule.option_map) {
+        var mapped = rule.option_map[String(id)];
+        if (mapped !== undefined) out[rule.deal_field] = mapped;
+      } else if (rule.type === 'monetary') {
+        out[rule.deal_field] = (raw && raw.value !== undefined) ? raw.value : raw;
+        out[rule.deal_field + '_currency'] = (raw && raw.currency) ? raw.currency : (currency || 'USD');
+      } else {
+        out[rule.deal_field] = (raw && raw.value !== undefined) ? raw.value
+                              : ((raw && raw.id !== undefined) ? raw.id : raw);
+      }
     }
   });
   return out;
@@ -5278,7 +5522,15 @@ function pushRunToPipedrive(dealerKey, runRowIndex, mode, existingDealId) {
     catch (e) { return { ok: false, stage: 'resolve', message: 'Could not open the run output doc: ' + e.message, retryable: false }; }
     var billing  = readBillingTotals_(outputDoc, (group === 'PRIMARY') ? 'BILLING' : ('BILLING_' + group));
     var products = pdListProducts_();
-    var lineItems = buildLineItems_(billing, pdCfg.productMap, products, currency);
+    // Fetch variations only for products that have a chosen variation in the map.
+    var variationsByProduct = {};
+    PD_TYPE_KEYS.forEach(function(t) {
+      var e = pdCfg.productMap ? pdCfg.productMap[t.type] : null;
+      if (e && typeof e === 'object' && e.product_id && e.variation_id && !variationsByProduct[String(e.product_id)]) {
+        variationsByProduct[String(e.product_id)] = pdListProductVariations_(e.product_id);
+      }
+    });
+    var lineItems = buildLineItems_(billing, pdCfg.productMap, products, currency, variationsByProduct);
 
     var state  = pdPushStateGet_(runRowIndex);
     var dealId = state.dealId || '';
@@ -5333,14 +5585,14 @@ function pushRunToPipedrive(dealerKey, runRowIndex, mode, existingDealId) {
       pdPushStateSet_(runRowIndex, state);
     }
 
-    // ── Set mapped deal fields (no-op until Phase 3 config exists) ──────────
+    // ── Set deal fields from global rules + per-dealer overrides ────────────
     var fieldsSet = 0;
     if (!state.fieldsDone) {
       // v1 deals API takes custom fields as TOP-LEVEL keys (40-char hashes),
       // not nested under a custom_fields object (that's a v2 convention).
-      // pdResolveFieldMap_ already returns a flat {key:value} map (incl. the
+      // pdResolveDealFields_ returns a flat {key:value} map (incl. the
       // `<key>_currency` companion for monetary fields), so pass it directly.
-      var custom = pdResolveFieldMap_(pdCfg.orgId, pdCfg.fieldMap, currency);
+      var custom = pdResolveDealFields_(pdCfg.orgId, getPipedriveGlobalRules_(), pdCfg.fieldOverrides, currency);
       var ckeys = Object.keys(custom);
       if (ckeys.length) {
         var upd = pdUpdateDeal_(dealId, custom);

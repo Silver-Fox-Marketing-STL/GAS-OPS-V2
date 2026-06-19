@@ -108,8 +108,22 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
   `refreshDashboard_`) are non-fatal try/catch — keep it that way.
 - Pipedrive *(branch `pipedrive-integration`, not deployed)*: the **`PIPEDRIVE`
   tab** in SF_DEALER_CONFIG is keyed **one row per `(dealer_key, group)`** (PRIMARY
-  + one per `billing_split` group, each with its own org + per-type `product_map`).
-  Secrets (`PD_API_TOKEN` etc.) live in **ScriptProperties only**, never in repo/sheet.
+  + one per `billing_split` group, each with its own org + per-type `product_map`,
+  now `{type:{product_id, variation_id?}}`). **Col J = `field_overrides`**
+  (`PDCFG.FIELD_OVERRIDES`; was `field_map` in v1): JSON keyed by global rule `id`
+  → `{off:true}` or a full replacement rule. Secrets (`PD_API_TOKEN` etc.) live in
+  **ScriptProperties only**, never in repo/sheet.
+- Pipedrive deal-field mapping is **GLOBAL**, in the **`PIPEDRIVE_SETTINGS`** tab
+  (key/value; row `deal_field_rules` = JSON array). Each rule is mode **copy**
+  (`{id, deal_field, type, mode:"copy", org_field, option_map?}`) or **conditional**
+  (`{id, …, mode:"conditional", group, then_value, else_value}` — IF org-field
+  conditions THEN/ELSE). Resolved at push time by `pdResolveDealFields_` (global
+  rules + per-dealer `field_overrides`), **replacing `pdResolveFieldMap_`**.
+- Pipedrive org-condition engine `pdOrgConditionMatches_`/`pdOrgGroupMatches_`
+  (reads an org's `custom_fields` by key) **fails SAFE** (unknown field/op, empty
+  values, empty group → no match) and is a **parallel mirror** of the targeting
+  engine — it must **not** touch `conditionMatches_`/`groupMatches_`/`ruleMatches_`
+  (those stay byte-for-byte unchanged).
 - Pipedrive idempotency anchor: the deal ID is written to **RUN_LOG col D** the
   instant the API returns it, and a **numeric col D = "deal already created"**
   (dup guard) — so a retry never makes a second deal. `pdFetch_` **never throws**
@@ -122,12 +136,16 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
 2. MBCC/Sprinter shared scraper location — billing split design decision pending.
 3. Stock→VIN fallback lookup (replaces unused `use_stock_not_vin` concept).
 4. Glendale `model_trim_split` key is inert in `data_transforms` — implement or remove.
-5. Pipedrive integration — **implemented on branch `pipedrive-integration`,
-   pending deploy + live config** (`clasp push` + ScriptProperties secrets +
-   PIPEDRIVE config rows). Pushes a finalized run to Pipedrive as a deal with
-   per-type product line items, as a separate explicit step after finalization;
-   `pushRunToPipedrive`, never-throw `pdFetch_`. See the Bridge doc "Pipedrive
-   Integration" section.
+5. Pipedrive integration — **implemented on branch `pipedrive-integration`
+   (v2 model), pending deploy + live config** (`clasp push` + ScriptProperties
+   secrets + `PIPEDRIVE_SETTINGS` global deal-field rules + PIPEDRIVE config rows).
+   Pushes a finalized run to Pipedrive as a deal with per-type product line items
+   (with optional variations), as a separate explicit step after finalization;
+   deal fields come from **global rules** (copy + conditional) with per-dealer
+   `field_overrides`, resolved by `pdResolveDealFields_`; org conditions via the
+   fail-safe parallel engine; `pushRunToPipedrive`, never-throw `pdFetch_`.
+   System Settings nav group (Dealer Rules / Normalization / Data Sources /
+   Pipedrive Settings). See the Bridge doc "Pipedrive Integration" section.
 6. Trim cleanup — trims overflow the print template; full analysis + validated
    auto-cleanup design (global `cleanTrim_` regex pass, feature-flag + dry-run
    gated, plus residual exact-match rules) captured in the Bridge doc

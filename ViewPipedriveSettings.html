@@ -1,0 +1,1056 @@
+<div class="view" id="view-pipedrive-settings" hidden>
+
+
+  <div id="psLoadingOverlay">Loading Pipedrive settings…</div>
+
+  <div class="ps-scroll">
+
+    <!-- ── Connection (global) ──────────────────────────────────────────────── -->
+    <div class="ps-card ps-conn">
+      <div class="ps-section-label">Connection</div>
+
+      <!-- Connected banner (shown when configured) -->
+      <div id="psConnected" class="ps-connected" style="display:none;">
+        <div class="ps-conn-status">
+          <span class="ps-dot"></span>
+          <span>Connected to <strong id="psConnDomain">—</strong></span>
+        </div>
+        <div class="ps-conn-actions">
+          <button class="ps-btn-ghost" id="psRefreshBtn" onclick="psRefreshCatalog()">Refresh from Pipedrive</button>
+          <button class="ps-link" id="psReconfigureBtn" onclick="psShowSetupForm()">Reconfigure</button>
+        </div>
+      </div>
+
+      <!-- Setup form (shown when not configured, or on Reconfigure) -->
+      <div id="psSetupForm" class="ps-setup" style="display:none;">
+        <div class="ps-setup-hint">Enter your Pipedrive API token and company domain. The connection is validated live before it's saved. The token is stored securely on the server and is never returned to this screen.</div>
+        <div class="ps-form-grid">
+          <div class="ps-field">
+            <label for="psToken">API token</label>
+            <input type="password" id="psToken" placeholder="Pipedrive API token" autocomplete="off" />
+          </div>
+          <div class="ps-field">
+            <label for="psDomain">Company domain</label>
+            <input type="text" id="psDomain" placeholder="acme" />
+            <div class="ps-field-hint">The <code>acme</code> in <code>acme.pipedrive.com</code>.</div>
+          </div>
+        </div>
+        <div class="ps-form-grid ps-form-grid-3">
+          <div class="ps-field">
+            <label for="psPipelineId">Default pipeline ID <span class="ps-opt">(optional)</span></label>
+            <input type="number" id="psPipelineId" placeholder="e.g. 1" min="0" />
+          </div>
+          <div class="ps-field">
+            <label for="psStageId">Default stage ID <span class="ps-opt">(optional)</span></label>
+            <input type="number" id="psStageId" placeholder="e.g. 1" min="0" />
+          </div>
+          <div class="ps-field">
+            <label for="psCurrency">Default currency <span class="ps-opt">(optional)</span></label>
+            <input type="text" id="psCurrency" placeholder="USD" maxlength="3" />
+          </div>
+        </div>
+        <div class="ps-setup-actions">
+          <button class="ps-link" id="psCancelSetupBtn" onclick="psCancelSetupForm()" style="display:none;">Cancel</button>
+          <button class="ps-btn-primary" id="psConnectBtn" onclick="psConnect()">Connect</button>
+        </div>
+      </div>
+
+      <div id="psConnLoading" class="ps-placeholder">Checking Pipedrive connection…</div>
+    </div>
+
+    <!-- ── Global deal-field rules ──────────────────────────────────────────── -->
+    <div class="ps-card">
+      <div class="ps-section-label">Global Deal-Field Rules</div>
+      <div class="ps-hint">These rules apply to <strong>every</strong> Pipedrive deal, regardless of dealer. Each rule sets one deal field — either by copying an organization field's value, or conditionally from the organization's fields.</div>
+      <div id="psRulesWrap" class="ps-rules-wrap"></div>
+      <button class="ps-btn-add" id="psAddRuleBtn" onclick="psAddRule()">+ Add rule</button>
+    </div>
+
+  </div>
+
+  <!-- ── Save row ───────────────────────────────────────────────────────────── -->
+  <div class="ps-save-row">
+    <div id="psUnsaved" class="ps-unsaved" style="display:none;">Unsaved changes</div>
+    <button class="ps-btn-secondary" id="psDiscardBtn" onclick="psDiscard()" disabled>Discard Changes</button>
+    <button class="ps-btn-primary" id="psSaveBtn" onclick="psSave()" disabled>Save Settings</button>
+  </div>
+
+  <!-- ── Status bar ─────────────────────────────────────────────────────────── -->
+  <div id="psStatus" class="empty"></div>
+</div>
+
+<style>
+#view-pipedrive-settings * { box-sizing: border-box; margin: 0; padding: 0; }
+  #view-pipedrive-settings {
+    font-family: var(--font-body);
+    font-size: 13px;
+    color: var(--text);
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+    position: relative;   /* scope the loading overlay to this view */
+  }
+
+  /* ── Loading overlay ─────────────────────────────────────────────────────── */
+  #view-pipedrive-settings #psLoadingOverlay {
+    position: absolute;
+    inset: 0;
+    background: var(--bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    color: var(--text-3);
+    z-index: 100;
+  }
+  #view-pipedrive-settings #psLoadingOverlay.hidden { display: none; }
+
+  /* ── Scroll body ─────────────────────────────────────────────────────────── */
+  #view-pipedrive-settings .ps-scroll {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 16px 18px;
+  }
+
+  /* ── Cards ───────────────────────────────────────────────────────────────── */
+  #view-pipedrive-settings .ps-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    margin-bottom: 14px;
+  }
+  #view-pipedrive-settings .ps-section-label {
+    font-family: var(--font-head);
+    font-size: var(--fs-h3);
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+  #view-pipedrive-settings .ps-sub-label {
+    font-size: 11px; font-weight: bold; text-transform: uppercase;
+    letter-spacing: 0.3px; color: var(--text-3); margin: 12px 0 6px;
+  }
+  #view-pipedrive-settings .ps-hint { font-size: 11px; color: var(--text-3); line-height: 1.5; margin-bottom: 10px; }
+  #view-pipedrive-settings .ps-hint code,
+  #view-pipedrive-settings .ps-field-hint code {
+    font-family: monospace; background: var(--surface-2);
+    padding: 0 4px; border-radius: 3px; color: var(--text-2);
+  }
+  #view-pipedrive-settings .ps-placeholder {
+    color: var(--text-muted); font-size: 12px; font-style: italic;
+    padding: 14px 0; text-align: center;
+  }
+
+  /* ── Connection ──────────────────────────────────────────────────────────── */
+  #view-pipedrive-settings .ps-connected {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap;
+  }
+  #view-pipedrive-settings .ps-conn-status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text); }
+  #view-pipedrive-settings .ps-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--success); flex-shrink: 0; }
+  #view-pipedrive-settings .ps-conn-actions { display: flex; align-items: center; gap: 10px; }
+  #view-pipedrive-settings .ps-link {
+    background: none; border: none; color: var(--accent); cursor: pointer;
+    font-size: 12px; font-weight: bold; padding: 2px 4px; text-decoration: underline;
+  }
+  #view-pipedrive-settings .ps-link:hover { color: var(--accent-hover); }
+
+  #view-pipedrive-settings .ps-setup-hint { font-size: 11px; color: var(--text-3); line-height: 1.5; margin-bottom: 10px; }
+  #view-pipedrive-settings .ps-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+  #view-pipedrive-settings .ps-form-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  #view-pipedrive-settings .ps-field { display: flex; flex-direction: column; gap: 3px; }
+  #view-pipedrive-settings .ps-field label { font-size: 11px; font-weight: bold; color: var(--text-2); }
+  #view-pipedrive-settings .ps-field input[type="text"],
+  #view-pipedrive-settings .ps-field input[type="password"],
+  #view-pipedrive-settings .ps-field input[type="number"] {
+    padding: 6px 8px; font-size: 13px;
+    border: 1px solid var(--border-2); border-radius: 4px; width: 100%;
+    background: var(--bg); color: var(--text);
+  }
+  #view-pipedrive-settings .ps-field input:focus { outline: none; border-color: var(--accent); }
+  #view-pipedrive-settings .ps-field-hint { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+  #view-pipedrive-settings .ps-opt { color: var(--text-muted); font-weight: normal; }
+  #view-pipedrive-settings .ps-setup-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+
+  /* ── Rules ───────────────────────────────────────────────────────────────── */
+  #view-pipedrive-settings .ps-rules-wrap { display: flex; flex-direction: column; gap: 12px; margin-bottom: 10px; }
+  #view-pipedrive-settings .ps-empty { color: var(--text-3); font-style: italic; font-size: 12px; padding: 4px 0; }
+  #view-pipedrive-settings .ps-rule {
+    border: 1px solid var(--border); border-radius: 6px; background: var(--bg);
+  }
+  #view-pipedrive-settings .ps-rule-head {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 8px 10px; border-bottom: 1px solid var(--border);
+    background: var(--accent-weak); border-radius: 6px 6px 0 0;
+  }
+  #view-pipedrive-settings .ps-rule-head .ps-set { font-weight: bold; color: var(--text); }
+  #view-pipedrive-settings .ps-rule-body { padding: 10px; }
+  #view-pipedrive-settings .ps-deal-select,
+  #view-pipedrive-settings .ps-org-select,
+  #view-pipedrive-settings .ps-mode-select {
+    padding: 4px 6px; font-size: 12px; border: 1px solid var(--border-2);
+    border-radius: 4px; background: var(--bg); color: var(--text);
+  }
+  #view-pipedrive-settings .ps-deal-select:focus,
+  #view-pipedrive-settings .ps-org-select:focus,
+  #view-pipedrive-settings .ps-mode-select:focus { outline: none; border-color: var(--accent); }
+  #view-pipedrive-settings .ps-type-badge {
+    padding: 2px 8px; font-size: 10px; font-weight: bold; text-transform: uppercase;
+    letter-spacing: 0.3px; border-radius: 10px; background: var(--accent-weak); color: var(--accent);
+  }
+  #view-pipedrive-settings .ps-x {
+    border: none; background: var(--border); color: var(--text-3); cursor: pointer;
+    border-radius: 4px; padding: 2px 8px; font-size: 13px; line-height: 1;
+  }
+  #view-pipedrive-settings .ps-x:hover { background: var(--danger-weak); color: var(--danger); }
+
+  /* Mode segmented control */
+  #view-pipedrive-settings .ps-mode-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+  #view-pipedrive-settings .ps-mode-seg { display: inline-flex; border: 1px solid var(--border-2); border-radius: 6px; overflow: hidden; }
+  #view-pipedrive-settings .ps-mode-seg button {
+    border: none; background: var(--bg); color: var(--text-2);
+    font-size: 12px; font-weight: bold; padding: 5px 14px; cursor: pointer;
+  }
+  #view-pipedrive-settings .ps-mode-seg button + button { border-left: 1px solid var(--border-2); }
+  #view-pipedrive-settings .ps-mode-seg button.active { background: var(--accent); color: var(--on-accent); }
+  #view-pipedrive-settings .ps-mode-label { font-size: 11px; color: var(--text-3); }
+
+  /* Copy mode */
+  #view-pipedrive-settings .ps-copy-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  #view-pipedrive-settings .ps-copy-row .ps-arrow { color: var(--accent); font-weight: bold; font-size: 14px; }
+
+  /* Option map table (copy enum/set + then/else not used here) */
+  #view-pipedrive-settings .ps-opt-table {
+    width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px;
+    border-top: 1px dashed var(--border-2);
+  }
+  #view-pipedrive-settings .ps-opt-table th {
+    background: var(--surface-2); padding: 5px 8px; text-align: left;
+    font-size: 10px; font-weight: bold; text-transform: uppercase;
+    letter-spacing: 0.3px; color: var(--text-3); border-bottom: 1px solid var(--border);
+  }
+  #view-pipedrive-settings .ps-opt-table td {
+    padding: 5px 8px; border-bottom: 1px solid var(--border); vertical-align: middle;
+  }
+  #view-pipedrive-settings .ps-opt-table tr:last-child td { border-bottom: none; }
+  #view-pipedrive-settings .ps-opt-table td:first-child { width: 45%; color: var(--text-2); }
+  #view-pipedrive-settings .ps-opt-table select {
+    padding: 4px 6px; font-size: 12px; border: 1px solid var(--border-2);
+    border-radius: 4px; width: 100%; background: var(--bg); color: var(--text);
+  }
+  #view-pipedrive-settings .ps-opt-table select:focus { outline: none; border-color: var(--accent); }
+
+  /* Conditional mode — reused AND/OR group builder (mirrors ViewRules .tr-*) */
+  #view-pipedrive-settings .ps-group {
+    border: 1px dashed var(--border-2); border-radius: 5px; padding: 6px 8px; background: var(--bg);
+  }
+  #view-pipedrive-settings .ps-group .ps-group { background: var(--surface-2); margin-top: 4px; }
+  #view-pipedrive-settings .ps-group-head {
+    display: flex; align-items: center; gap: 6px; margin-bottom: 6px;
+    font-size: 12px; color: var(--text-2);
+  }
+  #view-pipedrive-settings .ps-match {
+    padding: 2px 5px; font-size: 11px; border: 1px solid var(--border-2); border-radius: 4px;
+    font-weight: bold; background: var(--bg); color: var(--text);
+  }
+  #view-pipedrive-settings .ps-children { display: flex; flex-direction: column; gap: 5px; }
+  #view-pipedrive-settings .ps-cond { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  #view-pipedrive-settings .ps-cond select,
+  #view-pipedrive-settings .ps-cond input {
+    padding: 3px 5px; font-size: 12px; border: 1px solid var(--border-2); border-radius: 4px;
+    background: var(--bg); color: var(--text);
+  }
+  #view-pipedrive-settings .ps-cond .ps-cond-field { min-width: 130px; }
+  #view-pipedrive-settings .ps-cond .ps-cond-op { min-width: 130px; }
+  #view-pipedrive-settings .ps-cond .ps-cond-values { flex: 1; min-width: 140px; }
+  #view-pipedrive-settings .ps-group-actions { margin-top: 6px; display: flex; gap: 6px; }
+  #view-pipedrive-settings .ps-add {
+    border: 1px solid var(--border-2); background: var(--bg); color: var(--accent-hover); cursor: pointer;
+    border-radius: 4px; padding: 2px 8px; font-size: 11px;
+  }
+  #view-pipedrive-settings .ps-add:hover { background: var(--accent-weak); }
+
+  /* THEN / ELSE values */
+  #view-pipedrive-settings .ps-thenelse { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+  #view-pipedrive-settings .ps-te-field { display: flex; flex-direction: column; gap: 3px; }
+  #view-pipedrive-settings .ps-te-field label { font-size: 11px; font-weight: bold; color: var(--text-2); }
+  #view-pipedrive-settings .ps-te-field select,
+  #view-pipedrive-settings .ps-te-field input {
+    padding: 6px 8px; font-size: 12px; border: 1px solid var(--border-2); border-radius: 4px;
+    width: 100%; background: var(--bg); color: var(--text);
+  }
+  #view-pipedrive-settings .ps-te-field select:focus,
+  #view-pipedrive-settings .ps-te-field input:focus { outline: none; border-color: var(--accent); }
+
+  /* ── Buttons ─────────────────────────────────────────────────────────────── */
+  #view-pipedrive-settings .ps-btn-add {
+    padding: 5px 12px; background: var(--bg); border: 1px solid var(--accent);
+    border-radius: 4px; font-size: 12px; color: var(--accent); cursor: pointer; font-weight: bold;
+  }
+  #view-pipedrive-settings .ps-btn-add:hover { background: var(--accent-weak); }
+  #view-pipedrive-settings .ps-btn-ghost {
+    padding: 5px 12px; background: var(--bg); border: 1px solid var(--accent);
+    border-radius: 4px; font-size: 12px; color: var(--accent); cursor: pointer; font-weight: bold;
+  }
+  #view-pipedrive-settings .ps-btn-ghost:hover { background: var(--accent-weak); }
+  #view-pipedrive-settings .ps-btn-ghost:disabled { color: var(--text-muted); border-color: var(--border-2); cursor: default; }
+  #view-pipedrive-settings .ps-btn-primary {
+    padding: 8px 20px; background: var(--accent); color: var(--on-accent);
+    border: none; font-size: 13px; font-weight: bold; cursor: pointer; border-radius: 4px;
+  }
+  #view-pipedrive-settings .ps-btn-primary:hover { background: var(--accent-hover); }
+  #view-pipedrive-settings .ps-btn-primary:disabled { background: var(--text-muted); cursor: default; }
+  #view-pipedrive-settings .ps-btn-secondary {
+    padding: 8px 16px; background: var(--bg); color: var(--text-2);
+    border: 1px solid var(--border-2); font-size: 13px; cursor: pointer; border-radius: 4px;
+  }
+  #view-pipedrive-settings .ps-btn-secondary:hover { background: var(--surface); }
+
+  /* ── Save row ────────────────────────────────────────────────────────────── */
+  #view-pipedrive-settings .ps-save-row {
+    display: flex; justify-content: flex-end; gap: 8px;
+    padding: 12px 16px; border-top: 1px solid var(--border); flex-shrink: 0;
+  }
+  #view-pipedrive-settings .ps-unsaved { font-size: 11px; color: var(--warning); align-self: center; }
+
+  /* ── Status bar ──────────────────────────────────────────────────────────── */
+  #view-pipedrive-settings #psStatus {
+    font-size: 12px; padding: 5px 16px; height: 28px; line-height: 18px;
+    flex-shrink: 0; border-top: 1px solid var(--border);
+  }
+  #view-pipedrive-settings #psStatus.empty { background: none; }
+  #view-pipedrive-settings #psStatus.info { background: var(--accent-weak); color: var(--accent); }
+  #view-pipedrive-settings #psStatus.success { background: var(--success-weak); color: var(--success); }
+  #view-pipedrive-settings #psStatus.error { background: var(--danger-weak); color: var(--danger); }
+
+  /* themed root (overrides the interim .view light guard) */
+  #view-pipedrive-settings { background: var(--bg); color: var(--text); }
+</style>
+
+<script>
+  // ════════════════════════════════════════════════════════════════════════════
+  // PIPEDRIVE SETTINGS (global) — connection + global deal-field rules.
+  // Rule model (client):
+  //   { id, deal_field, type, mode:'copy'|'conditional',
+  //     org_field?, option_map?:{orgOptId:dealOptId},               // copy
+  //     group?:{id,match,children:[cond|group]}, then_value?, else_value? } // conditional
+  // A condition leaf is { id, field:<orgFieldKey>, op, values:'<comma text>' }.
+  // ════════════════════════════════════════════════════════════════════════════
+  var psConfigured  = false;
+  var psDefaults    = {};
+  var psDealFields  = [];   // [{key,name,field_type,options:[{id,label}]}]
+  var psOrgFields   = [];   // same shape
+  var psRules       = [];   // live working model
+  var psLoaded      = false;
+  var psDirty       = false;
+
+  var PS_OPS = ['in','not_in','contains','not_contains','gte','lte','gt','lt'];
+  var PS_OP_LABELS = {
+    in: 'is one of', not_in: 'is not one of', contains: 'contains',
+    not_contains: "doesn't contain", gte: 'at least (≥)', lte: 'at most (≤)',
+    gt: 'greater than (>)', lt: 'less than (<)'
+  };
+  var PS_NUMERIC_OPS = { gte: true, lte: true, gt: true, lt: true };
+
+  // ── Init (lazy — first nav into the view) ──────────────────────────────────
+  function initPipedriveSettingsView() {
+    psLoadBootstrap(false);
+  }
+  window.VIEW_INITS = window.VIEW_INITS || {};
+  VIEW_INITS['view-pipedrive-settings'] = initPipedriveSettingsView;
+
+  // Close guard: unsaved settings shouldn't be lost silently.
+  if (window.AppGuards) {
+    AppGuards.register(function() {
+      return psDirty ? 'Unsaved Pipedrive settings' : null;
+    });
+  }
+
+  // ── Bootstrap load (connection + catalog + saved rules in one round trip) ──
+  function psLoadBootstrap(refresh) {
+    var overlay = document.getElementById('psLoadingOverlay');
+    if (overlay && !refresh) overlay.classList.remove('hidden');
+    var rbtn = document.getElementById('psRefreshBtn');
+    if (refresh && rbtn) { rbtn.disabled = true; rbtn.textContent = 'Refreshing…'; }
+
+    google.script.run
+      .withSuccessHandler(function(b) {
+        b = b || {};
+        psConfigured = !!b.configured;
+        psDefaults   = b.defaults || {};
+        psDealFields = b.dealFields || [];
+        psOrgFields  = b.orgFields || [];
+        psRules      = psDeserializeRules_(b.rules || []);
+        psLoaded     = true;
+        psDirty      = false;
+        psRenderConnection_(b.domain || (b.defaults && b.defaults.domain) || '');
+        psRenderRules_();
+        psUpdateDirty_();
+        if (overlay) overlay.classList.add('hidden');
+        if (rbtn) { rbtn.disabled = false; rbtn.textContent = 'Refresh from Pipedrive'; }
+        if (refresh) toast('Refreshed from Pipedrive.', 'success');
+      })
+      .withFailureHandler(function(e) {
+        if (overlay) overlay.classList.add('hidden');
+        if (rbtn) { rbtn.disabled = false; rbtn.textContent = 'Refresh from Pipedrive'; }
+        setPsStatus('Error loading settings: ' + e.message, 'error');
+        // getPipedriveSettingsBootstrap doesn't return domain on its own; probe status.
+        psProbeStatus_();
+      })
+      .getPipedriveSettingsBootstrap(!!refresh);
+  }
+
+  // The bootstrap may not carry domain — getPipedriveStatus is authoritative for it.
+  function psProbeStatus_() {
+    google.script.run
+      .withSuccessHandler(function(st) {
+        st = st || {};
+        psConfigured = !!st.configured;
+        if (st.defaults) psDefaults = st.defaults;
+        psRenderConnection_(st.domain || '');
+      })
+      .withFailureHandler(function() {})
+      .getPipedriveStatus();
+  }
+
+  function psRefreshCatalog() { psLoadBootstrap(true); }
+
+  // ── Connection rendering ────────────────────────────────────────────────────
+  function psRenderConnection_(domain) {
+    var loading = document.getElementById('psConnLoading');
+    if (loading) loading.style.display = 'none';
+    var connected = document.getElementById('psConnected');
+    var setup     = document.getElementById('psSetupForm');
+    if (psConfigured) {
+      document.getElementById('psConnDomain').textContent = domain || '(unknown domain)';
+      connected.style.display = 'flex';
+      setup.style.display = 'none';
+      // Pre-fill the (hidden) setup defaults for Reconfigure convenience.
+      document.getElementById('psPipelineId').value = (psDefaults.pipelineId != null) ? psDefaults.pipelineId : '';
+      document.getElementById('psStageId').value    = (psDefaults.stageId != null) ? psDefaults.stageId : '';
+      document.getElementById('psCurrency').value   = psDefaults.currency || '';
+      document.getElementById('psDomain').value     = domain || '';
+      document.getElementById('psCancelSetupBtn').style.display = 'inline-block';
+    } else {
+      connected.style.display = 'none';
+      setup.style.display = 'block';
+      document.getElementById('psCancelSetupBtn').style.display = 'none';
+    }
+  }
+
+  function psShowSetupForm() {
+    document.getElementById('psConnected').style.display = 'none';
+    document.getElementById('psSetupForm').style.display = 'block';
+    document.getElementById('psCancelSetupBtn').style.display = psConfigured ? 'inline-block' : 'none';
+    document.getElementById('psToken').value = '';
+  }
+
+  function psCancelSetupForm() {
+    if (!psConfigured) return;
+    document.getElementById('psSetupForm').style.display = 'none';
+    document.getElementById('psConnected').style.display = 'flex';
+  }
+
+  function psConnect() {
+    var token    = document.getElementById('psToken').value.trim();
+    var domain   = document.getElementById('psDomain').value.trim();
+    var pipeline = document.getElementById('psPipelineId').value.trim();
+    var stage    = document.getElementById('psStageId').value.trim();
+    var currency = document.getElementById('psCurrency').value.trim().toUpperCase();
+
+    if (!token)  { setPsStatus('Enter a Pipedrive API token.', 'error'); return; }
+    if (!domain) { setPsStatus('Enter your Pipedrive company domain.', 'error'); return; }
+
+    var btn = document.getElementById('psConnectBtn');
+    btn.disabled = true; btn.textContent = 'Connecting…';
+
+    google.script.run
+      .withSuccessHandler(function(res) {
+        btn.disabled = false; btn.textContent = 'Connect';
+        res = res || {};
+        toast(res.message || (res.ok ? 'Connected.' : 'Connection failed.'), res.ok ? 'success' : 'error');
+        if (res.ok) {
+          psConfigured = true;
+          // Reload everything fresh now that secrets exist (catalog + saved rules).
+          psLoadBootstrap(true);
+        }
+      })
+      .withFailureHandler(function(e) {
+        btn.disabled = false; btn.textContent = 'Connect';
+        toast('Connection failed: ' + e.message, 'error');
+      })
+      .setupPipedriveSecrets(token, domain,
+        pipeline === '' ? '' : pipeline,
+        stage === '' ? '' : stage,
+        currency);
+  }
+
+  // ── Field-type helpers ──────────────────────────────────────────────────────
+  // Pipedrive deal field_type → the backend's rule `type`.
+  function psFieldType_(fieldType) {
+    var t = String(fieldType || '').toLowerCase();
+    if (t === 'enum') return 'enum';
+    if (t === 'set') return 'set';
+    if (t === 'monetary') return 'monetary';
+    if (t === 'double' || t === 'int' || t === 'integer' || t === 'number' || t === 'numeric') return 'number';
+    return 'text';
+  }
+  function psIsEnumSet_(type) { return type === 'enum' || type === 'set'; }
+
+  function psFindField_(list, key) {
+    for (var i = 0; i < list.length; i++) { if (String(list[i].key) === String(key)) return list[i]; }
+    return null;
+  }
+
+  // ── Rule id generator (client-only; server assigns/preserves stable ids) ────
+  var psIdCounter = 0;
+  function psNextId_() { return 'r' + (++psIdCounter); }
+
+  // ── Model factories ─────────────────────────────────────────────────────────
+  function psNewGroup_()     { return { id: psNextId_(), match: 'all', children: [] }; }
+  function psNewCondition_() {
+    var def = psOrgFields.length ? psOrgFields[0].key : '';
+    return { id: psNextId_(), field: def, op: 'in', values: '' };
+  }
+  function psNewRule_() {
+    var deal = psDealFields.length ? psDealFields[0].key : '';
+    var f = psFindField_(psDealFields, deal);
+    return {
+      id: psNextId_(),
+      deal_field: deal,
+      type: deal ? psFieldType_(f ? f.field_type : '') : 'text',
+      mode: 'copy',
+      org_field: psOrgFields.length ? psOrgFields[0].key : '',
+      option_map: {},
+      group: psNewGroup_(),
+      then_value: '',
+      else_value: ''
+    };
+  }
+
+  // ── Deserialize server rules → client model ─────────────────────────────────
+  // NOTE: helper names are ps-prefixed because the App shell parses every view
+  // fragment into ONE global scope — ViewRules.html also declares renderGroup_/
+  // renderCondition_/serializeGroup_/deserializeGroup_/renderOptionMap_/escAttr_.
+  // Sharing those names would let the last-parsed fragment clobber the other view.
+  function psDeserializeRules_(arr) {
+    if (!Array.isArray(arr)) return [];
+    return arr.map(function(r) { return psDeserializeOneRule_(r, psDealFields, psOrgFields); });
+  }
+  // PUBLIC: deserialize ONE server rule → editable client model (assigns ids).
+  // dealFields/orgFields are passed explicitly so ViewRules can deserialize a
+  // saved override against its own (identical) catalog. Reused by ViewRules.
+  function psDeserializeOneRule_(r, dealFields, orgFields) {
+    r = r || {};
+    dealFields = dealFields || psDealFields;
+    orgFields  = orgFields || psOrgFields;
+    var mode = (r.mode === 'conditional') ? 'conditional' : 'copy';
+    var dealF = psFindField_(dealFields, r.deal_field);
+    return {
+      id: psNextId_(),
+      deal_field: r.deal_field || '',
+      type: r.type || (r.deal_field ? psFieldType_(dealF ? dealF.field_type : '') : 'text'),
+      mode: mode,
+      org_field: r.org_field || (orgFields.length ? orgFields[0].key : ''),
+      option_map: (r.option_map && typeof r.option_map === 'object')
+        ? JSON.parse(JSON.stringify(r.option_map)) : {},
+      group: psDeserializeGroup_(r.group, orgFields),
+      then_value: (r.then_value != null) ? String(r.then_value) : '',
+      else_value: (r.else_value != null) ? String(r.else_value) : ''
+    };
+  }
+  function psDeserializeGroup_(g, orgFields) {
+    orgFields = orgFields || psOrgFields;
+    var grp = psNewGroup_();
+    if (!g || typeof g !== 'object') return grp;
+    grp.match = (String(g.match).toLowerCase() === 'any') ? 'any' : 'all';
+    grp.children = (Array.isArray(g.children) ? g.children : []).map(function(ch) {
+      if (ch && Array.isArray(ch.children)) return psDeserializeGroup_(ch, orgFields);
+      return {
+        id: psNextId_(),
+        field: (ch && ch.field) ? String(ch.field) : (orgFields.length ? orgFields[0].key : ''),
+        op: (ch && ch.op) ? String(ch.op) : 'in',
+        values: (ch && Array.isArray(ch.values)) ? ch.values.join(', ') : String((ch && ch.values) || '')
+      };
+    });
+    return grp;
+  }
+
+  // ── Serialize client model → server JSON (prune incompletes) ────────────────
+  function psSerializeRules_() {
+    var out = [];
+    psRules.forEach(function(r) {
+      var entry = psSerializeOneRule_(r);
+      if (entry) out.push(entry);
+    });
+    return out;
+  }
+  // PUBLIC: serialize ONE client rule model → server JSON, or null if incomplete.
+  // Identical shape to the global array's entries (so a per-dealer override
+  // replacement matches a global rule minus its id). Reused by ViewRules.
+  function psSerializeOneRule_(r) {
+    if (!r || !r.deal_field) return null;            // a rule must set a deal field
+    var entry = { deal_field: r.deal_field, type: r.type || 'text', mode: r.mode };
+    if (r.mode === 'copy') {
+      if (!r.org_field) return null;                 // copy needs a source field
+      entry.org_field = r.org_field;
+      if (psIsEnumSet_(r.type) && r.option_map && Object.keys(r.option_map).length > 0) {
+        entry.option_map = r.option_map;
+      }
+    } else {
+      var grp = psSerializeGroup_(r.group);
+      if (grp.children.length === 0) return null;    // conditional needs ≥1 condition
+      entry.group = grp;
+      entry.then_value = psCoerceValue_(r.type, r.then_value);
+      entry.else_value = psCoerceValue_(r.type, r.else_value);
+    }
+    return entry;
+  }
+  function psSerializeGroup_(group) {
+    var children = [];
+    (group.children || []).forEach(function(ch) {
+      if (ch.children) {
+        var sg = psSerializeGroup_(ch);
+        if (sg.children.length > 0) children.push(sg);
+        return;
+      }
+      var vals = String(ch.values || '').split(',')
+                   .map(function(s){ return s.trim(); }).filter(function(s){ return s !== ''; });
+      if (!ch.field || !ch.op || vals.length === 0) return;
+      var values;
+      if (PS_NUMERIC_OPS[ch.op]) {
+        var n = parseFloat(String(vals[0]).replace(/[$,]/g, ''));
+        values = isNaN(n) ? vals : [n];
+      } else {
+        values = vals;
+      }
+      children.push({ field: ch.field, op: ch.op, values: values });
+    });
+    return { match: group.match || 'all', children: children };
+  }
+  // THEN/ELSE coercion: numbers become Number, enum/set/text stay strings (ids/labels).
+  function psCoerceValue_(type, raw) {
+    if (raw === '' || raw == null) return '';
+    if (type === 'number' || type === 'monetary') {
+      var n = parseFloat(String(raw).replace(/[$,]/g, ''));
+      return isNaN(n) ? raw : n;
+    }
+    return String(raw);
+  }
+
+  // ── Rule-editor CONTEXT registry ────────────────────────────────────────────
+  // The per-rule card editor is reused by TWO screens — the global Settings list
+  // (this file) and ViewRules' per-dealer "Override…" body. To avoid reading
+  // module globals or dispatching against the shared psRules array, every editor
+  // render + mutation is parameterized by a CONTEXT id. A context supplies the
+  // field schemas, defaults, the rule lookup, an onChange hook, a re-render hook,
+  // and per-screen flags (lock the deal field / show the remove button).
+  //
+  //   psRegisterRuleCtx_(ctxId, {
+  //     findRule(ruleId)->rule, dealFields[], orgFields[], defaults{},
+  //     onChange(), rerender(), dealFieldLocked:bool, showRemove:bool })
+  //
+  // The global screen registers 'global' below; ViewRules registers its own.
+  var psCtxRegistry = {};
+  function psRegisterRuleCtx_(ctxId, ctx) { psCtxRegistry[ctxId] = ctx; }
+  function psCtx_(ctxId) { return psCtxRegistry[ctxId] || psCtxRegistry['global']; }
+  function psCtxDealFields_(ctxId) { var c = psCtx_(ctxId); return (c && c.dealFields) || psDealFields; }
+  function psCtxOrgFields_(ctxId)  { var c = psCtx_(ctxId); return (c && c.orgFields)  || psOrgFields; }
+  function psCtxDefaults_(ctxId)   { var c = psCtx_(ctxId); return (c && c.defaults)   || psDefaults; }
+  function psCtxOnChange_(ctxId)   { var c = psCtx_(ctxId); if (c && c.onChange) c.onChange(); }
+  function psCtxRerender_(ctxId)   { var c = psCtx_(ctxId); if (c && c.rerender) c.rerender(); }
+
+  // ── Model lookup (context-scoped) ───────────────────────────────────────────
+  function psFindRule_(ctxId, ruleId) {
+    var c = psCtx_(ctxId);
+    return (c && c.findRule) ? c.findRule(ruleId) : null;
+  }
+  // Find a group/condition node by id, scoped to one rule's group tree.
+  function psFindNode_(ctxId, ruleId, nodeId) {
+    var rule = psFindRule_(ctxId, ruleId);
+    if (!rule || !rule.group) return null;
+    if (rule.group.id === nodeId) return rule.group;
+    var loc = psFindParentArray_(ctxId, ruleId, nodeId);
+    return loc ? loc.arr[loc.index] : null;
+  }
+  function psFindParentArray_(ctxId, ruleId, nodeId) {
+    var rule = psFindRule_(ctxId, ruleId);
+    if (!rule || !rule.group) return null;
+    function search(children) {
+      for (var i = 0; i < children.length; i++) {
+        if (children[i].id === nodeId) return { arr: children, index: i };
+        if (children[i].children) {
+          var r = search(children[i].children);
+          if (r) return r;
+        }
+      }
+      return null;
+    }
+    return search(rule.group.children);
+  }
+
+  // The global Settings screen's context: rules live in psRules; structural
+  // changes re-render the whole list; edits flip the screen-level dirty flag.
+  psRegisterRuleCtx_('global', {
+    findRule: function(ruleId) {
+      for (var i = 0; i < psRules.length; i++) { if (psRules[i].id === ruleId) return psRules[i]; }
+      return null;
+    },
+    get dealFields() { return psDealFields; },
+    get orgFields()  { return psOrgFields; },
+    get defaults()   { return psDefaults; },
+    onChange: function() { psMarkDirty_(); },
+    rerender: function() { psRenderRules_(); },
+    dealFieldLocked: false,
+    showRemove: true
+  });
+
+  // ── Mutations (context-scoped) ──────────────────────────────────────────────
+  // The global "Add rule" / "Remove rule" act on psRules directly (the override
+  // editor has exactly one fixed rule, so it renders no add/remove-rule buttons).
+  function psAddRule() {
+    if (!psConfigured) { setPsStatus('Connect Pipedrive above before adding rules.', 'error'); return; }
+    if (!psDealFields.length) { setPsStatus('No Pipedrive deal fields available — try Refresh.', 'error'); return; }
+    psRules.push(psNewRule_());
+    psRenderRules_();
+    psMarkDirty_();
+  }
+  function psRemoveRule(ruleId) {
+    var idx = -1;
+    for (var i = 0; i < psRules.length; i++) { if (psRules[i].id === ruleId) { idx = i; break; } }
+    if (idx === -1) return;
+    psRules.splice(idx, 1);
+    psRenderRules_();
+    psMarkDirty_();
+  }
+  function psSetDealField(ctxId, ruleId, val) {
+    var rule = psFindRule_(ctxId, ruleId);
+    if (!rule) return;
+    rule.deal_field = val;
+    var f = psFindField_(psCtxDealFields_(ctxId), val);
+    rule.type = val ? psFieldType_(f ? f.field_type : '') : 'text';
+    rule.option_map = {};            // option ids no longer apply
+    rule.then_value = '';
+    rule.else_value = '';
+    psCtxRerender_(ctxId);
+    psCtxOnChange_(ctxId);
+  }
+  function psSetMode(ctxId, ruleId, mode) {
+    var rule = psFindRule_(ctxId, ruleId);
+    if (!rule) return;
+    rule.mode = (mode === 'conditional') ? 'conditional' : 'copy';
+    psCtxRerender_(ctxId);
+    psCtxOnChange_(ctxId);
+  }
+  function psSetOrgField(ctxId, ruleId, val) {
+    var rule = psFindRule_(ctxId, ruleId);
+    if (!rule) return;
+    rule.org_field = val;
+    rule.option_map = {};
+    psCtxRerender_(ctxId);
+    psCtxOnChange_(ctxId);
+  }
+  function psSetOptionMap(ctxId, ruleId, orgOptId, dealOptId) {
+    var rule = psFindRule_(ctxId, ruleId);
+    if (!rule) return;
+    if (!rule.option_map) rule.option_map = {};
+    if (dealOptId === '' || dealOptId == null) { delete rule.option_map[orgOptId]; }
+    else { rule.option_map[orgOptId] = dealOptId; }
+    psCtxOnChange_(ctxId);   // no re-render — preserve focus
+  }
+  function psSetThen(ctxId, ruleId, val) { var r = psFindRule_(ctxId, ruleId); if (r) r.then_value = val; psCtxOnChange_(ctxId); }
+  function psSetElse(ctxId, ruleId, val) { var r = psFindRule_(ctxId, ruleId); if (r) r.else_value = val; psCtxOnChange_(ctxId); }
+
+  // Group/condition mutations (context + rule scoped)
+  function psSetGroupMatch(ctxId, ruleId, nodeId, val) { var g = psFindNode_(ctxId, ruleId, nodeId); if (g) g.match = val; psCtxOnChange_(ctxId); }
+  function psAddCondition(ctxId, ruleId, groupId) { var g = psFindNode_(ctxId, ruleId, groupId); if (g) g.children.push(psNewCondition_()); psCtxRerender_(ctxId); psCtxOnChange_(ctxId); }
+  function psAddGroup(ctxId, ruleId, groupId)     { var g = psFindNode_(ctxId, ruleId, groupId); if (g) g.children.push(psNewGroup_()); psCtxRerender_(ctxId); psCtxOnChange_(ctxId); }
+  function psRemoveNode(ctxId, ruleId, nodeId)    { var loc = psFindParentArray_(ctxId, ruleId, nodeId); if (loc) loc.arr.splice(loc.index, 1); psCtxRerender_(ctxId); psCtxOnChange_(ctxId); }
+  function psSetCondField(ctxId, ruleId, nodeId, val) {
+    var n = psFindNode_(ctxId, ruleId, nodeId);
+    if (!n) return;
+    n.field = val;
+    n.values = '';   // org field changed → values (esp. option ids) no longer apply
+    psCtxRerender_(ctxId);  // enum/set vs free-text input may change
+    psCtxOnChange_(ctxId);
+  }
+  function psSetCondOp(ctxId, ruleId, nodeId, val)     { var n = psFindNode_(ctxId, ruleId, nodeId); if (n) n.op = val; psCtxOnChange_(ctxId); }
+  function psSetCondValues(ctxId, ruleId, nodeId, val) { var n = psFindNode_(ctxId, ruleId, nodeId); if (n) n.values = val; psCtxOnChange_(ctxId); }  // no re-render (focus)
+  function psSetCondOptionValues(ctxId, ruleId, nodeId, selectEl) {
+    var n = psFindNode_(ctxId, ruleId, nodeId);
+    if (!n) return;
+    var picked = [];
+    for (var i = 0; i < selectEl.options.length; i++) {
+      if (selectEl.options[i].selected && selectEl.options[i].value !== '') picked.push(selectEl.options[i].value);
+    }
+    n.values = picked.join(', ');
+    psCtxOnChange_(ctxId);   // no re-render — keep the multi-select open/focused
+  }
+
+  // ── Render ──────────────────────────────────────────────────────────────────
+  function psRenderRules_() {
+    var wrap = document.getElementById('psRulesWrap');
+    if (!psConfigured) {
+      wrap.innerHTML = '<div class="ps-placeholder">Connect Pipedrive above to configure global deal-field rules.</div>';
+      return;
+    }
+    if (!psRules.length) {
+      wrap.innerHTML = '<div class="ps-empty">No global deal-field rules configured.</div>';
+      return;
+    }
+    wrap.innerHTML = psRules.map(function(rule) { return psRenderRuleCard_('global', rule); }).join('');
+  }
+
+  // ── PUBLIC: render one rule card for a given context ────────────────────────
+  // Reused by ViewRules' Override… body (it passes its own ctxId). `dealFieldLocked`
+  // renders the deal field read-only; `showRemove` hides the remove-rule button.
+  function psRenderRuleCard_(ctxId, rule) {
+    var ctx       = psCtx_(ctxId) || {};
+    var locked    = !!ctx.dealFieldLocked;
+    var showRem   = (ctx.showRemove !== false);
+    var dealFields = psCtxDealFields_(ctxId);
+
+    var dealField;
+    if (locked) {
+      var df = psFindField_(dealFields, rule.deal_field);
+      dealField = '<span class="ps-deal-fixed">' + escHtml(df ? df.name : (rule.deal_field || '(unknown field)')) + '</span>';
+    } else {
+      var dealOpts = '<option value="">— deal field —</option>' + dealFields.map(function(f) {
+        return '<option value="' + psEscAttr_(f.key) + '"' + (String(f.key) === String(rule.deal_field) ? ' selected' : '') +
+          '>' + escHtml(f.name) + '</option>';
+      }).join('');
+      dealField = '<select class="ps-deal-select" onchange="psSetDealField(\'' + ctxId + '\', \'' + rule.id + '\', this.value)">' + dealOpts + '</select>';
+    }
+    var typeBadge = rule.type ? '<span class="ps-type-badge">' + escHtml(rule.type) + '</span>' : '';
+    var removeBtn = showRem
+      ? '<button class="ps-x" title="Remove rule" onclick="psRemoveRule(\'' + rule.id + '\')" style="margin-left:auto;">✕ Remove</button>'
+      : '';
+
+    var modeSeg =
+      '<div class="ps-mode-seg">' +
+        '<button class="' + (rule.mode === 'copy' ? 'active' : '') + '" onclick="psSetMode(\'' + ctxId + '\', \'' + rule.id + '\', \'copy\')">Copy</button>' +
+        '<button class="' + (rule.mode === 'conditional' ? 'active' : '') + '" onclick="psSetMode(\'' + ctxId + '\', \'' + rule.id + '\', \'conditional\')">Conditional</button>' +
+      '</div>';
+
+    var body = (rule.mode === 'copy') ? psRenderCopyBody_(ctxId, rule) : psRenderConditionalBody_(ctxId, rule);
+
+    return '<div class="ps-rule">' +
+      '<div class="ps-rule-head">' +
+        '<span class="ps-set">SET</span>' +
+        dealField +
+        typeBadge +
+        removeBtn +
+      '</div>' +
+      '<div class="ps-rule-body">' +
+        '<div class="ps-mode-row">' + modeSeg + '<span class="ps-mode-label">' +
+          (rule.mode === 'copy' ? 'Set the deal field to an organization field\'s value.'
+                                : 'Set the deal field conditionally from the organization\'s fields.') +
+        '</span></div>' +
+        body +
+      '</div>' +
+    '</div>';
+  }
+
+  // Copy mode body — org field select (+ option map for enum/set)
+  function psRenderCopyBody_(ctxId, rule) {
+    var orgFields = psCtxOrgFields_(ctxId);
+    var orgOpts = '<option value="">— org field —</option>' + orgFields.map(function(f) {
+      return '<option value="' + psEscAttr_(f.key) + '"' + (String(f.key) === String(rule.org_field) ? ' selected' : '') +
+        '>' + escHtml(f.name) + '</option>';
+    }).join('');
+    var optTable = '';
+    if (psIsEnumSet_(rule.type)) {
+      optTable = psRenderOptionMap_(ctxId, rule);
+    }
+    return '<div class="ps-copy-row">' +
+        '<span>From org field</span>' +
+        '<select class="ps-org-select" onchange="psSetOrgField(\'' + ctxId + '\', \'' + rule.id + '\', this.value)">' + orgOpts + '</select>' +
+        '<span class="ps-arrow" aria-hidden="true">→</span>' +
+        '<span>this deal field</span>' +
+      '</div>' + optTable;
+  }
+
+  // Option map sub-table — org option → deal option (only when both fields enum/set with options)
+  function psRenderOptionMap_(ctxId, rule) {
+    var orgF  = psFindField_(psCtxOrgFields_(ctxId), rule.org_field);
+    var dealF = psFindField_(psCtxDealFields_(ctxId), rule.deal_field);
+    if (!orgF || !orgF.options || !orgF.options.length) return '';
+    var dealOptions = (dealF && dealF.options) ? dealF.options : [];
+    var rows = orgF.options.map(function(oo) {
+      var chosen = rule.option_map ? rule.option_map[oo.id] : '';
+      var opts = '<option value="">— pass through —</option>' + dealOptions.map(function(dopt) {
+        return '<option value="' + psEscAttr_(dopt.id) + '"' + (String(dopt.id) === String(chosen) ? ' selected' : '') +
+          '>' + escHtml(dopt.label) + '</option>';
+      }).join('');
+      return '<tr>' +
+        '<td>' + escHtml(oo.label) + '</td>' +
+        '<td><select onchange="psSetOptionMap(\'' + ctxId + '\', \'' + rule.id + '\', \'' + psEscAttr_(oo.id) + '\', this.value)">' + opts + '</select></td>' +
+      '</tr>';
+    }).join('');
+    return '<table class="ps-opt-table"><thead><tr><th>Org option</th><th>Deal option</th></tr></thead><tbody>' +
+      rows + '</tbody></table>';
+  }
+
+  // Conditional mode body — recursive AND/OR group (org-field conditions) + THEN/ELSE
+  function psRenderConditionalBody_(ctxId, rule) {
+    return '<div class="ps-sub-label">IF the organization matches</div>' +
+      psRenderGroup_(ctxId, rule.id, rule.group, true) +
+      '<div class="ps-thenelse">' +
+        '<div class="ps-te-field"><label>THEN value</label>' + psRenderValuePicker_(ctxId, rule, 'then') + '</div>' +
+        '<div class="ps-te-field"><label>ELSE value</label>' + psRenderValuePicker_(ctxId, rule, 'else') + '</div>' +
+      '</div>';
+  }
+
+  // THEN/ELSE value picker adapts to the deal field's type.
+  function psRenderValuePicker_(ctxId, rule, which) {
+    var val = (which === 'then') ? rule.then_value : rule.else_value;
+    var setter = (which === 'then') ? 'psSetThen' : 'psSetElse';
+    if (psIsEnumSet_(rule.type)) {
+      var dealF = psFindField_(psCtxDealFields_(ctxId), rule.deal_field);
+      var options = (dealF && dealF.options) ? dealF.options : [];
+      var opts = '<option value="">— none —</option>' + options.map(function(o) {
+        return '<option value="' + psEscAttr_(o.id) + '"' + (String(o.id) === String(val) ? ' selected' : '') +
+          '>' + escHtml(o.label) + '</option>';
+      }).join('');
+      return '<select onchange="' + setter + '(\'' + ctxId + '\', \'' + rule.id + '\', this.value)">' + opts + '</select>';
+    }
+    if (rule.type === 'number' || rule.type === 'monetary') {
+      var defaults = psCtxDefaults_(ctxId);
+      var curHint = (rule.type === 'monetary' && defaults.currency) ? (' (' + psEscAttr_(defaults.currency) + ')') : '';
+      return '<input type="number" value="' + psEscAttr_(val) + '" placeholder="numeric value' + curHint + '" ' +
+        'oninput="' + setter + '(\'' + ctxId + '\', \'' + rule.id + '\', this.value)" />';
+    }
+    return '<input type="text" value="' + psEscAttr_(val) + '" placeholder="text value" ' +
+      'oninput="' + setter + '(\'' + ctxId + '\', \'' + rule.id + '\', this.value)" />';
+  }
+
+  // Recursive group render — context + rule scoped.
+  function psRenderGroup_(ctxId, ruleId, group, isRoot) {
+    var matchSel = '<select class="ps-match" onchange="psSetGroupMatch(\'' + ctxId + '\', \'' + ruleId + '\', \'' + group.id + '\', this.value)">' +
+      '<option value="all"' + (group.match !== 'any' ? ' selected' : '') + '>ALL (AND)</option>' +
+      '<option value="any"' + (group.match === 'any' ? ' selected' : '') + '>ANY (OR)</option>' +
+      '</select>';
+    var removeBtn = isRoot ? '' :
+      '<button class="ps-x" title="Remove group" onclick="psRemoveNode(\'' + ctxId + '\', \'' + ruleId + '\', \'' + group.id + '\')" style="margin-left:auto;">✕</button>';
+    var kids = group.children.length
+      ? group.children.map(function(ch) {
+          return ch.children ? psRenderGroup_(ctxId, ruleId, ch, false) : psRenderCondition_(ctxId, ruleId, ch);
+        }).join('')
+      : '<div class="ps-empty">No conditions yet.</div>';
+    return '<div class="ps-group">' +
+      '<div class="ps-group-head">Match ' + matchSel + ' of the following:' + removeBtn + '</div>' +
+      '<div class="ps-children">' + kids + '</div>' +
+      '<div class="ps-group-actions">' +
+        '<button class="ps-add" onclick="psAddCondition(\'' + ctxId + '\', \'' + ruleId + '\', \'' + group.id + '\')">+ Condition</button>' +
+        '<button class="ps-add" onclick="psAddGroup(\'' + ctxId + '\', \'' + ruleId + '\', \'' + group.id + '\')">+ Group</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function psRenderCondition_(ctxId, ruleId, cond) {
+    var orgFields = psCtxOrgFields_(ctxId);
+    var fieldOpts = orgFields.map(function(f) {
+      return '<option value="' + psEscAttr_(f.key) + '"' + (String(f.key) === String(cond.field) ? ' selected' : '') +
+        '>' + escHtml(f.name) + '</option>';
+    }).join('');
+    var opOpts = PS_OPS.map(function(o) {
+      return '<option value="' + psEscAttr_(o) + '"' + (o === cond.op ? ' selected' : '') + '>' +
+        escHtml(PS_OP_LABELS[o] || o) + '</option>';
+    }).join('');
+
+    // Values input: enum/set org field → option-id multi-select; else free text.
+    var valuesInput;
+    var orgF = psFindField_(orgFields, cond.field);
+    if (orgF && psIsEnumSet_(psFieldType_(orgF.field_type))) {
+      var chosen = String(cond.values || '').split(',').map(function(s){ return s.trim(); });
+      var opts = (orgF.options || []).map(function(o) {
+        var isSel = chosen.indexOf(String(o.id)) !== -1;
+        return '<option value="' + psEscAttr_(o.id) + '"' + (isSel ? ' selected' : '') + '>' + escHtml(o.label) + '</option>';
+      }).join('');
+      valuesInput = '<select class="ps-cond-values" multiple size="3" ' +
+        'onchange="psSetCondOptionValues(\'' + ctxId + '\', \'' + ruleId + '\', \'' + cond.id + '\', this)">' + opts + '</select>';
+    } else {
+      var valEsc = psEscAttr_(cond.values);
+      valuesInput = '<input type="text" class="ps-cond-values" value="' + valEsc + '" placeholder="e.g. East, West" ' +
+        'oninput="psSetCondValues(\'' + ctxId + '\', \'' + ruleId + '\', \'' + cond.id + '\', this.value)" />';
+    }
+
+    return '<div class="ps-cond">' +
+      '<select class="ps-cond-field" onchange="psSetCondField(\'' + ctxId + '\', \'' + ruleId + '\', \'' + cond.id + '\', this.value)">' + fieldOpts + '</select>' +
+      '<select class="ps-cond-op" onchange="psSetCondOp(\'' + ctxId + '\', \'' + ruleId + '\', \'' + cond.id + '\', this.value)">' + opOpts + '</select>' +
+      valuesInput +
+      '<button class="ps-x" title="Remove condition" onclick="psRemoveNode(\'' + ctxId + '\', \'' + ruleId + '\', \'' + cond.id + '\')">✕</button>' +
+    '</div>';
+  }
+
+  // ── Save / discard ──────────────────────────────────────────────────────────
+  function psSave() {
+    if (!psConfigured) { setPsStatus('Connect Pipedrive before saving.', 'error'); return; }
+    var rules = psSerializeRules_();
+    var btn = document.getElementById('psSaveBtn');
+    btn.disabled = true; btn.textContent = 'Saving…';
+
+    google.script.run
+      .withSuccessHandler(function(res) {
+        res = res || {};
+        psDirty = false;
+        psUpdateDirty_();
+        btn.disabled = false; btn.textContent = 'Save Settings';
+        setPsStatus('Pipedrive settings saved.', 'success');
+        toast('Saved ' + (res.count != null ? res.count : rules.length) + ' global rule(s).', 'success');
+      })
+      .withFailureHandler(function(e) {
+        btn.disabled = false; btn.textContent = 'Save Settings';
+        setPsStatus('Save failed: ' + e.message, 'error');
+      })
+      .savePipedriveGlobalSettings(rules);
+  }
+
+  function psDiscard() {
+    if (!psDirty) return;
+    if (!confirm('Discard unsaved Pipedrive settings and reload the saved version?')) return;
+    var btn = document.getElementById('psDiscardBtn');
+    btn.disabled = true;
+    setPsStatus('Discarding changes…', 'info');
+
+    google.script.run
+      .withSuccessHandler(function(data) {
+        data = data || {};
+        psRules = psDeserializeRules_(data.rules || []);
+        psDirty = false;
+        psUpdateDirty_();
+        psRenderRules_();
+        setPsStatus('Changes discarded — reloaded saved version.', 'success');
+      })
+      .withFailureHandler(function(e) {
+        psUpdateDirty_();
+        setPsStatus('Discard failed: ' + e.message, 'error');
+      })
+      .getPipedriveGlobalSettings();
+  }
+
+  // ── Dirty state ─────────────────────────────────────────────────────────────
+  function psMarkDirty_() { psDirty = true; psUpdateDirty_(); }
+  function psUpdateDirty_() {
+    document.getElementById('psUnsaved').style.display = psDirty ? 'block' : 'none';
+    document.getElementById('psDiscardBtn').disabled = !psDirty;
+    document.getElementById('psSaveBtn').disabled = !(psConfigured && psLoaded);
+  }
+
+  function setPsStatus(msg, type) {
+    var el = document.getElementById('psStatus');
+    el.textContent = msg;
+    el.className = type || 'empty';
+  }
+
+  // escHtml comes from SharedUtils (single shared copy).
+  // Attribute-safe escape (escHtml + single-quote-safe; numbers/empties pass through).
+  function psEscAttr_(v) {
+    if (v == null) return '';
+    return escHtml(String(v)).replace(/'/g, '&#39;');
+  }
+</script>

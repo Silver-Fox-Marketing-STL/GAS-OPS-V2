@@ -78,6 +78,19 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   `addEventListener`; (5) operations that were implicitly exclusive when each
   modal was its own dialog (import vs run) need explicit mutual exclusion
   (`AppBusy`) once they share one page.
+- **The HtmlService SPA parses ALL view fragments into ONE shared global JS
+  scope.** Every `<?!= include_('ViewXxx') ?>` fragment's `<script>` is concatenated
+  into the same window, so a duplicate **top-level** `function name()` in two
+  fragments silently clobbers — last-loaded wins, breaking whichever view defined
+  the other one (no error; the function just isn't what that view expects). Defenses:
+  (1) **prefix per-view helpers** by view (the codebase uses `ps*` / `tr*` / `pd*`)
+  or (2) factor ONE shared implementation and call it from both (e.g. the
+  context-parameterized `psRenderRuleCard_`/`psSerializeOneRule_`/`psDeserializeOneRule_`/`psRegisterRuleCtx_`
+  reused by ViewRules and ViewPipedriveSettings). **Nested** functions are
+  function-scoped and safe — only top-level declarations collide. `App.html` and
+  `Classic.html` are separate entry points (never co-loaded), so a name shared
+  between those two shells is fine. Caught by a cross-fragment function-name
+  collision audit — run one when adding a view.
 
 ## External APIs (Pipedrive)
 
@@ -87,7 +100,7 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   top-level key (the 40-char field hash), and a **monetary** field needs both
   `<key>` (the amount) and `<key>_currency`. Passing the v2 nested shape to a v1
   endpoint silently **no-ops** the fields — the call succeeds, the values just
-  don't land. (`pdResolveFieldMap_` returns a flat `{key:value}` map, incl. the
+  don't land. (`pdResolveDealFields_` returns a flat `{key:value}` map, incl. the
   `_currency` companion, precisely so it can be passed straight to `pdUpdateDeal_`.)
 - **Idempotency for "create" external calls: write the external ID to a durable
   LOCAL record the INSTANT the API returns it, and treat that ID's presence as
@@ -108,6 +121,15 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   retryable message — it can **never** fail the run it's attached to. Same rule as
   "non-critical writes get their own try/catch": an integration bolted onto a
   production run must isolate every failure mode at the boundary.
+- **Pipedrive product variations live behind a SEPARATE endpoint, not in the
+  product response.** A product's variations come from `GET /v1/products/{id}/variations`
+  — they are *not* embedded in the `/products` list payload — so fetch them
+  **lazily, per product**, only for the products that actually pin a `variation_id`
+  (`pdListProductVariations_`). A variation carries its own `prices[]`, so resolve
+  `item_price` from the variation first (product prices as fallback), and key
+  line-item idempotency by **product + variation** (`product_id|variation_id`), not
+  product alone — otherwise two variations of one product collapse into a single
+  line.
 
 ## Google Sheets behavior
 
