@@ -8,6 +8,7 @@ description: >-
   "Apps Script", "backend", "import", "filtering", "targeting rules engine",
   "performance", or "error handling".
 tools: Read, Edit, Grep, Glob, Bash, SendMessage, TaskUpdate
+permissionMode: bypassPermissions
 ---
 
 You are the **backend specialist** for SilverFox-V2's `Code.gs` (~4k lines, ~30

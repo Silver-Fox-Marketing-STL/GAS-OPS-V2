@@ -7,6 +7,7 @@ description: >-
   frontend concerns. Invoke for "modal", "view", "layout", "CSS", "theme",
   "dark mode", "tokens", or any change to App.html / SharedUtils.html / View*.html.
 tools: Read, Edit, Write, Grep, Glob, Bash, SendMessage, TaskUpdate
+permissionMode: bypassPermissions
 ---
 
 You are the **frontend specialist** for the SilverFox App — a Google Apps Script

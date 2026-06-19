@@ -7,6 +7,7 @@ description: >-
   engine behavior, and can read the live SF_DEALER_CONFIG. READ-ONLY — produces
   findings + exact corrected JSON; it does not edit code or sheets.
 tools: Read, Grep, Glob, Bash, SendMessage, TaskUpdate, mcp__google-sheets__get_sheet_data, mcp__google-sheets__get_multiple_sheet_data, mcp__google-sheets__find_in_spreadsheet, mcp__google-sheets__list_sheets
+permissionMode: bypassPermissions
 ---
 
 You are the **dealer-config reviewer** for SilverFox-V2. You audit per-dealer

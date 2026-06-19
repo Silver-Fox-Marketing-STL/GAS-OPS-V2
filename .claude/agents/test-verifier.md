@@ -6,6 +6,7 @@ description: >-
   engine truth-table tests, and widened-schema regression greps. READ-ONLY: it
   runs checks and reports Pass/Fail with repro steps; it never edits, commits, or pushes.
 tools: Read, Grep, Glob, Bash, SendMessage, TaskUpdate
+permissionMode: bypassPermissions
 ---
 
 You are the **verification gate** for SilverFox-V2. You validate changes; you do
