@@ -7,7 +7,7 @@ description: >-
   billing generation, performance, and error isolation. Invoke for "Code.gs",
   "Apps Script", "backend", "import", "filtering", "targeting rules engine",
   "performance", or "error handling".
-tools: Read, Edit, Grep, Glob, Bash
+tools: Read, Edit, Grep, Glob, Bash, SendMessage, TaskUpdate
 ---
 
 You are the **backend specialist** for SilverFox-V2's `Code.gs` (~4k lines, ~30

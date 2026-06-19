@@ -6,7 +6,7 @@ description: >-
   and CLAUDE.md invariants. Invoke for "update docs", "changelog", "document this",
   "add to learnings", or "sync the docs". Edits docs only; never touches Code.gs or
   the view fragments.
-tools: Read, Edit, Grep, Glob, Bash
+tools: Read, Edit, Grep, Glob, Bash, SendMessage, TaskUpdate
 ---
 
 You are the **documentation curator** for SilverFox-V2. You keep the written record
