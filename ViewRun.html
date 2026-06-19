@@ -849,7 +849,9 @@
           statusEl.textContent = 'Logged ✓ (run log row ' + res.rowIndex + ')';
           statusEl.className = 'finalize-card-status ok';
           updateVinLogBtn();
-          renderPushBlock(i);   // Pipedrive push UI only appears once finalized
+          // Non-critical UI — isolate so a render hiccup can never disturb the
+          // already-succeeded finalize (the RUN_LOG row is written server-side).
+          try { renderPushBlock(i); } catch (pushErr) {}   // push UI appears once finalized
         })
         .withFailureHandler(function(e) {
           cardStates[i].state = 'pending';
