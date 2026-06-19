@@ -55,6 +55,7 @@
     </div>
     <div class="save-row">
       <div id="typeUnsaved" style="font-size:11px;color:var(--warning);align-self:center;display:none;">Unsaved changes</div>
+      <button class="btn-secondary" id="discardTypeBtn" onclick="discardTypeRules()" disabled>Discard Changes</button>
       <button class="btn-primary" id="saveTypeBtn" onclick="saveTypeRules()" disabled>Save Type Rules</button>
     </div>
   </div>
@@ -207,6 +208,7 @@
     </div>
     <div class="save-row">
       <div id="filterUnsaved" style="font-size:11px;color:var(--warning);align-self:center;display:none;">Unsaved changes</div>
+      <button class="btn-secondary" id="discardFilterBtn" onclick="discardFilterRules()" disabled>Discard Changes</button>
       <button class="btn-primary" id="saveFilterBtn" onclick="saveFilterRules()" disabled>Save Filtering Rules</button>
     </div>
   </div>
@@ -973,6 +975,34 @@
 
     function updateTypeDirty() {
       document.getElementById('typeUnsaved').style.display = typeDirty ? 'block' : 'none';
+      // Nothing to discard unless this panel is dirty.
+      document.getElementById('discardTypeBtn').disabled = !typeDirty;
+    }
+
+    // Revert the Type Rules panel to what's saved in the dealer config sheet.
+    // Per-panel: leaves the Filtering panel's edits untouched.
+    function discardTypeRules() {
+      if (!currentDealerKey || !typeDirty) return;
+      if (!confirm('Discard unsaved Type Rules changes and reload the saved version?')) return;
+
+      var btn = document.getElementById('discardTypeBtn');
+      btn.disabled = true;
+      setRulesStatus('Discarding Type Rules changes…', 'info');
+
+      google.script.run
+        .withSuccessHandler(function(data) {
+          typeRules = data.typeRules || [];
+          renderTypeRules();
+          typeDirty = false;
+          updateTypeDirty();
+          setRulesStatus('Type Rules changes discarded — reloaded saved version.', 'success');
+        })
+        .withFailureHandler(function(e) {
+          // Still dirty — re-enable so the user can retry.
+          updateTypeDirty();
+          setRulesStatus('Discard failed: ' + e.message, 'error');
+        })
+        .getDealerRulesData(currentDealerKey);
     }
 
     function resetTypePanel() {
@@ -1398,6 +1428,33 @@
 
     function updateFilterDirty() {
       document.getElementById('filterUnsaved').style.display = filterDirty ? 'block' : 'none';
+      // Nothing to discard unless this panel is dirty.
+      document.getElementById('discardFilterBtn').disabled = !filterDirty;
+    }
+
+    // Revert the Filtering Rules panel to what's saved in the dealer config sheet.
+    // Per-panel: leaves the Type panel's edits untouched.
+    function discardFilterRules() {
+      if (!currentDealerKey || !filterDirty) return;
+      if (!confirm('Discard unsaved Filtering Rules changes and reload the saved version?')) return;
+
+      var btn = document.getElementById('discardFilterBtn');
+      btn.disabled = true;
+      setRulesStatus('Discarding Filtering Rules changes…', 'info');
+
+      google.script.run
+        .withSuccessHandler(function(data) {
+          applyFilteringRulesToUI(data.filteringRules || {});
+          filterDirty = false;
+          updateFilterDirty();
+          setRulesStatus('Filtering Rules changes discarded — reloaded saved version.', 'success');
+        })
+        .withFailureHandler(function(e) {
+          // Still dirty — re-enable so the user can retry.
+          updateFilterDirty();
+          setRulesStatus('Discard failed: ' + e.message, 'error');
+        })
+        .getDealerRulesData(currentDealerKey);
     }
 
     function resetFilterPanel() {
@@ -1424,6 +1481,8 @@
     function disableSaveButtons() {
       document.getElementById('saveTypeBtn').disabled   = true;
       document.getElementById('saveFilterBtn').disabled = true;
+      document.getElementById('discardTypeBtn').disabled   = true;
+      document.getElementById('discardFilterBtn').disabled = true;
     }
 
     function setRulesStatus(msg, type) {
