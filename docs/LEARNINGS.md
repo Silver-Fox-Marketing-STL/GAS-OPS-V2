@@ -121,15 +121,24 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   retryable message — it can **never** fail the run it's attached to. Same rule as
   "non-critical writes get their own try/catch": an integration bolted onto a
   production run must isolate every failure mode at the boundary.
-- **Pipedrive product variations live behind a SEPARATE endpoint, not in the
-  product response.** A product's variations come from `GET /v1/products/{id}/variations`
-  — they are *not* embedded in the `/products` list payload — so fetch them
-  **lazily, per product**, only for the products that actually pin a `variation_id`
-  (`pdListProductVariations_`). A variation carries its own `prices[]`, so resolve
-  `item_price` from the variation first (product prices as fallback), and key
-  line-item idempotency by **product + variation** (`product_id|variation_id`), not
-  product alone — otherwise two variations of one product collapse into a single
-  line.
+- **Pipedrive product variations live behind a SEPARATE, v2-ONLY endpoint.** A
+  product's variations come from `GET /api/v2/products/{id}/variations` (cursor
+  pagination) — they do **not** exist on v1 and are *not* embedded in the `/products`
+  list payload. Hitting the v1 base returned an error → empty list → a blank/greyed
+  variation dropdown in the UI. Fetch them **lazily, per product**, only for the
+  products that actually pin a `variation_id` (`pdListProductVariations_`). A
+  variation carries its own `prices[]`, so resolve `item_price` from the variation
+  first (product prices as fallback), and key line-item idempotency by **product +
+  variation** (`product_id|variation_id`), not product alone — otherwise two
+  variations of one product collapse into a single line.
+- **Pipedrive API v2 OMITS the `success` field that v1 returns.** v1 success
+  responses are `{success:true, data, additional_data}`; v2 leaned out the envelope
+  and signals errors via HTTP status only (it also swapped `start`/`limit` for
+  cursor pagination). A fetch wrapper that gates on `body.success === true` silently
+  rejects **every** v2 call — which here would have broken both product variations
+  and the org custom-field reads that conditional deal-field rules depend on. Make
+  the wrapper version-agnostic: treat a response as ok unless it's an HTTP error or
+  carries an explicit `success:false` (`pdFetch_`).
 
 ## Google Sheets behavior
 

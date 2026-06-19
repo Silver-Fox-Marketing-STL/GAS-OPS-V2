@@ -267,6 +267,23 @@
   #view-pipedrive-settings .ps-cond .ps-cond-field { min-width: 130px; }
   #view-pipedrive-settings .ps-cond .ps-cond-op { min-width: 130px; }
   #view-pipedrive-settings .ps-cond .ps-cond-values { flex: 1; min-width: 140px; }
+  /* Enum value pickers: single-select (is/is_not) + checkbox list (in/not_in). */
+  #view-pipedrive-settings .ps-cond .ps-cond-single { padding: 5px 6px; }
+  #view-pipedrive-settings .ps-cond .ps-cond-checks {
+    flex: 1 1 100%; min-width: 140px; max-height: 116px; overflow-y: auto;
+    border: 1px solid var(--border-2); border-radius: 4px; background: var(--bg);
+    padding: 4px 6px;
+  }
+  #view-pipedrive-settings .ps-check-row {
+    display: flex; align-items: center; gap: 7px; padding: 3px 2px;
+    font-size: 12px; color: var(--text); cursor: pointer; font-weight: normal;
+  }
+  #view-pipedrive-settings .ps-check-row:hover { color: var(--accent); }
+  #view-pipedrive-settings .ps-check-row input[type="checkbox"] {
+    width: auto; min-width: 0; padding: 0; margin: 0; flex: none;
+    accent-color: var(--accent); cursor: pointer;
+  }
+  #view-pipedrive-settings .ps-check-empty { font-size: 11px; color: var(--text-muted); font-style: italic; padding: 4px 2px; }
   #view-pipedrive-settings .ps-group-actions { margin-top: 6px; display: flex; gap: 6px; }
   #view-pipedrive-settings .ps-add {
     border: 1px solid var(--border-2); background: var(--bg); color: var(--accent-hover); cursor: pointer;
@@ -348,13 +365,18 @@
   var psLoaded      = false;
   var psDirty       = false;
 
-  var PS_OPS = ['in','not_in','contains','not_contains','gte','lte','gt','lt'];
+  var PS_OPS = ['is','is_not','in','not_in','contains','not_contains','gte','lte','gt','lt'];
   var PS_OP_LABELS = {
+    is: 'is exactly', is_not: 'is not',
     in: 'is one of', not_in: 'is not one of', contains: 'contains',
     not_contains: "doesn't contain", gte: 'at least (≥)', lte: 'at most (≤)',
     gt: 'greater than (>)', lt: 'less than (<)'
   };
   var PS_NUMERIC_OPS = { gte: true, lte: true, gt: true, lt: true };
+  // Operator → enum/set value-picker shape: 'single' (one option id), 'multi'
+  // (checkbox list → comma-joined ids), else free text. Non-enum fields = free text.
+  var PS_SINGLE_OPS = { is: true, is_not: true };
+  var PS_MULTI_OPS  = { in: true, not_in: true };
 
   // ── Init (lazy — first nav into the view) ──────────────────────────────────
   function initPipedriveSettingsView() {
@@ -778,17 +800,63 @@
     psCtxRerender_(ctxId);  // enum/set vs free-text input may change
     psCtxOnChange_(ctxId);
   }
-  function psSetCondOp(ctxId, ruleId, nodeId, val)     { var n = psFindNode_(ctxId, ruleId, nodeId); if (n) n.op = val; psCtxOnChange_(ctxId); }
-  function psSetCondValues(ctxId, ruleId, nodeId, val) { var n = psFindNode_(ctxId, ruleId, nodeId); if (n) n.values = val; psCtxOnChange_(ctxId); }  // no re-render (focus)
-  function psSetCondOptionValues(ctxId, ruleId, nodeId, selectEl) {
+  function psSetCondOp(ctxId, ruleId, nodeId, val) {
     var n = psFindNode_(ctxId, ruleId, nodeId);
     if (!n) return;
+    var prev = n.op;
+    n.op = val;
+    // Only an ENUM/SET field has op-dependent picker shapes; on a non-enum field
+    // the value is always free text regardless of op, so never touch it (avoids
+    // wiping typed text when switching ops). For enum fields, the picker shape can
+    // change (single-select ↔ checkbox list ↔ free text): comma-joined ids stay
+    // valid across is↔is_not↔in↔not_in; narrowing to a single-value op keeps the
+    // first id; cross the free-text boundary → clear so stale ids aren't shown.
+    var orgF = psFindField_(psCtxOrgFields_(ctxId), n.field);
+    if (orgF && psIsEnumSet_(psFieldType_(orgF.field_type))) {
+      var prevShape = psEnumOpShape_(prev);
+      var nextShape = psEnumOpShape_(val);
+      if (prevShape !== nextShape) {
+        if (nextShape === 'single') {
+          var first = String(n.values || '').split(',')[0];
+          n.values = (first ? first.trim() : '');
+        } else if (prevShape === 'text' || nextShape === 'text') {
+          n.values = '';
+        }
+        // single↔multi: comma-joined ids remain valid, keep as-is.
+      }
+    }
+    psCtxRerender_(ctxId);   // swap the value picker to match the new op
+    psCtxOnChange_(ctxId);
+  }
+  // The enum/set picker shape implied by an operator.
+  function psEnumOpShape_(op) {
+    if (PS_SINGLE_OPS[op]) return 'single';
+    if (PS_MULTI_OPS[op])  return 'multi';
+    return 'text';   // contains/not_contains/numeric on an enum → free text
+  }
+  function psSetCondValues(ctxId, ruleId, nodeId, val) { var n = psFindNode_(ctxId, ruleId, nodeId); if (n) n.values = val; psCtxOnChange_(ctxId); }  // no re-render (focus)
+  // Single-select (is / is_not) → store the one chosen option id.
+  function psSetCondSingle(ctxId, ruleId, nodeId, val) {
+    var n = psFindNode_(ctxId, ruleId, nodeId);
+    if (!n) return;
+    n.values = (val == null) ? '' : String(val);
+    psCtxOnChange_(ctxId);   // no re-render — keep the select focused
+  }
+  // Checkbox list (in / not_in) → set values to the comma-joined checked ids.
+  // Read all checkboxes in this condition's picker so order/state stay in sync.
+  function psToggleCondCheckbox(ctxId, ruleId, nodeId, checkboxEl) {
+    var n = psFindNode_(ctxId, ruleId, nodeId);
+    if (!n) return;
+    var wrap = checkboxEl.closest('.ps-cond-checks');
     var picked = [];
-    for (var i = 0; i < selectEl.options.length; i++) {
-      if (selectEl.options[i].selected && selectEl.options[i].value !== '') picked.push(selectEl.options[i].value);
+    if (wrap) {
+      var boxes = wrap.querySelectorAll('input[type="checkbox"]');
+      for (var i = 0; i < boxes.length; i++) {
+        if (boxes[i].checked && boxes[i].value !== '') picked.push(boxes[i].value);
+      }
     }
     n.values = picked.join(', ');
-    psCtxOnChange_(ctxId);   // no re-render — keep the multi-select open/focused
+    psCtxOnChange_(ctxId);   // no re-render — keep the checkbox list interactive
   }
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -962,22 +1030,8 @@
         escHtml(PS_OP_LABELS[o] || o) + '</option>';
     }).join('');
 
-    // Values input: enum/set org field → option-id multi-select; else free text.
-    var valuesInput;
     var orgF = psFindField_(orgFields, cond.field);
-    if (orgF && psIsEnumSet_(psFieldType_(orgF.field_type))) {
-      var chosen = String(cond.values || '').split(',').map(function(s){ return s.trim(); });
-      var opts = (orgF.options || []).map(function(o) {
-        var isSel = chosen.indexOf(String(o.id)) !== -1;
-        return '<option value="' + psEscAttr_(o.id) + '"' + (isSel ? ' selected' : '') + '>' + escHtml(o.label) + '</option>';
-      }).join('');
-      valuesInput = '<select class="ps-cond-values" multiple size="3" ' +
-        'onchange="psSetCondOptionValues(\'' + ctxId + '\', \'' + ruleId + '\', \'' + cond.id + '\', this)">' + opts + '</select>';
-    } else {
-      var valEsc = psEscAttr_(cond.values);
-      valuesInput = '<input type="text" class="ps-cond-values" value="' + valEsc + '" placeholder="e.g. East, West" ' +
-        'oninput="psSetCondValues(\'' + ctxId + '\', \'' + ruleId + '\', \'' + cond.id + '\', this.value)" />';
-    }
+    var valuesInput = psRenderCondValuePicker_(ctxId, ruleId, cond, orgF);
 
     return '<div class="ps-cond">' +
       '<select class="ps-cond-field" onchange="psSetCondField(\'' + ctxId + '\', \'' + ruleId + '\', \'' + cond.id + '\', this.value)">' + fieldOpts + '</select>' +
@@ -985,6 +1039,45 @@
       valuesInput +
       '<button class="ps-x" title="Remove condition" onclick="psRemoveNode(\'' + ctxId + '\', \'' + ruleId + '\', \'' + cond.id + '\')">✕</button>' +
     '</div>';
+  }
+
+  // The condition VALUE control, chosen by (field is enum/set?) × operator shape:
+  //   enum + is/is_not → single-select of options (one id)
+  //   enum + in/not_in → checkbox list of options (comma-joined ids)
+  //   enum + contains/not_contains/numeric → free text
+  //   non-enum field → free text
+  function psRenderCondValuePicker_(ctxId, ruleId, cond, orgF) {
+    var isEnum = !!(orgF && psIsEnumSet_(psFieldType_(orgF.field_type)));
+    if (isEnum) {
+      var shape = psEnumOpShape_(cond.op);
+      var options = orgF.options || [];
+      if (shape === 'single') {
+        var sel = String(cond.values || '').split(',')[0];
+        sel = sel ? sel.trim() : '';
+        var opts = '<option value="">— choose —</option>' + options.map(function(o) {
+          return '<option value="' + psEscAttr_(o.id) + '"' + (String(o.id) === sel ? ' selected' : '') +
+            '>' + escHtml(o.label) + '</option>';
+        }).join('');
+        return '<select class="ps-cond-values ps-cond-single" ' +
+          'onchange="psSetCondSingle(\'' + ctxId + '\', \'' + ruleId + '\', \'' + cond.id + '\', this.value)">' + opts + '</select>';
+      }
+      if (shape === 'multi') {
+        var chosen = String(cond.values || '').split(',').map(function(s){ return s.trim(); });
+        var rows = options.length ? options.map(function(o) {
+          var isChk = chosen.indexOf(String(o.id)) !== -1;
+          return '<label class="ps-check-row">' +
+            '<input type="checkbox" value="' + psEscAttr_(o.id) + '"' + (isChk ? ' checked' : '') + ' ' +
+              'onchange="psToggleCondCheckbox(\'' + ctxId + '\', \'' + ruleId + '\', \'' + cond.id + '\', this)">' +
+            '<span>' + escHtml(o.label) + '</span>' +
+          '</label>';
+        }).join('') : '<div class="ps-check-empty">No options on this field.</div>';
+        return '<div class="ps-cond-values ps-cond-checks">' + rows + '</div>';
+      }
+      // contains/not_contains/numeric on an enum → free text (fall through)
+    }
+    var valEsc = psEscAttr_(cond.values);
+    return '<input type="text" class="ps-cond-values" value="' + valEsc + '" placeholder="e.g. East, West" ' +
+      'oninput="psSetCondValues(\'' + ctxId + '\', \'' + ruleId + '\', \'' + cond.id + '\', this.value)" />';
   }
 
   // ── Save / discard ──────────────────────────────────────────────────────────

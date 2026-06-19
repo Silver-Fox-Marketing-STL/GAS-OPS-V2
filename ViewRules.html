@@ -980,6 +980,23 @@
     #view-rules .ps-cond .ps-cond-field { min-width: 130px; }
     #view-rules .ps-cond .ps-cond-op { min-width: 130px; }
     #view-rules .ps-cond .ps-cond-values { flex: 1; min-width: 140px; }
+    /* Enum value pickers: single-select (is/is_not) + checkbox list (in/not_in). */
+    #view-rules .ps-cond .ps-cond-single { padding: 5px 6px; }
+    #view-rules .ps-cond .ps-cond-checks {
+      flex: 1 1 100%; min-width: 140px; max-height: 116px; overflow-y: auto;
+      border: 1px solid var(--border-2); border-radius: 4px; background: var(--bg);
+      padding: 4px 6px;
+    }
+    #view-rules .ps-check-row {
+      display: flex; align-items: center; gap: 7px; padding: 3px 2px;
+      font-size: 12px; color: var(--text); cursor: pointer; font-weight: normal;
+    }
+    #view-rules .ps-check-row:hover { color: var(--accent); }
+    #view-rules .ps-check-row input[type="checkbox"] {
+      width: auto; min-width: 0; padding: 0; margin: 0; flex: none;
+      accent-color: var(--accent); cursor: pointer;
+    }
+    #view-rules .ps-check-empty { font-size: 11px; color: var(--text-muted); font-style: italic; padding: 4px 2px; }
     #view-rules .ps-group-actions { margin-top: 6px; display: flex; gap: 6px; }
     #view-rules .ps-add {
       border: 1px solid var(--border-2); background: var(--bg); color: var(--accent-hover); cursor: pointer;

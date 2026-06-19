@@ -4876,7 +4876,11 @@ function pdFetch_(method, path, payload, opts) {
 
     var body = null;
     try { body = JSON.parse(resp.getContentText()); } catch (e) { body = null; }
-    if (code >= 300 || !body || body.success !== true) {
+    // v1 responses carry `success:true`; v2 OMITS `success` and signals errors via
+    // HTTP status only. Treat as ok unless HTTP error, no body, or an EXPLICIT
+    // `success:false` — so both v1 AND v2 calls (org custom-field reads, product
+    // variations) parse correctly.
+    if (code >= 300 || !body || body.success === false) {
       var msg = (body && (body.error || body.error_info)) ? (body.error || body.error_info) : ('HTTP ' + code);
       return { ok: false, status: code, data: (body && body.data) || null, error: msg, raw: body };
     }
@@ -5171,11 +5175,21 @@ function getPipedriveSettingsBootstrap(refresh) {
 
 // ── Product variations (lazy, per product) ─────────────────────────────────
 
+// Product variations are a v2-ONLY endpoint (GET /api/v2/products/{id}/variations,
+// cursor pagination) — they do NOT exist on v1. Hitting the v1 base returned an
+// error → empty list → the blank/greyed variation dropdown.
 function pdListProductVariations_(productId) {
   if (!productId) return [];
-  return pdListAllV1_('/products/' + productId + '/variations').map(function(v) {
-    return { id: v.id, name: v.name, prices: v.prices || [] };
-  });
+  var out = [], cursor = '', guard = 0;
+  do {
+    var path = '/products/' + productId + '/variations?limit=500' +
+               (cursor ? '&cursor=' + encodeURIComponent(cursor) : '');
+    var r = pdFetch_('get', path, null, { version: 'v2' });
+    if (!r.ok) break;
+    if (r.data && r.data.length) out = out.concat(r.data);
+    cursor = (r.additional && r.additional.next_cursor) ? r.additional.next_cursor : '';
+  } while (cursor && guard++ < 20);
+  return out.map(function(v) { return { id: v.id, name: v.name, prices: v.prices || [] }; });
 }
 
 /** Client-callable: a product's variations, for the per-dealer product grid. */
@@ -5336,6 +5350,8 @@ function pdOrgConditionMatches_(orgFields, cond) {
   }
   var cell = String(raw).toLowerCase();
   var list = vals.map(function(x) { return String(x).toLowerCase(); });
+  if (op === 'is')           return cell === list[0];               // exact equals (single value)
+  if (op === 'is_not')       return cell !== list[0];               // exact not-equals (single value)
   if (op === 'in')           return list.indexOf(cell) !== -1;
   if (op === 'not_in')       return list.indexOf(cell) === -1;
   if (op === 'contains')     { for (var i = 0; i < list.length; i++) if (cell.indexOf(list[i]) !== -1) return true; return false; }
