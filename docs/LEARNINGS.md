@@ -79,6 +79,36 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   modal was its own dialog (import vs run) need explicit mutual exclusion
   (`AppBusy`) once they share one page.
 
+## External APIs (Pipedrive)
+
+- **Pipedrive v1 deal custom fields are TOP-LEVEL hash keys, not a
+  `custom_fields` object.** The `{custom_fields: {...}}` wrapper is a **v2**
+  convention; the v1 `/deals` create/update API takes each custom field as a
+  top-level key (the 40-char field hash), and a **monetary** field needs both
+  `<key>` (the amount) and `<key>_currency`. Passing the v2 nested shape to a v1
+  endpoint silently **no-ops** the fields — the call succeeds, the values just
+  don't land. (`pdResolveFieldMap_` returns a flat `{key:value}` map, incl. the
+  `_currency` companion, precisely so it can be passed straight to `pdUpdateDeal_`.)
+- **Idempotency for "create" external calls: write the external ID to a durable
+  LOCAL record the INSTANT the API returns it, and treat that ID's presence as
+  "already created."** The Pipedrive push writes the new Deal ID to RUN_LOG col D
+  immediately after creation, then treats a numeric col D as a dup guard — so a
+  retry after a mid-push failure can never create a second deal. Track multi-step
+  progress (products attached? fields set?) in **ScriptProperties** (cross-execution)
+  so a retry resumes instead of repeating completed steps. The local write must
+  happen *before* the later, failure-prone steps — not at the end.
+- **External-API secrets live in ScriptProperties, never the repo or a config
+  sheet** — and are **validated before they're saved** (`setupPipedriveSecrets`
+  does a live `GET /users/me` first; nothing persists on failure). A status/echo
+  endpoint exposed to the UI must **never return the token** (`getPipedriveStatus`
+  returns domain + defaults only).
+- **A never-throw fetch wrapper is the same isolation discipline as the non-fatal
+  stats/dashboard writes.** `pdFetch_` returns `{ok, status, data, error}` instead
+  of throwing, with one bounded 429 backoff, so an API hiccup surfaces as a
+  retryable message — it can **never** fail the run it's attached to. Same rule as
+  "non-critical writes get their own try/catch": an integration bolted onto a
+  production run must isolate every failure mode at the boundary.
+
 ## Google Sheets behavior
 
 - **QUERY silently drops mixed-type minority values.** Purely numeric stock

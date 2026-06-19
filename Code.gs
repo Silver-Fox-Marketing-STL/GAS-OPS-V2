@@ -4723,5 +4723,650 @@ function refreshDashboard_(ss, importTimestamp, locationDetail) {
 
 
 // ============================================================================
+// SECTION 31: PIPEDRIVE INTEGRATION — CLIENT, CONFIG, LINE ITEMS
+// ============================================================================
+//
+// Pushes finalized runs into Pipedrive as deals with line-item products.
+//   - Secrets (API token, company domain, defaults) live in ScriptProperties,
+//     never in the repo or a sheet. pdGetSecrets_() reads them.
+//   - Per-(dealer_key, group) config (org, product map, field map) lives in the
+//     PIPEDRIVE tab of SF_DEALER_CONFIG.
+//   - Every API call is isolated: pdFetch_ NEVER throws — it returns
+//     {ok,status,data,error}. Callers surface failures as messages.
+// See the Pipedrive plan + CLAUDE.md to-do #5. The actual deal push is P2.
+
+var PD_PROP = {
+  TOKEN:    'PD_API_TOKEN',
+  DOMAIN:   'PD_COMPANY_DOMAIN',
+  PIPELINE: 'PD_DEFAULT_PIPELINE_ID',
+  STAGE:    'PD_DEFAULT_STAGE_ID',
+  CURRENCY: 'PD_DEFAULT_CURRENCY'
+};
+
+var PIPEDRIVE_TAB = 'PIPEDRIVE';
+
+// 0-based column indices for the PIPEDRIVE tab (A–K).
+var PDCFG = {
+  DEALER_KEY: 0, GROUP: 1, ORG_ID: 2, ORG_NAME: 3, PRODUCT_MAP: 4,
+  TITLE_TEMPLATE: 5, PIPELINE_ID: 6, STAGE_ID: 7, CURRENCY: 8,
+  FIELD_MAP: 9, ACTIVE: 10
+};
+var PIPEDRIVE_HEADERS = ['dealer_key', 'group', 'org_id', 'org_name', 'product_map',
+  'deal_title_template', 'pipeline_id', 'stage_id', 'currency', 'field_map', 'active'];
+
+// Canonical billing types → billing-totals keys (gross + dupes).
+var PD_TYPE_KEYS = [
+  { type: 'New',    gross: 'totalNew',   dupes: 'newDupes'   },
+  { type: 'PO',     gross: 'totalPO',    dupes: 'poDupes'    },
+  { type: 'CPO',    gross: 'totalCPO',   dupes: 'cpoDupes'   },
+  { type: 'CPO-EL', gross: 'totalCPOEL', dupes: 'cpoElDupes' }
+];
+
+// ── Secrets / connection ──────────────────────────────────────────────────
+
+/** Reads PD secrets from ScriptProperties; null if token or domain missing. */
+function pdGetSecrets_() {
+  var p = PropertiesService.getScriptProperties();
+  var token  = (p.getProperty(PD_PROP.TOKEN)  || '').trim();
+  var domain = (p.getProperty(PD_PROP.DOMAIN) || '').trim();
+  if (!token || !domain) return null;
+  domain = pdNormalizeDomain_(domain);
+  return {
+    token:    token,
+    domain:   domain,
+    baseV1:   'https://' + domain + '.pipedrive.com/api/v1',
+    baseV2:   'https://' + domain + '.pipedrive.com/api/v2',
+    pipeline: (p.getProperty(PD_PROP.PIPELINE) || '').trim(),
+    stage:    (p.getProperty(PD_PROP.STAGE)    || '').trim(),
+    currency: (p.getProperty(PD_PROP.CURRENCY) || 'USD').trim()
+  };
+}
+
+/** Accepts a bare subdomain ("acme") or a full host/URL — returns the subdomain. */
+function pdNormalizeDomain_(domain) {
+  return String(domain || '').trim()
+    .replace(/^https?:\/\//, '')
+    .replace(/\.pipedrive\.com.*$/i, '')
+    .replace(/\/.*$/, '');
+}
+
+/**
+ * Client-callable. Validates token+domain via a live GET /users/me, then saves
+ * the secrets. Returns {ok, message, user?}. Nothing is persisted on failure.
+ */
+function setupPipedriveSecrets(token, domain, pipelineId, stageId, currency) {
+  token  = String(token  || '').trim();
+  domain = pdNormalizeDomain_(domain);
+  if (!token)  return { ok: false, message: 'API token is required.' };
+  if (!domain) return { ok: false, message: 'Company domain is required (e.g. "acme" from acme.pipedrive.com).' };
+
+  var url = 'https://' + domain + '.pipedrive.com/api/v1/users/me?api_token=' + encodeURIComponent(token);
+  var resp;
+  try { resp = UrlFetchApp.fetch(url, { method: 'get', muteHttpExceptions: true }); }
+  catch (e) { return { ok: false, message: 'Could not reach Pipedrive: ' + e.message }; }
+
+  var code = resp.getResponseCode();
+  if (code === 401 || code === 403) return { ok: false, message: 'Pipedrive rejected the token (HTTP ' + code + ').' };
+  if (code >= 300)                  return { ok: false, message: 'Validation failed (HTTP ' + code + ') — check the company domain.' };
+  var body;
+  try { body = JSON.parse(resp.getContentText()); } catch (e) { return { ok: false, message: 'Unexpected response from Pipedrive.' }; }
+  if (!body || !body.success || !body.data) return { ok: false, message: 'Pipedrive did not confirm the credentials.' };
+
+  var p = PropertiesService.getScriptProperties();
+  p.setProperty(PD_PROP.TOKEN,    token);
+  p.setProperty(PD_PROP.DOMAIN,   domain);
+  p.setProperty(PD_PROP.PIPELINE, String(pipelineId || '').trim());
+  p.setProperty(PD_PROP.STAGE,    String(stageId    || '').trim());
+  p.setProperty(PD_PROP.CURRENCY, String(currency   || 'USD').trim());
+
+  return { ok: true, message: 'Connected to Pipedrive as ' + (body.data.name || 'user') + '.', user: body.data.name || '' };
+}
+
+/** Client-callable. Connection state for the config UI. NEVER returns the token. */
+function getPipedriveStatus() {
+  var s = pdGetSecrets_();
+  if (!s) return { configured: false };
+  return {
+    configured: true,
+    domain:     s.domain,
+    defaults:   { pipelineId: s.pipeline, stageId: s.stage, currency: s.currency }
+  };
+}
+
+// ── Low-level fetch (never throws) ─────────────────────────────────────────
+
+/**
+ * Core Pipedrive request. Returns {ok,status,data,error,additional,raw}.
+ * @param {string} method  'get'|'post'|'put'|'delete'
+ * @param {string} path    e.g. '/deals' or '/organizations/5?custom_fields=ab'
+ * @param {Object} payload optional JSON body
+ * @param {Object} opts    optional { version:'v2' }
+ */
+function pdFetch_(method, path, payload, opts) {
+  var s = pdGetSecrets_();
+  if (!s) return { ok: false, status: 0, data: null, error: 'Pipedrive is not configured.' };
+  opts = opts || {};
+  var base = (opts.version === 'v2') ? s.baseV2 : s.baseV1;
+  var sep  = (path.indexOf('?') === -1) ? '?' : '&';
+  var url  = base + path + sep + 'api_token=' + encodeURIComponent(s.token);
+
+  var options = { method: method || 'get', muteHttpExceptions: true };
+  if (payload) { options.contentType = 'application/json'; options.payload = JSON.stringify(payload); }
+
+  for (var attempt = 0; attempt < 2; attempt++) {
+    var resp;
+    try { resp = UrlFetchApp.fetch(url, options); }
+    catch (e) { return { ok: false, status: 0, data: null, error: 'Network error: ' + e.message }; }
+    var code = resp.getResponseCode();
+
+    if (code === 429 && attempt === 0) {
+      var hdrs = resp.getAllHeaders();
+      var ra = hdrs['Retry-After'] || hdrs['retry-after'] || hdrs['x-ratelimit-reset'];
+      var waitMs = 1500;
+      if (ra) { var n = parseInt(ra, 10); if (!isNaN(n)) waitMs = Math.min(2000, Math.max(500, n * 1000)); }
+      Utilities.sleep(waitMs);
+      continue;
+    }
+
+    var body = null;
+    try { body = JSON.parse(resp.getContentText()); } catch (e) { body = null; }
+    if (code >= 300 || !body || body.success !== true) {
+      var msg = (body && (body.error || body.error_info)) ? (body.error || body.error_info) : ('HTTP ' + code);
+      return { ok: false, status: code, data: (body && body.data) || null, error: msg, raw: body };
+    }
+    return { ok: true, status: code, data: body.data, additional: body.additional_data || null, raw: body };
+  }
+  return { ok: false, status: 429, data: null, error: 'Pipedrive rate limit — try again shortly.' };
+}
+
+/** GET a v1 collection, following pagination. Returns the concatenated array. */
+function pdListAllV1_(path) {
+  var out = [], start = 0, limit = 500, guard = 0;
+  while (guard++ < 40) {
+    var sep = (path.indexOf('?') === -1) ? '?' : '&';
+    var r = pdFetch_('get', path + sep + 'start=' + start + '&limit=' + limit);
+    if (!r.ok) break;
+    if (r.data && r.data.length) out = out.concat(r.data);
+    var pg = r.additional && r.additional.pagination;
+    if (pg && pg.more_items_in_collection && pg.next_start != null) start = pg.next_start;
+    else break;
+  }
+  return out;
+}
+
+// ── Read endpoints (config UI) ─────────────────────────────────────────────
+
+function pdListProducts_() {
+  return pdListAllV1_('/products').map(function(p) {
+    return { id: p.id, name: p.name, code: p.code || '', prices: p.prices || [] };
+  });
+}
+
+function pdListDealFields_() {
+  return pdListAllV1_('/dealFields').map(function(f) {
+    return { key: f.key, name: f.name, field_type: f.field_type, options: f.options || [] };
+  });
+}
+
+function pdListOrganizationFields_() {
+  return pdListAllV1_('/organizationFields').map(function(f) {
+    return { key: f.key, name: f.name, field_type: f.field_type, options: f.options || [] };
+  });
+}
+
+/** Client-callable org search for the config picker. Returns [{id,name}]. */
+function searchPipedriveOrganizations(term) {
+  term = String(term || '').trim();
+  if (term.length < 2) return [];
+  var r = pdFetch_('get', '/organizations/search?term=' + encodeURIComponent(term) + '&fields=name&limit=30');
+  if (!r.ok || !r.data || !r.data.items) return [];
+  return r.data.items.map(function(it) { return { id: it.item.id, name: it.item.name }; });
+}
+
+/** Reads one org with the requested custom-field values (v2). */
+function pdGetOrgWithCustomFields_(orgId, fieldKeys) {
+  if (!orgId) return null;
+  var path = '/organizations/' + orgId;
+  if (fieldKeys && fieldKeys.length) path += '?custom_fields=' + fieldKeys.join(',');
+  var r = pdFetch_('get', path, null, { version: 'v2' });
+  if (!r.ok || !r.data) return null;
+  return { id: r.data.id, name: r.data.name, custom_fields: r.data.custom_fields || {} };
+}
+
+/**
+ * Client-callable single round-trip for the config editor: the live PD catalog
+ * (products + field defs) plus connection defaults. Cached ~10 min; pass
+ * refresh=true to bypass.
+ */
+function getPipedriveConfigBootstrap(refresh) {
+  var status = getPipedriveStatus();
+  if (!status.configured) return { configured: false };
+
+  var cache = CacheService.getScriptCache();
+  var KEY = 'pd_catalog_v1';
+  if (!refresh) {
+    var hit = cache.get(KEY);
+    if (hit) { try { var c = JSON.parse(hit); c.configured = true; c.defaults = status.defaults; return c; } catch (e) {} }
+  }
+  var out = {
+    configured: true,
+    defaults:   status.defaults,
+    products:   pdListProducts_(),
+    dealFields: pdListDealFields_(),
+    orgFields:  pdListOrganizationFields_()
+  };
+  try {
+    cache.put(KEY, JSON.stringify({ products: out.products, dealFields: out.dealFields, orgFields: out.orgFields }), 600);
+  } catch (e) { /* over cache size limit — just refetch next time */ }
+  return out;
+}
+
+// ── PIPEDRIVE config tab (per dealer_key + group) ──────────────────────────
+
+function getPipedriveSheet_() {
+  return getConfigSS_().getSheetByName(PIPEDRIVE_TAB);
+}
+
+function getOrCreatePipedriveSheet_() {
+  var ss = getConfigSS_();
+  var sh = ss.getSheetByName(PIPEDRIVE_TAB);
+  if (!sh) {
+    sh = ss.insertSheet(PIPEDRIVE_TAB);
+    sh.getRange(1, 1, 1, PIPEDRIVE_HEADERS.length).setValues([PIPEDRIVE_HEADERS]);
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+
+function pdParseJson_(raw, fallback) {
+  if (raw === null || raw === undefined || String(raw).trim() === '') return fallback;
+  try { return JSON.parse(raw); } catch (e) { return fallback; }
+}
+
+function pdRowToConfig_(row) {
+  return {
+    dealerKey:     String(row[PDCFG.DEALER_KEY] || ''),
+    group:         String(row[PDCFG.GROUP] || 'PRIMARY').toUpperCase(),
+    orgId:         row[PDCFG.ORG_ID] === '' ? null : String(row[PDCFG.ORG_ID]).trim(),
+    orgName:       String(row[PDCFG.ORG_NAME] || ''),
+    productMap:    pdParseJson_(row[PDCFG.PRODUCT_MAP], {}),
+    titleTemplate: String(row[PDCFG.TITLE_TEMPLATE] || ''),
+    pipelineId:    String(row[PDCFG.PIPELINE_ID] || '').trim(),
+    stageId:       String(row[PDCFG.STAGE_ID] || '').trim(),
+    currency:      String(row[PDCFG.CURRENCY] || '').trim(),
+    fieldMap:      pdParseJson_(row[PDCFG.FIELD_MAP], []),
+    active:        isTrue_(row[PDCFG.ACTIVE])
+  };
+}
+
+/** Parsed PIPEDRIVE config for one (dealer_key, group); null if missing/inactive. */
+function getPipedriveDealerConfig_(dealerKey, group) {
+  var sh = getPipedriveSheet_();
+  if (!sh) return null;
+  group = String(group || 'PRIMARY').toUpperCase();
+  var data = sh.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][PDCFG.DEALER_KEY]) === dealerKey &&
+        String(data[i][PDCFG.GROUP] || 'PRIMARY').toUpperCase() === group) {
+      var cfg = pdRowToConfig_(data[i]);
+      return cfg.active ? cfg : null;
+    }
+  }
+  return null;
+}
+
+/** All PIPEDRIVE rows for a dealer (active or not), for the editor. */
+function getPipedriveDealerRows_(dealerKey) {
+  var sh = getPipedriveSheet_();
+  if (!sh) return [];
+  var data = sh.getDataRange().getValues();
+  var rows = [];
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][PDCFG.DEALER_KEY]) === dealerKey) rows.push(pdRowToConfig_(data[i]));
+  }
+  return rows;
+}
+
+/**
+ * Client-callable. Editor payload for one dealer: the billing groups (PRIMARY +
+ * any billing_split group), the canonical types, and any saved PIPEDRIVE rows.
+ */
+function getPipedriveDealerEditorData(dealerKey) {
+  var config = getDealerConfig_(dealerKey);
+  if (!config) throw new Error('Dealer key not found: ' + dealerKey);
+  var groups = ['PRIMARY'];
+  var split = getBillingSplit_(config);
+  if (split && split.groupName) groups.push(String(split.groupName).toUpperCase());
+
+  var saved = {};
+  getPipedriveDealerRows_(dealerKey).forEach(function(r) { saved[r.group] = r; });
+
+  return {
+    dealerKey:  dealerKey,
+    dealerName: config[CFG.NAME],
+    groups:     groups,
+    types:      PD_TYPE_KEYS.map(function(t) { return t.type; }),
+    saved:      saved
+  };
+}
+
+/**
+ * Client-callable. Replaces all PIPEDRIVE rows for a dealer with the supplied
+ * per-group rows. rows = [{group, orgId, orgName, productMap, titleTemplate,
+ * pipelineId, stageId, currency, fieldMap, active}].
+ */
+function savePipedriveDealerConfig(dealerKey, rows) {
+  if (!dealerKey) throw new Error('dealerKey required.');
+  rows = rows || [];
+  var sh = getOrCreatePipedriveSheet_();
+  var data = sh.getDataRange().getValues();
+
+  for (var i = data.length - 1; i >= 1; i--) {
+    if (String(data[i][PDCFG.DEALER_KEY]) === dealerKey) sh.deleteRow(i + 1);
+  }
+
+  var toWrite = rows.map(function(r) {
+    var line = [];
+    line[PDCFG.DEALER_KEY]     = dealerKey;
+    line[PDCFG.GROUP]          = String(r.group || 'PRIMARY').toUpperCase();
+    line[PDCFG.ORG_ID]         = (r.orgId == null) ? '' : String(r.orgId);
+    line[PDCFG.ORG_NAME]       = r.orgName || '';
+    line[PDCFG.PRODUCT_MAP]    = JSON.stringify(r.productMap || {});
+    line[PDCFG.TITLE_TEMPLATE] = r.titleTemplate || '';
+    line[PDCFG.PIPELINE_ID]    = r.pipelineId || '';
+    line[PDCFG.STAGE_ID]       = r.stageId || '';
+    line[PDCFG.CURRENCY]       = r.currency || '';
+    line[PDCFG.FIELD_MAP]      = JSON.stringify(r.fieldMap || []);
+    line[PDCFG.ACTIVE]         = (r.active === false) ? false : true;
+    return line;
+  });
+  if (toWrite.length) {
+    sh.getRange(sh.getLastRow() + 1, 1, toWrite.length, PIPEDRIVE_HEADERS.length).setValues(toWrite);
+  }
+  return { ok: true, saved: toWrite.length };
+}
+
+// ── Line items from billing totals × the group's product map ───────────────
+
+/**
+ * Builds PD deal line items. Quantity per type = gross − dupes (net billable).
+ * Types sharing a product are summed. Returns [{product_id, quantity,
+ * item_price, name}].
+ * @param {Object} billing    readBillingTotals_ result
+ * @param {Object} productMap {type: product_id} for the relevant group
+ * @param {Array}  products   pdListProducts_ result (price + name lookup)
+ * @param {string} currency   target currency for item_price
+ */
+function buildLineItems_(billing, productMap, products, currency) {
+  if (!billing || !productMap) return [];
+  var byId = {};
+  (products || []).forEach(function(p) { byId[String(p.id)] = p; });
+  currency = (currency || 'USD').toUpperCase();
+
+  var agg = {};
+  PD_TYPE_KEYS.forEach(function(t) {
+    var pid = productMap[t.type];
+    if (pid === undefined || pid === null || pid === '') return;
+    var qty = (Number(billing[t.gross]) || 0) - (Number(billing[t.dupes]) || 0);
+    if (qty <= 0) return;
+    var key = String(pid);
+    if (!agg[key]) {
+      var prod = byId[key], price = 0, name = '';
+      if (prod) {
+        name = prod.name || '';
+        var prices = prod.prices || [];
+        for (var i = 0; i < prices.length; i++) {
+          if (String(prices[i].currency).toUpperCase() === currency) { price = Number(prices[i].price) || 0; break; }
+        }
+        if (price === 0 && prices.length) price = Number(prices[0].price) || 0;
+      }
+      agg[key] = { product_id: pid, quantity: 0, item_price: price, name: name };
+    }
+    agg[key].quantity += qty;
+  });
+
+  return Object.keys(agg).map(function(k) { return agg[k]; });
+}
+
+// ── Deal push (P2) — create/link, attach products, set fields ───────────────
+
+function pdCreateDeal_(params) {
+  var r = pdFetch_('post', '/deals', params);
+  if (!r.ok || !r.data || !r.data.id) return { ok: false, error: r.error || 'Deal creation failed.' };
+  return { ok: true, dealId: r.data.id };
+}
+
+function pdGetDeal_(dealId) {
+  var r = pdFetch_('get', '/deals/' + dealId);
+  if (!r.ok || !r.data) return { ok: false, error: r.error || ('Deal ' + dealId + ' not found.') };
+  return { ok: true, deal: r.data };
+}
+
+function pdUpdateDeal_(dealId, fields) {
+  var r = pdFetch_('put', '/deals/' + dealId, fields);
+  if (!r.ok) return { ok: false, error: r.error || 'Deal update failed.' };
+  return { ok: true };
+}
+
+function pdListDealProducts_(dealId) {
+  var r = pdFetch_('get', '/deals/' + dealId + '/products');
+  if (!r.ok || !r.data) return [];
+  return r.data;
+}
+
+/**
+ * Attaches line items to a deal, skipping products already on it — so a retry
+ * never double-attaches. Returns {ok, attached, skipped, error}.
+ */
+function pdAttachProducts_(dealId, lineItems) {
+  if (!lineItems || !lineItems.length) return { ok: true, attached: 0, skipped: 0 };
+  var existing = {};
+  pdListDealProducts_(dealId).forEach(function(p) { existing[String(p.product_id)] = true; });
+
+  var attached = 0, skipped = 0, errs = [];
+  for (var i = 0; i < lineItems.length; i++) {
+    var li = lineItems[i];
+    if (existing[String(li.product_id)]) { skipped++; continue; }
+    var r = pdFetch_('post', '/deals/' + dealId + '/products', {
+      product_id: li.product_id, item_price: li.item_price, quantity: li.quantity
+    });
+    if (r.ok) attached++; else errs.push('product ' + li.product_id + ': ' + r.error);
+  }
+  if (errs.length) return { ok: false, attached: attached, skipped: skipped, error: errs.join('; ') };
+  return { ok: true, attached: attached, skipped: skipped };
+}
+
+/**
+ * Resolves an org→deal field map into a deal custom_fields object by reading the
+ * org's custom-field values and translating per rule. Returns {} when fieldMap
+ * is empty — so the push ships dark until Phase 3 config exists.
+ */
+function pdResolveFieldMap_(orgId, fieldMap, currency) {
+  if (!orgId || !fieldMap || !fieldMap.length) return {};
+  var keys = fieldMap.map(function(m) { return m.org_field; }).filter(Boolean);
+  var org = pdGetOrgWithCustomFields_(orgId, keys);
+  if (!org || !org.custom_fields) return {};
+  var out = {};
+  fieldMap.forEach(function(m) {
+    if (!m.org_field || !m.deal_field) return;
+    var val = org.custom_fields[m.org_field];
+    if (val === undefined || val === null || val === '') return;
+    var id = (val && val.id !== undefined) ? val.id : val;
+    if (m.type === 'enum' || m.type === 'set') {
+      if (m.option_map) { var mapped = m.option_map[String(id)]; if (mapped !== undefined) out[m.deal_field] = mapped; }
+      else out[m.deal_field] = id;
+    } else if (m.type === 'monetary') {
+      out[m.deal_field] = (val && val.value !== undefined) ? val.value : val;
+      out[m.deal_field + '_currency'] = (val && val.currency) ? val.currency : (currency || 'USD');
+    } else {
+      out[m.deal_field] = (val && val.value !== undefined) ? val.value : val;
+    }
+  });
+  return out;
+}
+
+function buildDealTitle_(template, ctx) {
+  var t = (template && String(template).trim() !== '')
+    ? template
+    : ('{dealer_name} {date}' + (ctx.group && ctx.group !== 'PRIMARY' ? ' ({group})' : ''));
+  return t.replace(/\{dealer_name\}/g, ctx.dealerName || '')
+          .replace(/\{date\}/g, ctx.date || '')
+          .replace(/\{group\}/g, ctx.group || '')
+          .replace(/\{count\}/g, String(ctx.count != null ? ctx.count : ''))
+          .replace(/\s+/g, ' ').trim();
+}
+
+// Idempotency state lives in ScriptProperties (cross-execution), keyed by row.
+function pdPushStateGet_(rowIndex) {
+  var raw = PropertiesService.getScriptProperties().getProperty('pd_push_' + rowIndex);
+  if (!raw) return { dealId: '', productsDone: false, fieldsDone: false };
+  try { return JSON.parse(raw); } catch (e) { return { dealId: '', productsDone: false, fieldsDone: false }; }
+}
+function pdPushStateSet_(rowIndex, state) {
+  PropertiesService.getScriptProperties().setProperty('pd_push_' + rowIndex, JSON.stringify(state));
+}
+function pdPushStateClear_(rowIndex) {
+  PropertiesService.getScriptProperties().deleteProperty('pd_push_' + rowIndex);
+}
+
+/**
+ * Client-callable. Pushes a FINALIZED run (one RUN_LOG row) to Pipedrive:
+ * create a new deal or link an existing one, attach per-type products, set
+ * mapped deal fields. Idempotent — the deal ID is written to RUN_LOG col D the
+ * instant PD returns it, so a retry never creates a duplicate (a numeric col D
+ * is treated as an already-created deal); product/field steps resume.
+ *
+ * @param {string} dealerKey
+ * @param {number} runRowIndex    1-based RUN_LOG row
+ * @param {string} mode           'create' | 'link'
+ * @param {string} existingDealId required when mode === 'link'
+ * @return {Object} {ok, stage, dealId, productsAttached, fieldsSet, message, retryable}
+ */
+function pushRunToPipedrive(dealerKey, runRowIndex, mode, existingDealId) {
+  try {
+    if (!getPipedriveStatus().configured) {
+      return { ok: false, stage: 'config', message: 'Pipedrive is not configured. Set it up in Dealer Rules → Pipedrive.', retryable: false };
+    }
+    var logSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('RUN_LOG');
+    if (!logSheet || runRowIndex < 2 || runRowIndex > logSheet.getLastRow()) {
+      return { ok: false, stage: 'gate', message: 'Run not found — finalize the run first.', retryable: false };
+    }
+    var row = logSheet.getRange(runRowIndex, 1, 1, 23).getValues()[0];
+    if (String(row[1]).trim() !== dealerKey) {
+      return { ok: false, stage: 'gate', message: 'Run does not belong to this dealer.', retryable: false };
+    }
+    var existingColD = String(row[3]).trim();   // D: order_id / deal id
+    var outputDocId  = String(row[17]).trim();  // R: output_doc_id
+    var note         = String(row[20]).trim();  // U: notes
+    var group        = (note.indexOf('SPLIT:') === 0) ? note.substring(6).toUpperCase() : 'PRIMARY';
+
+    // finalizeRun always writes a deal id to col D — a blank means never finalized.
+    if (!existingColD) {
+      return { ok: false, stage: 'gate', message: 'This run has no Deal ID yet — finalize it before pushing.', retryable: false };
+    }
+
+    var pdCfg = getPipedriveDealerConfig_(dealerKey, group);
+    if (!pdCfg)       return { ok: false, stage: 'config', message: 'No active Pipedrive config for ' + dealerKey + ' / ' + group + '.', retryable: false };
+    if (!pdCfg.orgId) return { ok: false, stage: 'config', message: 'No organization set for ' + dealerKey + ' / ' + group + '.', retryable: false };
+
+    var secrets  = pdGetSecrets_();
+    var currency = pdCfg.currency || (secrets && secrets.currency) || 'USD';
+
+    if (!outputDocId) return { ok: false, stage: 'resolve', message: 'Run has no output document on record.', retryable: false };
+    var outputDoc;
+    try { outputDoc = SpreadsheetApp.openById(outputDocId); }
+    catch (e) { return { ok: false, stage: 'resolve', message: 'Could not open the run output doc: ' + e.message, retryable: false }; }
+    var billing  = readBillingTotals_(outputDoc, (group === 'PRIMARY') ? 'BILLING' : ('BILLING_' + group));
+    var products = pdListProducts_();
+    var lineItems = buildLineItems_(billing, pdCfg.productMap, products, currency);
+
+    var state  = pdPushStateGet_(runRowIndex);
+    var dealId = state.dealId || '';
+
+    // Dup guard: a numeric col D = a real PD deal already exists for this run
+    // (we wrote it post-create, or it was pre-created) — never create a second.
+    if (!dealId && mode === 'create' && /^\d+$/.test(existingColD)) {
+      dealId = existingColD;
+      state.dealId = dealId;
+      pdPushStateSet_(runRowIndex, state);
+    }
+
+    // ── Resolve the deal; write col D the instant we have an id ─────────────
+    if (!dealId) {
+      if (mode === 'link') {
+        var idToLink = String(existingDealId || '').trim();
+        if (!idToLink) return { ok: false, stage: 'deal', message: 'Enter the existing Deal ID to link.', retryable: false };
+        var got = pdGetDeal_(idToLink);
+        if (!got.ok) return { ok: false, stage: 'deal', message: 'Could not find deal ' + idToLink + ' in Pipedrive: ' + got.error, retryable: true };
+        dealId = idToLink;
+      } else {
+        var title = buildDealTitle_(pdCfg.titleTemplate, {
+          dealerName: pdCfg.orgName || row[2] || dealerKey,
+          date:       Utilities.formatDate(new Date(), 'America/Chicago', 'yyyy-MM-dd'),
+          group:      group,
+          count:      lineItems.reduce(function(s, li) { return s + li.quantity; }, 0)
+        });
+        var dealParams = { title: title, org_id: Number(pdCfg.orgId) };
+        var pipeline = pdCfg.pipelineId || (secrets && secrets.pipeline);
+        var stage    = pdCfg.stageId    || (secrets && secrets.stage);
+        if (pipeline) dealParams.pipeline_id = Number(pipeline);
+        if (stage)    dealParams.stage_id    = Number(stage);
+        if (currency) dealParams.currency    = currency;
+        var created = pdCreateDeal_(dealParams);
+        if (!created.ok) return { ok: false, stage: 'deal', message: 'Deal creation failed: ' + created.error, retryable: true };
+        dealId = created.dealId;
+      }
+      state.dealId = dealId;
+      pdPushStateSet_(runRowIndex, state);
+      logSheet.getRange(runRowIndex, 4).setValue(dealId);  // D — idempotency anchor
+      SpreadsheetApp.flush();
+    }
+
+    // ── Attach products (idempotent) ───────────────────────────────────────
+    if (!state.productsDone) {
+      var att = pdAttachProducts_(dealId, lineItems);
+      if (!att.ok) {
+        return { ok: false, stage: 'products', dealId: dealId, retryable: true,
+                 message: 'Deal ' + dealId + ' is set, but attaching products failed: ' + att.error + ' — retry to finish.' };
+      }
+      state.productsDone = true;
+      pdPushStateSet_(runRowIndex, state);
+    }
+
+    // ── Set mapped deal fields (no-op until Phase 3 config exists) ──────────
+    var fieldsSet = 0;
+    if (!state.fieldsDone) {
+      // v1 deals API takes custom fields as TOP-LEVEL keys (40-char hashes),
+      // not nested under a custom_fields object (that's a v2 convention).
+      // pdResolveFieldMap_ already returns a flat {key:value} map (incl. the
+      // `<key>_currency` companion for monetary fields), so pass it directly.
+      var custom = pdResolveFieldMap_(pdCfg.orgId, pdCfg.fieldMap, currency);
+      var ckeys = Object.keys(custom);
+      if (ckeys.length) {
+        var upd = pdUpdateDeal_(dealId, custom);
+        if (!upd.ok) {
+          return { ok: false, stage: 'fields', dealId: dealId, retryable: true,
+                   message: 'Deal ' + dealId + ' built, but setting deal fields failed: ' + upd.error + ' — retry to finish.' };
+        }
+        fieldsSet = ckeys.length;
+      }
+      state.fieldsDone = true;
+      pdPushStateSet_(runRowIndex, state);
+    }
+
+    pdPushStateClear_(runRowIndex);
+    return {
+      ok: true, stage: 'done', dealId: dealId,
+      productsAttached: lineItems.length, fieldsSet: fieldsSet,
+      message: (mode === 'link' ? 'Linked to deal ' : 'Created deal ') + dealId +
+               ' (' + lineItems.length + ' product line' + (lineItems.length === 1 ? '' : 's') + ').'
+    };
+  } catch (e) {
+    return { ok: false, stage: 'error', message: 'Unexpected error: ' + e.message, retryable: true };
+  }
+}
+
+
+// ============================================================================
 // END OF SCRIPT
 // ============================================================================

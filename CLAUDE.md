@@ -106,6 +106,14 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
   UI stayed fine. Do **not** reintroduce volatile full-column formulas here.
 - Stats/dashboard writes (`writeImportStats_`, ORDER_STATS side-write,
   `refreshDashboard_`) are non-fatal try/catch — keep it that way.
+- Pipedrive *(branch `pipedrive-integration`, not deployed)*: the **`PIPEDRIVE`
+  tab** in SF_DEALER_CONFIG is keyed **one row per `(dealer_key, group)`** (PRIMARY
+  + one per `billing_split` group, each with its own org + per-type `product_map`).
+  Secrets (`PD_API_TOKEN` etc.) live in **ScriptProperties only**, never in repo/sheet.
+- Pipedrive idempotency anchor: the deal ID is written to **RUN_LOG col D** the
+  instant the API returns it, and a **numeric col D = "deal already created"**
+  (dup guard) — so a retry never makes a second deal. `pdFetch_` **never throws**
+  (returns `{ok,…}`) so a Pipedrive failure can never fail a run. Keep both.
 
 ## Current to-do (verified June 10, 2026)
 
@@ -114,8 +122,12 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
 2. MBCC/Sprinter shared scraper location — billing split design decision pending.
 3. Stock→VIN fallback lookup (replaces unused `use_stock_not_vin` concept).
 4. Glendale `model_trim_split` key is inert in `data_transforms` — implement or remove.
-5. Pipedrive integration — push completed runs as deal updates; isolate API calls
-   in try/catch so failures never surface as run failures.
+5. Pipedrive integration — **implemented on branch `pipedrive-integration`,
+   pending deploy + live config** (`clasp push` + ScriptProperties secrets +
+   PIPEDRIVE config rows). Pushes a finalized run to Pipedrive as a deal with
+   per-type product line items, as a separate explicit step after finalization;
+   `pushRunToPipedrive`, never-throw `pdFetch_`. See the Bridge doc "Pipedrive
+   Integration" section.
 6. Trim cleanup — trims overflow the print template; full analysis + validated
    auto-cleanup design (global `cleanTrim_` regex pass, feature-flag + dry-run
    gated, plus residual exact-match rules) captured in the Bridge doc

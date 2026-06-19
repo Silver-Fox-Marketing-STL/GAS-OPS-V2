@@ -375,6 +375,49 @@
     #view-run .finalize-card-status.error { color: var(--danger); }
     #view-run .finalize-card-status.ok { color: var(--success); }
 
+    /* ── Pipedrive push sub-block (inside a finalized card) ──────────────── */
+    #view-run .card-push {
+      margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border-2);
+    }
+    #view-run .card-push-title {
+      font-size: 11px; font-weight: bold; text-transform: uppercase;
+      letter-spacing: 0.3px; color: var(--text-3); margin-bottom: 6px;
+    }
+    #view-run .card-push-modes { display: flex; gap: 14px; margin-bottom: 6px; }
+    #view-run .card-push-modes label {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-weight: normal; font-size: 12px; color: var(--text-2);
+      margin: 0; cursor: pointer;
+    }
+    #view-run .card-push-modes input[type="radio"] {
+      width: auto; margin: 0; cursor: pointer; accent-color: var(--accent);
+    }
+    #view-run .card-push-row { display: flex; gap: 8px; align-items: center; }
+    #view-run .card-push-row input[type="text"] {
+      flex: 1; min-width: 0; padding: 6px 8px; font-size: 12px;
+      border: 1px solid var(--border); border-radius: 4px;
+      background: var(--bg); color: var(--text);
+    }
+    #view-run .card-push-btn {
+      padding: 6px 12px; font-size: 12px; border: none; border-radius: 4px;
+      background: var(--accent); color: var(--on-accent); cursor: pointer; white-space: nowrap;
+    }
+    #view-run .card-push-btn:hover { background: var(--accent-hover); }
+    #view-run .card-push-btn:disabled { background: var(--text-muted); cursor: default; }
+    #view-run .card-push-status { font-size: 11px; color: var(--text-2); margin-top: 6px; min-height: 14px; }
+    #view-run .card-push-status.error { color: var(--danger); }
+    #view-run .card-push-status.ok { color: var(--success); }
+    #view-run .card-push-done {
+      font-size: 12px; color: var(--success); font-weight: 600;
+      display: flex; align-items: center; gap: 6px;
+    }
+    #view-run .card-push-retry {
+      margin-top: 6px; padding: 5px 12px; font-size: 12px;
+      background: var(--bg); color: var(--accent); border: 1.5px solid var(--accent);
+      border-radius: 4px; cursor: pointer; font-weight: bold;
+    }
+    #view-run .card-push-retry:hover { background: var(--accent-weak); }
+
     /* ── Status bar ──────────────────────────────────────────────────────── */
     #view-run #runStatus {
       margin-top: 12px; font-size: 12px; min-height: 18px;
@@ -731,6 +774,7 @@
             '<button class="card-abandon-btn" id="cardAbandon' + i + '" onclick="abandonCard(' + i + ')">Abandon</button>' +
           '</div>' +
           '<div class="finalize-card-status" id="cardStatus' + i + '"></div>' +
+          '<div class="card-push" id="cardPush' + i + '" style="display:none;"></div>' +
         '</div>';
       });
       document.getElementById('finalizeCards').innerHTML = html;
@@ -805,6 +849,7 @@
           statusEl.textContent = 'Logged ✓ (run log row ' + res.rowIndex + ')';
           statusEl.className = 'finalize-card-status ok';
           updateVinLogBtn();
+          renderPushBlock(i);   // Pipedrive push UI only appears once finalized
         })
         .withFailureHandler(function(e) {
           cardStates[i].state = 'pending';
@@ -813,6 +858,117 @@
           statusEl.className = 'finalize-card-status error';
         })
         .finalizeRun(lastDealerKey, entry, dealId);
+    }
+
+    // ── Pipedrive push (only available once a card is finalized) ──────────────
+    // Idempotent on the server — retrying never duplicates a deal. The card must
+    // have a rowIndex (set by finalizeCard) for the push to target the run row.
+    function renderPushBlock(i) {
+      var wrap = document.getElementById('cardPush' + i);
+      if (!wrap) return;
+      wrap.style.display = 'block';
+      wrap.innerHTML =
+        '<div class="card-push-title">Pipedrive</div>' +
+        '<div class="card-push-modes">' +
+          '<label><input type="radio" name="pushMode' + i + '" value="create" checked ' +
+            'onchange="onPushModeChange(' + i + ')"> Create new deal</label>' +
+          '<label><input type="radio" name="pushMode' + i + '" value="link" ' +
+            'onchange="onPushModeChange(' + i + ')"> Link existing deal</label>' +
+        '</div>' +
+        '<div class="card-push-row">' +
+          '<input type="text" id="pushDealId' + i + '" placeholder="Existing Deal ID" ' +
+            'style="display:none;" />' +
+          '<button class="card-push-btn" id="pushBtn' + i + '" onclick="pushCard(' + i + ')">Push to Pipedrive</button>' +
+        '</div>' +
+        '<div class="card-push-status" id="pushStatus' + i + '"></div>';
+    }
+
+    function onPushModeChange(i) {
+      var mode = pushModeFor(i);
+      var input = document.getElementById('pushDealId' + i);
+      if (input) input.style.display = (mode === 'link') ? 'block' : 'none';
+    }
+
+    function pushModeFor(i) {
+      var checked = document.querySelector('input[name="pushMode' + i + '"]:checked');
+      return checked ? checked.value : 'create';
+    }
+
+    function pushCard(i) {
+      if (!cardStates[i] || cardStates[i].rowIndex == null) {
+        setCardPushStatus(i, 'Finalize this entry before pushing to Pipedrive.', 'error');
+        return;
+      }
+      var mode = pushModeFor(i);
+      var existingDealId = '';
+      if (mode === 'link') {
+        existingDealId = document.getElementById('pushDealId' + i).value.trim();
+        if (!existingDealId) {
+          setCardPushStatus(i, 'Enter the existing Deal ID to link.', 'error');
+          return;
+        }
+      }
+      doPush(i, mode, existingDealId);
+    }
+
+    function doPush(i, mode, existingDealId) {
+      var btn = document.getElementById('pushBtn' + i);
+      if (btn) { btn.disabled = true; btn.textContent = 'Pushing...'; }
+      setCardPushStatus(i, 'Pushing to Pipedrive...', '');
+
+      google.script.run
+        .withSuccessHandler(function(res) {
+          res = res || {};
+          if (res.ok) {
+            renderPushDone(i, res);
+          } else {
+            if (btn) { btn.disabled = false; btn.textContent = 'Push to Pipedrive'; }
+            setCardPushStatus(i, res.message || 'Push failed.', 'error');
+            if (res.retryable) renderPushRetry(i, mode, existingDealId);
+          }
+        })
+        .withFailureHandler(function(e) {
+          if (btn) { btn.disabled = false; btn.textContent = 'Push to Pipedrive'; }
+          setCardPushStatus(i, 'Push error: ' + e.message, 'error');
+          renderPushRetry(i, mode, existingDealId);   // network/transient — offer retry
+        })
+        .pushRunToPipedrive(lastDealerKey, cardStates[i].rowIndex, mode, existingDealId || null);
+    }
+
+    // Collapse the controls to a done state showing the deal the run landed on.
+    function renderPushDone(i, res) {
+      var wrap = document.getElementById('cardPush' + i);
+      if (!wrap) return;
+      var dealTxt = res.dealId != null ? ('#' + res.dealId) : '';
+      wrap.innerHTML =
+        '<div class="card-push-title">Pipedrive</div>' +
+        '<div class="card-push-done">✓ ' + escHtml(res.message || 'Pushed to deal ' + dealTxt) + '</div>' +
+        (dealTxt ? '<div class="card-push-status ok">Pushed to deal ' + escHtml(dealTxt) + '</div>' : '');
+    }
+
+    function renderPushRetry(i, mode, existingDealId) {
+      var wrap = document.getElementById('cardPush' + i);
+      if (!wrap) return;
+      // Avoid stacking multiple retry buttons.
+      var existing = document.getElementById('pushRetry' + i);
+      if (existing) return;
+      var btn = document.createElement('button');
+      btn.className = 'card-push-retry';
+      btn.id = 'pushRetry' + i;
+      btn.textContent = 'Retry';
+      btn.onclick = (function(idx, m, d) { return function() {
+        var rb = document.getElementById('pushRetry' + idx);
+        if (rb) rb.remove();
+        doPush(idx, m, d);
+      }; })(i, mode, existingDealId);
+      wrap.appendChild(btn);
+    }
+
+    function setCardPushStatus(i, msg, type) {
+      var el = document.getElementById('pushStatus' + i);
+      if (!el) return;
+      el.textContent = msg;
+      el.className = 'card-push-status' + (type ? ' ' + type : '');
     }
 
     function abandonCard(i) {

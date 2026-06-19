@@ -213,6 +213,83 @@
     </div>
   </div>
 
+  <!-- ════════════════════════════════════════════════════════════════════════════
+       PIPEDRIVE PANEL  (Phase 1 — connection + per-dealer org/product config)
+  ════════════════════════════════════════════════════════════════════════════ -->
+  <div class="tab-panel" id="panel-pipedrive">
+    <div class="panel-title-bar">Pipedrive</div>
+    <div class="panel-scroll">
+
+      <!-- ── Connection (dealer-independent) ──────────────────────────────────── -->
+      <div class="filter-card filter-card--full pd-conn">
+        <div class="section-label">Connection</div>
+
+        <!-- Connected banner (shown when configured) -->
+        <div id="pdConnected" class="pd-connected" style="display:none;">
+          <div class="pd-conn-status">
+            <span class="pd-dot"></span>
+            <span>Connected to <strong id="pdConnDomain">—</strong></span>
+          </div>
+          <div class="pd-conn-actions">
+            <button class="btn-add-season" id="pdRefreshBtn" onclick="pdRefreshCatalog()">Refresh from Pipedrive</button>
+            <button class="pd-link" id="pdReconfigureBtn" onclick="pdShowSetupForm()">Reconfigure</button>
+          </div>
+        </div>
+
+        <!-- Setup form (shown when not configured, or on Reconfigure) -->
+        <div id="pdSetupForm" class="pd-setup" style="display:none;">
+          <div class="pd-setup-hint">Enter your Pipedrive API token and company domain. The connection is validated live before it's saved. The token is stored securely on the server and is never returned to this screen.</div>
+          <div class="pd-form-grid">
+            <div class="price-field">
+              <label for="pdToken">API token</label>
+              <input type="password" id="pdToken" placeholder="Pipedrive API token" autocomplete="off" />
+            </div>
+            <div class="price-field">
+              <label for="pdDomain">Company domain</label>
+              <input type="text" id="pdDomain" placeholder="acme" />
+              <div class="field-hint-small">The <code>acme</code> in <code>acme.pipedrive.com</code>.</div>
+            </div>
+          </div>
+          <div class="pd-form-grid pd-form-grid-3">
+            <div class="price-field">
+              <label for="pdPipelineId">Default pipeline ID <span class="pd-opt">(optional)</span></label>
+              <input type="number" id="pdPipelineId" placeholder="e.g. 1" min="0" />
+            </div>
+            <div class="price-field">
+              <label for="pdStageId">Default stage ID <span class="pd-opt">(optional)</span></label>
+              <input type="number" id="pdStageId" placeholder="e.g. 1" min="0" />
+            </div>
+            <div class="price-field">
+              <label for="pdCurrency">Default currency <span class="pd-opt">(optional)</span></label>
+              <input type="text" id="pdCurrency" placeholder="USD" maxlength="3" />
+            </div>
+          </div>
+          <div class="pd-setup-actions">
+            <button class="pd-link" id="pdCancelSetupBtn" onclick="pdCancelSetupForm()" style="display:none;">Cancel</button>
+            <button class="btn-primary" id="pdConnectBtn" onclick="pdConnect()">Connect</button>
+          </div>
+        </div>
+
+        <div id="pdConnLoading" class="placeholder">Checking Pipedrive connection…</div>
+      </div>
+
+      <!-- ── Per-dealer configuration ─────────────────────────────────────────── -->
+      <div class="filter-card filter-card--full">
+        <div class="section-label">Dealer Deal Configuration</div>
+        <div class="pill-hint">Map each vehicle type to a Pipedrive product per billing group, and choose the organization the deal is created under. Billing-split dealers (e.g. shared Sprinter feeds) show a second group with its own product mapping.</div>
+        <div id="pdDealerBody" class="pd-dealer-body">
+          <div class="placeholder">Select a dealer to configure Pipedrive.</div>
+        </div>
+      </div>
+
+    </div>
+    <div class="save-row">
+      <div id="pipedriveUnsaved" style="font-size:11px;color:var(--warning);align-self:center;display:none;">Unsaved changes</div>
+      <button class="btn-secondary" id="discardPipedriveBtn" onclick="discardPipedriveConfig()" disabled>Discard Changes</button>
+      <button class="btn-primary" id="savePipedriveBtn" onclick="savePipedriveConfig()" disabled>Save Pipedrive Config</button>
+    </div>
+  </div>
+
   </div><!-- /.panels-row -->
 
   <!-- ── Status bar ─────────────────────────────────────────────────────────── -->
@@ -316,6 +393,7 @@
     }
     #view-rules .tab-panel { display: block; min-width: 0; }
     #view-rules #panel-type { border-bottom: 1px solid var(--border); }
+    #view-rules #panel-filter { border-bottom: 1px solid var(--border); }
     #view-rules .panel-title-bar {
       position: sticky;     /* keep the section header in view while scrolling */
       top: 0;
@@ -724,6 +802,191 @@
     }
     #view-rules .btn-add-rule:hover { background: var(--accent-hover); }
 
+    /* ════════════════════════════════════════════════════════════════════════════
+       PIPEDRIVE PANEL
+    ════════════════════════════════════════════════════════════════════════════ */
+    #view-rules .pd-conn { margin-bottom: 14px; }
+
+    /* Connected banner */
+    #view-rules .pd-connected {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; flex-wrap: wrap;
+    }
+    #view-rules .pd-conn-status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text); }
+    #view-rules .pd-dot {
+      width: 9px; height: 9px; border-radius: 50%;
+      background: var(--success); flex-shrink: 0;
+    }
+    #view-rules .pd-conn-actions { display: flex; align-items: center; gap: 10px; }
+    #view-rules .pd-link {
+      background: none; border: none; color: var(--accent); cursor: pointer;
+      font-size: 12px; font-weight: bold; padding: 2px 4px; text-decoration: underline;
+    }
+    #view-rules .pd-link:hover { color: var(--accent-hover); }
+
+    /* Setup form */
+    #view-rules .pd-setup-hint { font-size: 11px; color: var(--text-3); line-height: 1.5; margin-bottom: 10px; }
+    #view-rules .pd-form-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;
+    }
+    #view-rules .pd-form-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    #view-rules .pd-setup .price-field input[type="text"],
+    #view-rules .pd-setup .price-field input[type="password"],
+    #view-rules .pd-setup .price-field input[type="number"] {
+      padding: 6px 8px; font-size: 13px;
+      border: 1px solid var(--border-2); border-radius: 4px; width: 100%;
+    }
+    #view-rules .pd-setup .price-field input:focus { outline: none; border-color: var(--accent); }
+    #view-rules .pd-setup .field-hint-small code {
+      font-family: monospace; background: var(--surface-2);
+      padding: 0 4px; border-radius: 3px; color: var(--text-2);
+    }
+    #view-rules .pd-opt { color: var(--text-muted); font-weight: normal; }
+    #view-rules .pd-setup-actions {
+      display: flex; align-items: center; justify-content: flex-end; gap: 12px;
+    }
+
+    /* Per-dealer body */
+    #view-rules .pd-dealer-body { margin-top: 4px; }
+    #view-rules .pd-group {
+      border: 1px solid var(--border); border-radius: var(--radius);
+      background: var(--bg); margin-top: 12px;
+    }
+    #view-rules .pd-group:first-child { margin-top: 8px; }
+    #view-rules .pd-group-head {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      padding: 8px 12px; border-bottom: 1px solid var(--border);
+      background: var(--accent-weak); border-radius: var(--radius) var(--radius) 0 0;
+    }
+    #view-rules .pd-group-name {
+      font-family: var(--font-head); font-weight: 700; font-size: 13px; color: var(--accent);
+    }
+    #view-rules .pd-group-body { padding: 12px; }
+    #view-rules .pd-sub-label {
+      font-size: 11px; font-weight: bold; text-transform: uppercase;
+      letter-spacing: 0.3px; color: var(--text-3); margin: 14px 0 6px;
+    }
+    #view-rules .pd-sub-label:first-child { margin-top: 0; }
+
+    /* Org picker */
+    #view-rules .pd-org-search { position: relative; }
+    #view-rules .pd-org-search input[type="text"] {
+      padding: 6px 8px; font-size: 13px;
+      border: 1px solid var(--border-2); border-radius: 4px; width: 100%;
+    }
+    #view-rules .pd-org-search input:focus { outline: none; border-color: var(--accent); }
+    #view-rules .pd-org-results {
+      list-style: none; margin: 4px 0 0; padding: 0;
+      border: 1px solid var(--border-2); border-radius: 4px;
+      background: var(--bg); max-height: 180px; overflow-y: auto;
+      box-shadow: var(--shadow);
+    }
+    #view-rules .pd-org-results li {
+      padding: 6px 10px; font-size: 12px; color: var(--text); cursor: pointer;
+      border-bottom: 1px solid var(--border);
+    }
+    #view-rules .pd-org-results li:last-child { border-bottom: none; }
+    #view-rules .pd-org-results li:hover { background: var(--accent-weak); color: var(--accent); }
+    #view-rules .pd-org-results li.pd-org-msg { color: var(--text-muted); font-style: italic; cursor: default; }
+    #view-rules .pd-org-results li.pd-org-msg:hover { background: var(--bg); color: var(--text-muted); }
+    #view-rules .pd-org-chosen {
+      display: flex; align-items: center; gap: 10px;
+      padding: 6px 10px; border: 1px solid var(--border-2); border-radius: 4px;
+      background: var(--surface-2); font-size: 13px; color: var(--text);
+    }
+    #view-rules .pd-org-chosen .pd-org-id { color: var(--text-3); font-size: 11px; }
+    #view-rules .pd-org-clear {
+      margin-left: auto; background: var(--bg); border: 1px solid var(--border-2);
+      border-radius: 3px; font-size: 11px; color: var(--text-2); cursor: pointer;
+      padding: 3px 8px;
+    }
+    #view-rules .pd-org-clear:hover { background: var(--surface); color: var(--accent); border-color: var(--accent); }
+
+    /* Type → product grid */
+    #view-rules .pd-product-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    #view-rules .pd-product-table th {
+      background: var(--surface-2); padding: 6px 10px; text-align: left;
+      font-size: 11px; font-weight: bold; text-transform: uppercase;
+      letter-spacing: 0.3px; color: var(--text-2); border-bottom: 1px solid var(--border);
+    }
+    #view-rules .pd-product-table td {
+      padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: middle;
+    }
+    #view-rules .pd-product-table tr:last-child td { border-bottom: none; }
+    #view-rules .pd-product-table td:first-child { width: 110px; }
+    #view-rules .pd-product-table select {
+      padding: 5px 7px; font-size: 12px;
+      border: 1px solid var(--border-2); border-radius: 4px; width: 100%;
+    }
+    #view-rules .pd-product-table select:focus { outline: none; border-color: var(--accent); }
+    #view-rules .pd-type-badge {
+      display: inline-block; padding: 2px 9px; border-radius: 10px;
+      font-size: 11px; font-weight: bold; color: var(--on-type);
+    }
+    #view-rules .pd-type-badge.type-new   { background: var(--type-new); }
+    #view-rules .pd-type-badge.type-po    { background: var(--type-po); }
+    #view-rules .pd-type-badge.type-cpo   { background: var(--type-cpo); }
+    #view-rules .pd-type-badge.type-cpoel { background: var(--type-cpoel); }
+
+    /* Deal field mapping */
+    #view-rules .pd-fieldmap { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+    #view-rules .pd-fm-row {
+      border: 1px solid var(--border); border-radius: 5px; background: var(--bg); padding: 8px 10px;
+    }
+    #view-rules .pd-fm-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    #view-rules .pd-fm-head select {
+      padding: 5px 7px; font-size: 12px; border: 1px solid var(--border-2);
+      border-radius: 4px; min-width: 150px; flex: 1;
+    }
+    #view-rules .pd-fm-head select:focus { outline: none; border-color: var(--accent); }
+    #view-rules .pd-fm-arrow { color: var(--accent); font-weight: bold; font-size: 14px; }
+    #view-rules .pd-fm-type {
+      padding: 2px 8px; font-size: 10px; font-weight: bold; text-transform: uppercase;
+      letter-spacing: 0.3px; border-radius: 10px;
+      background: var(--accent-weak); color: var(--accent);
+    }
+    #view-rules .pd-fm-options {
+      width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px;
+      border-top: 1px dashed var(--border-2);
+    }
+    #view-rules .pd-fm-options th {
+      background: var(--surface-2); padding: 5px 8px; text-align: left;
+      font-size: 10px; font-weight: bold; text-transform: uppercase;
+      letter-spacing: 0.3px; color: var(--text-3); border-bottom: 1px solid var(--border);
+    }
+    #view-rules .pd-fm-options td {
+      padding: 5px 8px; border-bottom: 1px solid var(--border); vertical-align: middle;
+    }
+    #view-rules .pd-fm-options tr:last-child td { border-bottom: none; }
+    #view-rules .pd-fm-options td:first-child { width: 45%; color: var(--text-2); }
+    #view-rules .pd-fm-options select {
+      padding: 4px 6px; font-size: 12px; border: 1px solid var(--border-2);
+      border-radius: 4px; width: 100%;
+    }
+    #view-rules .pd-fm-options select:focus { outline: none; border-color: var(--accent); }
+
+    /* Overrides grid */
+    #view-rules .pd-overrides-grid {
+      display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px;
+    }
+    #view-rules .pd-field { display: flex; flex-direction: column; gap: 3px; }
+    #view-rules .pd-field.pd-field--wide { grid-column: 1 / -1; }
+    #view-rules .pd-field label { font-size: 11px; font-weight: bold; color: var(--text-2); }
+    #view-rules .pd-field input[type="text"],
+    #view-rules .pd-field input[type="number"] {
+      padding: 6px 8px; font-size: 12px;
+      border: 1px solid var(--border-2); border-radius: 4px; width: 100%;
+    }
+    #view-rules .pd-field input:focus { outline: none; border-color: var(--accent); }
+
+    /* Active toggle row reuses .toggle-* but needs no bottom border */
+    #view-rules .pd-active-row { border-bottom: none; padding-top: 12px; }
+
+    #view-rules .pd-disabled-note {
+      color: var(--text-muted); font-size: 12px; font-style: italic;
+      padding: 14px 0; text-align: center;
+    }
+
     /* themed root (overrides the interim .view light guard) */
     #view-rules { background: var(--bg); color: var(--text); }
 </style>
@@ -738,6 +1001,7 @@
     var typeRules        = [];   // live working copy
     var typeDirty        = false;
     var filterDirty      = false;
+    var pipedriveDirty   = false;
 
     // ── Init (lazy — first nav into the view) ──────────────────────────────────
     function initRulesView() {
@@ -757,6 +1021,9 @@
           document.getElementById('loadingOverlay').textContent = 'Error loading data: ' + e.message;
         })
         .getRulesEditorBootstrap();
+
+      // Pipedrive connection state is dealer-independent — probe it on view init.
+      pdLoadStatus();
     }
 
     window.VIEW_INITS = window.VIEW_INITS || {};
@@ -765,7 +1032,7 @@
     // Close guard: unsaved rule edits shouldn't be lost silently.
     if (window.AppGuards) {
       AppGuards.register(function() {
-        return (typeDirty || filterDirty) ? 'Unsaved dealer-rule changes' : null;
+        return (typeDirty || filterDirty || pipedriveDirty) ? 'Unsaved dealer-rule changes' : null;
       });
     }
 
@@ -789,11 +1056,13 @@
         currentDealerKey = null;
         resetTypePanel();
         resetFilterPanel();
+        resetPipedrivePanel();
         disableSaveButtons();
         return;
       }
       currentDealerKey = key;
       loadDealerRules(key);
+      loadPipedriveDealer(key);
     }
 
     // ── Load dealer rules ──────────────────────────────────────────────────────
@@ -1483,6 +1752,8 @@
       document.getElementById('saveFilterBtn').disabled = true;
       document.getElementById('discardTypeBtn').disabled   = true;
       document.getElementById('discardFilterBtn').disabled = true;
+      document.getElementById('savePipedriveBtn').disabled    = true;
+      document.getElementById('discardPipedriveBtn').disabled = true;
     }
 
     function setRulesStatus(msg, type) {
@@ -1492,4 +1763,699 @@
     }
 
     // escHtml comes from SharedUtils (single shared copy).
+
+    // ════════════════════════════════════════════════════════════════════════════
+    // PIPEDRIVE (Phase 1 — connection + per-dealer org/product config)
+    // ════════════════════════════════════════════════════════════════════════════
+    var pdConfigured   = false;       // connection state
+    var pdDefaults     = {};          // {pipelineId, stageId, currency} connection defaults
+    var pdProducts     = [];          // [{id, name, code, prices}] catalog (from bootstrap)
+    var pdDealFields   = [];          // [{key, name, field_type, options:[{id,label}]}] (deal fields)
+    var pdOrgFields    = [];          // [{key, name, field_type, options:[{id,label}]}] (org fields)
+    var pdCatalogLoaded = false;      // products + field schemas fetched at least once
+    var pdGroups       = [];          // groups for the current dealer (PRIMARY + optional split)
+    var pdTypes        = [];          // canonical types (New/PO/CPO/CPO-EL)
+    var pdSaved        = {};          // saved per-group config keyed by GROUP
+    var pdSelections   = {};          // live working model keyed by GROUP (org/products/overrides/active)
+    var pdDealerLoaded = false;       // dealer config fetched for the current dealer
+
+    // ── Connection status ───────────────────────────────────────────────────────
+    function pdLoadStatus() {
+      google.script.run
+        .withSuccessHandler(function(st) {
+          st = st || {};
+          pdConfigured = !!st.configured;
+          pdDefaults   = st.defaults || {};
+          renderPdConnection(st.domain || '');
+          // Once connected, pull the product catalog so dealer grids can populate.
+          if (pdConfigured) pdLoadCatalog(false);
+        })
+        .withFailureHandler(function(e) {
+          document.getElementById('pdConnLoading').textContent =
+            'Could not check Pipedrive connection: ' + e.message;
+        })
+        .getPipedriveStatus();
+    }
+
+    function renderPdConnection(domain) {
+      document.getElementById('pdConnLoading').style.display = 'none';
+      var connected = document.getElementById('pdConnected');
+      var setup     = document.getElementById('pdSetupForm');
+      if (pdConfigured) {
+        document.getElementById('pdConnDomain').textContent = domain || '(unknown domain)';
+        connected.style.display = 'flex';
+        setup.style.display = 'none';
+        // Pre-fill the (hidden) setup form's default fields for Reconfigure convenience.
+        document.getElementById('pdPipelineId').value = (pdDefaults.pipelineId != null) ? pdDefaults.pipelineId : '';
+        document.getElementById('pdStageId').value    = (pdDefaults.stageId != null) ? pdDefaults.stageId : '';
+        document.getElementById('pdCurrency').value   = pdDefaults.currency || '';
+        document.getElementById('pdDomain').value     = domain || '';
+        document.getElementById('pdCancelSetupBtn').style.display = 'inline-block';
+      } else {
+        connected.style.display = 'none';
+        setup.style.display = 'block';
+        document.getElementById('pdCancelSetupBtn').style.display = 'none';
+      }
+      // Whatever the connection state, refresh the dealer body messaging.
+      renderPipedriveDealer();
+    }
+
+    function pdShowSetupForm() {
+      document.getElementById('pdConnected').style.display = 'none';
+      document.getElementById('pdSetupForm').style.display = 'block';
+      document.getElementById('pdCancelSetupBtn').style.display = pdConfigured ? 'inline-block' : 'none';
+      document.getElementById('pdToken').value = '';
+    }
+
+    function pdCancelSetupForm() {
+      // Only meaningful when already configured — return to the connected banner.
+      if (!pdConfigured) return;
+      document.getElementById('pdSetupForm').style.display = 'none';
+      document.getElementById('pdConnected').style.display = 'flex';
+    }
+
+    function pdConnect() {
+      var token    = document.getElementById('pdToken').value.trim();
+      var domain   = document.getElementById('pdDomain').value.trim();
+      var pipeline = document.getElementById('pdPipelineId').value.trim();
+      var stage    = document.getElementById('pdStageId').value.trim();
+      var currency = document.getElementById('pdCurrency').value.trim().toUpperCase();
+
+      if (!token)  { setRulesStatus('Enter a Pipedrive API token.', 'error'); return; }
+      if (!domain) { setRulesStatus('Enter your Pipedrive company domain.', 'error'); return; }
+
+      var btn = document.getElementById('pdConnectBtn');
+      btn.disabled = true;
+      btn.textContent = 'Connecting…';
+
+      google.script.run
+        .withSuccessHandler(function(res) {
+          btn.disabled = false;
+          btn.textContent = 'Connect';
+          res = res || {};
+          toast(res.message || (res.ok ? 'Connected.' : 'Connection failed.'), res.ok ? 'success' : 'error');
+          if (res.ok) {
+            pdConfigured = true;
+            // Re-read status (authoritative domain/defaults) and refresh the catalog.
+            pdCatalogLoaded = false;
+            pdLoadStatus();
+            // Re-pull the product catalog fresh now that secrets exist.
+            pdLoadCatalog(true);
+            // If a dealer is selected, re-render its grids with the new catalog.
+            if (currentDealerKey && !pdDealerLoaded) loadPipedriveDealer(currentDealerKey);
+          }
+        })
+        .withFailureHandler(function(e) {
+          btn.disabled = false;
+          btn.textContent = 'Connect';
+          toast('Connection failed: ' + e.message, 'error');
+        })
+        .setupPipedriveSecrets(token, domain,
+          pipeline === '' ? '' : pipeline,
+          stage === '' ? '' : stage,
+          currency);
+    }
+
+    // ── Product catalog ─────────────────────────────────────────────────────────
+    function pdLoadCatalog(refresh) {
+      if (!pdConfigured) return;
+      var rbtn = document.getElementById('pdRefreshBtn');
+      if (refresh && rbtn) { rbtn.disabled = true; rbtn.textContent = 'Refreshing…'; }
+
+      google.script.run
+        .withSuccessHandler(function(b) {
+          b = b || {};
+          pdProducts = b.products || [];
+          pdDealFields = b.dealFields || [];
+          pdOrgFields  = b.orgFields || [];
+          if (b.defaults) pdDefaults = b.defaults;
+          pdCatalogLoaded = true;
+          if (rbtn) { rbtn.disabled = false; rbtn.textContent = 'Refresh from Pipedrive'; }
+          // Re-render the dealer grids so the new product list shows up.
+          renderPipedriveDealer();
+          if (refresh) toast('Product catalog refreshed from Pipedrive.', 'success');
+        })
+        .withFailureHandler(function(e) {
+          if (rbtn) { rbtn.disabled = false; rbtn.textContent = 'Refresh from Pipedrive'; }
+          toast('Could not load Pipedrive products: ' + e.message, 'error');
+        })
+        .getPipedriveConfigBootstrap(!!refresh);
+    }
+
+    function pdRefreshCatalog() { pdLoadCatalog(true); }
+
+    // ── Per-dealer config load ──────────────────────────────────────────────────
+    function loadPipedriveDealer(key) {
+      pdDealerLoaded = false;
+      document.getElementById('pdDealerBody').innerHTML =
+        '<div class="placeholder">Loading Pipedrive configuration…</div>';
+
+      google.script.run
+        .withSuccessHandler(function(data) {
+          data = data || {};
+          pdGroups = data.groups || ['PRIMARY'];
+          pdTypes  = data.types || ['New', 'PO', 'CPO', 'CPO-EL'];
+          pdSaved  = data.saved || {};
+          pdSelections = buildPdSelections(pdGroups, pdSaved);
+          pdDealerLoaded = true;
+          pipedriveDirty = false;
+          updatePipedriveDirty();
+          renderPipedriveDealer();
+          // Ensure the catalog is available; if connected but not yet loaded, fetch it.
+          if (pdConfigured && !pdCatalogLoaded) pdLoadCatalog(false);
+        })
+        .withFailureHandler(function(e) {
+          document.getElementById('pdDealerBody').innerHTML =
+            '<div class="placeholder">Error loading Pipedrive config: ' + escHtml(e.message) + '</div>';
+        })
+        .getPipedriveDealerEditorData(key);
+    }
+
+    // Build the live working model from saved config (or sensible defaults).
+    function buildPdSelections(groups, saved) {
+      var model = {};
+      groups.forEach(function(g) {
+        var s = saved[g] || {};
+        model[g] = {
+          group: g,
+          orgId: (s.orgId != null) ? s.orgId : '',
+          orgName: s.orgName || '',
+          productMap: (s.productMap && typeof s.productMap === 'object')
+            ? JSON.parse(JSON.stringify(s.productMap)) : {},
+          titleTemplate: s.titleTemplate || '',
+          pipelineId: (s.pipelineId != null) ? s.pipelineId : '',
+          stageId: (s.stageId != null) ? s.stageId : '',
+          currency: s.currency || '',
+          fieldMap: normalizeFieldMap_(s.fieldMap),
+          active: (s.active === undefined) ? true : !!s.active
+        };
+      });
+      return model;
+    }
+
+    // Deep-copy saved fieldMap entries into the client model, tolerating shape
+    // drift (missing option_map, etc.). Each entry gets a client id for DOM keying.
+    function normalizeFieldMap_(arr) {
+      if (!Array.isArray(arr)) return [];
+      return arr.map(function(e) {
+        e = e || {};
+        return {
+          id: pdFmNextId_(),
+          org_field: e.org_field || '',
+          deal_field: e.deal_field || '',
+          type: e.type || '',
+          option_map: (e.option_map && typeof e.option_map === 'object')
+            ? JSON.parse(JSON.stringify(e.option_map)) : {}
+        };
+      });
+    }
+
+    // ── Render the per-dealer body ──────────────────────────────────────────────
+    function renderPipedriveDealer() {
+      var body = document.getElementById('pdDealerBody');
+      if (!currentDealerKey) {
+        body.innerHTML = '<div class="placeholder">Select a dealer to configure Pipedrive.</div>';
+        return;
+      }
+      if (!pdConfigured) {
+        body.innerHTML = '<div class="pd-disabled-note">Connect Pipedrive above to configure deal creation for this dealer.</div>';
+        return;
+      }
+      if (!pdDealerLoaded) {
+        body.innerHTML = '<div class="placeholder">Loading Pipedrive configuration…</div>';
+        return;
+      }
+      body.innerHTML = pdGroups.map(renderPdGroup_).join('');
+      // Restore org search result boxes are empty by default (rebuilt on input).
+    }
+
+    function pdTypeClass_(t) {
+      var k = String(t).toUpperCase();
+      if (k === 'NEW') return 'type-new';
+      if (k === 'PO') return 'type-po';
+      if (k === 'CPO-EL') return 'type-cpoel';
+      if (k === 'CPO') return 'type-cpo';
+      return '';
+    }
+
+    function renderPdGroup_(group) {
+      var sel = pdSelections[group] || { group: group, productMap: {}, active: true };
+      var gid = pdGroupDomId_(group);
+
+      // Organization picker — chosen state vs search input.
+      var orgBlock;
+      if (sel.orgId) {
+        orgBlock =
+          '<div class="pd-org-chosen" id="pdOrgChosen_' + gid + '">' +
+            '<span>' + escHtml(sel.orgName || ('Org #' + sel.orgId)) + '</span>' +
+            '<span class="pd-org-id">#' + escHtml(String(sel.orgId)) + '</span>' +
+            '<button type="button" class="pd-org-clear" onclick="pdClearOrg(\'' + gid + '\')">Change</button>' +
+          '</div>';
+      } else {
+        orgBlock =
+          '<div class="pd-org-search">' +
+            '<input type="text" id="pdOrgInput_' + gid + '" placeholder="Search Pipedrive organizations (min 2 chars)…" ' +
+              'oninput="pdOrgInput(\'' + gid + '\', this.value)" autocomplete="off" />' +
+            '<ul class="pd-org-results" id="pdOrgResults_' + gid + '" style="display:none;"></ul>' +
+          '</div>';
+      }
+
+      // Type → product grid.
+      var rows = pdTypes.map(function(t) {
+        return '<tr>' +
+          '<td><span class="pd-type-badge ' + pdTypeClass_(t) + '">' + escHtml(t) + '</span></td>' +
+          '<td>' + pdProductSelect_(group, t, sel.productMap[t]) + '</td>' +
+        '</tr>';
+      }).join('');
+
+      var dp = pdDefaults || {};
+      return '<div class="pd-group">' +
+        '<div class="pd-group-head"><span class="pd-group-name">' + escHtml(group) + '</span></div>' +
+        '<div class="pd-group-body">' +
+
+          '<div class="pd-sub-label">Organization</div>' +
+          orgBlock +
+
+          '<div class="pd-sub-label">Type → Product</div>' +
+          '<table class="pd-product-table"><thead><tr><th>Type</th><th>Product</th></tr></thead>' +
+            '<tbody>' + rows + '</tbody></table>' +
+
+          '<div class="pd-sub-label">Deal field mapping</div>' +
+          '<div class="pill-hint" style="margin-bottom:8px;">Copy a value from the deal\'s organization into a deal field. For enum/set deal fields you can map each org option to a deal option; leave a mapping blank to pass the raw value through.</div>' +
+          '<div class="pd-fieldmap" id="pdFieldMap_' + gid + '">' + renderFieldMapRows_(group) + '</div>' +
+          '<button type="button" class="btn-add-season" onclick="pdAddFieldMap(\'' + group + '\')">+ Add mapping</button>' +
+
+          '<div class="pd-sub-label">Overrides (optional)</div>' +
+          '<div class="pd-overrides-grid">' +
+            '<div class="pd-field pd-field--wide">' +
+              '<label>Deal title template</label>' +
+              '<input type="text" id="pdTitle_' + gid + '" value="' + escAttr_(sel.titleTemplate) + '" ' +
+                'placeholder="{dealer_name} {date} {group} {count}" ' +
+                'oninput="pdSetField(\'' + group + '\', \'titleTemplate\', this.value)" />' +
+            '</div>' +
+            '<div class="pd-field">' +
+              '<label>Pipeline ID</label>' +
+              '<input type="number" id="pdPipe_' + gid + '" value="' + escAttr_(sel.pipelineId) + '" ' +
+                'placeholder="' + escAttr_(dp.pipelineId != null ? dp.pipelineId : 'default') + '" min="0" ' +
+                'oninput="pdSetField(\'' + group + '\', \'pipelineId\', this.value)" />' +
+            '</div>' +
+            '<div class="pd-field">' +
+              '<label>Stage ID</label>' +
+              '<input type="number" id="pdStage_' + gid + '" value="' + escAttr_(sel.stageId) + '" ' +
+                'placeholder="' + escAttr_(dp.stageId != null ? dp.stageId : 'default') + '" min="0" ' +
+                'oninput="pdSetField(\'' + group + '\', \'stageId\', this.value)" />' +
+            '</div>' +
+            '<div class="pd-field">' +
+              '<label>Currency</label>' +
+              '<input type="text" id="pdCur_' + gid + '" value="' + escAttr_(sel.currency) + '" ' +
+                'placeholder="' + escAttr_(dp.currency || 'default') + '" maxlength="3" ' +
+                'oninput="pdSetField(\'' + group + '\', \'currency\', this.value)" />' +
+            '</div>' +
+          '</div>' +
+
+          '<div class="toggle-row pd-active-row">' +
+            '<label class="toggle-switch">' +
+              '<input type="checkbox" id="pdActive_' + gid + '"' + (sel.active ? ' checked' : '') + ' ' +
+                'onchange="pdSetField(\'' + group + '\', \'active\', this.checked)">' +
+              '<span class="toggle-slider"></span>' +
+            '</label>' +
+            '<span class="toggle-label">Active</span>' +
+            '<span class="toggle-desc">When off, no Pipedrive deal is created for this group</span>' +
+          '</div>' +
+
+        '</div>' +
+      '</div>';
+    }
+
+    function pdProductSelect_(group, type, selectedId) {
+      var opts = ['<option value="">— none —</option>'];
+      pdProducts.forEach(function(p) {
+        var label = p.name + (p.code ? ' (' + p.code + ')' : '');
+        var isSel = (selectedId != null && String(selectedId) === String(p.id));
+        opts.push('<option value="' + escAttr_(p.id) + '"' + (isSel ? ' selected' : '') + '>' +
+          escHtml(label) + '</option>');
+      });
+      // If a saved product id isn't in the catalog (e.g. catalog not yet loaded),
+      // preserve it so the selection isn't silently dropped on save.
+      if (selectedId != null && selectedId !== '' &&
+          !pdProducts.some(function(p){ return String(p.id) === String(selectedId); })) {
+        opts.push('<option value="' + escAttr_(selectedId) + '" selected>Product #' + escHtml(String(selectedId)) + '</option>');
+      }
+      return '<select onchange="pdSetProduct(\'' + group + '\', \'' + escAttr_(type) + '\', this.value)">' +
+        opts.join('') + '</select>';
+    }
+
+    // ── Deal field mapping (org field → deal field, with optional option_map) ──
+    var pdFmIdCounter = 0;
+    function pdFmNextId_() { return 'fm' + (++pdFmIdCounter); }
+
+    // Map a Pipedrive deal field_type → the backend's mapping `type`.
+    function pdFieldType_(dealFieldType) {
+      var t = String(dealFieldType || '').toLowerCase();
+      if (t === 'enum') return 'enum';
+      if (t === 'set') return 'set';
+      if (t === 'monetary') return 'monetary';
+      if (t === 'double' || t === 'int' || t === 'integer' || t === 'number' || t === 'numeric') return 'number';
+      return 'text';
+    }
+
+    function pdFindField_(list, key) {
+      for (var i = 0; i < list.length; i++) { if (String(list[i].key) === String(key)) return list[i]; }
+      return null;
+    }
+
+    function renderFieldMapRows_(group) {
+      var sel = pdSelections[group];
+      var fm  = (sel && sel.fieldMap) ? sel.fieldMap : [];
+      if (!fm.length) {
+        return '<div class="tr-empty" style="font-size:12px;color:var(--text-3);font-style:italic;padding:4px 0;">No field mappings configured.</div>';
+      }
+      return fm.map(function(entry) { return renderFieldMapRow_(group, entry); }).join('');
+    }
+
+    function renderFieldMapRow_(group, entry) {
+      var orgOpts = '<option value="">— org field —</option>' + pdOrgFields.map(function(f) {
+        return '<option value="' + escAttr_(f.key) + '"' + (String(f.key) === String(entry.org_field) ? ' selected' : '') +
+          '>' + escHtml(f.name) + '</option>';
+      }).join('');
+      var dealOpts = '<option value="">— deal field —</option>' + pdDealFields.map(function(f) {
+        return '<option value="' + escAttr_(f.key) + '"' + (String(f.key) === String(entry.deal_field) ? ' selected' : '') +
+          '>' + escHtml(f.name) + '</option>';
+      }).join('');
+
+      var typeBadge = entry.type
+        ? '<span class="pd-fm-type">' + escHtml(entry.type) + '</span>' : '';
+
+      return '<div class="pd-fm-row" id="pdFmRow_' + entry.id + '">' +
+        '<div class="pd-fm-head">' +
+          '<select class="pd-fm-org" onchange="pdSetFmField(\'' + group + '\', \'' + entry.id + '\', \'org\', this.value)">' + orgOpts + '</select>' +
+          '<span class="pd-fm-arrow" aria-hidden="true">&#8594;</span>' +
+          '<select class="pd-fm-deal" onchange="pdSetFmField(\'' + group + '\', \'' + entry.id + '\', \'deal\', this.value)">' + dealOpts + '</select>' +
+          typeBadge +
+          '<button type="button" class="tr-x" title="Remove mapping" onclick="pdRemoveFmRow(\'' + group + '\', \'' + entry.id + '\')" style="margin-left:auto;">&#10005;</button>' +
+        '</div>' +
+        renderOptionMap_(group, entry) +
+      '</div>';
+    }
+
+    // Option-mapping sub-table — only for enum/set deal fields whose ORG field has options.
+    function renderOptionMap_(group, entry) {
+      if (entry.type !== 'enum' && entry.type !== 'set') return '';
+      var orgF  = pdFindField_(pdOrgFields, entry.org_field);
+      var dealF = pdFindField_(pdDealFields, entry.deal_field);
+      if (!orgF || !orgF.options || !orgF.options.length) return '';
+      var dealOptions = (dealF && dealF.options) ? dealF.options : [];
+
+      var rows = orgF.options.map(function(oo) {
+        var chosen = entry.option_map ? entry.option_map[oo.id] : '';
+        var opts = '<option value="">— pass through —</option>' + dealOptions.map(function(dopt) {
+          return '<option value="' + escAttr_(dopt.id) + '"' + (String(dopt.id) === String(chosen) ? ' selected' : '') +
+            '>' + escHtml(dopt.label) + '</option>';
+        }).join('');
+        return '<tr>' +
+          '<td>' + escHtml(oo.label) + '</td>' +
+          '<td><select onchange="pdSetFmOption(\'' + group + '\', \'' + entry.id + '\', \'' + escAttr_(oo.id) + '\', this.value)">' +
+            opts + '</select></td>' +
+        '</tr>';
+      }).join('');
+
+      return '<table class="pd-fm-options"><thead><tr><th>Org option</th><th>Deal option</th></tr></thead>' +
+        '<tbody>' + rows + '</tbody></table>';
+    }
+
+    function pdFindFmEntry_(group, entryId) {
+      var sel = pdSelections[group];
+      if (!sel || !sel.fieldMap) return null;
+      for (var i = 0; i < sel.fieldMap.length; i++) {
+        if (sel.fieldMap[i].id === entryId) return sel.fieldMap[i];
+      }
+      return null;
+    }
+
+    function pdReRenderFieldMap_(group) {
+      var gid = pdGroupDomId_(group);
+      var wrap = document.getElementById('pdFieldMap_' + gid);
+      if (wrap) wrap.innerHTML = renderFieldMapRows_(group);
+    }
+
+    function pdAddFieldMap(group) {
+      var sel = pdEnsureGroup_(group);
+      if (!sel.fieldMap) sel.fieldMap = [];
+      sel.fieldMap.push({ id: pdFmNextId_(), org_field: '', deal_field: '', type: '', option_map: {} });
+      pdReRenderFieldMap_(group);
+      markPipedriveDirty();
+    }
+
+    function pdRemoveFmRow(group, entryId) {
+      var sel = pdSelections[group];
+      if (!sel || !sel.fieldMap) return;
+      sel.fieldMap = sel.fieldMap.filter(function(e) { return e.id !== entryId; });
+      pdReRenderFieldMap_(group);
+      markPipedriveDirty();
+    }
+
+    function pdSetFmField(group, entryId, which, val) {
+      var entry = pdFindFmEntry_(group, entryId);
+      if (!entry) return;
+      if (which === 'org') {
+        entry.org_field = val;
+        entry.option_map = {};   // org changed → option ids no longer apply
+      } else {
+        entry.deal_field = val;
+        var dealF = pdFindField_(pdDealFields, val);
+        entry.type = val ? pdFieldType_(dealF ? dealF.field_type : '') : '';
+        entry.option_map = {};   // deal field changed → remap options
+      }
+      // Type / option-table visibility may change — re-render this group's rows.
+      pdReRenderFieldMap_(group);
+      markPipedriveDirty();
+    }
+
+    function pdSetFmOption(group, entryId, orgOptId, dealOptId) {
+      var entry = pdFindFmEntry_(group, entryId);
+      if (!entry) return;
+      if (!entry.option_map) entry.option_map = {};
+      if (dealOptId === '' || dealOptId == null) { delete entry.option_map[orgOptId]; }
+      else { entry.option_map[orgOptId] = dealOptId; }
+      markPipedriveDirty();   // no re-render — preserve the select's focus
+    }
+
+    // Attribute-safe escape (escHtml + quote-safe; numbers/empties pass through).
+    function escAttr_(v) {
+      if (v == null) return '';
+      return escHtml(String(v)).replace(/'/g, '&#39;');
+    }
+
+    // DOM-id-safe group token (group names are [A-Z0-9_] from the server, but be safe).
+    function pdGroupDomId_(group) { return String(group).replace(/[^A-Za-z0-9_]/g, '_'); }
+
+    // ── Edits ───────────────────────────────────────────────────────────────────
+    function pdEnsureGroup_(group) {
+      if (!pdSelections[group]) {
+        pdSelections[group] = { group: group, orgId: '', orgName: '', productMap: {},
+          titleTemplate: '', pipelineId: '', stageId: '', currency: '', fieldMap: [], active: true };
+      }
+      return pdSelections[group];
+    }
+
+    function pdSetField(group, field, val) {
+      pdEnsureGroup_(group)[field] = val;
+      markPipedriveDirty();
+    }
+    function pdSetProduct(group, type, val) {
+      var g = pdEnsureGroup_(group);
+      if (val === '' || val == null) { delete g.productMap[type]; }
+      else { g.productMap[type] = val; }
+      markPipedriveDirty();
+    }
+
+    // ── Organization picker ─────────────────────────────────────────────────────
+    var pdOrgTimers = {};   // per-group debounce timers
+    function pdOrgInput(gid, term) {
+      var group = pdGidToGroup_(gid);
+      var box = document.getElementById('pdOrgResults_' + gid);
+      term = String(term || '').trim();
+      if (pdOrgTimers[gid]) clearTimeout(pdOrgTimers[gid]);
+      if (term.length < 2) {
+        if (box) { box.style.display = 'none'; box.innerHTML = ''; }
+        return;
+      }
+      if (box) {
+        box.style.display = 'block';
+        box.innerHTML = '<li class="pd-org-msg">Searching…</li>';
+      }
+      pdOrgTimers[gid] = setTimeout(function() {
+        google.script.run
+          .withSuccessHandler(function(results) {
+            pdRenderOrgResults_(gid, results || []);
+          })
+          .withFailureHandler(function(e) {
+            if (box) box.innerHTML = '<li class="pd-org-msg">Search failed: ' + escHtml(e.message) + '</li>';
+          })
+          .searchPipedriveOrganizations(term);
+      }, 300);
+    }
+
+    function pdRenderOrgResults_(gid, results) {
+      var box = document.getElementById('pdOrgResults_' + gid);
+      if (!box) return;
+      if (!results.length) {
+        box.innerHTML = '<li class="pd-org-msg">No organizations found.</li>';
+        return;
+      }
+      box.innerHTML = results.map(function(o) {
+        return '<li onclick="pdPickOrg(\'' + gid + '\', \'' + escAttr_(o.id) + '\', \'' +
+          escAttr_(o.name).replace(/\\/g, '\\\\') + '\')">' +
+          escHtml(o.name) + ' <span class="pd-org-id">#' + escHtml(String(o.id)) + '</span></li>';
+      }).join('');
+      box.style.display = 'block';
+    }
+
+    function pdPickOrg(gid, id, name) {
+      var group = pdGidToGroup_(gid);
+      var g = pdEnsureGroup_(group);
+      g.orgId = id;
+      g.orgName = name;
+      markPipedriveDirty();
+      renderPipedriveDealer();   // re-render so the chosen-org state replaces the search box
+    }
+
+    function pdClearOrg(gid) {
+      var group = pdGidToGroup_(gid);
+      var g = pdEnsureGroup_(group);
+      g.orgId = '';
+      g.orgName = '';
+      markPipedriveDirty();
+      renderPipedriveDealer();
+    }
+
+    // Map a DOM-id token back to the real group name (handles sanitized names).
+    function pdGidToGroup_(gid) {
+      for (var i = 0; i < pdGroups.length; i++) {
+        if (pdGroupDomId_(pdGroups[i]) === gid) return pdGroups[i];
+      }
+      return gid;
+    }
+
+    // ── Save / discard ──────────────────────────────────────────────────────────
+    function buildPipedriveRows() {
+      return pdGroups.map(function(group) {
+        var s = pdSelections[group] || { group: group, productMap: {}, active: true };
+        var orgIdNum = (s.orgId === '' || s.orgId == null) ? null : Number(s.orgId);
+        return {
+          group: group,
+          orgId: (orgIdNum != null && !isNaN(orgIdNum)) ? orgIdNum : (s.orgId || null),
+          orgName: s.orgName || '',
+          productMap: s.productMap || {},
+          titleTemplate: s.titleTemplate || '',
+          pipelineId: (s.pipelineId === '' || s.pipelineId == null) ? '' : s.pipelineId,
+          stageId: (s.stageId === '' || s.stageId == null) ? '' : s.stageId,
+          currency: (s.currency || '').toUpperCase(),
+          fieldMap: buildFieldMap_(s.fieldMap),
+          active: (s.active === undefined) ? true : !!s.active
+        };
+      });
+    }
+
+    // Serialize the client fieldMap model → backend shape; prune entries missing
+    // an org/deal field, drop the client-only `id`, omit an empty option_map.
+    function buildFieldMap_(fm) {
+      if (!Array.isArray(fm)) return [];
+      var out = [];
+      fm.forEach(function(e) {
+        if (!e || !e.org_field || !e.deal_field) return;   // incomplete — skip
+        var entry = {
+          org_field: e.org_field,
+          deal_field: e.deal_field,
+          type: e.type || 'text'
+        };
+        if ((entry.type === 'enum' || entry.type === 'set') &&
+            e.option_map && Object.keys(e.option_map).length > 0) {
+          entry.option_map = e.option_map;
+        }
+        out.push(entry);
+      });
+      return out;
+    }
+
+    function savePipedriveConfig() {
+      if (!currentDealerKey) return;
+      if (!pdConfigured) { setRulesStatus('Connect Pipedrive before saving dealer config.', 'error'); return; }
+      var rows = buildPipedriveRows();
+      var btn = document.getElementById('savePipedriveBtn');
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+
+      google.script.run
+        .withSuccessHandler(function(res) {
+          res = res || {};
+          pipedriveDirty = false;
+          updatePipedriveDirty();
+          btn.disabled = false;
+          btn.textContent = 'Save Pipedrive Config';
+          setRulesStatus('Pipedrive config saved.', 'success');
+          toast('Pipedrive config saved (' + (res.saved != null ? res.saved : rows.length) + ' group(s)).', 'success');
+        })
+        .withFailureHandler(function(e) {
+          btn.disabled = false;
+          btn.textContent = 'Save Pipedrive Config';
+          setRulesStatus('Save failed: ' + e.message, 'error');
+        })
+        .savePipedriveDealerConfig(currentDealerKey, rows);
+    }
+
+    // Revert to saved config — re-fetch and re-render (mirrors discardFilterRules).
+    function discardPipedriveConfig() {
+      if (!currentDealerKey || !pipedriveDirty) return;
+      if (!confirm('Discard unsaved Pipedrive changes and reload the saved version?')) return;
+
+      var btn = document.getElementById('discardPipedriveBtn');
+      btn.disabled = true;
+      setRulesStatus('Discarding Pipedrive changes…', 'info');
+
+      google.script.run
+        .withSuccessHandler(function(data) {
+          data = data || {};
+          pdGroups = data.groups || ['PRIMARY'];
+          pdTypes  = data.types || ['New', 'PO', 'CPO', 'CPO-EL'];
+          pdSaved  = data.saved || {};
+          pdSelections = buildPdSelections(pdGroups, pdSaved);
+          pdDealerLoaded = true;
+          pipedriveDirty = false;
+          updatePipedriveDirty();
+          renderPipedriveDealer();
+          setRulesStatus('Pipedrive changes discarded — reloaded saved version.', 'success');
+        })
+        .withFailureHandler(function(e) {
+          updatePipedriveDirty();
+          setRulesStatus('Discard failed: ' + e.message, 'error');
+        })
+        .getPipedriveDealerEditorData(currentDealerKey);
+    }
+
+    function markPipedriveDirty() {
+      pipedriveDirty = true;
+      updatePipedriveDirty();
+    }
+
+    function updatePipedriveDirty() {
+      document.getElementById('pipedriveUnsaved').style.display = pipedriveDirty ? 'block' : 'none';
+      document.getElementById('discardPipedriveBtn').disabled = !pipedriveDirty;
+      // Save is enabled only when there's a connected, loaded dealer.
+      document.getElementById('savePipedriveBtn').disabled =
+        !(pdConfigured && pdDealerLoaded && currentDealerKey);
+    }
+
+    function resetPipedrivePanel() {
+      pdGroups = [];
+      pdSelections = {};
+      pdSaved = {};
+      pdDealerLoaded = false;
+      pipedriveDirty = false;
+      document.getElementById('pdDealerBody').innerHTML =
+        '<div class="placeholder">Select a dealer to configure Pipedrive.</div>';
+      document.getElementById('pipedriveUnsaved').style.display = 'none';
+      document.getElementById('discardPipedriveBtn').disabled = true;
+      document.getElementById('savePipedriveBtn').disabled = true;
+    }
 </script>
