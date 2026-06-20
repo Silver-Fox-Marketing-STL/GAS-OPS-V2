@@ -124,6 +124,20 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
   values, empty group → no match) and is a **parallel mirror** of the targeting
   engine — it must **not** touch `conditionMatches_`/`groupMatches_`/`ruleMatches_`
   (those stay byte-for-byte unchanged).
+- Pipedrive products are a **global catalog with no native product↔org link** —
+  scoping the per-dealer product picker to an org uses the global **`product_org_field`**
+  setting (`PIPEDRIVE_SETTINGS` row; the **KEY** of a product *Organization-type*
+  custom field that stores the org id; blank = show all). `pdListProducts_` enriches
+  each product with `customerOrgId` from it; `pdProductVisible_` scopes by
+  `customerOrgId === org_id` with a per-group **show-all** fallback and **always keeps
+  an already-saved `product_id`** (never drop a mapping on save). The stored
+  `{product_id, variation_id?}` mapping is unchanged — only the options offered.
+- **All Pipedrive mappings key on stable IDs/keys; names are display-only
+  (rename-safe).** `product_id`/`variation_id`, `org_id` (`org_name` is a cache),
+  deal/org fields by 40-char **key**, enum/THEN/ELSE/condition values by **option id**,
+  deals by numeric `deal_id`. Persist references by id/key, never by name — so the
+  product-revision workflow (edit the original to keep its id, deactivate the
+  duplicate) can't orphan a mapping.
 - Pipedrive idempotency anchor: the deal ID is written to **RUN_LOG col D** the
   instant the API returns it, and a **numeric col D = "deal already created"**
   (dup guard) — so a retry never makes a second deal. `pdFetch_` **never throws**

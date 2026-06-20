@@ -879,6 +879,14 @@
     /* Product table — third column (Variation) shares the product column styling. */
     #view-rules .pd-product-table td:first-child { width: 90px; }
 
+    /* "Show all products" toggle above the product grid */
+    #view-rules .pd-showall {
+      display: flex; align-items: center; gap: 7px; margin: 0 0 8px;
+      font-size: 12px; color: var(--text-2); cursor: pointer; font-weight: normal;
+    }
+    #view-rules .pd-showall input[type="checkbox"] { width: auto; margin: 0; cursor: pointer; accent-color: var(--accent); }
+    #view-rules .pd-showall-hint { font-size: 11px; color: var(--text-muted); margin-left: auto; }
+
     /* Deal-field overrides (per dealer, against the global rules) */
     #view-rules .pd-overrides { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
     #view-rules .pd-ovr-card {
@@ -1820,6 +1828,7 @@
     var pdDealerLoaded = false;       // dealer config fetched for the current dealer
     var pdGlobalRules  = [];          // global deal-field rules (for the per-dealer overrides list)
     var pdVariations   = {};          // lazy cache: productId → [{id,name,prices}] (or 'loading')
+    var pdProductOrgField = '';       // product→org field key scoping product lists ('' = show all)
 
     // ── Connection status ───────────────────────────────────────────────────────
     function pdLoadStatus() {
@@ -1869,6 +1878,7 @@
           pdProducts = b.products || [];
           pdDealFields = b.dealFields || [];
           pdOrgFields  = b.orgFields || [];
+          pdProductOrgField = b.productOrgField || '';
           if (b.defaults) pdDefaults = b.defaults;
           pdCatalogLoaded = true;
           if (rbtn) { rbtn.disabled = false; rbtn.textContent = 'Refresh from Pipedrive'; }
@@ -1928,6 +1938,7 @@
           stageId: (s.stageId != null) ? s.stageId : '',
           currency: s.currency || '',
           fieldOverrides: normalizeFieldOverrides_(s.fieldOverrides),
+          showAllProducts: false,   // view-only toggle, not persisted
           active: (s.active === undefined) ? true : !!s.active
         };
       });
@@ -2031,6 +2042,19 @@
         '</tr>';
       }).join('');
 
+      // "Show all products" — only meaningful when product scoping is active AND
+      // this group has an org (otherwise the list is already the full catalog).
+      var showAllRow = '';
+      if (pdProductOrgField && sel.orgId) {
+        showAllRow =
+          '<label class="pd-showall">' +
+            '<input type="checkbox"' + (sel.showAllProducts ? ' checked' : '') + ' ' +
+              'onchange="pdSetShowAll(\'' + group + '\', this.checked)">' +
+            '<span>Show all products</span>' +
+            '<span class="pd-showall-hint">List is scoped to this org by the Product → Organization field</span>' +
+          '</label>';
+      }
+
       var dp = pdDefaults || {};
       return '<div class="pd-group">' +
         '<div class="pd-group-head"><span class="pd-group-name">' + escHtml(group) + '</span></div>' +
@@ -2040,6 +2064,7 @@
           orgBlock +
 
           '<div class="pd-sub-label">Type → Product</div>' +
+          showAllRow +
           '<table class="pd-product-table"><thead><tr><th>Type</th><th>Product</th><th>Variation</th></tr></thead>' +
             '<tbody>' + rows + '</tbody></table>' +
 
@@ -2089,19 +2114,39 @@
       '</div>';
     }
 
+    // Whether a product is visible in a group's list. Filter is unit-tested by
+    // the backend author — keep this EXACT:
+    //   - scoping off / no org field configured / group has no org → full catalog
+    //   - the already-saved product is ALWAYS kept (so a filtered/deactivated
+    //     product can't silently drop the mapping on save)
+    //   - otherwise: keep only products whose customerOrgId === the group's orgId
+    function pdProductVisible_(prod, groupOrgId, showAll, savedProductId) {
+      if (showAll || !pdProductOrgField || !groupOrgId) return true;
+      if (savedProductId != null && savedProductId !== '' &&
+          String(prod.id) === String(savedProductId)) return true;
+      return prod.customerOrgId !== undefined && String(prod.customerOrgId) === String(groupOrgId);
+    }
+
     function pdProductSelect_(group, type, selectedId) {
+      var sel = pdSelections[group] || {};
+      var groupOrgId = sel.orgId;
+      var showAll    = !!sel.showAllProducts;
+
       var opts = ['<option value="">— none —</option>'];
+      var sawSaved = false;
       pdProducts.forEach(function(p) {
+        if (!pdProductVisible_(p, groupOrgId, showAll, selectedId)) return;
         var label = p.name + (p.code ? ' (' + p.code + ')' : '');
         var isSel = (selectedId != null && String(selectedId) === String(p.id));
+        if (isSel) sawSaved = true;
         opts.push('<option value="' + escAttr_(p.id) + '"' + (isSel ? ' selected' : '') + '>' +
           escHtml(label) + '</option>');
       });
-      // If a saved product id isn't in the catalog (e.g. catalog not yet loaded),
-      // preserve it so the selection isn't silently dropped on save.
-      if (selectedId != null && selectedId !== '' &&
-          !pdProducts.some(function(p){ return String(p.id) === String(selectedId); })) {
-        opts.push('<option value="' + escAttr_(selectedId) + '" selected>Product #' + escHtml(String(selectedId)) + '</option>');
+      // If a saved product id isn't in the (filtered) catalog at all — e.g. catalog
+      // not yet loaded or the product was removed — still render it so the mapping
+      // isn't silently dropped on save (mirrors the variation dropdown).
+      if (selectedId != null && selectedId !== '' && !sawSaved) {
+        opts.push('<option value="' + escAttr_(selectedId) + '" selected>Product #' + escHtml(String(selectedId)) + ' (saved)</option>');
       }
       return '<select onchange="pdSetProduct(\'' + group + '\', \'' + escAttr_(type) + '\', this.value)">' +
         opts.join('') + '</select>';
@@ -2312,7 +2357,8 @@
     function pdEnsureGroup_(group) {
       if (!pdSelections[group]) {
         pdSelections[group] = { group: group, orgId: '', orgName: '', productMap: {},
-          titleTemplate: '', pipelineId: '', stageId: '', currency: '', fieldOverrides: {}, active: true };
+          titleTemplate: '', pipelineId: '', stageId: '', currency: '', fieldOverrides: {},
+          showAllProducts: false, active: true };
       }
       return pdSelections[group];
     }
@@ -2338,6 +2384,13 @@
       if (val === '' || val == null) { delete cell.variation_id; }
       else { cell.variation_id = val; }
       markPipedriveDirty();   // no re-render — keep the variation select focused
+    }
+    // Per-group "Show all products" — a view-only toggle that bypasses the org
+    // scope filter for this group's product dropdowns. NOT persisted (it doesn't
+    // change saved config), so it doesn't mark the panel dirty.
+    function pdSetShowAll(group, val) {
+      pdEnsureGroup_(group).showAllProducts = !!val;
+      renderPipedriveDealer();   // re-render the product dropdowns with/without the filter
     }
 
     // ── Organization picker ─────────────────────────────────────────────────────

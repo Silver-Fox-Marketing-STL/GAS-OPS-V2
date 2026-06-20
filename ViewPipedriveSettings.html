@@ -58,6 +58,17 @@
       <div id="psConnLoading" class="ps-placeholder">Checking Pipedrive connection…</div>
     </div>
 
+    <!-- ── Product → Organization field (scopes per-dealer product lists) ─────── -->
+    <div class="ps-card" id="psProductOrgCard" style="display:none;">
+      <div class="ps-section-label">Product → Organization field</div>
+      <div class="ps-hint">Scopes each dealer's product list to products whose this field = that dealer's org.</div>
+      <div class="ps-field">
+        <select id="psProductOrgSelect" onchange="psSaveProductOrgField()">
+          <option value="">— none (show all products) —</option>
+        </select>
+      </div>
+    </div>
+
     <!-- ── Global deal-field rules ──────────────────────────────────────────── -->
     <div class="ps-card">
       <div class="ps-section-label">Global Deal-Field Rules</div>
@@ -166,12 +177,14 @@
   #view-pipedrive-settings .ps-field label { font-size: 11px; font-weight: bold; color: var(--text-2); }
   #view-pipedrive-settings .ps-field input[type="text"],
   #view-pipedrive-settings .ps-field input[type="password"],
-  #view-pipedrive-settings .ps-field input[type="number"] {
+  #view-pipedrive-settings .ps-field input[type="number"],
+  #view-pipedrive-settings .ps-field select {
     padding: 6px 8px; font-size: 13px;
     border: 1px solid var(--border-2); border-radius: 4px; width: 100%;
     background: var(--bg); color: var(--text);
   }
-  #view-pipedrive-settings .ps-field input:focus { outline: none; border-color: var(--accent); }
+  #view-pipedrive-settings .ps-field input:focus,
+  #view-pipedrive-settings .ps-field select:focus { outline: none; border-color: var(--accent); }
   #view-pipedrive-settings .ps-field-hint { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
   #view-pipedrive-settings .ps-opt { color: var(--text-muted); font-weight: normal; }
   #view-pipedrive-settings .ps-setup-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
@@ -361,6 +374,8 @@
   var psDefaults    = {};
   var psDealFields  = [];   // [{key,name,field_type,options:[{id,label}]}]
   var psOrgFields   = [];   // same shape
+  var psProductFields = []; // [{key,name,field_type}] — product custom fields (for the org-scope picker)
+  var psProductOrgField = ''; // the product→org field key scoping dealer product lists ('' = none)
   var psRules       = [];   // live working model
   var psLoaded      = false;
   var psDirty       = false;
@@ -406,10 +421,13 @@
         psDefaults   = b.defaults || {};
         psDealFields = b.dealFields || [];
         psOrgFields  = b.orgFields || [];
+        psProductFields   = b.productFields || [];
+        psProductOrgField = b.productOrgField || '';
         psRules      = psDeserializeRules_(b.rules || []);
         psLoaded     = true;
         psDirty      = false;
         psRenderConnection_(b.domain || (b.defaults && b.defaults.domain) || '');
+        psRenderProductOrgField_();
         psRenderRules_();
         psUpdateDirty_();
         if (overlay) overlay.classList.add('hidden');
@@ -437,6 +455,48 @@
       })
       .withFailureHandler(function() {})
       .getPipedriveStatus();
+  }
+
+  // ── Product → Organization field picker ─────────────────────────────────────
+  // Selecting a product custom field scopes each dealer's product list (in the
+  // Dealer Rules → Pipedrive panel) to products whose that field = the dealer's
+  // org. Saved on change, independent of the rules Save (and it busts the
+  // server-side catalog cache so dealer panels pick up the change on next load).
+  function psRenderProductOrgField_() {
+    var card = document.getElementById('psProductOrgCard');
+    if (!card) return;
+    card.style.display = psConfigured ? 'block' : 'none';
+    if (!psConfigured) return;
+    var sel = document.getElementById('psProductOrgSelect');
+    var opts = ['<option value="">— none (show all products) —</option>'];
+    psProductFields.forEach(function(f) {
+      var label = f.name + (f.field_type ? ' (' + f.field_type + ')' : '');
+      opts.push('<option value="' + psEscAttr_(f.key) + '"' +
+        (String(f.key) === String(psProductOrgField) ? ' selected' : '') + '>' + escHtml(label) + '</option>');
+    });
+    // Preserve an unknown saved key (field removed from Pipedrive) so it isn't dropped.
+    if (psProductOrgField && !psProductFields.some(function(f){ return String(f.key) === String(psProductOrgField); })) {
+      opts.push('<option value="' + psEscAttr_(psProductOrgField) + '" selected>' +
+        escHtml(psProductOrgField) + ' (saved)</option>');
+    }
+    sel.innerHTML = opts.join('');
+  }
+
+  function psSaveProductOrgField() {
+    var sel = document.getElementById('psProductOrgSelect');
+    var key = sel ? sel.value : '';
+    psProductOrgField = key;
+    google.script.run
+      .withSuccessHandler(function(res) {
+        res = res || {};
+        toast(res.ok
+          ? (key ? 'Product list will be scoped by that field.' : 'Product scoping cleared — all products shown.')
+          : 'Could not save product scope.', res.ok ? 'success' : 'error');
+      })
+      .withFailureHandler(function(e) {
+        toast('Could not save product scope: ' + e.message, 'error');
+      })
+      .savePipedriveProductOrgField(key);
   }
 
   function psRefreshCatalog() { psLoadBootstrap(true); }

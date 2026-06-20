@@ -251,3 +251,21 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   UTF-8 BOM makes the first header read as `\uFEFF` +"VIN" and silently fail
   exact-match mapping; concatenated exports hide header rows mid-data (caught by
   VIN cell == literal "vin"). Strip `^\uFEFF` per file before parsing.
+- **Pipedrive products are a GLOBAL catalog with NO native product\u2194organization
+  link.** Products aren't owned by an org, so there's no API field to filter
+  "products for org X". To scope a product list to an org, add a product **custom
+  field** of type *Organization* (it stores the org id) and filter on it yourself \u2014
+  and the catalog read **must include that custom field**: v1 `/products` returns
+  custom fields **inline at the product top level** (`product[<40-char key>]`), but
+  v2 omits them unless you ask (`/api/v2/products?custom_fields=<key>`, value at
+  `custom_fields[key]`). Normalize the value defensively \u2014 an Organization field can
+  come back as a scalar id or as `{value}`/`{id}`.
+- **Persist every external-API reference by ID/stable key, never by name \u2014 and keep
+  a UI control that preserves an already-saved id.** All Pipedrive mappings key on
+  ids/40-char field keys/option ids (not display names), so renaming a product, org,
+  field, or option in Pipedrive never breaks a saved mapping \u2014 and the supported
+  product-revision workflow (edit the **original** to keep its id, deactivate the
+  duplicate) is safe by construction. The matching UI rule: a dropdown that filters or
+  hides options (e.g. org-scoping/deactivation) must **always keep the already-saved
+  value selected** (render it as "\u2026 (saved)" if it's filtered out), or a save will
+  silently drop a mapping the user never intended to change.

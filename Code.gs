@@ -4756,9 +4756,11 @@ var PDCFG = {
 var PIPEDRIVE_HEADERS = ['dealer_key', 'group', 'org_id', 'org_name', 'product_map',
   'deal_title_template', 'pipeline_id', 'stage_id', 'currency', 'field_overrides', 'active'];
 
-// Global Pipedrive settings (deal-field rules) live in their own key/value tab.
+// Global Pipedrive settings (deal-field rules, product→org field) live in their
+// own key/value tab.
 var PIPEDRIVE_SETTINGS_TAB = 'PIPEDRIVE_SETTINGS';
 var PD_RULES_KEY = 'deal_field_rules';
+var PD_PRODUCT_ORG_FIELD_KEY = 'product_org_field';   // product custom-field KEY linking a product to its org
 
 // Canonical billing types → billing-totals keys (gross + dupes).
 var PD_TYPE_KEYS = [
@@ -4907,9 +4909,43 @@ function pdListAllV1_(path) {
 // ── Read endpoints (config UI) ─────────────────────────────────────────────
 
 function pdListProducts_() {
+  // When a product→org link field is configured, surface each product's Customer
+  // org id so the per-dealer picker can scope the catalog to that dealer's org.
+  // v1 /products returns custom-field values inline at the product top level
+  // (product[<40-char key>]); for an Organization-type field that value is the
+  // org id. (If a future Pipedrive change stops returning it inline, switch this
+  // fetch to /api/v2/products?custom_fields=<key> — value at custom_fields[key].)
+  var orgFieldKey = getPipedriveProductOrgField_();
   return pdListAllV1_('/products').map(function(p) {
-    return { id: p.id, name: p.name, code: p.code || '', prices: p.prices || [] };
+    var out = { id: p.id, name: p.name, code: p.code || '', prices: p.prices || [] };
+    if (orgFieldKey) {
+      var cid = pdExtractOrgId_(p[orgFieldKey]);
+      if (cid) out.customerOrgId = cid;
+    }
+    return out;
   });
+}
+
+/**
+ * Normalizes an Organization-type product custom-field value to a string org id.
+ * Handles a scalar id, or an object ({value} or {id}); '' when empty/absent.
+ */
+function pdExtractOrgId_(raw) {
+  if (raw === undefined || raw === null || raw === '') return '';
+  var v = (typeof raw === 'object') ? (raw.value !== undefined ? raw.value : raw.id) : raw;
+  return (v === undefined || v === null || v === '') ? '' : String(v);
+}
+
+/** Product custom-field definitions, for the "product → org" field picker. */
+function pdListProductFields_() {
+  return pdListAllV1_('/productFields').map(function(f) {
+    return { key: f.key, name: f.name, field_type: f.field_type };
+  });
+}
+
+/** Client-callable: product fields for the Pipedrive Settings picker. */
+function getPipedriveProductFields() {
+  return pdListProductFields_();
 }
 
 function pdListDealFields_() {
@@ -4956,14 +4992,22 @@ function getPipedriveConfigBootstrap(refresh) {
   var KEY = 'pd_catalog_v1';
   if (!refresh) {
     var hit = cache.get(KEY);
-    if (hit) { try { var c = JSON.parse(hit); c.configured = true; c.defaults = status.defaults; return c; } catch (e) {} }
+    if (hit) {
+      try {
+        var c = JSON.parse(hit);
+        c.configured = true; c.defaults = status.defaults;
+        c.productOrgField = getPipedriveProductOrgField_();   // live (not cached — cheap setting read)
+        return c;
+      } catch (e) {}
+    }
   }
   var out = {
     configured: true,
     defaults:   status.defaults,
-    products:   pdListProducts_(),
+    products:   pdListProducts_(),     // each product carries customerOrgId when product_org_field is set
     dealFields: pdListDealFields_(),
-    orgFields:  pdListOrganizationFields_()
+    orgFields:  pdListOrganizationFields_(),
+    productOrgField: getPipedriveProductOrgField_()
   };
   try {
     cache.put(KEY, JSON.stringify({ products: out.products, dealFields: out.dealFields, orgFields: out.orgFields }), 600);
@@ -5111,6 +5155,41 @@ function getOrCreatePipedriveSettingsSheet_() {
   return sh;
 }
 
+/** Reads a single value from the PIPEDRIVE_SETTINGS key/value tab ('' if absent). */
+function getPipedriveSettingValue_(key) {
+  var sh = getConfigSS_().getSheetByName(PIPEDRIVE_SETTINGS_TAB);
+  if (!sh) return '';
+  var data = sh.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]).trim() === key) return String(data[i][1] || '');
+  }
+  return '';
+}
+
+/** Upserts a single value into the PIPEDRIVE_SETTINGS key/value tab. */
+function setPipedriveSettingValue_(key, value) {
+  var sh = getOrCreatePipedriveSettingsSheet_();
+  var data = sh.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]).trim() === key) { sh.getRange(i + 1, 2).setValue(value); return; }
+  }
+  sh.getRange(sh.getLastRow() + 1, 1, 1, 2).setValues([[key, value]]);
+}
+
+/** The product custom-field KEY that links a product to its organization ('' if unset). */
+function getPipedriveProductOrgField_() {
+  return getPipedriveSettingValue_(PD_PRODUCT_ORG_FIELD_KEY);
+}
+
+/** Client-callable. Saves the product→org field key (blank clears it → catalog unscoped). */
+function savePipedriveProductOrgField(fieldKey) {
+  setPipedriveSettingValue_(PD_PRODUCT_ORG_FIELD_KEY, String(fieldKey || '').trim());
+  // The cached catalog embeds each product's customerOrgId from this field — bust it
+  // so the next fetch re-enriches products with the newly chosen field.
+  try { CacheService.getScriptCache().remove('pd_catalog_v1'); } catch (e) {}
+  return { ok: true };
+}
+
 /** Reads the global deal-field rules array from the PIPEDRIVE_SETTINGS tab ([] if absent). */
 function getPipedriveGlobalRules_() {
   var sh = getConfigSS_().getSheetByName(PIPEDRIVE_SETTINGS_TAB);
@@ -5165,11 +5244,13 @@ function getPipedriveSettingsBootstrap(refresh) {
   if (!status.configured) return { configured: false };
   var cat = getPipedriveConfigBootstrap(refresh);
   return {
-    configured: true,
-    defaults:   status.defaults,
-    dealFields: cat.dealFields || [],
-    orgFields:  cat.orgFields || [],
-    rules:      getPipedriveGlobalRules_()
+    configured:      true,
+    defaults:        status.defaults,
+    dealFields:      cat.dealFields || [],
+    orgFields:       cat.orgFields || [],
+    productFields:   pdListProductFields_(),          // for the product→org field picker
+    productOrgField: getPipedriveProductOrgField_(),  // currently selected product→org field key
+    rules:           getPipedriveGlobalRules_()
   };
 }
 
