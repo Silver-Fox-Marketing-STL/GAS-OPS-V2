@@ -139,6 +139,20 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   and the org custom-field reads that conditional deal-field rules depend on. Make
   the wrapper version-agnostic: treat a response as ok unless it's an HTTP error or
   carries an explicit `success:false` (`pdFetch_`).
+- **A Pipedrive product's "deactivated / can't-be-added-to-a-deal" state is v2
+  `is_linkable: false` (v1's `selectable`) — NOT `is_deleted`.** `is_deleted` is a
+  soft-DELETE flag and stays `false` for a product that is merely *deactivated*
+  (confirmed against live data: `BMWCOMO_VDPSCP_01` returned `is_deleted:false`
+  while deactivated). The v2 product object also has **no** `active_flag` /
+  `selectable` / `is_active` field — `is_linkable` is the one that means "can be
+  put on a deal," which is exactly the gate Pipedrive enforces when attaching
+  products (`pdListProducts_` reads it; the picker hides inactive products and the
+  push preempts on them — see the Bridge doc "Deactivated products" note). Watch
+  out: the Pipedrive docs/migration guide conflate "`active_flag` → `is_deleted`,"
+  which is misleading — `active_flag` (the v1 selectability flag) maps to
+  `is_linkable`, not to soft-delete. Same recurring lesson as the `success`-field
+  and inline-custom-fields traps: **don't guess a v2 response shape from v1 or the
+  migration guide — confirm the field against live data.**
 
 ## Google Sheets behavior
 

@@ -925,7 +925,14 @@
             renderPushDone(i, res);
           } else {
             if (btn) { btn.disabled = false; btn.textContent = 'Push to Pipedrive'; }
-            setCardPushStatus(i, res.message || 'Push failed.', 'error');
+            // A deactivated mapped product blocks the push BEFORE any deal is made;
+            // retrying won't help until the mapping is fixed in Dealer Rules, so add
+            // a nudge and never offer Retry (retryable is false for this stage).
+            var msg = res.message || 'Push failed.';
+            if (res.stage === 'inactive_product') {
+              msg += ' Fix the product mapping in Dealer Rules → Pipedrive, then push again.';
+            }
+            setCardPushStatus(i, msg, 'error');
             if (res.retryable) renderPushRetry(i, mode, existingDealId);
           }
         })

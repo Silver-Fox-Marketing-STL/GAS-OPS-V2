@@ -2131,22 +2131,37 @@
       var sel = pdSelections[group] || {};
       var groupOrgId = sel.orgId;
       var showAll    = !!sel.showAllProducts;
+      var hasSaved   = (selectedId != null && selectedId !== '');
 
       var opts = ['<option value="">— none —</option>'];
       var sawSaved = false;
       pdProducts.forEach(function(p) {
+        var isSel = (hasSaved && String(selectedId) === String(p.id));
+        // A DEACTIVATED product (is_linkable=false) can never be validly added to a
+        // deal, so it's never a NEW choice — excluded for every group, even with
+        // "Show all products" on (that toggle only bypasses org-scoping). The one
+        // exception is the already-saved mapping: keep it selected (flagged below)
+        // so a round-trip never silently drops it.
+        if (p.inactive === true && !isSel) return;
+        // Org-scope filter (unit-tested) — saved id is always kept by it too.
         if (!pdProductVisible_(p, groupOrgId, showAll, selectedId)) return;
         var label = p.name + (p.code ? ' (' + p.code + ')' : '');
-        var isSel = (selectedId != null && String(selectedId) === String(p.id));
+        if (isSel && p.inactive === true) label += ' (inactive — pick a new product)';
         if (isSel) sawSaved = true;
         opts.push('<option value="' + escAttr_(p.id) + '"' + (isSel ? ' selected' : '') + '>' +
           escHtml(label) + '</option>');
       });
-      // If a saved product id isn't in the (filtered) catalog at all — e.g. catalog
-      // not yet loaded or the product was removed — still render it so the mapping
-      // isn't silently dropped on save (mirrors the variation dropdown).
-      if (selectedId != null && selectedId !== '' && !sawSaved) {
-        opts.push('<option value="' + escAttr_(selectedId) + '" selected>Product #' + escHtml(String(selectedId)) + ' (saved)</option>');
+      // Saved id not present in the (filtered) catalog at all — still render it so
+      // the mapping isn't silently dropped on save (mirrors the variation dropdown).
+      // Once the catalog is loaded, a saved id that's absent is genuinely gone /
+      // deactivated → flag it "pick a new product". Before the catalog loads, every
+      // saved id is transiently absent, so use the neutral "(saved)" label to avoid
+      // a false "inactive" flash (the re-render after load corrects it).
+      if (hasSaved && !sawSaved) {
+        var fallbackLabel = pdCatalogLoaded
+          ? ('Product #' + String(selectedId) + ' (inactive — pick a new product)')
+          : ('Product #' + String(selectedId) + ' (saved)');
+        opts.push('<option value="' + escAttr_(selectedId) + '" selected>' + escHtml(fallbackLabel) + '</option>');
       }
       return '<select onchange="pdSetProduct(\'' + group + '\', \'' + escAttr_(type) + '\', this.value)">' +
         opts.join('') + '</select>';

@@ -439,6 +439,12 @@ By default the per-dealer type→product dropdown offers the **entire** product 
 ### Line items
 `buildLineItems_(billing, productMap, products, currency, variationsByProduct)` turns the run's billing totals into deal products. **Quantity per type = net of dupes** (`totalNew − newDupes`, `totalPO − poDupes`, etc., read from `readBillingTotals_`); types mapping to the **same product *and* variation** are **summed** into one line item, while different variations stay distinct lines. `item_price` is resolved from the chosen **variation's** `prices[]` (falling back to the product's prices) by the target currency, falling back to the first listed price. A line carrying a variation emits `product_variation_id`.
 
+### Deactivated products — never mappable, never pushed
+Pipedrive rejects a **deactivated** product when attaching it to a deal, so the integration blocks one at two layers:
+- **Catalog flag.** `pdListProducts_` adds `inactive` to each product — from the v2 product's **`is_linkable === false`** (whether it can be added to a deal), with a v1 fallback of `selectable === false || active_flag === false`.
+- **Picker hides them (`ViewRules.html`).** The per-dealer type→product dropdown (`pdProductSelect_`) excludes `inactive` products so a deactivated one can't be **newly** mapped — but an **already-saved** product that has since gone inactive stays visible, flagged **"(inactive — pick a new product)"**, and is **never silently dropped** (kept even under the per-group "Show all products" toggle — the same preserve-already-saved backstop as org-scoping).
+- **Push preempts (`buildLineItems_` + `pushRunToPipedrive`).** `buildLineItems_` carries `inactive` onto each line item (a mapped product not found in the catalog is treated as inactive too). Before creating or linking a deal, `pushRunToPipedrive` checks: if any mapped product that would actually be pushed (qty > 0) is deactivated, it returns `{ ok:false, stage:'inactive_product', retryable:false }` with a message naming the product(s) and pointing to **Dealer Rules → Pipedrive** to update the mapping. **No orphaned deal is created.** The check is skipped once products are already attached (a field-only retry).
+
 ### The push
 `pushRunToPipedrive(dealerKey, runRowIndex, mode, existingDealId)`, `mode` ∈ `create` | `link`:
 - It resolves the group from the RUN_LOG note (`SPLIT:<group>` → that group, else `PRIMARY`) and reads the matching `BILLING` / `BILLING_<group>` sheet from the run's output doc.

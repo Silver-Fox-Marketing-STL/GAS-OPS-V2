@@ -637,10 +637,19 @@
             setVinlogStatus((res.message || 'Pushed to Pipedrive.') +
               (res.dealId != null ? ' (deal #' + res.dealId + ')' : ''), 'success');
           } else {
-            btn.disabled = false;
+            // The push button IS the retry control here, so re-enable it only when
+            // the failure is retryable. A deactivated mapped product (stage
+            // 'inactive_product', retryable:false) blocks before any deal is made —
+            // keep the button disabled and nudge toward fixing the mapping.
+            var msg = res.message || 'Pipedrive push failed.';
+            if (res.stage === 'inactive_product') {
+              msg += ' Fix the product mapping in Dealer Rules → Pipedrive, then push again.';
+            } else if (res.retryable) {
+              msg += ' You can retry.';
+            }
+            btn.disabled = !res.retryable;
             toast(res.message || 'Pipedrive push failed.', 'error');
-            setVinlogStatus(res.message || 'Pipedrive push failed.' +
-              (res.retryable ? ' You can retry.' : ''), 'error');
+            setVinlogStatus(msg, 'error');
           }
         })
         .withFailureHandler(function(e) {

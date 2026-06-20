@@ -4929,13 +4929,15 @@ function pdListProducts_() {
   var orgFieldKey = getEffectiveProductOrgField_();
   if (!orgFieldKey) {
     return pdListAllV1_('/products').map(function(p) {
-      return { id: p.id, name: p.name, code: p.code || '', prices: p.prices || [] };
+      return { id: p.id, name: p.name, code: p.code || '', prices: p.prices || [],
+               inactive: (p.selectable === false || p.active_flag === false) };
     });
   }
   // Fetch via v2 with custom_fields — v2 reliably returns the custom-field value
   // (under custom_fields[<key>]); for an Organization field that value is the org id.
   return pdListAllV2_('/products?custom_fields=' + encodeURIComponent(orgFieldKey)).map(function(p) {
-    var out = { id: p.id, name: p.name, code: p.code || '', prices: p.prices || [] };
+    var out = { id: p.id, name: p.name, code: p.code || '', prices: p.prices || [],
+                inactive: (p.is_linkable === false) };  // v2: not linkable to deals = deactivated
     var cf = p.custom_fields || {};
     var cid = pdExtractOrgId_(cf[orgFieldKey]);
     if (cid) out.customerOrgId = cid;
@@ -5191,31 +5193,6 @@ function matchOrg_(dealerName, normIndex) {
   }
   if (!best || bestScore === 0) return null;
   return { id: best.id, name: best.name, matchType: bestScore >= 0.6 ? 'strong' : 'weak' };
-}
-
-/**
- * DIAGNOSTIC (temporary) — run from the Apps Script editor, then read the Execution
- * log to see how the catalog marks a deactivated product. Logs the full key list of
- * a product, candidate active flags for a few products, and the flags for any product
- * whose name/code contains "bmwcomo" (the known-deactivated example). Read-only.
- */
-function pdDebugProductActive() {
-  var key = getEffectiveProductOrgField_();
-  var prods = pdListAllV2_('/products' + (key ? '?custom_fields=' + encodeURIComponent(key) : ''));
-  function flags(p) {
-    return { id: p.id, name: p.name, code: p.code,
-             active_flag: p.active_flag, selectable: p.selectable,
-             is_deleted: p.is_deleted, is_active: p.is_active };
-  }
-  var out = {
-    firstProductAllKeys: prods.length ? Object.keys(prods[0]) : [],
-    firstFew: prods.slice(0, 3).map(flags),
-    bmwcomo:  prods.filter(function(p) {
-      return (String(p.name || '') + ' ' + String(p.code || '')).toLowerCase().indexOf('bmwcomo') !== -1;
-    }).map(flags)
-  };
-  Logger.log(JSON.stringify(out, null, 2));
-  return out;
 }
 
 /**
@@ -5510,7 +5487,8 @@ function buildLineItems_(billing, productMap, products, currency, variationsByPr
       } else {
         price = prod ? priceFrom(prod.prices) : 0;
       }
-      var li = { product_id: pid, quantity: 0, item_price: price, name: name };
+      var li = { product_id: pid, quantity: 0, item_price: price, name: name,
+                 inactive: prod ? (prod.inactive === true) : true };  // not in catalog = treat unavailable
       if (vid) li.product_variation_id = vid;
       agg[key] = li;
     }
@@ -5809,6 +5787,25 @@ function pushRunToPipedrive(dealerKey, runRowIndex, mode, existingDealId) {
 
     var state  = pdPushStateGet_(runRowIndex);
     var dealId = state.dealId || '';
+
+    // Preempt deactivated products. Pipedrive rejects products that aren't linkable to
+    // a deal (is_linkable=false), so block BEFORE creating/linking a deal — no orphaned
+    // deal, no cryptic mid-attach failure. Skipped once products are already attached (a
+    // field-only retry); only deactivated products that would actually be pushed (qty>0,
+    // hence present in lineItems) trigger it.
+    if (!state.productsDone) {
+      var blockedItems = lineItems.filter(function(li) { return li.inactive; });
+      if (blockedItems.length) {
+        var blockedNames = blockedItems.map(function(li) {
+          return (li.name || ('Product #' + li.product_id)) + ' (#' + li.product_id + ')';
+        }).join(', ');
+        return { ok: false, stage: 'inactive_product', retryable: false,
+                 message: 'Cannot push — ' + blockedNames + (blockedItems.length === 1 ? ' is' : ' are') +
+                          ' deactivated in Pipedrive and can\'t be added to a deal. Update the product ' +
+                          'mapping for ' + dealerKey + ' / ' + group + ' in Dealer Rules → Pipedrive ' +
+                          '(choose an active product), then push again.' };
+      }
+    }
 
     // Dup guard: a numeric col D = a real PD deal already exists for this run
     // (we wrote it post-create, or it was pre-created) — never create a second.
