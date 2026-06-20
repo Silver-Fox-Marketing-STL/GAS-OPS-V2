@@ -5194,6 +5194,31 @@ function matchOrg_(dealerName, normIndex) {
 }
 
 /**
+ * DIAGNOSTIC (temporary) — run from the Apps Script editor, then read the Execution
+ * log to see how the catalog marks a deactivated product. Logs the full key list of
+ * a product, candidate active flags for a few products, and the flags for any product
+ * whose name/code contains "bmwcomo" (the known-deactivated example). Read-only.
+ */
+function pdDebugProductActive() {
+  var key = getEffectiveProductOrgField_();
+  var prods = pdListAllV2_('/products' + (key ? '?custom_fields=' + encodeURIComponent(key) : ''));
+  function flags(p) {
+    return { id: p.id, name: p.name, code: p.code,
+             active_flag: p.active_flag, selectable: p.selectable,
+             is_deleted: p.is_deleted, is_active: p.is_active };
+  }
+  var out = {
+    firstProductAllKeys: prods.length ? Object.keys(prods[0]) : [],
+    firstFew: prods.slice(0, 3).map(flags),
+    bmwcomo:  prods.filter(function(p) {
+      return (String(p.name || '') + ' ' + String(p.code || '')).toLowerCase().indexOf('bmwcomo') !== -1;
+    }).map(flags)
+  };
+  Logger.log(JSON.stringify(out, null, 2));
+  return out;
+}
+
+/**
  * Client-callable, READ-ONLY. For every active dealer, returns its current PRIMARY
  * org link (if any) and a proposed Pipedrive org matched by name — for the user to
  * review before any write. `[{dealerKey, dealerName, currentOrgId, currentOrgName,
