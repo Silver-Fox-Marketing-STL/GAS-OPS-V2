@@ -5006,7 +5006,7 @@ function getPipedriveConfigBootstrap(refresh) {
   if (!status.configured) return { configured: false };
 
   var cache = CacheService.getScriptCache();
-  var KEY = 'pd_catalog_v1';
+  var KEY = 'pd_catalog_v2';   // v2: products now carry customerOrgId — bumped so stale v1 caches are ignored
   if (!refresh) {
     var hit = cache.get(KEY);
     if (hit) {
@@ -5220,7 +5220,7 @@ function savePipedriveProductOrgField(fieldKey) {
   setPipedriveSettingValue_(PD_PRODUCT_ORG_FIELD_KEY, String(fieldKey || '').trim());
   // The cached catalog embeds each product's customerOrgId from this field — bust it
   // so the next fetch re-enriches products with the newly chosen field.
-  try { CacheService.getScriptCache().remove('pd_catalog_v1'); } catch (e) {}
+  try { CacheService.getScriptCache().remove('pd_catalog_v2'); } catch (e) {}
   return { ok: true };
 }
 
