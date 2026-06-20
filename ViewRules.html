@@ -2420,26 +2420,35 @@
       }, 300);
     }
 
+    // Per-group search results are STASHED (not passed through the onclick) so an
+    // org name containing a quote/backslash — e.g. "Serra Honda O'Fallon" — can't
+    // break the inline handler (HTML-decoding &#39; back to a bare ' would corrupt
+    // the JS string). The result onclick passes only an index; pdPickOrg looks up
+    // the {id,name}. Display text still goes through escHtml.
+    var pdOrgResultsByGid = {};
     function pdRenderOrgResults_(gid, results) {
       var box = document.getElementById('pdOrgResults_' + gid);
       if (!box) return;
+      pdOrgResultsByGid[gid] = results;
       if (!results.length) {
         box.innerHTML = '<li class="pd-org-msg">No organizations found.</li>';
         return;
       }
-      box.innerHTML = results.map(function(o) {
-        return '<li onclick="pdPickOrg(\'' + gid + '\', \'' + escAttr_(o.id) + '\', \'' +
-          escAttr_(o.name).replace(/\\/g, '\\\\') + '\')">' +
+      box.innerHTML = results.map(function(o, j) {
+        return '<li onclick="pdPickOrg(\'' + gid + '\', ' + j + ')">' +
           escHtml(o.name) + ' <span class="pd-org-id">#' + escHtml(String(o.id)) + '</span></li>';
       }).join('');
       box.style.display = 'block';
     }
 
-    function pdPickOrg(gid, id, name) {
+    function pdPickOrg(gid, j) {
+      var results = pdOrgResultsByGid[gid] || [];
+      var o = results[j];
+      if (!o) return;
       var group = pdGidToGroup_(gid);
       var g = pdEnsureGroup_(group);
-      g.orgId = id;
-      g.orgName = name;
+      g.orgId = o.id;
+      g.orgName = o.name;
       markPipedriveDirty();
       renderPipedriveDealer();   // re-render so the chosen-org state replaces the search box
     }
