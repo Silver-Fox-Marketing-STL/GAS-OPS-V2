@@ -5159,6 +5159,125 @@ function savePipedriveDealerConfig(dealerKey, rows) {
   return { ok: true, saved: toWrite.length };
 }
 
+// ── Bulk dealer → organization linking (one-time setup helper) ─────────────
+
+/** All Pipedrive organizations (id + name), for name-matching against dealers. */
+function pdListAllOrganizations_() {
+  return pdListAllV1_('/organizations').map(function(o) { return { id: o.id, name: o.name }; });
+}
+
+/** Normalizes a name for fuzzy matching: lowercase, strip punctuation + filler words. */
+function normalizeOrgName_(s) {
+  return String(s || '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\b(of|the|inc|llc|co|group|automotive|auto)\b/g, ' ')
+    .replace(/\s+/g, ' ').trim();
+}
+
+/** Best org match for a dealer name: exact-normalized > token overlap. Null if nothing shares a token. */
+function matchOrg_(dealerName, normIndex) {
+  var dn = normalizeOrgName_(dealerName);
+  if (!dn) return null;
+  var dTokens = dn.split(' ').filter(Boolean);
+  var best = null, bestScore = 0;
+  for (var i = 0; i < normIndex.length; i++) {
+    var o = normIndex[i];
+    if (o.norm === dn) return { id: o.id, name: o.name, matchType: 'exact' };
+    var oTokens = o.norm.split(' ').filter(Boolean);
+    var shared = 0;
+    for (var k = 0; k < dTokens.length; k++) if (oTokens.indexOf(dTokens[k]) !== -1) shared++;
+    var score = shared / Math.max(dTokens.length, 1);
+    if (score > bestScore) { bestScore = score; best = o; }
+  }
+  if (!best || bestScore === 0) return null;
+  return { id: best.id, name: best.name, matchType: bestScore >= 0.6 ? 'strong' : 'weak' };
+}
+
+/**
+ * Client-callable, READ-ONLY. For every active dealer, returns its current PRIMARY
+ * org link (if any) and a proposed Pipedrive org matched by name — for the user to
+ * review before any write. `[{dealerKey, dealerName, currentOrgId, currentOrgName,
+ * proposedOrgId, proposedOrgName, matchType}]`.
+ */
+function getDealerOrgLinkProposals() {
+  var configSS = getConfigSS_();
+  var dealers = configSS.getSheetByName('DEALERS').getDataRange().getValues();
+  var active = [];
+  for (var i = 1; i < dealers.length; i++) {
+    if (isTrue_(dealers[i][CFG.ACTIVE])) active.push({ key: String(dealers[i][CFG.KEY]), name: String(dealers[i][CFG.NAME]) });
+  }
+
+  var existing = {};
+  var pdSheet = getPipedriveSheet_();
+  if (pdSheet) {
+    var pdData = pdSheet.getDataRange().getValues();
+    for (var r = 1; r < pdData.length; r++) {
+      if (String(pdData[r][PDCFG.GROUP] || 'PRIMARY').toUpperCase() === 'PRIMARY') {
+        existing[String(pdData[r][PDCFG.DEALER_KEY])] = {
+          orgId:   pdData[r][PDCFG.ORG_ID] === '' ? '' : String(pdData[r][PDCFG.ORG_ID]),
+          orgName: String(pdData[r][PDCFG.ORG_NAME] || '')
+        };
+      }
+    }
+  }
+
+  var normIndex = pdListAllOrganizations_().map(function(o) { return { id: o.id, name: o.name, norm: normalizeOrgName_(o.name) }; });
+
+  return active.map(function(d) {
+    var cur = existing[d.key] || {};
+    var prop = matchOrg_(d.name, normIndex);
+    return {
+      dealerKey:       d.key,
+      dealerName:      d.name,
+      currentOrgId:    cur.orgId || '',
+      currentOrgName:  cur.orgName || '',
+      proposedOrgId:   prop ? String(prop.id) : '',
+      proposedOrgName: prop ? prop.name : '',
+      matchType:       prop ? prop.matchType : 'none'
+    };
+  });
+}
+
+/**
+ * Client-callable. Writes the user-confirmed dealer→org links to the PIPEDRIVE tab —
+ * upserting each dealer's PRIMARY row (preserves product_map / field_overrides on an
+ * existing row; creates a new row with empty maps otherwise). Org only — never touches
+ * product mappings. links = [{dealerKey, orgId, orgName}].
+ */
+function saveDealerOrgLinks(links) {
+  links = links || [];
+  var sh = getOrCreatePipedriveSheet_();
+  var data = sh.getDataRange().getValues();
+  var rowByKey = {};
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][PDCFG.GROUP] || 'PRIMARY').toUpperCase() === 'PRIMARY') rowByKey[String(data[i][PDCFG.DEALER_KEY])] = i + 1;
+  }
+
+  var updated = 0, appended = 0;
+  links.forEach(function(l) {
+    if (!l || !l.dealerKey || l.orgId === undefined || l.orgId === null || String(l.orgId).trim() === '') return;
+    var rn = rowByKey[String(l.dealerKey)];
+    if (rn) {
+      sh.getRange(rn, PDCFG.ORG_ID + 1).setValue(String(l.orgId));
+      sh.getRange(rn, PDCFG.ORG_NAME + 1).setValue(l.orgName || '');
+      updated++;
+    } else {
+      var line = [];
+      for (var c = 0; c < PIPEDRIVE_HEADERS.length; c++) line[c] = '';
+      line[PDCFG.DEALER_KEY]      = l.dealerKey;
+      line[PDCFG.GROUP]           = 'PRIMARY';
+      line[PDCFG.ORG_ID]          = String(l.orgId);
+      line[PDCFG.ORG_NAME]        = l.orgName || '';
+      line[PDCFG.PRODUCT_MAP]     = '{}';
+      line[PDCFG.FIELD_OVERRIDES] = '{}';
+      line[PDCFG.ACTIVE]          = true;
+      sh.getRange(sh.getLastRow() + 1, 1, 1, PIPEDRIVE_HEADERS.length).setValues([line]);
+      appended++;
+    }
+  });
+  return { ok: true, updated: updated, appended: appended };
+}
+
 // ── Global deal-field rules (PIPEDRIVE_SETTINGS tab) ───────────────────────
 
 function getOrCreatePipedriveSettingsSheet_() {
