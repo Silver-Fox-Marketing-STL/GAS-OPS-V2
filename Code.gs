@@ -4906,22 +4906,39 @@ function pdListAllV1_(path) {
   return out;
 }
 
+/** GET a v2 collection, following cursor pagination. Returns the concatenated array. */
+function pdListAllV2_(path) {
+  var out = [], cursor = '', guard = 0;
+  do {
+    var sep = (path.indexOf('?') === -1) ? '?' : '&';
+    var r = pdFetch_('get', path + sep + 'limit=500' + (cursor ? '&cursor=' + encodeURIComponent(cursor) : ''),
+                     null, { version: 'v2' });
+    if (!r.ok) break;
+    if (r.data && r.data.length) out = out.concat(r.data);
+    cursor = (r.additional && r.additional.next_cursor) ? r.additional.next_cursor : '';
+  } while (cursor && guard++ < 40);
+  return out;
+}
+
 // ── Read endpoints (config UI) ─────────────────────────────────────────────
 
 function pdListProducts_() {
-  // When a product→org link field is configured, surface each product's Customer
-  // org id so the per-dealer picker can scope the catalog to that dealer's org.
-  // v1 /products returns custom-field values inline at the product top level
-  // (product[<40-char key>]); for an Organization-type field that value is the
-  // org id. (If a future Pipedrive change stops returning it inline, switch this
-  // fetch to /api/v2/products?custom_fields=<key> — value at custom_fields[key].)
-  var orgFieldKey = getPipedriveProductOrgField_();
-  return pdListAllV1_('/products').map(function(p) {
+  // Scope key = the product's Organization-type custom field ("Customer"), either
+  // explicitly chosen or AUTO-DETECTED. When set, surface each product's linked
+  // org id (customerOrgId) so the per-dealer picker can scope to that dealer's org.
+  var orgFieldKey = getEffectiveProductOrgField_();
+  if (!orgFieldKey) {
+    return pdListAllV1_('/products').map(function(p) {
+      return { id: p.id, name: p.name, code: p.code || '', prices: p.prices || [] };
+    });
+  }
+  // Fetch via v2 with custom_fields — v2 reliably returns the custom-field value
+  // (under custom_fields[<key>]); for an Organization field that value is the org id.
+  return pdListAllV2_('/products?custom_fields=' + encodeURIComponent(orgFieldKey)).map(function(p) {
     var out = { id: p.id, name: p.name, code: p.code || '', prices: p.prices || [] };
-    if (orgFieldKey) {
-      var cid = pdExtractOrgId_(p[orgFieldKey]);
-      if (cid) out.customerOrgId = cid;
-    }
+    var cf = p.custom_fields || {};
+    var cid = pdExtractOrgId_(cf[orgFieldKey]);
+    if (cid) out.customerOrgId = cid;
     return out;
   });
 }
@@ -4996,7 +5013,7 @@ function getPipedriveConfigBootstrap(refresh) {
       try {
         var c = JSON.parse(hit);
         c.configured = true; c.defaults = status.defaults;
-        c.productOrgField = getPipedriveProductOrgField_();   // live (not cached — cheap setting read)
+        c.productOrgField = getEffectiveProductOrgField_();   // live (explicit or auto-detected)
         return c;
       } catch (e) {}
     }
@@ -5004,10 +5021,10 @@ function getPipedriveConfigBootstrap(refresh) {
   var out = {
     configured: true,
     defaults:   status.defaults,
-    products:   pdListProducts_(),     // each product carries customerOrgId when product_org_field is set
+    products:   pdListProducts_(),     // each product carries customerOrgId when an org field is in effect
     dealFields: pdListDealFields_(),
     orgFields:  pdListOrganizationFields_(),
-    productOrgField: getPipedriveProductOrgField_()
+    productOrgField: getEffectiveProductOrgField_()
   };
   try {
     cache.put(KEY, JSON.stringify({ products: out.products, dealFields: out.dealFields, orgFields: out.orgFields }), 600);
@@ -5176,9 +5193,26 @@ function setPipedriveSettingValue_(key, value) {
   sh.getRange(sh.getLastRow() + 1, 1, 1, 2).setValues([[key, value]]);
 }
 
-/** The product custom-field KEY that links a product to its organization ('' if unset). */
+/** The EXPLICITLY chosen product→org field key ('' if unset). */
 function getPipedriveProductOrgField_() {
   return getPipedriveSettingValue_(PD_PRODUCT_ORG_FIELD_KEY);
+}
+
+/**
+ * The product field used to scope products to an org: the explicit setting if
+ * chosen, otherwise AUTO-DETECTED as the first Organization-type product custom
+ * field (the common "we have one 'Customer' org field" case needs no config).
+ * '' when none exists.
+ */
+function getEffectiveProductOrgField_() {
+  var explicit = getPipedriveProductOrgField_();
+  if (explicit) return explicit;
+  var fields = pdListProductFields_();
+  for (var i = 0; i < fields.length; i++) {
+    var t = String(fields[i].field_type || '').toLowerCase();
+    if (t === 'org' || t === 'organization') return fields[i].key;
+  }
+  return '';
 }
 
 /** Client-callable. Saves the product→org field key (blank clears it → catalog unscoped). */
@@ -5249,7 +5283,7 @@ function getPipedriveSettingsBootstrap(refresh) {
     dealFields:      cat.dealFields || [],
     orgFields:       cat.orgFields || [],
     productFields:   pdListProductFields_(),          // for the product→org field picker
-    productOrgField: getPipedriveProductOrgField_(),  // currently selected product→org field key
+    productOrgField: getEffectiveProductOrgField_(),  // effective (explicit or auto-detected) product→org field key
     rules:           getPipedriveGlobalRules_()
   };
 }
