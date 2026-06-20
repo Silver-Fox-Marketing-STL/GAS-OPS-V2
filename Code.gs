@@ -5224,6 +5224,37 @@ function savePipedriveProductOrgField(fieldKey) {
   return { ok: true };
 }
 
+/**
+ * DIAGNOSTIC (temporary) — run from the Apps Script editor, then open the
+ * Execution log to see what the product→org scoping actually reads from Pipedrive:
+ * which field was auto-detected, all product fields + their types, and a sample of
+ * products with their raw custom_fields and the extracted org id. Read-only.
+ */
+function pdDebugProductOrg() {
+  var info = {
+    explicitField:  getPipedriveProductOrgField_(),
+    effectiveField: getEffectiveProductOrgField_(),
+    productFields:  pdListProductFields_()
+  };
+  var key = info.effectiveField;
+  info.sample = [];
+  if (key) {
+    var prods = pdListAllV2_('/products?custom_fields=' + encodeURIComponent(key));
+    info.productCount = prods.length;
+    prods.slice(0, 6).forEach(function(p) {
+      info.sample.push({
+        id:             p.id,
+        name:           p.name,
+        custom_fields:  p.custom_fields || null,
+        valueForKey:    (p.custom_fields || {})[key],
+        extractedOrgId: pdExtractOrgId_((p.custom_fields || {})[key])
+      });
+    });
+  }
+  Logger.log(JSON.stringify(info, null, 2));
+  return info;
+}
+
 /** Reads the global deal-field rules array from the PIPEDRIVE_SETTINGS tab ([] if absent). */
 function getPipedriveGlobalRules_() {
   var sh = getConfigSS_().getSheetByName(PIPEDRIVE_SETTINGS_TAB);
