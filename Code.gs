@@ -2125,7 +2125,7 @@ function writeBillingSheet_(outputDoc, billingSplit, sourceSplit) {
   if (billingSplit) {
     var groupSheetName = 'BILLING_' + billingSplit.groupName;
     var groupSheet = outputDoc.getSheetByName(groupSheetName) || outputDoc.insertSheet(groupSheetName);
-    renderBillingSheet_(groupSheet, groupRows, groupRows.length, [], logMap);
+    renderBillingSheet_(groupSheet, groupRows, groupRows.length, [], logMap, sourceSplit);
     result.group = {
       matchedCount: groupRows.length,
       producedVins: groupRows.map(vinOf).filter(nonBlank)
@@ -2354,6 +2354,40 @@ function readBillingTotals_(outputDoc, sheetName) {
   } catch(e) {
     Logger.log('readBillingTotals_ error: ' + e.message);
     return defaults;
+  }
+}
+
+/**
+ * Reads the "BY SOURCE (QTY PER SKU)" section of a billing sheet (written only for
+ * source_split dealers) into { '<sourceLabel>': { type: grossQty } }. Source labels
+ * are 'Main Site' and the source_split groupName (e.g. AUTOLOANPRO). Quantities are
+ * GROSS (VIN-log dupes included), matching the Pipedrive line-item quantity model.
+ * Empty {} when the sheet or section is absent. Parsing is tolerant of dash variants.
+ */
+function readBillingBySource_(outputDoc, sheetName) {
+  var sheet = outputDoc.getSheetByName(sheetName || 'BILLING');
+  var out = {};
+  if (!sheet) return out;
+  try {
+    var data = sheet.getDataRange().getValues();
+    var inSection = false;
+    for (var i = 0; i < data.length; i++) {
+      var label = String(data[i][1] || '').trim();
+      if (label.indexOf('BY SOURCE (QTY PER SKU)') !== -1) { inSection = true; continue; }
+      if (!inSection) continue;
+      if (label.indexOf('─') !== -1) break;                    // next "──" section header ends it
+      var m = label.match(/^(.+?)\s+[—–-]\s+(.+)$/);      // "Source — Type"
+      if (!m) continue;
+      var src  = m[1].trim();
+      var type = m[2].replace(/\s*⚠$/, '').trim();            // strip unexpected-type "⚠"
+      if (type === 'TOTAL') continue;
+      if (!out[src]) out[src] = {};
+      out[src][type] = Number(data[i][2]) || 0;
+    }
+    return out;
+  } catch (e) {
+    Logger.log('readBillingBySource_ error: ' + e.message);
+    return out;
   }
 }
 
@@ -4751,10 +4785,11 @@ var PIPEDRIVE_TAB = 'PIPEDRIVE';
 var PDCFG = {
   DEALER_KEY: 0, GROUP: 1, ORG_ID: 2, ORG_NAME: 3, PRODUCT_MAP: 4,
   TITLE_TEMPLATE: 5, PIPELINE_ID: 6, STAGE_ID: 7, CURRENCY: 8,
-  FIELD_OVERRIDES: 9, ACTIVE: 10
+  FIELD_OVERRIDES: 9, ACTIVE: 10, SOURCE_PRODUCT_MAP: 11
 };
 var PIPEDRIVE_HEADERS = ['dealer_key', 'group', 'org_id', 'org_name', 'product_map',
-  'deal_title_template', 'pipeline_id', 'stage_id', 'currency', 'field_overrides', 'active'];
+  'deal_title_template', 'pipeline_id', 'stage_id', 'currency', 'field_overrides', 'active',
+  'source_product_map'];
 
 // Global Pipedrive settings (deal-field rules, product→org field) live in their
 // own key/value tab.
@@ -5068,7 +5103,8 @@ function pdRowToConfig_(row) {
     stageId:       String(row[PDCFG.STAGE_ID] || '').trim(),
     currency:      String(row[PDCFG.CURRENCY] || '').trim(),
     fieldOverrides: pdParseJson_(row[PDCFG.FIELD_OVERRIDES], {}),
-    active:        isTrue_(row[PDCFG.ACTIVE])
+    active:        isTrue_(row[PDCFG.ACTIVE]),
+    sourceProductMap: pdParseJson_(row[PDCFG.SOURCE_PRODUCT_MAP], {})  // {sourceGroup: {type: entry}}
   };
 }
 
@@ -5120,6 +5156,7 @@ function getPipedriveDealerEditorData(dealerKey) {
     groups:     groups,
     types:      PD_TYPE_KEYS.map(function(t) { return t.type; }),
     saved:      saved,
+    sourceSplit: getSourceSplit_(config),     // {groupName,...}|null — drives the per-source product grid
     globalRules: getPipedriveGlobalRules_()   // so the panel can list overridable rules
   };
 }
@@ -5153,6 +5190,7 @@ function savePipedriveDealerConfig(dealerKey, rows) {
     line[PDCFG.CURRENCY]       = r.currency || '';
     line[PDCFG.FIELD_OVERRIDES] = JSON.stringify(r.fieldOverrides || {});
     line[PDCFG.ACTIVE]         = (r.active === false) ? false : true;
+    line[PDCFG.SOURCE_PRODUCT_MAP] = JSON.stringify(r.sourceProductMap || {});
     return line;
   });
   if (toWrite.length) {
@@ -5474,7 +5512,7 @@ function buildLineItems_(billing, productMap, products, currency, variationsByPr
     if (typeof entry === 'object') { pid = entry.product_id; vid = entry.variation_id || null; }
     else { pid = entry; }   // bare id (tolerated)
     if (pid === undefined || pid === null || pid === '') return;
-    var qty = (Number(billing[t.gross]) || 0) - (Number(billing[t.dupes]) || 0);
+    var qty = (Number(billing[t.gross]) || 0);   // GROSS — VIN-log dupes are still produced & billed
     if (qty <= 0) return;
 
     var key = String(pid) + '|' + (vid || '');
@@ -5495,6 +5533,32 @@ function buildLineItems_(billing, productMap, products, currency, variationsByPr
     agg[key].quantity += qty;
   });
 
+  return Object.keys(agg).map(function(k) { return agg[k]; });
+}
+
+/** Converts a per-source {type: qty} map into the gross billing-totals shape buildLineItems_ reads. */
+function bySourceToBilling_(typeCounts) {
+  typeCounts = typeCounts || {};
+  var b = {};
+  PD_TYPE_KEYS.forEach(function(t) { b[t.gross] = Number(typeCounts[t.type]) || 0; });
+  return b;
+}
+
+/**
+ * Merges line items by product+variation (summing quantity), so a SKU used by more
+ * than one source collapses into one deal line. Preserves price/name + inactive flag.
+ */
+function mergeLineItems_(items) {
+  var agg = {};
+  (items || []).forEach(function(li) {
+    var key = String(li.product_id) + '|' + (li.product_variation_id || '');
+    if (!agg[key]) {
+      agg[key] = { product_id: li.product_id, quantity: 0, item_price: li.item_price, name: li.name, inactive: !!li.inactive };
+      if (li.product_variation_id) agg[key].product_variation_id = li.product_variation_id;
+    }
+    agg[key].quantity += (Number(li.quantity) || 0);
+    if (li.inactive) agg[key].inactive = true;
+  });
   return Object.keys(agg).map(function(k) { return agg[k]; });
 }
 
@@ -5773,17 +5837,40 @@ function pushRunToPipedrive(dealerKey, runRowIndex, mode, existingDealId) {
     var outputDoc;
     try { outputDoc = SpreadsheetApp.openById(outputDocId); }
     catch (e) { return { ok: false, stage: 'resolve', message: 'Could not open the run output doc: ' + e.message, retryable: false }; }
-    var billing  = readBillingTotals_(outputDoc, (group === 'PRIMARY') ? 'BILLING' : ('BILLING_' + group));
-    var products = pdListProducts_();
-    // Fetch variations only for products that have a chosen variation in the map.
+    var sheetName = (group === 'PRIMARY') ? 'BILLING' : ('BILLING_' + group);
+    var billing   = readBillingTotals_(outputDoc, sheetName);
+    var products  = pdListProducts_();
+
+    // Source split (dual-site): the secondary output (e.g. AUTOLOANPRO) maps to its OWN
+    // products as extra line items on the SAME deal. Active only once a secondary product
+    // map is configured — until then the run pushes normally (main map × all vehicles), so
+    // enabling source_split never silently drops the secondary cars before they're mapped.
+    var dealerCfg   = getDealerConfig_(dealerKey);
+    var sourceSplit = dealerCfg ? getSourceSplit_(dealerCfg) : null;
+    var secMap      = (sourceSplit && pdCfg.sourceProductMap) ? (pdCfg.sourceProductMap[sourceSplit.groupName] || {}) : {};
+    var useSourceSplit = !!(sourceSplit && Object.keys(secMap).length);
+
+    // Fetch variations for every product (main + secondary) that pins a variation_id.
     var variationsByProduct = {};
-    PD_TYPE_KEYS.forEach(function(t) {
-      var e = pdCfg.productMap ? pdCfg.productMap[t.type] : null;
-      if (e && typeof e === 'object' && e.product_id && e.variation_id && !variationsByProduct[String(e.product_id)]) {
-        variationsByProduct[String(e.product_id)] = pdListProductVariations_(e.product_id);
-      }
+    [pdCfg.productMap, (useSourceSplit ? secMap : null)].forEach(function(map) {
+      if (!map) return;
+      PD_TYPE_KEYS.forEach(function(t) {
+        var e = map[t.type];
+        if (e && typeof e === 'object' && e.product_id && e.variation_id && !variationsByProduct[String(e.product_id)]) {
+          variationsByProduct[String(e.product_id)] = pdListProductVariations_(e.product_id);
+        }
+      });
     });
-    var lineItems = buildLineItems_(billing, pdCfg.productMap, products, currency, variationsByProduct);
+
+    var lineItems;
+    if (useSourceSplit) {
+      var bySource  = readBillingBySource_(outputDoc, sheetName);
+      var mainItems = buildLineItems_(bySourceToBilling_(bySource['Main Site']), pdCfg.productMap, products, currency, variationsByProduct);
+      var secItems  = buildLineItems_(bySourceToBilling_(bySource[sourceSplit.groupName]), secMap, products, currency, variationsByProduct);
+      lineItems = mergeLineItems_(mainItems.concat(secItems));
+    } else {
+      lineItems = buildLineItems_(billing, pdCfg.productMap, products, currency, variationsByProduct);
+    }
 
     var state  = pdPushStateGet_(runRowIndex);
     var dealId = state.dealId || '';
