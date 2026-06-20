@@ -492,6 +492,15 @@
         toast(res.ok
           ? (key ? 'Product list will be scoped by that field.' : 'Product scoping cleared — all products shown.')
           : 'Could not save product scope.', res.ok ? 'success' : 'error');
+        // If the Dealer Rules → Pipedrive catalog is already loaded this session,
+        // reload it so its product lists re-scope immediately (the save busted the
+        // server-side catalog cache). pdLoadCatalog/pdCatalogLoaded are ViewRules
+        // globals — the App shell shares one scope; typeof-guarded for the Classic
+        // standalone case where ViewRules isn't co-loaded.
+        if (res.ok && typeof pdLoadCatalog === 'function' &&
+            typeof pdCatalogLoaded !== 'undefined' && pdCatalogLoaded) {
+          try { pdLoadCatalog(false); } catch (e) {}
+        }
       })
       .withFailureHandler(function(e) {
         toast('Could not save product scope: ' + e.message, 'error');
