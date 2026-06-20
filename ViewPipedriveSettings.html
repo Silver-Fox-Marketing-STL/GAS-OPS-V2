@@ -69,6 +69,30 @@
       </div>
     </div>
 
+    <!-- ── Bulk dealer → organization linker ────────────────────────────────── -->
+    <div class="ps-card" id="psLinkCard" style="display:none;">
+      <button type="button" class="ps-collapse-head" id="psLinkToggle" onclick="psToggleLinkCard()" aria-expanded="false">
+        <span class="ps-section-label" style="margin:0;">Link dealers to organizations</span>
+        <span class="ps-collapse-arrow" id="psLinkArrow">▸</span>
+      </button>
+      <div id="psLinkBody" style="display:none;">
+        <div class="ps-hint">Match every active dealer to its Pipedrive organization in one pass. Scanning is read-only; nothing is saved until you confirm and click <strong>Save confirmed links</strong>.</div>
+        <div class="ps-link-actions">
+          <button class="ps-btn-ghost" id="psScanBtn" onclick="psScanDealerOrgs()">Scan &amp; match dealers</button>
+          <span id="psLinkSelectActions" class="ps-link-select" style="display:none;">
+            <button class="ps-link" onclick="psLinkSelectAll(true)">Select all</button>
+            <span class="ps-sep">·</span>
+            <button class="ps-link" onclick="psLinkSelectAll(false)">Select none</button>
+          </span>
+        </div>
+        <div id="psLinkResults"></div>
+        <div id="psLinkSaveRow" class="ps-link-saverow" style="display:none;">
+          <span id="psLinkCount" class="ps-link-count"></span>
+          <button class="ps-btn-primary" id="psLinkSaveBtn" onclick="psSaveDealerOrgLinks()">Save confirmed links</button>
+        </div>
+      </div>
+    </div>
+
     <!-- ── Global deal-field rules ──────────────────────────────────────────── -->
     <div class="ps-card">
       <div class="ps-section-label">Global Deal-Field Rules</div>
@@ -357,6 +381,83 @@
   #view-pipedrive-settings #psStatus.success { background: var(--success-weak); color: var(--success); }
   #view-pipedrive-settings #psStatus.error { background: var(--danger-weak); color: var(--danger); }
 
+  /* ── Bulk dealer → organization linker ────────────────────────────────────── */
+  #view-pipedrive-settings .ps-collapse-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    width: 100%; background: none; border: none; cursor: pointer; padding: 0; text-align: left;
+  }
+  #view-pipedrive-settings .ps-collapse-arrow { color: var(--accent); font-size: 13px; }
+  #view-pipedrive-settings .ps-link-actions {
+    display: flex; align-items: center; gap: 14px; margin: 10px 0;
+  }
+  #view-pipedrive-settings .ps-link-select { font-size: 12px; color: var(--text-3); }
+  #view-pipedrive-settings .ps-link-select .ps-sep { margin: 0 2px; color: var(--text-muted); }
+  #view-pipedrive-settings .ps-link-tablewrap {
+    max-height: 360px; overflow-y: auto;
+    border: 1px solid var(--border); border-radius: var(--radius); margin-top: 4px;
+  }
+  #view-pipedrive-settings .ps-link-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  #view-pipedrive-settings .ps-link-table th {
+    position: sticky; top: 0; z-index: 1;
+    background: var(--surface-2); padding: 7px 10px; text-align: left;
+    font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.3px;
+    color: var(--text-3); border-bottom: 1px solid var(--border);
+  }
+  #view-pipedrive-settings .ps-link-table td {
+    padding: 7px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; color: var(--text);
+  }
+  #view-pipedrive-settings .ps-link-table tr:last-child td { border-bottom: none; }
+  #view-pipedrive-settings .ps-col-inc { width: 64px; text-align: center; }
+  #view-pipedrive-settings .ps-col-inc input[type="checkbox"] { accent-color: var(--accent); cursor: pointer; }
+  #view-pipedrive-settings .ps-col-dealer { width: 26%; font-weight: 600; }
+  #view-pipedrive-settings .ps-col-current { width: 24%; color: var(--text-2); }
+  #view-pipedrive-settings .ps-muted { color: var(--text-muted); font-style: italic; }
+
+  /* Match badge */
+  #view-pipedrive-settings .ps-match-badge {
+    display: inline-block; padding: 1px 7px; border-radius: 10px;
+    font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.3px;
+    flex-shrink: 0;
+  }
+  #view-pipedrive-settings .ps-badge-exact  { background: var(--success-weak); color: var(--success); }
+  #view-pipedrive-settings .ps-badge-strong { background: var(--accent-weak); color: var(--accent); }
+  #view-pipedrive-settings .ps-badge-weak   { background: var(--warning-weak); color: var(--warning-strong); }
+  #view-pipedrive-settings .ps-badge-none   { background: var(--surface-2); color: var(--text-muted); }
+
+  /* Proposed-org cell: chosen chip + search */
+  #view-pipedrive-settings .ps-link-org-chosen { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  #view-pipedrive-settings .ps-link-org-name { font-weight: 600; color: var(--text); }
+  #view-pipedrive-settings .ps-link-org-id { color: var(--text-3); font-size: 11px; }
+  #view-pipedrive-settings .ps-link-org-change {
+    background: var(--bg); border: 1px solid var(--border-2); border-radius: 3px;
+    font-size: 11px; color: var(--text-2); cursor: pointer; padding: 2px 8px;
+  }
+  #view-pipedrive-settings .ps-link-org-change:hover { background: var(--surface); color: var(--accent); border-color: var(--accent); }
+  #view-pipedrive-settings .ps-link-org-search { position: relative; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  #view-pipedrive-settings .ps-link-org-search input[type="text"] {
+    flex: 1; min-width: 160px; padding: 5px 7px; font-size: 12px;
+    border: 1px solid var(--border-2); border-radius: 4px; background: var(--bg); color: var(--text);
+  }
+  #view-pipedrive-settings .ps-link-org-search input:focus { outline: none; border-color: var(--accent); }
+  #view-pipedrive-settings .ps-link-org-results {
+    list-style: none; margin: 0; padding: 0; position: absolute; top: 100%; left: 0; right: 0; z-index: 5;
+    border: 1px solid var(--border-2); border-radius: 4px; background: var(--bg);
+    max-height: 180px; overflow-y: auto; box-shadow: var(--shadow);
+  }
+  #view-pipedrive-settings .ps-link-org-results li {
+    padding: 6px 10px; font-size: 12px; color: var(--text); cursor: pointer; border-bottom: 1px solid var(--border);
+  }
+  #view-pipedrive-settings .ps-link-org-results li:last-child { border-bottom: none; }
+  #view-pipedrive-settings .ps-link-org-results li:hover { background: var(--accent-weak); color: var(--accent); }
+  #view-pipedrive-settings .ps-link-org-results li.ps-link-org-msg { color: var(--text-muted); font-style: italic; cursor: default; }
+  #view-pipedrive-settings .ps-link-org-results li.ps-link-org-msg:hover { background: var(--bg); color: var(--text-muted); }
+
+  /* Save row */
+  #view-pipedrive-settings .ps-link-saverow {
+    display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 12px;
+  }
+  #view-pipedrive-settings .ps-link-count { font-size: 12px; color: var(--text-2); }
+
   /* themed root (overrides the interim .view light guard) */
   #view-pipedrive-settings { background: var(--bg); color: var(--text); }
 </style>
@@ -379,6 +480,11 @@
   var psRules       = [];   // live working model
   var psLoaded      = false;
   var psDirty       = false;
+  // Bulk dealer→org linker state (independent of the rules editor):
+  var psLinkRows    = [];   // [{dealerKey, dealerName, currentOrgName, chosenOrgId, chosenOrgName, matchType, include}]
+  var psLinkOpen    = false;
+  var psLinkScanned = false;
+  var psLinkOrgTimers = {}; // per-row org-search debounce timers, keyed by dealerKey
 
   var PS_OPS = ['is','is_not','in','not_in','contains','not_contains','gte','lte','gt','lt'];
   var PS_OP_LABELS = {
@@ -510,6 +616,225 @@
 
   function psRefreshCatalog() { psLoadBootstrap(true); }
 
+  // ════════════════════════════════════════════════════════════════════════════
+  // BULK DEALER → ORGANIZATION LINKER
+  // Scan (read-only) proposes an org per active dealer; the user reviews, edits
+  // per row, toggles Include, then saves only the confirmed rows. Nothing writes
+  // until Save (saveDealerOrgLinks upserts each dealer's PRIMARY org only).
+  // ════════════════════════════════════════════════════════════════════════════
+  function psToggleLinkCard() {
+    psLinkOpen = !psLinkOpen;
+    document.getElementById('psLinkBody').style.display = psLinkOpen ? 'block' : 'none';
+    document.getElementById('psLinkArrow').textContent = psLinkOpen ? '▾' : '▸';
+    document.getElementById('psLinkToggle').setAttribute('aria-expanded', psLinkOpen ? 'true' : 'false');
+  }
+
+  function psScanDealerOrgs() {
+    var btn = document.getElementById('psScanBtn');
+    btn.disabled = true; btn.textContent = 'Scanning…';
+    document.getElementById('psLinkResults').innerHTML =
+      '<div class="ps-placeholder">Fetching Pipedrive organizations and matching dealers… this can take a few seconds.</div>';
+    document.getElementById('psLinkSaveRow').style.display = 'none';
+    document.getElementById('psLinkSelectActions').style.display = 'none';
+
+    google.script.run
+      .withSuccessHandler(function(props) {
+        btn.disabled = false; btn.textContent = 'Re-scan';
+        psLinkRows = (props || []).map(function(p) {
+          p = p || {};
+          var mt = String(p.matchType || 'none');
+          return {
+            dealerKey: p.dealerKey,
+            dealerName: p.dealerName || p.dealerKey,
+            currentOrgId: (p.currentOrgId != null) ? p.currentOrgId : '',
+            currentOrgName: p.currentOrgName || '',
+            // Chosen = the proposal (the user can change it per row).
+            chosenOrgId: (p.proposedOrgId != null) ? p.proposedOrgId : '',
+            chosenOrgName: p.proposedOrgName || '',
+            matchType: mt,
+            // Default Include: confident matches on, shaky ones off (deliberate confirm).
+            include: (mt === 'exact' || mt === 'strong')
+          };
+        });
+        psLinkScanned = true;
+        psRenderLinkTable_();
+      })
+      .withFailureHandler(function(e) {
+        btn.disabled = false; btn.textContent = 'Scan & match dealers';
+        document.getElementById('psLinkResults').innerHTML =
+          '<div class="ps-placeholder">Scan failed: ' + escHtml(e.message) + '</div>';
+        toast('Dealer scan failed: ' + e.message, 'error');
+      })
+      .getDealerOrgLinkProposals();
+  }
+
+  var PS_MATCH_LABELS = { exact: 'exact', strong: 'strong', weak: 'weak', none: 'no match' };
+  function psMatchBadgeClass_(mt) {
+    if (mt === 'exact')  return 'ps-badge-exact';
+    if (mt === 'strong') return 'ps-badge-strong';
+    if (mt === 'weak')   return 'ps-badge-weak';
+    return 'ps-badge-none';
+  }
+
+  function psRenderLinkTable_() {
+    var wrap = document.getElementById('psLinkResults');
+    if (!psLinkScanned) { wrap.innerHTML = ''; return; }
+    if (!psLinkRows.length) {
+      wrap.innerHTML = '<div class="ps-placeholder">No active dealers to link.</div>';
+      document.getElementById('psLinkSaveRow').style.display = 'none';
+      document.getElementById('psLinkSelectActions').style.display = 'none';
+      return;
+    }
+    var rows = psLinkRows.map(psRenderLinkRow_).join('');
+    wrap.innerHTML =
+      '<div class="ps-link-tablewrap"><table class="ps-link-table"><thead><tr>' +
+        '<th class="ps-col-inc">Include</th>' +
+        '<th class="ps-col-dealer">Dealer</th>' +
+        '<th class="ps-col-current">Current org</th>' +
+        '<th class="ps-col-proposed">Proposed organization</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+    document.getElementById('psLinkSelectActions').style.display = 'inline';
+    document.getElementById('psLinkSaveRow').style.display = 'flex';
+    psUpdateLinkCount_();
+  }
+
+  function psRenderLinkRow_(row, i) {
+    var badge = '<span class="ps-match-badge ' + psMatchBadgeClass_(row.matchType) + '">' +
+      escHtml(PS_MATCH_LABELS[row.matchType] || row.matchType) + '</span>';
+
+    // Proposed org cell: chosen-state chip (with Change) vs a search input.
+    var orgCell;
+    if (row.chosenOrgId) {
+      orgCell =
+        '<div class="ps-link-org-chosen">' +
+          '<span class="ps-link-org-name">' + escHtml(row.chosenOrgName || ('Org #' + row.chosenOrgId)) + '</span>' +
+          '<span class="ps-link-org-id">#' + escHtml(String(row.chosenOrgId)) + '</span>' +
+          badge +
+          '<button type="button" class="ps-link-org-change" onclick="psLinkClearOrg(' + i + ')">Change</button>' +
+        '</div>';
+    } else {
+      orgCell =
+        '<div class="ps-link-org-search">' +
+          '<input type="text" id="psLinkOrgInput_' + i + '" placeholder="Search organizations (min 2 chars)…" ' +
+            'autocomplete="off" oninput="psLinkOrgInput(' + i + ', this.value)" />' +
+          badge +
+          '<ul class="ps-link-org-results" id="psLinkOrgResults_' + i + '" style="display:none;"></ul>' +
+        '</div>';
+    }
+
+    return '<tr>' +
+      '<td class="ps-col-inc"><input type="checkbox"' + (row.include ? ' checked' : '') +
+        ' onchange="psLinkSetInclude(' + i + ', this.checked)"></td>' +
+      '<td class="ps-col-dealer">' + escHtml(row.dealerName) + '</td>' +
+      '<td class="ps-col-current">' + (row.currentOrgName ? escHtml(row.currentOrgName) : '<span class="ps-muted">— none —</span>') + '</td>' +
+      '<td class="ps-col-proposed">' + orgCell + '</td>' +
+    '</tr>';
+  }
+
+  function psLinkSetInclude(i, checked) {
+    if (psLinkRows[i]) psLinkRows[i].include = !!checked;
+    psUpdateLinkCount_();
+  }
+
+  function psLinkSelectAll(val) {
+    psLinkRows.forEach(function(r) { r.include = !!val; });
+    psRenderLinkTable_();   // re-render so every checkbox reflects the change
+  }
+
+  // ── Per-row organization override (search → pick) ───────────────────────────
+  function psLinkOrgInput(i, term) {
+    var box = document.getElementById('psLinkOrgResults_' + i);
+    term = String(term || '').trim();
+    if (psLinkOrgTimers[i]) clearTimeout(psLinkOrgTimers[i]);
+    if (term.length < 2) {
+      if (box) { box.style.display = 'none'; box.innerHTML = ''; }
+      return;
+    }
+    if (box) { box.style.display = 'block'; box.innerHTML = '<li class="ps-link-org-msg">Searching…</li>'; }
+    psLinkOrgTimers[i] = setTimeout(function() {
+      google.script.run
+        .withSuccessHandler(function(results) { psRenderLinkOrgResults_(i, results || []); })
+        .withFailureHandler(function(e) {
+          if (box) box.innerHTML = '<li class="ps-link-org-msg">Search failed: ' + escHtml(e.message) + '</li>';
+        })
+        .searchPipedriveOrganizations(term);
+    }, 300);
+  }
+
+  // Per-row search results are STASHED (not passed through the onclick) so org
+  // names containing quotes/backslashes can't break the inline handler — the
+  // click passes only indices and we look up the result object.
+  var psLinkOrgResultsByRow = {};
+  function psRenderLinkOrgResults_(i, results) {
+    var box = document.getElementById('psLinkOrgResults_' + i);
+    if (!box) return;
+    psLinkOrgResultsByRow[i] = results;
+    if (!results.length) { box.innerHTML = '<li class="ps-link-org-msg">No organizations found.</li>'; return; }
+    box.innerHTML = results.map(function(o, j) {
+      return '<li onclick="psLinkPickOrg(' + i + ', ' + j + ')">' +
+        escHtml(o.name) + ' <span class="ps-link-org-id">#' + escHtml(String(o.id)) + '</span></li>';
+    }).join('');
+    box.style.display = 'block';
+  }
+
+  function psLinkPickOrg(i, j) {
+    if (!psLinkRows[i]) return;
+    var results = psLinkOrgResultsByRow[i] || [];
+    var o = results[j];
+    if (!o) return;
+    psLinkRows[i].chosenOrgId = o.id;
+    psLinkRows[i].chosenOrgName = o.name;
+    // A deliberate pick implies the user wants this row included.
+    psLinkRows[i].include = true;
+    psRenderLinkTable_();   // swap the search box for the chosen-org chip
+  }
+
+  function psLinkClearOrg(i) {
+    if (!psLinkRows[i]) return;
+    psLinkRows[i].chosenOrgId = '';
+    psLinkRows[i].chosenOrgName = '';
+    psRenderLinkTable_();
+  }
+
+  // Rows that will actually be saved: included AND with a chosen org.
+  function psLinkConfirmedRows_() {
+    return psLinkRows.filter(function(r) { return r.include && r.chosenOrgId; });
+  }
+
+  function psUpdateLinkCount_() {
+    var n = psLinkConfirmedRows_().length;
+    var el = document.getElementById('psLinkCount');
+    if (el) el.textContent = n + ' dealer' + (n === 1 ? '' : 's') + ' to link';
+    var btn = document.getElementById('psLinkSaveBtn');
+    if (btn) btn.disabled = (n === 0);
+  }
+
+  function psSaveDealerOrgLinks() {
+    var confirmed = psLinkConfirmedRows_();
+    if (!confirmed.length) { toast('Check at least one row with a chosen organization.', 'error'); return; }
+    var links = confirmed.map(function(r) {
+      return { dealerKey: r.dealerKey, orgId: r.chosenOrgId, orgName: r.chosenOrgName || '' };
+    });
+    var btn = document.getElementById('psLinkSaveBtn');
+    btn.disabled = true; btn.textContent = 'Saving…';
+
+    google.script.run
+      .withSuccessHandler(function(res) {
+        res = res || {};
+        btn.textContent = 'Save confirmed links';
+        var up = (res.updated != null) ? res.updated : 0;
+        var ap = (res.appended != null) ? res.appended : 0;
+        toast(up + ' updated, ' + ap + ' added', 'success');
+        // Reflect the new "current org" values — re-scan (read-only).
+        psScanDealerOrgs();
+      })
+      .withFailureHandler(function(e) {
+        btn.disabled = false; btn.textContent = 'Save confirmed links';
+        toast('Save failed: ' + e.message, 'error');
+      })
+      .saveDealerOrgLinks(links);
+  }
+
   // ── Connection rendering ────────────────────────────────────────────────────
   function psRenderConnection_(domain) {
     var loading = document.getElementById('psConnLoading');
@@ -531,6 +856,9 @@
       setup.style.display = 'block';
       document.getElementById('psCancelSetupBtn').style.display = 'none';
     }
+    // The bulk dealer→org linker card is only meaningful when connected.
+    var linkCard = document.getElementById('psLinkCard');
+    if (linkCard) linkCard.style.display = psConfigured ? 'block' : 'none';
   }
 
   function psShowSetupForm() {
