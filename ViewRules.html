@@ -1829,6 +1829,7 @@
     var pdGlobalRules  = [];          // global deal-field rules (for the per-dealer overrides list)
     var pdVariations   = {};          // lazy cache: productId → [{id,name,prices}] (or 'loading')
     var pdProductOrgField = '';       // product→org field key scoping product lists ('' = show all)
+    var pdSourceSplit  = null;        // {groupName, urlContains} for source_split dealers, else null
 
     // ── Connection status ───────────────────────────────────────────────────────
     function pdLoadStatus() {
@@ -1908,6 +1909,7 @@
           pdTypes  = data.types || ['New', 'PO', 'CPO', 'CPO-EL'];
           pdSaved  = data.saved || {};
           pdGlobalRules = Array.isArray(data.globalRules) ? data.globalRules : [];
+          pdSourceSplit = (data.sourceSplit && data.sourceSplit.groupName) ? data.sourceSplit : null;
           pdSelections = buildPdSelections(pdGroups, pdSaved);
           pdDealerLoaded = true;
           pipedriveDirty = false;
@@ -1938,11 +1940,24 @@
           stageId: (s.stageId != null) ? s.stageId : '',
           currency: s.currency || '',
           fieldOverrides: normalizeFieldOverrides_(s.fieldOverrides),
+          sourceProductMap: normalizeSourceProductMap_(s.sourceProductMap),
           showAllProducts: false,   // view-only toggle, not persisted
           active: (s.active === undefined) ? true : !!s.active
         };
       });
       return model;
+    }
+
+    // sourceProductMap = { "<groupName>": { type: {product_id, variation_id?} } }.
+    // Deep-normalize each inner map exactly like the main productMap (tolerating a
+    // bare id), keyed by source group name. {} when absent.
+    function normalizeSourceProductMap_(spm) {
+      var out = {};
+      if (!spm || typeof spm !== 'object') return out;
+      Object.keys(spm).forEach(function(groupName) {
+        out[groupName] = normalizeProductMap_(spm[groupName]);
+      });
+      return out;
     }
 
     // productMap values are now {product_id, variation_id?}. A bare id (legacy /
@@ -2032,15 +2047,21 @@
           '</div>';
       }
 
-      // Type → product (+ variation) grid.
-      var rows = pdTypes.map(function(t) {
-        var cell = sel.productMap[t] || {};
-        return '<tr>' +
-          '<td><span class="pd-type-badge ' + pdTypeClass_(t) + '">' + escHtml(t) + '</span></td>' +
-          '<td>' + pdProductSelect_(group, t, cell.product_id) + '</td>' +
-          '<td>' + pdVariationSelect_(group, t, cell.product_id, cell.variation_id) + '</td>' +
-        '</tr>';
-      }).join('');
+      // Type → product (+ variation) grid (main output). mapKey '' = productMap.
+      var rows = pdRenderProductRows_(group, sel.productMap, '');
+
+      // Secondary-source grid (source_split dealers only) — same org/filters,
+      // bound to sourceProductMap[groupName]. Generic: driven by pdSourceSplit.
+      var sourceGrid = '';
+      if (pdSourceSplit && pdSourceSplit.groupName) {
+        var sgName = pdSourceSplit.groupName;
+        var srcMap = (sel.sourceProductMap && sel.sourceProductMap[sgName]) ? sel.sourceProductMap[sgName] : {};
+        var srcRows = pdRenderProductRows_(group, srcMap, sgName);
+        sourceGrid =
+          '<div class="pd-sub-label">Products for the ' + escHtml(sgName) + ' output</div>' +
+          '<table class="pd-product-table"><thead><tr><th>Type</th><th>Product</th><th>Variation</th></tr></thead>' +
+            '<tbody>' + srcRows + '</tbody></table>';
+      }
 
       // "Show all products" — only meaningful when product scoping is active AND
       // this group has an org (otherwise the list is already the full catalog).
@@ -2067,6 +2088,7 @@
           showAllRow +
           '<table class="pd-product-table"><thead><tr><th>Type</th><th>Product</th><th>Variation</th></tr></thead>' +
             '<tbody>' + rows + '</tbody></table>' +
+          sourceGrid +
 
           '<div class="pd-sub-label">Deal-Field Overrides</div>' +
           '<div class="pill-hint" style="margin-bottom:8px;">Global deal-field rules apply to every deal. Per dealer you can keep the global default, turn a rule off, or replace it with a dealer-specific version.</div>' +
@@ -2127,7 +2149,26 @@
       return prod.customerOrgId !== undefined && String(prod.customerOrgId) === String(groupOrgId);
     }
 
-    function pdProductSelect_(group, type, selectedId) {
+    // Build the per-type product (+ variation) rows for one map. Shared by the
+    // main grid (mapKey '') and the secondary-source grid (mapKey = group name).
+    function pdRenderProductRows_(group, map, mapKey) {
+      map = map || {};
+      return pdTypes.map(function(t) {
+        var cell = map[t] || {};
+        return '<tr>' +
+          '<td><span class="pd-type-badge ' + pdTypeClass_(t) + '">' + escHtml(t) + '</span></td>' +
+          '<td>' + pdProductSelect_(group, t, cell.product_id, mapKey) + '</td>' +
+          '<td>' + pdVariationSelect_(group, t, cell.product_id, cell.variation_id, mapKey) + '</td>' +
+        '</tr>';
+      }).join('');
+    }
+
+    // mapKey: '' (or omitted) → the deal's main productMap; a source group name →
+    // that deal's sourceProductMap[mapKey] (the secondary-site grid). The org-scope
+    // and deactivated-product filters are identical (same deal org) — only which
+    // map the onchange writes to differs.
+    function pdProductSelect_(group, type, selectedId, mapKey) {
+      mapKey = mapKey || '';
       var sel = pdSelections[group] || {};
       var groupOrgId = sel.orgId;
       var showAll    = !!sel.showAllProducts;
@@ -2163,15 +2204,17 @@
           : ('Product #' + String(selectedId) + ' (saved)');
         opts.push('<option value="' + escAttr_(selectedId) + '" selected>' + escHtml(fallbackLabel) + '</option>');
       }
-      return '<select onchange="pdSetProduct(\'' + group + '\', \'' + escAttr_(type) + '\', this.value)">' +
+      return '<select onchange="pdSetProduct(\'' + group + '\', \'' + escAttr_(type) + '\', this.value, \'' + escAttr_(mapKey) + '\')">' +
         opts.join('') + '</select>';
     }
 
     // Variation select for a type row. Lazily fetches variations for the chosen
     // product; renders a disabled "— none —" placeholder until they arrive (and a
     // permanently-disabled "no variations" when a product has none).
-    function pdVariationSelect_(group, type, productId, selectedVarId) {
-      var domId = 'pdVar_' + pdGroupDomId_(group) + '_' + pdTypeDomId_(type);
+    function pdVariationSelect_(group, type, productId, selectedVarId, mapKey) {
+      mapKey = mapKey || '';
+      // The DOM id includes mapKey so the main + secondary-source grids never collide.
+      var domId = 'pdVar_' + pdGroupDomId_(group) + '_' + pdGroupDomId_(mapKey) + '_' + pdTypeDomId_(type);
       if (productId == null || productId === '') {
         return '<select id="' + domId + '" disabled><option value="">— none —</option></select>';
       }
@@ -2195,7 +2238,7 @@
           !cached.some(function(v){ return String(v.id) === String(selectedVarId); })) {
         opts.push('<option value="' + escAttr_(selectedVarId) + '" selected>Variation #' + escHtml(String(selectedVarId)) + '</option>');
       }
-      return '<select id="' + domId + '" onchange="pdSetVariation(\'' + group + '\', \'' + escAttr_(type) + '\', this.value)">' +
+      return '<select id="' + domId + '" onchange="pdSetVariation(\'' + group + '\', \'' + escAttr_(type) + '\', this.value, \'' + escAttr_(mapKey) + '\')">' +
         opts.join('') + '</select>';
     }
 
@@ -2373,7 +2416,7 @@
       if (!pdSelections[group]) {
         pdSelections[group] = { group: group, orgId: '', orgName: '', productMap: {},
           titleTemplate: '', pipelineId: '', stageId: '', currency: '', fieldOverrides: {},
-          showAllProducts: false, active: true };
+          sourceProductMap: {}, showAllProducts: false, active: true };
       }
       return pdSelections[group];
     }
@@ -2382,19 +2425,28 @@
       pdEnsureGroup_(group)[field] = val;
       markPipedriveDirty();
     }
+    // Resolve which product map a (group, mapKey) pair edits: '' → the main
+    // productMap; a source group name → sourceProductMap[name] (created on demand).
+    function pdGetMap_(g, mapKey) {
+      if (!mapKey) return g.productMap;
+      if (!g.sourceProductMap) g.sourceProductMap = {};
+      if (!g.sourceProductMap[mapKey]) g.sourceProductMap[mapKey] = {};
+      return g.sourceProductMap[mapKey];
+    }
     // Product change → reset this type's cell to {product_id} (drops any prior
     // variation, which belonged to the old product) and re-render so the variation
     // select reloads for the new product.
-    function pdSetProduct(group, type, val) {
+    function pdSetProduct(group, type, val, mapKey) {
       var g = pdEnsureGroup_(group);
-      if (val === '' || val == null) { delete g.productMap[type]; }
-      else { g.productMap[type] = { product_id: val }; }
+      var map = pdGetMap_(g, mapKey || '');
+      if (val === '' || val == null) { delete map[type]; }
+      else { map[type] = { product_id: val }; }
       markPipedriveDirty();
       renderPipedriveDealer();   // variation options depend on the chosen product
     }
-    function pdSetVariation(group, type, val) {
+    function pdSetVariation(group, type, val, mapKey) {
       var g = pdEnsureGroup_(group);
-      var cell = g.productMap[type];
+      var cell = pdGetMap_(g, mapKey || '')[type];
       if (!cell || cell.product_id == null) return;   // no product → nothing to attach to
       if (val === '' || val == null) { delete cell.variation_id; }
       else { cell.variation_id = val; }
@@ -2500,6 +2552,7 @@
           stageId: (s.stageId === '' || s.stageId == null) ? '' : s.stageId,
           currency: (s.currency || '').toUpperCase(),
           fieldOverrides: buildFieldOverrides_(s.fieldOverrides),
+          sourceProductMap: buildSourceProductMap_(s.sourceProductMap),
           active: (s.active === undefined) ? true : !!s.active
         };
       });
@@ -2516,6 +2569,19 @@
         if (cell.variation_id != null && cell.variation_id !== '') {
           out[type].variation_id = cell.variation_id;
         }
+      });
+      return out;
+    }
+
+    // sourceProductMap → { "<groupName>": {type:{product_id,variation_id?}} };
+    // each inner map serialized like the main one, and an empty inner map omitted.
+    // {} for dealers/rows without a source split (the secondary grid never rendered).
+    function buildSourceProductMap_(spm) {
+      var out = {};
+      if (!spm || typeof spm !== 'object') return out;
+      Object.keys(spm).forEach(function(groupName) {
+        var inner = buildProductMap_(spm[groupName]);
+        if (Object.keys(inner).length > 0) out[groupName] = inner;
       });
       return out;
     }
@@ -2593,6 +2659,7 @@
           pdTypes  = data.types || ['New', 'PO', 'CPO', 'CPO-EL'];
           pdSaved  = data.saved || {};
           pdGlobalRules = Array.isArray(data.globalRules) ? data.globalRules : [];
+          pdSourceSplit = (data.sourceSplit && data.sourceSplit.groupName) ? data.sourceSplit : null;
           pdSelections = buildPdSelections(pdGroups, pdSaved);
           pdDealerLoaded = true;
           pipedriveDirty = false;
@@ -2624,6 +2691,7 @@
       pdGroups = [];
       pdSelections = {};
       pdSaved = {};
+      pdSourceSplit = null;
       pdDealerLoaded = false;
       pipedriveDirty = false;
       document.getElementById('pdDealerBody').innerHTML =

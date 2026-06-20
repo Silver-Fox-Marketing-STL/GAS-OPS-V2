@@ -107,11 +107,15 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
 - Stats/dashboard writes (`writeImportStats_`, ORDER_STATS side-write,
   `refreshDashboard_`) are non-fatal try/catch — keep it that way.
 - Pipedrive *(branch `pipedrive-integration`, not deployed)*: the **`PIPEDRIVE`
-  tab** in SF_DEALER_CONFIG is keyed **one row per `(dealer_key, group)`** (PRIMARY
-  + one per `billing_split` group, each with its own org + per-type `product_map`,
-  now `{type:{product_id, variation_id?}}`). **Col J = `field_overrides`**
-  (`PDCFG.FIELD_OVERRIDES`; was `field_map` in v1): JSON keyed by global rule `id`
-  → `{off:true}` or a full replacement rule. Secrets (`PD_API_TOKEN` etc.) live in
+  tab** in SF_DEALER_CONFIG is **cols A–L (12)**, keyed **one row per
+  `(dealer_key, group)`** (PRIMARY + one per `billing_split` group, each with its
+  own org + per-type `product_map`, now `{type:{product_id, variation_id?}}`).
+  **Col J = `field_overrides`** (`PDCFG.FIELD_OVERRIDES`; was `field_map` in v1):
+  JSON keyed by global rule `id` → `{off:true}` or a full replacement rule.
+  **Col L = `source_product_map`** (`PDCFG.SOURCE_PRODUCT_MAP = 11`): JSON
+  `{ "<sourceGroupName>": {type:{product_id, variation_id?}} }` — per-type products
+  for a `source_split` dealer's secondary CSV output, pushed on the **same** deal;
+  `{}` for non-source-split dealers. Secrets (`PD_API_TOKEN` etc.) live in
   **ScriptProperties only**, never in repo/sheet.
 - Pipedrive deal-field mapping is **GLOBAL**, in the **`PIPEDRIVE_SETTINGS`** tab
   (key/value; row `deal_field_rules` = JSON array). Each rule is mode **copy**
@@ -142,6 +146,18 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
   instant the API returns it, and a **numeric col D = "deal already created"**
   (dup guard) — so a retry never makes a second deal. `pdFetch_` **never throws**
   (returns `{ok,…}`) so a Pipedrive failure can never fail a run. Keep both.
+- Pipedrive line-item quantity is **GROSS** — `buildLineItems_` does **not**
+  subtract VIN-log dupes (a re-printed VIN is still produced and billed); reads the
+  gross `totalNew`/`totalPO`/`totalCpo`/`totalCpoEl` from `readBillingTotals_`. All
+  dealers. (Was net-of-dupes.)
+- Two product-partition axes, both driven generically from `filtering_rules` (no
+  per-dealer code): **`billing_split`** = separate deals, each its own org +
+  `product_map` (e.g. MBCC); **`source_split`** = one deal, separate products per
+  source via `source_product_map` (col L, e.g. Frank Leta). The Dealer Rules →
+  Pipedrive screen renders the right product config for either automatically.
+  Source-split push merges `product_map × main qty` + `source_product_map[group] ×
+  secondary qty` by product+variation (`readBillingBySource_` → `bySourceToBilling_`
+  → `mergeLineItems_`); unchanged until a `source_product_map` is set.
 
 ## Current to-do (verified June 10, 2026)
 

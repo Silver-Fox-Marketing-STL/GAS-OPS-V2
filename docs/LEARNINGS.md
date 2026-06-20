@@ -232,6 +232,12 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
 - Explicit JSON config per dealer beats implicit defaults — every dealer's
   `type_rules`/`filtering_rules` is fully written out, so a blank cell is a bug,
   not a default.
+- **Billed quantity is GROSS — a VIN-log "duplicate" is still produced and billed.**
+  A VIN already in the VIN log isn't dropped from a run; it's re-printed (the log
+  only flags it). So the Pipedrive line-item quantity is the gross per-type count,
+  **not** net of dupes — `buildLineItems_` reads `totalNew`/`totalPO`/… straight
+  from `readBillingTotals_` with no dupe subtraction. Don't let "dupe" terminology
+  in the billing sheet trick a downstream count into subtracting it.
 - Non-critical writes (stats, dashboard) get their own try/catch so they can
   never fail a production run; the same isolation rule applies to the planned
   Pipedrive push.
