@@ -358,6 +358,30 @@
       border: 1px solid var(--border); border-radius: 4px;
       background: var(--bg); color: var(--text);
     }
+
+    /* ── Method selector (New Deal / Existing / Test) ─────────────────────── */
+    #view-run .card-methods {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin-bottom: 8px;
+    }
+    #view-run .card-method {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 12px; color: var(--text); cursor: pointer; font-weight: normal;
+    }
+    #view-run .card-method.is-disabled { color: var(--text-muted); cursor: default; }
+    #view-run .card-method input[type="radio"] {
+      width: auto; margin: 0; cursor: pointer; accent-color: var(--accent);
+    }
+    #view-run .card-method.is-disabled input[type="radio"] { cursor: default; }
+    #view-run .card-method-label { white-space: nowrap; }
+    #view-run .card-method-reason { font-size: 10.5px; color: var(--text-muted); font-style: italic; }
+    #view-run .card-method-idrow { display: flex; flex-basis: 100%; margin-top: 2px; }
+    #view-run .card-method-idrow input {
+      flex: 1; min-width: 0; padding: 6px 8px; font-size: 12px;
+      border: 1px solid var(--border-2); border-radius: 4px;
+      background: var(--bg); color: var(--text);
+    }
+    #view-run .card-method-idrow input:focus { outline: none; border-color: var(--accent); }
+    #view-run .finalize-card-actions { display: flex; gap: 8px; }
     #view-run .card-finalize-btn {
       padding: 6px 12px; font-size: 12px; border: none; border-radius: 4px;
       background: var(--accent); color: var(--on-accent); cursor: pointer; white-space: nowrap;
@@ -740,9 +764,25 @@
     }
 
     // ── Post-run finalization panel ───────────────────────────────────────────
-    // One card per prospective RUN_LOG entry. Each is finalized (deal ID
-    // required — "test" for test runs) or abandoned. RUN_LOG/ORDER_STATS are
-    // written only by Finalize; the VIN log only by the explicit commit button.
+    // One card per prospective RUN_LOG entry. The user picks a Pipedrive METHOD
+    // up front, then one button finalizes (and pushes):
+    //   • New Deal — creates + finalizes + attaches products in one call (no id).
+    //   • Existing — the only method with a deal-id input; attaches to that deal.
+    //   • Test order — never touches Pipedrive; logs col D 'test'; not committable.
+    // RUN_LOG/ORDER_STATS are written only by Finalize; the VIN log only by the
+    // explicit commit button (which excludes test-method cards).
+
+    // Resolve the default method for an entry: New if available, else Test.
+    function pdDefaultMethod_(entry) {
+      var pm = (entry && entry.pushModes) || {};
+      return pm.newDeal ? 'new' : 'test';
+    }
+    // Primary-button label by method.
+    function pdMethodBtnLabel_(method) {
+      if (method === 'new')      return 'Create deal & Finalize';
+      if (method === 'existing') return 'Finalize & Link';
+      return 'Finalize (test)';
+    }
 
     function showFinalizePanel(result) {
       var link = document.getElementById('driveFolderBtn');
@@ -755,22 +795,23 @@
       vinBtn.textContent = '✓ Add to VIN Log';
       vinBtn.className = '';
 
-      cardStates = result.pendingRuns.map(function() {
-        return { state: 'pending', rowIndex: null, committed: false };
+      cardStates = result.pendingRuns.map(function(entry) {
+        return { state: 'pending', rowIndex: null, committed: false,
+                 method: pdDefaultMethod_(entry), dealId: '' };
       });
 
       var html = '';
       result.pendingRuns.forEach(function(entry, i) {
         html += '<div class="finalize-card" id="card' + i + '">' +
           '<div class="finalize-card-head">' +
-            '<span class="finalize-card-title">' + entry.label + '</span>' +
+            '<span class="finalize-card-title">' + escHtml(entry.label) + '</span>' +
             '<span class="finalize-card-count">' + entry.totalMatched + ' unit' +
               (entry.totalMatched === 1 ? '' : 's') + ' / ' + entry.totalOrdered + ' ordered</span>' +
           '</div>' +
-          '<div class="finalize-card-body">' +
-            '<input type="text" id="cardDeal' + i + '" placeholder="' + entry.dealLabel +
-              ' (or &quot;test&quot;)" value="' + (entry.prefillDealId || '') + '" />' +
-            '<button class="card-finalize-btn" id="cardFinalize' + i + '" onclick="finalizeCard(' + i + ')">Finalize</button>' +
+          renderCardMethods_(entry, i) +
+          '<div class="finalize-card-actions">' +
+            '<button class="card-finalize-btn" id="cardFinalize' + i + '" onclick="finalizeCard(' + i + ')">' +
+              escHtml(pdMethodBtnLabel_(cardStates[i].method)) + '</button>' +
             '<button class="card-abandon-btn" id="cardAbandon' + i + '" onclick="abandonCard(' + i + ')">Abandon</button>' +
           '</div>' +
           '<div class="finalize-card-status" id="cardStatus' + i + '"></div>' +
@@ -781,6 +822,64 @@
       document.getElementById('postRunActions').style.display = 'block';
     }
 
+    // The up-front 3-way method selector + (Existing only) the deal-id input.
+    // Availability comes from entry.pushModes; Test is always enabled.
+    function renderCardMethods_(entry, i) {
+      var pm = entry.pushModes || { test: true, newDeal: false, existing: false };
+      var method = cardStates[i].method;
+      function radio(val, label, enabled, reason) {
+        var dis = enabled ? '' : ' disabled';
+        var reasonHtml = (!enabled && reason)
+          ? '<span class="card-method-reason">' + escHtml(reason) + '</span>' : '';
+        return '<label class="card-method' + (enabled ? '' : ' is-disabled') + '">' +
+          '<input type="radio" name="cardMethod' + i + '" value="' + val + '"' +
+            (method === val ? ' checked' : '') + dis +
+            ' onchange="setCardMethod(' + i + ', \'' + val + '\')">' +
+          '<span class="card-method-label">' + escHtml(label) + '</span>' + reasonHtml +
+        '</label>';
+      }
+      var newEnabled = !!pm.newDeal;
+      var exEnabled  = !!pm.existing;
+      // A single shared reason explains why New/Existing are unavailable (e.g. no org).
+      var reason = pm.reason || '';
+      var idRow =
+        '<div class="card-method-idrow" id="cardIdRow' + i + '" style="display:' +
+          (method === 'existing' ? 'flex' : 'none') + ';">' +
+          '<input type="text" id="cardDeal' + i + '" placeholder="Existing Pipedrive Deal ID" ' +
+            'value="' + runEscAttr_(cardStates[i].dealId || '') + '" ' +
+            'oninput="setCardDealId(' + i + ', this.value)" />' +
+        '</div>';
+      return '<div class="card-methods" id="cardMethods' + i + '">' +
+        radio('new', 'New Deal', newEnabled, newEnabled ? '' : reason) +
+        radio('existing', 'Existing', exEnabled, exEnabled ? '' : reason) +
+        radio('test', 'Test order', true, '') +
+        idRow +
+      '</div>';
+    }
+
+    // Attribute-safe escape (escHtml + single-quote-safe). View-prefixed because
+    // ViewRules.html already declares a global escAttr_ — the App shell shares one
+    // scope, so a duplicate top-level name would clobber the other view.
+    function runEscAttr_(v) {
+      if (v == null) return '';
+      return escHtml(String(v)).replace(/'/g, '&#39;');
+    }
+
+    function setCardMethod(i, method) {
+      if (!cardStates[i]) return;
+      cardStates[i].method = method;
+      // Show the deal-id input only for Existing.
+      var idRow = document.getElementById('cardIdRow' + i);
+      if (idRow) idRow.style.display = (method === 'existing') ? 'flex' : 'none';
+      // Retarget the primary button label.
+      var btn = document.getElementById('cardFinalize' + i);
+      if (btn) btn.textContent = pdMethodBtnLabel_(method);
+    }
+
+    function setCardDealId(i, val) {
+      if (cardStates[i]) cardStates[i].dealId = val;
+    }
+
     function hidePostRunActions() {
       document.getElementById('postRunActions').style.display = 'none';
       document.getElementById('finalizeCards').innerHTML = '';
@@ -788,15 +887,34 @@
       cardStates = [];
     }
 
+    // Whether a method radio is available for an entry (Test always; New/Existing
+    // per pushModes). Used to restore radio state after a busy cycle.
+    function pdMethodAvailable_(entry, val) {
+      var pm = (entry && entry.pushModes) || {};
+      if (val === 'test') return true;
+      if (val === 'new') return !!pm.newDeal;
+      if (val === 'existing') return !!pm.existing;
+      return false;
+    }
+
+    // Enable/disable every interactive control in a card's method block.
     function setCardBusy(i, busy) {
-      document.getElementById('cardDeal' + i).disabled = busy;
+      var entry = lastRunResult.pendingRuns[i];
+      var deal = document.getElementById('cardDeal' + i);
+      if (deal) deal.disabled = busy;
       document.getElementById('cardFinalize' + i).disabled = busy;
       document.getElementById('cardAbandon' + i).disabled = busy;
+      var radios = document.querySelectorAll('input[name="cardMethod' + i + '"]');
+      for (var r = 0; r < radios.length; r++) {
+        // While busy → disable all; when free → restore to the method's availability.
+        radios[r].disabled = busy ? true : !pdMethodAvailable_(entry, radios[r].value);
+      }
     }
 
     function markCardAbandoned(i) {
       document.getElementById('card' + i).className = 'finalize-card abandoned';
-      document.getElementById('cardDeal' + i).disabled = true;
+      var methods = document.getElementById('cardMethods' + i);
+      if (methods) methods.style.display = 'none';
       document.getElementById('cardFinalize' + i).style.display = 'none';
       document.getElementById('cardAbandon' + i).style.display = 'none';
       var statusEl = document.getElementById('cardStatus' + i);
@@ -821,98 +939,119 @@
       exitApp();
     }
 
+    // Method-first finalize. One server call per method; always capture rowIndex
+    // when present (so the card is committable + retryable even if the push step
+    // failed). Pushing happens inside the New/Existing finalize calls server-side.
     function finalizeCard(i) {
       var entry    = lastRunResult.pendingRuns[i];
-      var input    = document.getElementById('cardDeal' + i);
       var statusEl = document.getElementById('cardStatus' + i);
-      var dealId   = input.value.trim();
+      var method   = cardStates[i].method;
 
-      if (!dealId) {
-        statusEl.textContent = 'Enter a Deal ID (type "test" for test runs).';
-        statusEl.className = 'finalize-card-status error';
-        return;
+      var existingDealId = '';
+      if (method === 'existing') {
+        var input = document.getElementById('cardDeal' + i);
+        existingDealId = input ? input.value.trim() : '';
+        if (!existingDealId) {
+          statusEl.textContent = 'Enter the existing Pipedrive Deal ID.';
+          statusEl.className = 'finalize-card-status error';
+          return;
+        }
       }
 
       cardStates[i].state = 'finalizing';
       setCardBusy(i, true);
-      statusEl.textContent = 'Logging...';
+      statusEl.textContent = (method === 'test')
+        ? 'Logging test run…'
+        : (method === 'new' ? 'Creating deal & finalizing…' : 'Finalizing & linking…');
       statusEl.className = 'finalize-card-status';
 
-      google.script.run
-        .withSuccessHandler(function(res) {
-          cardStates[i].state    = 'finalized';
-          cardStates[i].rowIndex = res.rowIndex;
-          document.getElementById('card' + i).className = 'finalize-card finalized';
-          input.disabled = true;
-          document.getElementById('cardFinalize' + i).style.display = 'none';
-          document.getElementById('cardAbandon' + i).style.display = 'none';
-          statusEl.textContent = 'Logged ✓ (run log row ' + res.rowIndex + ')';
-          statusEl.className = 'finalize-card-status ok';
-          updateVinLogBtn();
-          // Non-critical UI — isolate so a render hiccup can never disturb the
-          // already-succeeded finalize (the RUN_LOG row is written server-side).
-          try { renderPushBlock(i); } catch (pushErr) {}   // push UI appears once finalized
-        })
+      var runner = google.script.run
+        .withSuccessHandler(function(res) { onFinalizeResult_(i, method, existingDealId, res || {}); })
         .withFailureHandler(function(e) {
+          // A thrown error means nothing was written (e.g. bad existing id / test
+          // throw) — revert to pending so the user can adjust the method/id.
           cardStates[i].state = 'pending';
           setCardBusy(i, false);
           statusEl.textContent = 'Error: ' + e.message;
           statusEl.className = 'finalize-card-status error';
-        })
-        .finalizeRun(lastDealerKey, entry, dealId);
+        });
+
+      if (method === 'new')      runner.finalizeRunNewDeal(lastDealerKey, entry);
+      else if (method === 'existing') runner.finalizeRunExisting(lastDealerKey, entry, existingDealId);
+      else                        runner.finalizeRun(lastDealerKey, entry, 'test');
     }
 
-    // ── Pipedrive push (only available once a card is finalized) ──────────────
-    // Idempotent on the server — retrying never duplicates a deal. The card must
-    // have a rowIndex (set by finalizeCard) for the push to target the run row.
-    function renderPushBlock(i) {
-      var wrap = document.getElementById('cardPush' + i);
-      if (!wrap) return;
-      wrap.style.display = 'block';
-      wrap.innerHTML =
-        '<div class="card-push-title">Pipedrive</div>' +
-        '<div class="card-push-modes">' +
-          '<label><input type="radio" name="pushMode' + i + '" value="create" checked ' +
-            'onchange="onPushModeChange(' + i + ')"> Create new deal</label>' +
-          '<label><input type="radio" name="pushMode' + i + '" value="link" ' +
-            'onchange="onPushModeChange(' + i + ')"> Link existing deal</label>' +
-        '</div>' +
-        '<div class="card-push-row">' +
-          '<input type="text" id="pushDealId' + i + '" placeholder="Existing Deal ID" ' +
-            'style="display:none;" />' +
-          '<button class="card-push-btn" id="pushBtn' + i + '" onclick="pushCard(' + i + ')">Push to Pipedrive</button>' +
-        '</div>' +
-        '<div class="card-push-status" id="pushStatus' + i + '"></div>';
-    }
+    // Shared result handler for all three finalize methods.
+    //   • rowIndex present → the RUN_LOG row exists: mark finalized (committable),
+    //     lock the method block, and (New/Existing) reflect the push outcome.
+    //   • no rowIndex on !ok → finalize itself failed (e.g. Existing bad id,
+    //     stage:'deal') → stay pending, show the error.
+    function onFinalizeResult_(i, method, existingDealId, res) {
+      var statusEl = document.getElementById('cardStatus' + i);
+      var hasRow = (res.rowIndex != null);
+      var ok = (res.ok !== false);   // finalizeRun (test) returns no `ok` → treat as ok
 
-    function onPushModeChange(i) {
-      var mode = pushModeFor(i);
-      var input = document.getElementById('pushDealId' + i);
-      if (input) input.style.display = (mode === 'link') ? 'block' : 'none';
-    }
-
-    function pushModeFor(i) {
-      var checked = document.querySelector('input[name="pushMode' + i + '"]:checked');
-      return checked ? checked.value : 'create';
-    }
-
-    function pushCard(i) {
-      if (!cardStates[i] || cardStates[i].rowIndex == null) {
-        setCardPushStatus(i, 'Finalize this entry before pushing to Pipedrive.', 'error');
+      if (!hasRow) {
+        // Nothing logged — typically a rejected Existing deal id (stage 'deal').
+        cardStates[i].state = 'pending';
+        setCardBusy(i, false);
+        statusEl.textContent = res.message || 'Finalize failed — nothing was logged.';
+        statusEl.className = 'finalize-card-status error';
         return;
       }
-      var mode = pushModeFor(i);
-      var existingDealId = '';
-      if (mode === 'link') {
-        existingDealId = document.getElementById('pushDealId' + i).value.trim();
-        if (!existingDealId) {
-          setCardPushStatus(i, 'Enter the existing Deal ID to link.', 'error');
-          return;
-        }
+
+      // Row written → finalized + committable.
+      cardStates[i].state    = 'finalized';
+      cardStates[i].rowIndex = res.rowIndex;
+      document.getElementById('card' + i).className = 'finalize-card finalized';
+      lockFinalizedCard_(i);
+      statusEl.textContent = 'Logged ✓ (run log row ' + res.rowIndex + ')';
+      statusEl.className = 'finalize-card-status ok';
+      updateVinLogBtn();
+
+      if (method === 'test') return;   // never touches Pipedrive
+
+      // New/Existing: reflect the push outcome in the push sub-block.
+      var wrap = document.getElementById('cardPush' + i);
+      if (wrap) wrap.style.display = 'block';
+      if (ok) {
+        try { renderPushDone(i, res); } catch (e) {}
+      } else {
+        // Finalize succeeded but the push step failed → keep the card finalized and
+        // offer Retry (or the fix-mapping nudge for a deactivated product).
+        var pushMode = (method === 'new') ? 'create' : 'link';
+        try {
+          if (wrap) {
+            wrap.innerHTML = '<div class="card-push-title">Pipedrive</div>' +
+              '<div class="card-push-status" id="pushStatus' + i + '"></div>';
+          }
+          var msg = res.message || 'Push failed.';
+          if (res.stage === 'inactive_product') {
+            msg += ' Fix the product mapping in Dealer Rules → Pipedrive, then push again.';
+          }
+          setCardPushStatus(i, msg, 'error');
+          if (res.retryable) renderPushRetry(i, pushMode, existingDealId);
+        } catch (e) {}
       }
-      doPush(i, mode, existingDealId);
     }
 
+    // Lock a finalized card's method controls (kept visible, read-only) and hide
+    // the Finalize/Abandon buttons.
+    function lockFinalizedCard_(i) {
+      var methods = document.getElementById('cardMethods' + i);
+      if (methods) {
+        var inputs = methods.querySelectorAll('input');
+        for (var k = 0; k < inputs.length; k++) inputs[k].disabled = true;
+      }
+      var fb = document.getElementById('cardFinalize' + i);
+      var ab = document.getElementById('cardAbandon' + i);
+      if (fb) fb.style.display = 'none';
+      if (ab) ab.style.display = 'none';
+    }
+
+    // ── Pipedrive push retry engine (kept from the prior flow) ────────────────
+    // After a finalize-ok / push-fail, doPush retries against the run's rowIndex.
+    // Idempotent server-side (dup-guards) — a retry never creates a second deal.
     function doPush(i, mode, existingDealId) {
       var btn = document.getElementById('pushBtn' + i);
       if (btn) { btn.disabled = true; btn.textContent = 'Pushing...'; }
@@ -1032,6 +1171,9 @@
     function getCommittableRows() {
       var rows = [];
       cardStates.forEach(function(s, i) {
+        // Test-method cards are NEVER committable (the server throws for a `test`
+        // deal id), so the UI must never offer them to the VIN log.
+        if (s.method === 'test') return;
         if (s.state === 'finalized' && !s.committed &&
             lastRunResult.pendingRuns[i].producedVins.length > 0) {
           rows.push(s.rowIndex);
@@ -1060,7 +1202,7 @@
       google.script.run
         .withSuccessHandler(function(result) {
           cardStates.forEach(function(s) {
-            if (s.state === 'finalized') s.committed = true;
+            if (s.state === 'finalized' && s.method !== 'test') s.committed = true;
           });
           vinBtn.textContent = '✓ Added ' + result.committed + ' VINs';
           vinBtn.className = 'committed';

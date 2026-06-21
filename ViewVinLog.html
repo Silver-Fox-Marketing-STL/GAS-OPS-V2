@@ -570,20 +570,32 @@
         detail.innerHTML += '<br><em style="color:var(--danger)">No VINs recorded for this run.</em>';
       }
 
+      // Test runs (col-D deal id === 'test') can never be committed to the VIN log
+      // — the backend throws for them. Flag it and keep Commit disabled.
+      var isTest = vinlogIsTestRun_(run);
+      if (isTest) {
+        detail.innerHTML += '<br><em style="color:var(--text-muted)">Test run — cannot be committed to the VIN log.</em>';
+      }
+
       if (status === 'pending') {
-        commitBtn.disabled   = (run.vinCount === 0);
+        commitBtn.disabled   = isTest || (run.vinCount === 0);
         rollbackBtn.disabled = true;
       } else if (status === 'committed') {
         commitBtn.disabled   = true;
         rollbackBtn.disabled = false;
       } else if (status === 'rolled_back') {
-        commitBtn.disabled   = false;
+        commitBtn.disabled   = !isTest ? false : true;   // a test run can't re-commit
         rollbackBtn.disabled = true;
       }
 
       panel.style.display = 'block';
       setVinlogStatus('', 'empty');
       updatePushPanel(run);
+    }
+
+    // True when the run's col-D deal id marks it a test run.
+    function vinlogIsTestRun_(run) {
+      return !!(run && run.dealId && String(run.dealId).trim().toLowerCase() === 'test');
     }
 
     // The Pipedrive push action is offered only for finalized runs (those that
@@ -671,6 +683,12 @@
       if (!selectedRun) return;
       if (!selectedRun.dealId) {
         setVinlogStatus('This run has no Deal ID. Cannot commit without a Deal ID.', 'error');
+        return;
+      }
+      // Defense-in-depth: test runs aren't committable (the button is disabled, but
+      // never call the backend for one — it throws).
+      if (vinlogIsTestRun_(selectedRun)) {
+        setVinlogStatus('This is a test run — it cannot be committed to the VIN log.', 'error');
         return;
       }
 
