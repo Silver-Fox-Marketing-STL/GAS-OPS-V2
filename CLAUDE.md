@@ -129,13 +129,32 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
   engine — it must **not** touch `conditionMatches_`/`groupMatches_`/`ruleMatches_`
   (those stay byte-for-byte unchanged).
 - Pipedrive products are a **global catalog with no native product↔org link** —
-  scoping the per-dealer product picker to an org uses the global **`product_org_field`**
+  scoping the per-dealer product picker to an org uses the **effective** product→org
+  field from **`getEffectiveProductOrgField_()`**: the explicit **`product_org_field`**
   setting (`PIPEDRIVE_SETTINGS` row; the **KEY** of a product *Organization-type*
-  custom field that stores the org id; blank = show all). `pdListProducts_` enriches
-  each product with `customerOrgId` from it; `pdProductVisible_` scopes by
-  `customerOrgId === org_id` with a per-group **show-all** fallback and **always keeps
-  an already-saved `product_id`** (never drop a mapping on save). The stored
-  `{product_id, variation_id?}` mapping is unchanged — only the options offered.
+  custom field that stores the org id) **if set, else AUTO-DETECTED** as the first
+  product custom field with `field_type` `org`/`organization` (blank explicit +
+  none found = show all). When a field is in effect `pdListProducts_` fetches **via
+  v2 `/products?custom_fields=<key>`** and enriches each product with `customerOrgId`
+  (`pdExtractOrgId_`); `pdProductVisible_` scopes by `customerOrgId === org_id` with a
+  per-group **show-all** fallback and **always keeps an already-saved `product_id`**
+  (never drop a mapping on save). Catalog cache key is **`pd_catalog_v2`**
+  (`savePipedriveProductOrgField` busts it). The stored `{product_id, variation_id?}`
+  mapping is unchanged — only the options offered.
+- A product deactivated in Pipedrive (**`is_linkable === false`** in v2; v1 fallback
+  `selectable===false || active_flag===false`) can't be added to a deal:
+  `pdListProducts_` flags it `inactive`, the picker hides inactive products from NEW
+  mapping (an already-saved-then-deactivated one stays, flagged), and
+  `pushRunToPipedrive` **preempts before creating/linking any deal** — a mapped,
+  would-be-pushed (qty>0) inactive product returns `stage:'inactive_product'`
+  (no orphaned deal). Skipped on a field-only retry (products already attached).
+- Bulk dealer→org linker (one-time setup, Pipedrive Settings): **`getDealerOrgLinkProposals()`**
+  is **READ-ONLY** (proposes an org per active dealer by name via `pdListAllOrganizations_`
+  + `normalizeOrgName_`/`matchOrg_`; `matchType` exact/strong/weak/none — writes nothing);
+  **`saveDealerOrgLinks(links)`** upserts **only each dealer's PRIMARY-row org**
+  (preserves `product_map`/`field_overrides`; creates a PRIMARY row if absent;
+  never touches product maps or `billing_split`-group rows). Review-gated — nothing
+  writes until the user confirms.
 - **All Pipedrive mappings key on stable IDs/keys; names are display-only
   (rename-safe).** `product_id`/`variation_id`, `org_id` (`org_name` is a cache),
   deal/org fields by 40-char **key**, enum/THEN/ELSE/condition values by **option id**,

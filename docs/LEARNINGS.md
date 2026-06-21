@@ -91,6 +91,22 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   `Classic.html` are separate entry points (never co-loaded), so a name shared
   between those two shells is fine. Caught by a cross-fragment function-name
   collision audit — run one when adding a view.
+- **Interpolating dynamic text into an inline `onclick` breaks on an apostrophe
+  (or any quote/backslash) — pass an INDEX, not the value.** Rendering a list where
+  each item's handler carries the item's own data as a string —
+  `'<li onclick="pick(\'' + name + '\')">'` — looks fine until a value contains a
+  `'` (e.g. the org **"Serra Honda O'Fallon"**). The browser HTML-decodes the
+  attribute (`&#39;` → a bare `'`) *before* the JS parses, so the apostrophe closes
+  the string argument early and the click throws a SyntaxError — the row is simply
+  dead. Escaping for HTML (`escHtml`) does **not** fix it: it's the JS-string
+  boundary inside the attribute that breaks, not the HTML. Fix pattern: **stash the
+  row objects in a JS array and pass only their integer index** to the handler
+  (`onclick="pick(i, j)"`), look the value up there, and render the visible text via
+  `escHtml`. No user-controlled string is ever placed inside a handler's argument
+  list. (Applied to both Pipedrive org pickers: `pdPickOrg(gid, j)` via
+  `pdOrgResultsByGid` in `ViewRules.html`, and `psLinkPickOrg(i, j)` via
+  `psLinkOrgResultsByRow` in `ViewPipedriveSettings.html`.) The same hazard exists
+  for any value rendered into an inline handler — names, file paths, free-text notes.
 
 ## External APIs (Pipedrive)
 
