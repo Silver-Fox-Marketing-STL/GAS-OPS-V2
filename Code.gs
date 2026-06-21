@@ -1140,6 +1140,7 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     if (billingSplit && billingResult && groupMatched > 0) {
       pendingRuns.push({
         groupKey:      'PRIMARY',
+        pushModes:     getRunPushModes(dealerKey, 'PRIMARY'),
         label:         config[CFG.NAME],
         dealLabel:     'Pipedrive Deal ID',
         totalOrdered:  vins.length - groupMatched,
@@ -1155,6 +1156,7 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
       });
       pendingRuns.push({
         groupKey:      billingSplit.groupName,
+        pushModes:     getRunPushModes(dealerKey, billingSplit.groupName),
         label:         billingSplit.groupName,
         dealLabel:     billingSplit.dealLabel,
         totalOrdered:  groupMatched,
@@ -1171,6 +1173,7 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     } else {
       pendingRuns.push({
         groupKey:      'PRIMARY',
+        pushModes:     getRunPushModes(dealerKey, 'PRIMARY'),
         label:         config[CFG.NAME],
         dealLabel:     'Pipedrive Deal ID',
         totalOrdered:  vins.length,
@@ -3520,6 +3523,7 @@ function commitLatestRun(dealerKey, runRowIndex) {
   var status          = String(row[22]).trim();  // W: vin_log_status
 
   if (status === 'committed') throw new Error('This run has already been committed to the VIN log.');
+  if (dealId.toLowerCase() === 'test') throw new Error('Test runs are not committed to the VIN log (debugging only).');
 
   var producedVins = producedVinsCSV
     ? producedVinsCSV.split(',').map(function(v) { return v.trim(); }).filter(Boolean)
@@ -3549,18 +3553,19 @@ function commitRunRows(dealerKey, rowIndexes) {
   var sheet            = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('RUN_LOG');
   var committed        = 0;
   var skippedCommitted = 0;
+  var skippedTest      = 0;
 
   rowIndexes.forEach(function(rowIndex) {
-    var status = String(sheet.getRange(rowIndex, 23).getValue()).trim();  // W: vin_log_status
-    if (status === 'committed') {
-      skippedCommitted++;
-      return;
-    }
+    var rowVals = sheet.getRange(rowIndex, 1, 1, 23).getValues()[0];
+    var status  = String(rowVals[22]).trim();    // W: vin_log_status
+    var dealId  = String(rowVals[3]).trim();      // D: order_id / deal id
+    if (status === 'committed') { skippedCommitted++; return; }
+    if (dealId.toLowerCase() === 'test') { skippedTest++; return; }   // tests never enter the dedup log
     var result = commitLatestRun(dealerKey, rowIndex);
     committed += result.committed;
   });
 
-  return { committed: committed, skippedCommitted: skippedCommitted };
+  return { committed: committed, skippedCommitted: skippedCommitted, skippedTest: skippedTest };
 }
 
 function getCommittedAt(dealerKey, dealId) {
@@ -5790,6 +5795,27 @@ function pdPushStateClear_(rowIndex) {
   PropertiesService.getScriptProperties().deleteProperty('pd_push_' + rowIndex);
 }
 
+// New-Deal token cache: bridges the window where a deal is created BEFORE the
+// RUN_LOG row exists (so the numeric-col-D anchor isn't available yet). Keyed by a
+// stable run token (outputDocId|group) — a retry adopts the cached deal id instead
+// of creating a second deal. Cleared on success.
+function pdNewDealCacheGet_(token) {
+  var raw = PropertiesService.getScriptProperties().getProperty('pd_new_' + token);
+  if (!raw) return {};
+  try { return JSON.parse(raw); } catch (e) { return {}; }
+}
+function pdNewDealCacheSet_(token, obj) {
+  PropertiesService.getScriptProperties().setProperty('pd_new_' + token, JSON.stringify(obj || {}));
+}
+function pdNewDealCacheMerge_(token, patch) {
+  var cur = pdNewDealCacheGet_(token);
+  Object.keys(patch || {}).forEach(function(k) { cur[k] = patch[k]; });
+  pdNewDealCacheSet_(token, cur);
+}
+function pdNewDealCacheClear_(token) {
+  PropertiesService.getScriptProperties().deleteProperty('pd_new_' + token);
+}
+
 /**
  * Client-callable. Pushes a FINALIZED run (one RUN_LOG row) to Pipedrive:
  * create a new deal or link an existing one, attach per-type products, set
@@ -5826,72 +5852,18 @@ function pushRunToPipedrive(dealerKey, runRowIndex, mode, existingDealId) {
       return { ok: false, stage: 'gate', message: 'This run has no Deal ID yet — finalize it before pushing.', retryable: false };
     }
 
-    var pdCfg = getPipedriveDealerConfig_(dealerKey, group);
-    if (!pdCfg)       return { ok: false, stage: 'config', message: 'No active Pipedrive config for ' + dealerKey + ' / ' + group + '.', retryable: false };
-    if (!pdCfg.orgId) return { ok: false, stage: 'config', message: 'No organization set for ' + dealerKey + ' / ' + group + '.', retryable: false };
-
-    var secrets  = pdGetSecrets_();
-    var currency = pdCfg.currency || (secrets && secrets.currency) || 'USD';
-
-    if (!outputDocId) return { ok: false, stage: 'resolve', message: 'Run has no output document on record.', retryable: false };
-    var outputDoc;
-    try { outputDoc = SpreadsheetApp.openById(outputDocId); }
-    catch (e) { return { ok: false, stage: 'resolve', message: 'Could not open the run output doc: ' + e.message, retryable: false }; }
-    var sheetName = (group === 'PRIMARY') ? 'BILLING' : ('BILLING_' + group);
-    var billing   = readBillingTotals_(outputDoc, sheetName);
-    var products  = pdListProducts_();
-
-    // Source split (dual-site): the secondary output (e.g. AUTOLOANPRO) maps to its OWN
-    // products as extra line items on the SAME deal. Active only once a secondary product
-    // map is configured — until then the run pushes normally (main map × all vehicles), so
-    // enabling source_split never silently drops the secondary cars before they're mapped.
-    var dealerCfg   = getDealerConfig_(dealerKey);
-    var sourceSplit = dealerCfg ? getSourceSplit_(dealerCfg) : null;
-    var secMap      = (sourceSplit && pdCfg.sourceProductMap) ? (pdCfg.sourceProductMap[sourceSplit.groupName] || {}) : {};
-    var useSourceSplit = !!(sourceSplit && Object.keys(secMap).length);
-
-    // Fetch variations for every product (main + secondary) that pins a variation_id.
-    var variationsByProduct = {};
-    [pdCfg.productMap, (useSourceSplit ? secMap : null)].forEach(function(map) {
-      if (!map) return;
-      PD_TYPE_KEYS.forEach(function(t) {
-        var e = map[t.type];
-        if (e && typeof e === 'object' && e.product_id && e.variation_id && !variationsByProduct[String(e.product_id)]) {
-          variationsByProduct[String(e.product_id)] = pdListProductVariations_(e.product_id);
-        }
-      });
-    });
-
-    var lineItems;
-    if (useSourceSplit) {
-      var bySource  = readBillingBySource_(outputDoc, sheetName);
-      var mainItems = buildLineItems_(bySourceToBilling_(bySource['Main Site']), pdCfg.productMap, products, currency, variationsByProduct);
-      var secItems  = buildLineItems_(bySourceToBilling_(bySource[sourceSplit.groupName]), secMap, products, currency, variationsByProduct);
-      lineItems = mergeLineItems_(mainItems.concat(secItems));
-    } else {
-      lineItems = buildLineItems_(billing, pdCfg.productMap, products, currency, variationsByProduct);
-    }
+    var ctx = pdResolveRunContext_(dealerKey, group, outputDocId);
+    if (!ctx.ok) return ctx;
+    var pdCfg = ctx.pdCfg, currency = ctx.currency, lineItems = ctx.lineItems;
 
     var state  = pdPushStateGet_(runRowIndex);
     var dealId = state.dealId || '';
 
-    // Preempt deactivated products. Pipedrive rejects products that aren't linkable to
-    // a deal (is_linkable=false), so block BEFORE creating/linking a deal — no orphaned
-    // deal, no cryptic mid-attach failure. Skipped once products are already attached (a
-    // field-only retry); only deactivated products that would actually be pushed (qty>0,
-    // hence present in lineItems) trigger it.
+    // Preempt deactivated products BEFORE creating/linking a deal (skipped once
+    // products are attached — a field-only retry).
     if (!state.productsDone) {
-      var blockedItems = lineItems.filter(function(li) { return li.inactive; });
-      if (blockedItems.length) {
-        var blockedNames = blockedItems.map(function(li) {
-          return (li.name || ('Product #' + li.product_id)) + ' (#' + li.product_id + ')';
-        }).join(', ');
-        return { ok: false, stage: 'inactive_product', retryable: false,
-                 message: 'Cannot push — ' + blockedNames + (blockedItems.length === 1 ? ' is' : ' are') +
-                          ' deactivated in Pipedrive and can\'t be added to a deal. Update the product ' +
-                          'mapping for ' + dealerKey + ' / ' + group + ' in Dealer Rules → Pipedrive ' +
-                          '(choose an active product), then push again.' };
-      }
+      var blocked = pdCheckInactiveProducts_(lineItems, dealerKey, group);
+      if (blocked) return blocked;
     }
 
     // Dup guard: a numeric col D = a real PD deal already exists for this run
@@ -5902,79 +5874,280 @@ function pushRunToPipedrive(dealerKey, runRowIndex, mode, existingDealId) {
       pdPushStateSet_(runRowIndex, state);
     }
 
-    // ── Resolve the deal; write col D the instant we have an id ─────────────
+    // Resolve the deal; write col D the instant we have an id.
     if (!dealId) {
-      if (mode === 'link') {
-        var idToLink = String(existingDealId || '').trim();
-        if (!idToLink) return { ok: false, stage: 'deal', message: 'Enter the existing Deal ID to link.', retryable: false };
-        var got = pdGetDeal_(idToLink);
-        if (!got.ok) return { ok: false, stage: 'deal', message: 'Could not find deal ' + idToLink + ' in Pipedrive: ' + got.error, retryable: true };
-        dealId = idToLink;
-      } else {
-        var title = buildDealTitle_(pdCfg.titleTemplate, {
-          dealerName: pdCfg.orgName || row[2] || dealerKey,
-          date:       Utilities.formatDate(new Date(), 'America/Chicago', 'yyyy-MM-dd'),
-          group:      group,
-          count:      lineItems.reduce(function(s, li) { return s + li.quantity; }, 0)
-        });
-        var dealParams = { title: title, org_id: Number(pdCfg.orgId) };
-        var pipeline = pdCfg.pipelineId || (secrets && secrets.pipeline);
-        var stage    = pdCfg.stageId    || (secrets && secrets.stage);
-        if (pipeline) dealParams.pipeline_id = Number(pipeline);
-        if (stage)    dealParams.stage_id    = Number(stage);
-        if (currency) dealParams.currency    = currency;
-        var created = pdCreateDeal_(dealParams);
-        if (!created.ok) return { ok: false, stage: 'deal', message: 'Deal creation failed: ' + created.error, retryable: true };
-        dealId = created.dealId;
-      }
+      var rd = pdResolveDealId_(mode, existingDealId, pdCfg, currency,
+                 { lineItems: lineItems, group: group, dealerName: row[2] || dealerKey, secrets: ctx.secrets });
+      if (!rd.ok) return rd;
+      dealId = rd.dealId;
       state.dealId = dealId;
       pdPushStateSet_(runRowIndex, state);
       logSheet.getRange(runRowIndex, 4).setValue(dealId);  // D — idempotency anchor
       SpreadsheetApp.flush();
     }
 
-    // ── Attach products (idempotent) ───────────────────────────────────────
-    if (!state.productsDone) {
-      var att = pdAttachProducts_(dealId, lineItems);
-      if (!att.ok) {
-        return { ok: false, stage: 'products', dealId: dealId, retryable: true,
-                 message: 'Deal ' + dealId + ' is set, but attaching products failed: ' + att.error + ' — retry to finish.' };
-      }
-      state.productsDone = true;
-      pdPushStateSet_(runRowIndex, state);
-    }
-
-    // ── Set deal fields from global rules + per-dealer overrides ────────────
-    var fieldsSet = 0;
-    if (!state.fieldsDone) {
-      // v1 deals API takes custom fields as TOP-LEVEL keys (40-char hashes),
-      // not nested under a custom_fields object (that's a v2 convention).
-      // pdResolveDealFields_ returns a flat {key:value} map (incl. the
-      // `<key>_currency` companion for monetary fields), so pass it directly.
-      var custom = pdResolveDealFields_(pdCfg.orgId, getPipedriveGlobalRules_(), pdCfg.fieldOverrides, currency);
-      var ckeys = Object.keys(custom);
-      if (ckeys.length) {
-        var upd = pdUpdateDeal_(dealId, custom);
-        if (!upd.ok) {
-          return { ok: false, stage: 'fields', dealId: dealId, retryable: true,
-                   message: 'Deal ' + dealId + ' built, but setting deal fields failed: ' + upd.error + ' — retry to finish.' };
-        }
-        fieldsSet = ckeys.length;
-      }
-      state.fieldsDone = true;
-      pdPushStateSet_(runRowIndex, state);
-    }
+    var applied = pdApplyDealContents_(dealId, lineItems, pdCfg, currency, state,
+                    function(s) { pdPushStateSet_(runRowIndex, s); });
+    if (!applied.ok) return applied;
 
     pdPushStateClear_(runRowIndex);
     return {
       ok: true, stage: 'done', dealId: dealId,
-      productsAttached: lineItems.length, fieldsSet: fieldsSet,
+      productsAttached: lineItems.length, fieldsSet: applied.fieldsSet,
       message: (mode === 'link' ? 'Linked to deal ' : 'Created deal ') + dealId +
                ' (' + lineItems.length + ' product line' + (lineItems.length === 1 ? '' : 's') + ').'
     };
   } catch (e) {
     return { ok: false, stage: 'error', message: 'Unexpected error: ' + e.message, retryable: true };
   }
+}
+
+// ── Push helpers (shared by pushRunToPipedrive + the finalize orchestrators) ──
+
+/**
+ * Read-only: resolves a run's Pipedrive context — config/org gate, currency, and
+ * the deal line items (incl. source_split per-source). No deal creation, no col-D
+ * write. Returns {ok, pdCfg, currency, secrets, lineItems} or a failure shape.
+ */
+function pdResolveRunContext_(dealerKey, group, outputDocId) {
+  var pdCfg = getPipedriveDealerConfig_(dealerKey, group);
+  if (!pdCfg)       return { ok: false, stage: 'config', message: 'No active Pipedrive config for ' + dealerKey + ' / ' + group + '.', retryable: false };
+  if (!pdCfg.orgId) return { ok: false, stage: 'config', message: 'No organization set for ' + dealerKey + ' / ' + group + '.', retryable: false };
+
+  var secrets  = pdGetSecrets_();
+  var currency = pdCfg.currency || (secrets && secrets.currency) || 'USD';
+
+  if (!outputDocId) return { ok: false, stage: 'resolve', message: 'Run has no output document on record.', retryable: false };
+  var outputDoc;
+  try { outputDoc = SpreadsheetApp.openById(outputDocId); }
+  catch (e) { return { ok: false, stage: 'resolve', message: 'Could not open the run output doc: ' + e.message, retryable: false }; }
+  var sheetName = (group === 'PRIMARY') ? 'BILLING' : ('BILLING_' + group);
+  var billing   = readBillingTotals_(outputDoc, sheetName);
+  var products  = pdListProducts_();
+
+  // Source split (dual-site): the secondary output (e.g. AUTOLOANPRO) maps to its OWN
+  // products as extra line items on the SAME deal. Active only once a secondary product
+  // map is configured — until then the run pushes normally (main map × all vehicles), so
+  // enabling source_split never silently drops the secondary cars before they're mapped.
+  var dealerCfg   = getDealerConfig_(dealerKey);
+  var sourceSplit = dealerCfg ? getSourceSplit_(dealerCfg) : null;
+  var secMap      = (sourceSplit && pdCfg.sourceProductMap) ? (pdCfg.sourceProductMap[sourceSplit.groupName] || {}) : {};
+  var useSourceSplit = !!(sourceSplit && Object.keys(secMap).length);
+
+  // Fetch variations for every product (main + secondary) that pins a variation_id.
+  var variationsByProduct = {};
+  [pdCfg.productMap, (useSourceSplit ? secMap : null)].forEach(function(map) {
+    if (!map) return;
+    PD_TYPE_KEYS.forEach(function(t) {
+      var e = map[t.type];
+      if (e && typeof e === 'object' && e.product_id && e.variation_id && !variationsByProduct[String(e.product_id)]) {
+        variationsByProduct[String(e.product_id)] = pdListProductVariations_(e.product_id);
+      }
+    });
+  });
+
+  var lineItems;
+  if (useSourceSplit) {
+    var bySource  = readBillingBySource_(outputDoc, sheetName);
+    var mainItems = buildLineItems_(bySourceToBilling_(bySource['Main Site']), pdCfg.productMap, products, currency, variationsByProduct);
+    var secItems  = buildLineItems_(bySourceToBilling_(bySource[sourceSplit.groupName]), secMap, products, currency, variationsByProduct);
+    lineItems = mergeLineItems_(mainItems.concat(secItems));
+  } else {
+    lineItems = buildLineItems_(billing, pdCfg.productMap, products, currency, variationsByProduct);
+  }
+
+  return { ok: true, pdCfg: pdCfg, currency: currency, secrets: secrets, lineItems: lineItems };
+}
+
+/** Returns the inactive_product failure if any line item's product is deactivated, else null. */
+function pdCheckInactiveProducts_(lineItems, dealerKey, group) {
+  var blockedItems = (lineItems || []).filter(function(li) { return li.inactive; });
+  if (!blockedItems.length) return null;
+  var blockedNames = blockedItems.map(function(li) {
+    return (li.name || ('Product #' + li.product_id)) + ' (#' + li.product_id + ')';
+  }).join(', ');
+  return { ok: false, stage: 'inactive_product', retryable: false,
+           message: 'Cannot push — ' + blockedNames + (blockedItems.length === 1 ? ' is' : ' are') +
+                    ' deactivated in Pipedrive and can\'t be added to a deal. Update the product ' +
+                    'mapping for ' + dealerKey + ' / ' + group + ' in Dealer Rules → Pipedrive ' +
+                    '(choose an active product), then push again.' };
+}
+
+/**
+ * Creates a new deal (mode 'create') or validates an existing one (mode 'link').
+ * Returns {ok, dealId} or a failure shape. Does NOT persist anything — the caller
+ * owns the col-D write / RUN_LOG row. ctx = {lineItems, group, dealerName, secrets}.
+ */
+function pdResolveDealId_(mode, existingDealId, pdCfg, currency, ctx) {
+  ctx = ctx || {};
+  if (mode === 'link') {
+    var idToLink = String(existingDealId || '').trim();
+    if (!idToLink) return { ok: false, stage: 'deal', message: 'Enter the existing Deal ID to link.', retryable: false };
+    var got = pdGetDeal_(idToLink);
+    if (!got.ok) return { ok: false, stage: 'deal', message: 'Could not find deal ' + idToLink + ' in Pipedrive: ' + got.error, retryable: true };
+    return { ok: true, dealId: idToLink };
+  }
+  var secrets = ctx.secrets || pdGetSecrets_();
+  var title = buildDealTitle_(pdCfg.titleTemplate, {
+    dealerName: pdCfg.orgName || ctx.dealerName || '',
+    date:       Utilities.formatDate(new Date(), 'America/Chicago', 'yyyy-MM-dd'),
+    group:      ctx.group,
+    count:      (ctx.lineItems || []).reduce(function(s, li) { return s + li.quantity; }, 0)
+  });
+  var dealParams = { title: title, org_id: Number(pdCfg.orgId) };
+  var pipeline = pdCfg.pipelineId || (secrets && secrets.pipeline);
+  var stage    = pdCfg.stageId    || (secrets && secrets.stage);
+  if (pipeline) dealParams.pipeline_id = Number(pipeline);
+  if (stage)    dealParams.stage_id    = Number(stage);
+  if (currency) dealParams.currency    = currency;
+  var created = pdCreateDeal_(dealParams);
+  if (!created.ok) return { ok: false, stage: 'deal', message: 'Deal creation failed: ' + created.error, retryable: true };
+  return { ok: true, dealId: created.dealId };
+}
+
+/**
+ * Attaches the line-item products and sets the mapped deal fields on `dealId`,
+ * idempotently via `state` (productsDone/fieldsDone). `persist(state)` is invoked
+ * after each step flips so a retry resumes. Returns {ok, fieldsSet} or a failure
+ * shape (carrying dealId) for the products/fields stage.
+ */
+function pdApplyDealContents_(dealId, lineItems, pdCfg, currency, state, persist) {
+  if (!state.productsDone) {
+    var att = pdAttachProducts_(dealId, lineItems);
+    if (!att.ok) {
+      return { ok: false, stage: 'products', dealId: dealId, retryable: true,
+               message: 'Deal ' + dealId + ' is set, but attaching products failed: ' + att.error + ' — retry to finish.' };
+    }
+    state.productsDone = true;
+    persist(state);
+  }
+  // v1 deals API takes custom fields as TOP-LEVEL keys (40-char hashes), not nested
+  // under a custom_fields object (v2). pdResolveDealFields_ returns a flat {key:value}
+  // map (incl. the `<key>_currency` companion for monetary fields) — pass it directly.
+  var fieldsSet = 0;
+  if (!state.fieldsDone) {
+    var custom = pdResolveDealFields_(pdCfg.orgId, getPipedriveGlobalRules_(), pdCfg.fieldOverrides, currency);
+    var ckeys = Object.keys(custom);
+    if (ckeys.length) {
+      var upd = pdUpdateDeal_(dealId, custom);
+      if (!upd.ok) {
+        return { ok: false, stage: 'fields', dealId: dealId, retryable: true,
+                 message: 'Deal ' + dealId + ' built, but setting deal fields failed: ' + upd.error + ' — retry to finish.' };
+      }
+      fieldsSet = ckeys.length;
+    }
+    state.fieldsDone = true;
+    persist(state);
+  }
+  return { ok: true, fieldsSet: fieldsSet };
+}
+
+/**
+ * Client-callable. "New Deal" finalize: creates a brand-new Pipedrive deal, then
+ * finalizes the run with that real deal id (so no RUN_LOG row ever holds a
+ * placeholder), then attaches products + sets fields. Retry-safe across the reorder
+ * via a token cache (pd_new_<outputDocId|group>): a created deal id is cached the
+ * instant PD returns it, so a failure before/after finalize never makes a 2nd deal.
+ * The deactivated-product preempt runs BEFORE any deal is created.
+ */
+function finalizeRunNewDeal(dealerKey, entry) {
+  try {
+    if (!entry || !entry.billing) return { ok: false, stage: 'gate', message: 'Invalid run entry payload.', retryable: false };
+    if (!getPipedriveStatus().configured) {
+      return { ok: false, stage: 'config', message: 'Pipedrive is not configured. Set it up in Dealer Rules → Pipedrive.', retryable: false };
+    }
+    var note        = String(entry.note || '');
+    var group       = (note.indexOf('SPLIT:') === 0) ? note.substring(6).toUpperCase() : 'PRIMARY';
+    var outputDocId = String(entry.outputDocId || '').trim();
+
+    var ctx = pdResolveRunContext_(dealerKey, group, outputDocId);
+    if (!ctx.ok) return ctx;
+
+    var blocked = pdCheckInactiveProducts_(ctx.lineItems, dealerKey, group);
+    if (blocked) return blocked;   // nothing created or logged
+
+    var token = outputDocId + '|' + group;
+    var cache = pdNewDealCacheGet_(token);
+    var dealId = cache.dealId || '';
+    if (!dealId) {
+      var config = getDealerConfig_(dealerKey);
+      var rd = pdResolveDealId_('create', null, ctx.pdCfg, ctx.currency,
+                 { lineItems: ctx.lineItems, group: group, dealerName: (config && config[CFG.NAME]) || dealerKey, secrets: ctx.secrets });
+      if (!rd.ok) return rd;
+      dealId = rd.dealId;
+      pdNewDealCacheSet_(token, { dealId: dealId });   // cache immediately — retry adopts, never re-creates
+    }
+
+    var rowIndex = cache.rowIndex || 0;
+    if (!rowIndex) {
+      var fin = finalizeRun(dealerKey, entry, dealId);   // real numeric id → invariant holds
+      rowIndex = fin.rowIndex;
+      pdNewDealCacheMerge_(token, { rowIndex: rowIndex });
+      pdPushStateSet_(rowIndex, { dealId: dealId, productsDone: false, fieldsDone: false });
+    }
+
+    var state = pdPushStateGet_(rowIndex);
+    if (!state.dealId) state.dealId = dealId;
+    var applied = pdApplyDealContents_(dealId, ctx.lineItems, ctx.pdCfg, ctx.currency, state,
+                    function(s) { pdPushStateSet_(rowIndex, s); pdNewDealCacheMerge_(token, { rowIndex: rowIndex }); });
+    if (!applied.ok) { applied.rowIndex = rowIndex; applied.dealId = dealId; return applied; }
+
+    pdPushStateClear_(rowIndex);
+    pdNewDealCacheClear_(token);
+    return {
+      ok: true, stage: 'done', dealId: dealId, rowIndex: rowIndex,
+      productsAttached: ctx.lineItems.length, fieldsSet: applied.fieldsSet,
+      vinCount: (entry.producedVins || []).length,
+      message: 'Created deal ' + dealId + ' (' + ctx.lineItems.length + ' product line' +
+               (ctx.lineItems.length === 1 ? '' : 's') + ').'
+    };
+  } catch (e) {
+    return { ok: false, stage: 'error', message: 'Unexpected error: ' + e.message, retryable: true };
+  }
+}
+
+/**
+ * Client-callable. "Existing" finalize: validates the supplied deal id exists FIRST
+ * (so no RUN_LOG row is written for a bad id), finalizes the run with it, then links
+ * the run's products to that deal via pushRunToPipedrive('link'). Returns the push
+ * result with rowIndex attached (so the card stays committable + retryable).
+ */
+function finalizeRunExisting(dealerKey, entry, existingDealId) {
+  try {
+    var id = String(existingDealId || '').trim();
+    if (!id) return { ok: false, stage: 'gate', message: 'Enter the existing Deal ID to link.', retryable: false };
+    if (!entry || !entry.billing) return { ok: false, stage: 'gate', message: 'Invalid run entry payload.', retryable: false };
+    if (!getPipedriveStatus().configured) {
+      return { ok: false, stage: 'config', message: 'Pipedrive is not configured. Set it up in Dealer Rules → Pipedrive.', retryable: false };
+    }
+    var got = pdGetDeal_(id);
+    if (!got.ok) return { ok: false, stage: 'deal', message: 'Could not find deal ' + id + ' in Pipedrive: ' + got.error, retryable: true };
+
+    var fin = finalizeRun(dealerKey, entry, id);   // col D = id
+    var res = pushRunToPipedrive(dealerKey, fin.rowIndex, 'link', id);
+    res.rowIndex = fin.rowIndex;
+    if (res.ok) res.vinCount = (entry.producedVins || []).length;
+    return res;
+  } catch (e) {
+    return { ok: false, stage: 'error', message: 'Unexpected error: ' + e.message, retryable: true };
+  }
+}
+
+/**
+ * Client-callable. Which finalize methods a run card should offer for a dealer/group.
+ * Test is always available; New Deal + Existing require an active Pipedrive org config.
+ * @return {Object} {test, newDeal, existing, reason}
+ */
+function getRunPushModes(dealerKey, group) {
+  var modes = { test: true, newDeal: false, existing: false, reason: '' };
+  try {
+    if (!getPipedriveStatus().configured) { modes.reason = 'Pipedrive is not connected.'; return modes; }
+    var cfg = getPipedriveDealerConfig_(dealerKey, group || 'PRIMARY');
+    if (!cfg)       { modes.reason = 'No Pipedrive config for this dealer/group.'; return modes; }
+    if (!cfg.orgId) { modes.reason = 'No Pipedrive organization set for this dealer/group.'; return modes; }
+    modes.newDeal = true; modes.existing = true;
+  } catch (e) { modes.reason = 'Pipedrive check failed: ' + e.message; }
+  return modes;
 }
 
 
