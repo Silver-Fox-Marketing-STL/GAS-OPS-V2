@@ -110,6 +110,16 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
 
 ## External APIs (Pipedrive)
 
+- **Pipedrive enforces INTEGER ids on writes — coerce string-stored ids before sending.**
+  Ids live as strings in our config (`product_id:"188"`, enum option id `"58"`), but the
+  Pipedrive API rejects them (`body/product_id must be integer`; same for deal enum/set option
+  ids). The push then *creates the deal fine* but the product-attach / field-set calls fail —
+  "deal created, nothing attached." Coerce numeric ids to `Number` on the way out:
+  `product_id`/`variation_id`/`item_price`/`quantity` in `pdAttachProducts_`, and enum/set option
+  ids + monetary amounts in the deal-field map (`pdOptionId_`). **Coerce by TYPE, never blanket** —
+  leave `text`/`varchar` fields as strings, or a numeric-looking text value (a stock number, a
+  phone) gets mangled. The tell: `org_id` was already `Number()`-coerced at deal creation, so the
+  deal created while everything keyed on string ids silently failed.
 - **Pipedrive v1 deal custom fields are TOP-LEVEL hash keys, not a
   `custom_fields` object.** The `{custom_fields: {...}}` wrapper is a **v2**
   convention; the v1 `/deals` create/update API takes each custom field as a
