@@ -5609,8 +5609,8 @@ function pdAttachProducts_(dealId, lineItems) {
     var li = lineItems[i];
     var k = String(li.product_id) + '|' + (li.product_variation_id || '');
     if (existing[k]) { skipped++; continue; }
-    var body = { product_id: li.product_id, item_price: li.item_price, quantity: li.quantity };
-    if (li.product_variation_id) body.product_variation_id = li.product_variation_id;
+    var body = { product_id: Number(li.product_id), item_price: Number(li.item_price) || 0, quantity: Number(li.quantity) || 0 };
+    if (li.product_variation_id) body.product_variation_id = Number(li.product_variation_id);
     var r = pdFetch_('post', '/deals/' + dealId + '/products', body);
     if (r.ok) attached++; else errs.push('product ' + li.product_id + ': ' + r.error);
   }
@@ -5679,19 +5679,31 @@ function pdOrgGroupMatches_(orgFields, group) {
 }
 
 /** Writes a resolved value into the deal-update map, honoring type (monetary companion). */
+// Pipedrive enforces INTEGER ids for enum/set option ids + monetary amounts (its
+// /deals/{id}/products endpoint likewise rejects a string product_id with
+// "must be integer"). Coerce a numeric string to a Number; leave anything
+// non-numeric (real text) untouched.
+function pdOptionId_(v) {
+  if (v === null || v === undefined || v === '' || typeof v === 'boolean') return v;
+  var n = Number(v);
+  return isNaN(n) ? v : n;
+}
+
 function pdSetDealField_(out, dealField, type, value, currency) {
   if (!dealField || value === undefined || value === null || value === '') return;
   if (type === 'monetary') {
     if (typeof value === 'object') {
       if (value.value === undefined || value.value === null || value.value === '') return;
-      out[dealField] = value.value;
+      out[dealField] = pdOptionId_(value.value);
       out[dealField + '_currency'] = value.currency || currency || 'USD';
     } else {
-      out[dealField] = value;
+      out[dealField] = pdOptionId_(value);
       out[dealField + '_currency'] = currency || 'USD';
     }
   } else {
-    out[dealField] = (typeof value === 'object' && value.id !== undefined) ? value.id : value;
+    var v = (typeof value === 'object' && value.id !== undefined) ? value.id : value;
+    if (type === 'enum' || type === 'set') v = pdOptionId_(v);   // option ids must be integers
+    out[dealField] = v;
   }
 }
 
@@ -5758,13 +5770,15 @@ function pdResolveDealFields_(orgId, globalRules, overrides, currency) {
       var id = (raw && raw.id !== undefined) ? raw.id : raw;
       if ((rule.type === 'enum' || rule.type === 'set') && rule.option_map) {
         var mapped = rule.option_map[String(id)];
-        if (mapped !== undefined) out[rule.deal_field] = mapped;
+        if (mapped !== undefined) out[rule.deal_field] = pdOptionId_(mapped);   // option id → integer
+      } else if (rule.type === 'enum' || rule.type === 'set') {
+        out[rule.deal_field] = pdOptionId_(id);                                  // option id → integer
       } else if (rule.type === 'monetary') {
-        out[rule.deal_field] = (raw && raw.value !== undefined) ? raw.value : raw;
+        out[rule.deal_field] = pdOptionId_((raw && raw.value !== undefined) ? raw.value : raw);
         out[rule.deal_field + '_currency'] = (raw && raw.currency) ? raw.currency : (currency || 'USD');
       } else {
         out[rule.deal_field] = (raw && raw.value !== undefined) ? raw.value
-                              : ((raw && raw.id !== undefined) ? raw.id : raw);
+                              : ((raw && raw.id !== undefined) ? raw.id : raw);   // text/varchar: leave as-is
       }
     }
   });
