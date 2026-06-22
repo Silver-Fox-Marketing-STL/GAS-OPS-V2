@@ -5737,8 +5737,39 @@ function pdCollectOrgKeys_(rules) {
  * @param {Object} overrides    per-(dealer,group) field_overrides: {ruleId: {off:true} | <replacement rule>}
  * @param {string} currency
  */
-function pdResolveDealFields_(orgId, globalRules, overrides, currency) {
-  if (!orgId || !globalRules || !globalRules.length) return {};
+/** True when a deal field value is unset/blank (scalar empty, or {value}/{id} empty, or {}). */
+function pdFieldEmpty_(v) {
+  if (v === undefined || v === null || v === '') return true;
+  if (typeof v === 'object') {
+    if (v.value !== undefined) return v.value === null || v.value === '';
+    if (v.id !== undefined)    return v.id === null || v.id === '';
+    return Object.keys(v).length === 0;
+  }
+  return false;
+}
+
+/** True if any effective rule (after overrides) is a constant rule with if_empty set. */
+function pdHasIfEmptyConstant_(globalRules, overrides) {
+  overrides = overrides || {};
+  return (globalRules || []).some(function(rule) {
+    if (!rule || !rule.deal_field) return false;
+    var ov = rule.id ? overrides[rule.id] : null;
+    var eff = ov ? (ov.off === true ? null : ov) : rule;
+    return !!(eff && eff.mode === 'constant' && eff.if_empty);
+  });
+}
+
+/**
+ * Resolves the deal-field map for one push. Rule modes:
+ *  - constant: set deal_field to a fixed `value` (no org needed). With `if_empty`, set
+ *    only when the field is empty — a NEW deal is treated as empty (always set); a LINK
+ *    reads `existingDealFields` (skip if already set, or if unreadable → never clobber).
+ *  - copy / conditional: read the org's custom fields (behavior unchanged).
+ * @param {boolean} isNewDeal           true for a freshly-created deal (create path)
+ * @param {Object}  existingDealFields  a linked deal's current top-level field map, or null
+ */
+function pdResolveDealFields_(orgId, globalRules, overrides, currency, isNewDeal, existingDealFields) {
+  if (!globalRules || !globalRules.length) return {};
   overrides = overrides || {};
 
   var effective = [];
@@ -5747,19 +5778,36 @@ function pdResolveDealFields_(orgId, globalRules, overrides, currency) {
     var ov = rule.id ? overrides[rule.id] : null;
     if (ov) {
       if (ov.off === true) return;          // disabled for this dealer
-      effective.push(ov);                   // full replacement (copy|conditional)
+      effective.push(ov);                   // full replacement (copy|conditional|constant)
     } else {
       effective.push(rule);
     }
   });
   if (!effective.length) return {};
 
-  var org = pdGetOrgWithCustomFields_(orgId, pdCollectOrgKeys_(effective));
-  if (!org || !org.custom_fields) return {};
-  var cf = org.custom_fields, out = {};
+  var out = {};
 
+  // 1. Constant rules — a fixed value, no org needed.
   effective.forEach(function(rule) {
-    if (!rule.deal_field) return;
+    if (rule.mode !== 'constant') return;
+    if (rule.value === undefined || rule.value === null || rule.value === '') return;
+    if (rule.if_empty && !isNewDeal) {
+      if (!existingDealFields) return;                                  // unreadable → don't clobber
+      if (!pdFieldEmpty_(existingDealFields[rule.deal_field])) return;  // already set → leave alone
+    }
+    pdSetDealField_(out, rule.deal_field, rule.type, rule.value, currency);
+  });
+
+  // 2. Copy / conditional rules — need the org's custom fields. Fetch only when present;
+  //    on failure the constant results above still stand (not dropped).
+  var orgRules = effective.filter(function(r) { return r.mode !== 'constant'; });
+  if (!orgRules.length || !orgId) return out;
+
+  var org = pdGetOrgWithCustomFields_(orgId, pdCollectOrgKeys_(orgRules));
+  if (!org || !org.custom_fields) return out;
+  var cf = org.custom_fields;
+
+  orgRules.forEach(function(rule) {
     if (rule.mode === 'conditional') {
       var picked = pdOrgGroupMatches_(cf, rule.group) ? rule.then_value : rule.else_value;
       pdSetDealField_(out, rule.deal_field, rule.type, picked, currency);
@@ -5901,7 +5949,7 @@ function pushRunToPipedrive(dealerKey, runRowIndex, mode, existingDealId) {
     }
 
     var applied = pdApplyDealContents_(dealId, lineItems, pdCfg, currency, state,
-                    function(s) { pdPushStateSet_(runRowIndex, s); });
+                    function(s) { pdPushStateSet_(runRowIndex, s); }, (mode === 'create'));
     if (!applied.ok) return applied;
 
     pdPushStateClear_(runRowIndex);
@@ -6025,7 +6073,7 @@ function pdResolveDealId_(mode, existingDealId, pdCfg, currency, ctx) {
  * after each step flips so a retry resumes. Returns {ok, fieldsSet} or a failure
  * shape (carrying dealId) for the products/fields stage.
  */
-function pdApplyDealContents_(dealId, lineItems, pdCfg, currency, state, persist) {
+function pdApplyDealContents_(dealId, lineItems, pdCfg, currency, state, persist, isNewDeal) {
   if (!state.productsDone) {
     var att = pdAttachProducts_(dealId, lineItems);
     if (!att.ok) {
@@ -6040,7 +6088,16 @@ function pdApplyDealContents_(dealId, lineItems, pdCfg, currency, state, persist
   // map (incl. the `<key>_currency` companion for monetary fields) — pass it directly.
   var fieldsSet = 0;
   if (!state.fieldsDone) {
-    var custom = pdResolveDealFields_(pdCfg.orgId, getPipedriveGlobalRules_(), pdCfg.fieldOverrides, currency);
+    var rules = getPipedriveGlobalRules_();
+    // For a LINK (existing deal) with a constant if_empty rule, read the deal's current
+    // fields once so an already-set value (e.g. a required Proof) is never overwritten.
+    // New deals are treated as empty (no read). Fetch failure → null → if_empty rules skip.
+    var existingDealFields = null;
+    if (!isNewDeal && pdHasIfEmptyConstant_(rules, pdCfg.fieldOverrides)) {
+      var dg = pdGetDeal_(dealId);
+      existingDealFields = dg.ok ? dg.deal : null;
+    }
+    var custom = pdResolveDealFields_(pdCfg.orgId, rules, pdCfg.fieldOverrides, currency, !!isNewDeal, existingDealFields);
     var ckeys = Object.keys(custom);
     if (ckeys.length) {
       var upd = pdUpdateDeal_(dealId, custom);
@@ -6103,7 +6160,7 @@ function finalizeRunNewDeal(dealerKey, entry) {
     var state = pdPushStateGet_(rowIndex);
     if (!state.dealId) state.dealId = dealId;
     var applied = pdApplyDealContents_(dealId, ctx.lineItems, ctx.pdCfg, ctx.currency, state,
-                    function(s) { pdPushStateSet_(rowIndex, s); pdNewDealCacheMerge_(token, { rowIndex: rowIndex }); });
+                    function(s) { pdPushStateSet_(rowIndex, s); pdNewDealCacheMerge_(token, { rowIndex: rowIndex }); }, true);
     if (!applied.ok) { applied.rowIndex = rowIndex; applied.dealId = dealId; return applied; }
 
     pdPushStateClear_(rowIndex);
