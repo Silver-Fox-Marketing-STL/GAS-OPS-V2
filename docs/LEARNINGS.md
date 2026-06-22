@@ -126,6 +126,23 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   progress (products attached? fields set?) in **ScriptProperties** (cross-execution)
   so a retry resumes instead of repeating completed steps. The local write must
   happen *before* the later, failure-prone steps — not at the end.
+- **When the durable idempotency anchor only exists AFTER a row is written, but you
+  must create the external resource BEFORE the row, bridge the gap with a
+  token-keyed cache.** The method-first finalize flow has to *reorder*: create the
+  Pipedrive deal FIRST (so the RUN_LOG row gets the real deal id and never a
+  placeholder), then write the row. But the usual dup guard (a numeric Deal ID in
+  RUN_LOG col D) doesn't exist yet during that window — a retry that died between
+  "deal created" and "row written" would otherwise create a *second* deal. Fix:
+  `finalizeRunNewDeal` caches the created deal id (then the resulting `rowIndex`) in
+  ScriptProperties under a **stable run token** (`pd_new_<outputDocId|group>`) the
+  instant Pipedrive returns it; the next attempt reads the cache and **adopts** the
+  existing id/row instead of re-creating. Pick a token that's derivable from the
+  same inputs on every retry (here outputDocId + billing group — not a per-attempt
+  value). **Clear it on success alongside the row-keyed state** (`pd_push_<row>`),
+  so the two anchors hand off cleanly: the token cache covers create-before-row, the
+  numeric-col-D guard covers everything once the row exists (link/retry). Same
+  underlying rule as the bullet above (anchor the instant the id returns, before the
+  failure-prone steps) — the cache is just the anchor for the pre-row interval.
 - **External-API secrets live in ScriptProperties, never the repo or a config
   sheet** — and are **validated before they're saved** (`setupPipedriveSecrets`
   does a live `GET /users/me` first; nothing persists on failure). A status/echo

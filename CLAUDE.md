@@ -81,7 +81,9 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
   after `setValues()` (QUERY mixed-type bug).
 - VIN logs are never written automatically during a run — explicit commit/rollback
   via the VIN Log Updater (key: deal ID + `committed_at`). Manually entered VINs
-  are always produced; the log only flags duplicates in billing.
+  are always produced; the log only flags duplicates in billing. **`test` runs are
+  never committed** — `commitLatestRun` throws on a `test` col-D and `commitRunRows`
+  skips it (returns `skippedTest`); the VIN Logs UI disables Commit for them.
 - VIN is always the vehicle primary key. `use_stock_not_vin` is FALSE for every
   dealer (planned replacement: stock→VIN fallback lookup — see to-do).
 - `scraper_location_name` for CDJR_OF_COLUMBIA is
@@ -165,6 +167,22 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
   instant the API returns it, and a **numeric col D = "deal already created"**
   (dup guard) — so a retry never makes a second deal. `pdFetch_` **never throws**
   (returns `{ok,…}`) so a Pipedrive failure can never fail a run. Keep both.
+- Run-Order finalize is **method-first** (branch `feature/pipedrive-finalize-flow`):
+  each post-run card picks **New Deal / Existing / Test** then Finalizes once
+  (controls from `getRunPushModes(dealerKey, group)` → `{test,newDeal,existing,reason}`,
+  carried as `pushModes` on each `pendingRuns` entry).
+  **New Deal (`finalizeRunNewDeal`) creates the deal FIRST** (real numeric id), then
+  finalizes — so the "no RUN_LOG row without a real deal id" invariant still holds
+  with **no placeholder**. Because the deal exists before the row (numeric-col-D dup
+  guard not yet available), New Deal is made retry-safe by a **second anchor: the
+  `pd_new_<outputDocId|group>` ScriptProperties token cache** — the deal id (then
+  `rowIndex`) is cached the instant PD returns it, so a retry adopts it instead of
+  creating a 2nd deal/row; cleared on success with the `pd_push_<row>` state. Keep
+  **both** anchors (col-D guard for link/retry, `pd_new` cache for create-before-row).
+  Existing (`finalizeRunExisting`) validates via `pdGetDeal_` before writing a row.
+  `pushRunToPipedrive` was split into `pdResolveRunContext_`/`pdResolveDealId_`/
+  `pdCheckInactiveProducts_`/`pdApplyDealContents_` with **no** behavior/signature
+  change — the ViewVinLog push + link/retry paths are unchanged.
 - Pipedrive line-item quantity is **GROSS** — `buildLineItems_` does **not**
   subtract VIN-log dupes (a re-printed VIN is still produced and billed); reads the
   gross `totalNew`/`totalPO`/`totalCpo`/`totalCpoEl` from `readBillingTotals_`. All
