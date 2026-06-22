@@ -153,6 +153,25 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   numeric-col-D guard covers everything once the row exists (link/retry). Same
   underlying rule as the bullet above (anchor the instant the id returns, before the
   failure-prone steps) — the cache is just the anchor for the pre-row interval.
+- **"On create = always; on link = set-if-empty" collapses to ONE fixed-value rule
+  when you treat a brand-new resource as empty — and the safe direction when you
+  can't read the current value is to SKIP, not overwrite.** The Pipedrive deal-field
+  rules needed to set a single-select (`Proof`) to a default ("No Proof Required") on
+  every *new* deal, but on an *existing* (linked) deal only if it isn't already set
+  (a template-request deal that already requires a proof must be left alone). The
+  instinct is two code paths (or a `Proof`-specific branch); instead it's **one
+  `mode:"constant"` rule with an `if_empty` flag** plus an `isNewDeal` signal —
+  treat a freshly-created deal as empty (so `if_empty` always fires on create) and,
+  on a link, read the deal's current value and set only when it's blank. The
+  load-bearing fail-safe: when that current value **can't be read** (`pdGetDeal_`
+  failed → `existingDealFields` is null), the resolver **does nothing for that rule**
+  rather than writing the default — so a transient read failure can never clobber a
+  value a human deliberately set. (`pdResolveDealFields_` gained `isNewDeal` +
+  `existingDealFields`; constants resolve **without** the org, and an org-fetch
+  failure returns the constant results, not `{}`, so adding a constant rule can't
+  regress copy/conditional output.) Same family as the gross-quantity and
+  fail-direction lessons: **pick the no-op/skip branch by what it protects (a value
+  the user set), not by a fixed return.**
 - **External-API secrets live in ScriptProperties, never the repo or a config
   sheet** — and are **validated before they're saved** (`setupPipedriveSecrets`
   does a live `GET /users/me` first; nothing persists on failure). A status/echo

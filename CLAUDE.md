@@ -120,11 +120,20 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
   `{}` for non-source-split dealers. Secrets (`PD_API_TOKEN` etc.) live in
   **ScriptProperties only**, never in repo/sheet.
 - Pipedrive deal-field mapping is **GLOBAL**, in the **`PIPEDRIVE_SETTINGS`** tab
-  (key/value; row `deal_field_rules` = JSON array). Each rule is mode **copy**
-  (`{id, deal_field, type, mode:"copy", org_field, option_map?}`) or **conditional**
-  (`{id, …, mode:"conditional", group, then_value, else_value}` — IF org-field
-  conditions THEN/ELSE). Resolved at push time by `pdResolveDealFields_` (global
-  rules + per-dealer `field_overrides`), **replacing `pdResolveFieldMap_`**.
+  (key/value; row `deal_field_rules` = JSON array). Each rule is one of **three**
+  modes: **copy** (`{id, deal_field, type, mode:"copy", org_field, option_map?}`),
+  **conditional** (`{id, …, mode:"conditional", group, then_value, else_value}` — IF
+  org-field conditions THEN/ELSE), or **constant** (`{id, …, mode:"constant", value,
+  if_empty}` — a fixed value; applies **without** the org). **`if_empty` fail-safe:**
+  on a New Deal (create) the value is **always set**; on a Link (existing) it's set
+  **only if the deal field is empty**, and **skipped — never overwritten — if the
+  current value can't be read** (so e.g. a required `Proof` is never clobbered).
+  Resolved at push time by `pdResolveDealFields_(orgId, globalRules, overrides,
+  currency, isNewDeal, existingDealFields)` (global rules + per-dealer
+  `field_overrides`; constants applied first without the org, an org-fetch failure
+  returns the constant results not `{}`), **replacing `pdResolveFieldMap_`**.
+  `isNewDeal` is threaded from the create paths (→ true) and link paths (→ false);
+  `pushRunToPipedrive`'s signature/gates/returns stay unchanged.
 - Pipedrive org-condition engine `pdOrgConditionMatches_`/`pdOrgGroupMatches_`
   (reads an org's `custom_fields` by key) **fails SAFE** (unknown field/op, empty
   values, empty group → no match) and is a **parallel mirror** of the targeting
