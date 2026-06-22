@@ -339,6 +339,15 @@
   }
   #view-pipedrive-settings .ps-te-field select:focus,
   #view-pipedrive-settings .ps-te-field input:focus { outline: none; border-color: var(--accent); }
+  /* Constant (Set value) mode: single Value field + the "only if empty" toggle. */
+  #view-pipedrive-settings .ps-constant-grid { grid-template-columns: 1fr; max-width: 320px; }
+  #view-pipedrive-settings .ps-ifempty {
+    display: flex; align-items: center; gap: 7px; margin-top: 10px;
+    font-size: 12px; color: var(--text); cursor: pointer; font-weight: normal;
+  }
+  #view-pipedrive-settings .ps-ifempty input[type="checkbox"] {
+    width: auto; margin: 0; cursor: pointer; accent-color: var(--accent);
+  }
 
   /* ── Buttons ─────────────────────────────────────────────────────────────── */
   #view-pipedrive-settings .ps-btn-add {
@@ -947,7 +956,9 @@
       option_map: {},
       group: psNewGroup_(),
       then_value: '',
-      else_value: ''
+      else_value: '',
+      value: '',          // constant mode: the fixed value to set
+      if_empty: false     // constant mode: only set when the deal field is empty
     };
   }
 
@@ -967,7 +978,9 @@
     r = r || {};
     dealFields = dealFields || psDealFields;
     orgFields  = orgFields || psOrgFields;
-    var mode = (r.mode === 'conditional') ? 'conditional' : 'copy';
+    var mode = (r.mode === 'conditional') ? 'conditional'
+             : (r.mode === 'constant')    ? 'constant'
+             : 'copy';
     var dealF = psFindField_(dealFields, r.deal_field);
     return {
       id: psNextId_(),
@@ -979,7 +992,9 @@
         ? JSON.parse(JSON.stringify(r.option_map)) : {},
       group: psDeserializeGroup_(r.group, orgFields),
       then_value: (r.then_value != null) ? String(r.then_value) : '',
-      else_value: (r.else_value != null) ? String(r.else_value) : ''
+      else_value: (r.else_value != null) ? String(r.else_value) : '',
+      value: (r.value != null) ? String(r.value) : '',
+      if_empty: !!r.if_empty
     };
   }
   function psDeserializeGroup_(g, orgFields) {
@@ -1020,6 +1035,10 @@
       if (psIsEnumSet_(r.type) && r.option_map && Object.keys(r.option_map).length > 0) {
         entry.option_map = r.option_map;
       }
+    } else if (r.mode === 'constant') {
+      if (r.value === '' || r.value == null) return null;   // constant needs a value
+      entry.value = psCoerceValue_(r.type, r.value);
+      entry.if_empty = !!r.if_empty;
     } else {
       var grp = psSerializeGroup_(r.group);
       if (grp.children.length === 0) return null;    // conditional needs ≥1 condition
@@ -1155,13 +1174,16 @@
     rule.option_map = {};            // option ids no longer apply
     rule.then_value = '';
     rule.else_value = '';
+    rule.value = '';                 // a constant enum id from the old field no longer applies
     psCtxRerender_(ctxId);
     psCtxOnChange_(ctxId);
   }
   function psSetMode(ctxId, ruleId, mode) {
     var rule = psFindRule_(ctxId, ruleId);
     if (!rule) return;
-    rule.mode = (mode === 'conditional') ? 'conditional' : 'copy';
+    rule.mode = (mode === 'conditional') ? 'conditional'
+              : (mode === 'constant')    ? 'constant'
+              : 'copy';
     psCtxRerender_(ctxId);
     psCtxOnChange_(ctxId);
   }
@@ -1183,6 +1205,9 @@
   }
   function psSetThen(ctxId, ruleId, val) { var r = psFindRule_(ctxId, ruleId); if (r) r.then_value = val; psCtxOnChange_(ctxId); }
   function psSetElse(ctxId, ruleId, val) { var r = psFindRule_(ctxId, ruleId); if (r) r.else_value = val; psCtxOnChange_(ctxId); }
+  // Constant (Set value) mode setters — no re-render (preserve the input's focus).
+  function psSetConstantValue(ctxId, ruleId, val) { var r = psFindRule_(ctxId, ruleId); if (r) r.value = val; psCtxOnChange_(ctxId); }
+  function psSetIfEmpty(ctxId, ruleId, checked)   { var r = psFindRule_(ctxId, ruleId); if (r) r.if_empty = !!checked; psCtxOnChange_(ctxId); }
 
   // Group/condition mutations (context + rule scoped)
   function psSetGroupMatch(ctxId, ruleId, nodeId, val) { var g = psFindNode_(ctxId, ruleId, nodeId); if (g) g.match = val; psCtxOnChange_(ctxId); }
@@ -1298,10 +1323,17 @@
     var modeSeg =
       '<div class="ps-mode-seg">' +
         '<button class="' + (rule.mode === 'copy' ? 'active' : '') + '" onclick="psSetMode(\'' + ctxId + '\', \'' + rule.id + '\', \'copy\')">Copy</button>' +
+        '<button class="' + (rule.mode === 'constant' ? 'active' : '') + '" onclick="psSetMode(\'' + ctxId + '\', \'' + rule.id + '\', \'constant\')">Set value</button>' +
         '<button class="' + (rule.mode === 'conditional' ? 'active' : '') + '" onclick="psSetMode(\'' + ctxId + '\', \'' + rule.id + '\', \'conditional\')">Conditional</button>' +
       '</div>';
 
-    var body = (rule.mode === 'copy') ? psRenderCopyBody_(ctxId, rule) : psRenderConditionalBody_(ctxId, rule);
+    var body = (rule.mode === 'copy')     ? psRenderCopyBody_(ctxId, rule)
+             : (rule.mode === 'constant') ? psRenderConstantBody_(ctxId, rule)
+             : psRenderConditionalBody_(ctxId, rule);
+
+    var modeLabel = (rule.mode === 'copy')     ? 'Set the deal field to an organization field\'s value.'
+                  : (rule.mode === 'constant') ? 'Set the deal field to a fixed value.'
+                  : 'Set the deal field conditionally from the organization\'s fields.';
 
     return '<div class="ps-rule">' +
       '<div class="ps-rule-head">' +
@@ -1311,10 +1343,7 @@
         removeBtn +
       '</div>' +
       '<div class="ps-rule-body">' +
-        '<div class="ps-mode-row">' + modeSeg + '<span class="ps-mode-label">' +
-          (rule.mode === 'copy' ? 'Set the deal field to an organization field\'s value.'
-                                : 'Set the deal field conditionally from the organization\'s fields.') +
-        '</span></div>' +
+        '<div class="ps-mode-row">' + modeSeg + '<span class="ps-mode-label">' + modeLabel + '</span></div>' +
         body +
       '</div>' +
     '</div>';
@@ -1365,15 +1394,29 @@
     return '<div class="ps-sub-label">IF the organization matches</div>' +
       psRenderGroup_(ctxId, rule.id, rule.group, true) +
       '<div class="ps-thenelse">' +
-        '<div class="ps-te-field"><label>THEN value</label>' + psRenderValuePicker_(ctxId, rule, 'then') + '</div>' +
-        '<div class="ps-te-field"><label>ELSE value</label>' + psRenderValuePicker_(ctxId, rule, 'else') + '</div>' +
+        '<div class="ps-te-field"><label>THEN value</label>' + psRenderValuePicker_(ctxId, rule, rule.then_value, 'psSetThen') + '</div>' +
+        '<div class="ps-te-field"><label>ELSE value</label>' + psRenderValuePicker_(ctxId, rule, rule.else_value, 'psSetElse') + '</div>' +
       '</div>';
   }
 
-  // THEN/ELSE value picker adapts to the deal field's type.
-  function psRenderValuePicker_(ctxId, rule, which) {
-    var val = (which === 'then') ? rule.then_value : rule.else_value;
-    var setter = (which === 'then') ? 'psSetThen' : 'psSetElse';
+  // Constant (Set value) mode body — a fixed value (typed to the deal field) +
+  // an "only if empty" toggle. Reuses the THEN/ELSE value-picker shape so an
+  // enum/set deal field offers its options (e.g. "No Proof Required").
+  function psRenderConstantBody_(ctxId, rule) {
+    return '<div class="ps-thenelse ps-constant-grid">' +
+        '<div class="ps-te-field"><label>Value</label>' +
+          psRenderValuePicker_(ctxId, rule, rule.value, 'psSetConstantValue') + '</div>' +
+      '</div>' +
+      '<label class="ps-ifempty">' +
+        '<input type="checkbox"' + (rule.if_empty ? ' checked' : '') +
+          ' onchange="psSetIfEmpty(\'' + ctxId + '\', \'' + rule.id + '\', this.checked)">' +
+        '<span>Only set if the deal\'s field is empty</span>' +
+      '</label>';
+  }
+
+  // Value picker adapts to the deal field's type. Generalized over (currentVal,
+  // setterName) so THEN/ELSE (conditional) and Value (constant) share one impl.
+  function psRenderValuePicker_(ctxId, rule, val, setter) {
     if (psIsEnumSet_(rule.type)) {
       var dealF = psFindField_(psCtxDealFields_(ctxId), rule.deal_field);
       var options = (dealF && dealF.options) ? dealF.options : [];
