@@ -5726,25 +5726,6 @@ function pdApplyDesignVariation_(dealId) {
   return { ok: true, applied: true };
 }
 
-/**
- * DIAGNOSTIC (temporary) — run from the editor with a deal id that has products, then read
- * the log to confirm the /deals/{id}/products row shape (attachment `id`, product_id,
- * product_variation_id, item_price, quantity) the install logic relies on.
- */
-function pdDebugDealProducts(dealId) {
-  var rows = pdListDealProducts_(dealId);
-  var out = {
-    count: rows.length,
-    firstRowKeys: rows.length ? Object.keys(rows[0]) : [],
-    sample: rows.slice(0, 5).map(function(p) {
-      return { id: p.id, product_id: p.product_id, product_variation_id: p.product_variation_id,
-               item_price: p.item_price, quantity: p.quantity, name: p.name };
-    })
-  };
-  Logger.log(JSON.stringify(out, null, 2));
-  return out;
-}
-
 // ── Org-condition engine (mirror of the targeting engine, on org fields) ────
 // Parallel to conditionMatches_/groupMatches_ — those are left UNTOUCHED. Here
 // the "row" is an org's custom_fields object keyed by Pipedrive org-field key.
