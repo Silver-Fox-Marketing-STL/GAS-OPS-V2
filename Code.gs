@@ -4801,6 +4801,7 @@ var PIPEDRIVE_HEADERS = ['dealer_key', 'group', 'org_id', 'org_name', 'product_m
 var PIPEDRIVE_SETTINGS_TAB = 'PIPEDRIVE_SETTINGS';
 var PD_RULES_KEY = 'deal_field_rules';
 var PD_PRODUCT_ORG_FIELD_KEY = 'product_org_field';   // product custom-field KEY linking a product to its org
+var PD_INSTALL_COST_KEY = 'install_cost_config';      // install line item + design no-charge variation config
 
 // Canonical billing types → billing-totals keys (gross + dupes).
 var PD_TYPE_KEYS = [
@@ -5618,6 +5619,132 @@ function pdAttachProducts_(dealId, lineItems) {
   return { ok: true, attached: attached, skipped: skipped };
 }
 
+// ── Install cost: an extra Install line item + the Design no-charge variation ──
+// Generic, config-driven (PIPEDRIVE_SETTINGS `install_cost_config`); inert until set.
+
+/** Updates one existing deal line item. PUT /deals/{id}/products/{attachmentId}. */
+function pdUpdateDealProduct_(dealId, attachmentId, body) {
+  var r = pdFetch_('put', '/deals/' + dealId + '/products/' + attachmentId, body);
+  if (!r.ok) return { ok: false, error: r.error || 'Line-item update failed.' };
+  return { ok: true };
+}
+
+/** Adds one product line item to a deal (no dedup — the caller owns idempotency). */
+function pdAddDealProduct_(dealId, item) {
+  var b = { product_id: Number(item.product_id), item_price: Number(item.item_price) || 0, quantity: Number(item.quantity) || 1 };
+  if (item.product_variation_id) b.product_variation_id = Number(item.product_variation_id);
+  var r = pdFetch_('post', '/deals/' + dealId + '/products', b);
+  if (!r.ok) return { ok: false, error: r.error || 'Line-item add failed.' };
+  return { ok: true };
+}
+
+/** Install-cost config from PIPEDRIVE_SETTINGS ({} if unset). */
+function getInstallCostConfig_() {
+  return pdParseJson_(getPipedriveSettingValue_(PD_INSTALL_COST_KEY), {});
+}
+/** Client-callable: read the install-cost config for the settings UI. */
+function getPipedriveInstallCostConfig() { return getInstallCostConfig_(); }
+/** Client-callable: persist the install-cost config. */
+function saveInstallCostConfig(cfg) {
+  setPipedriveSettingValue_(PD_INSTALL_COST_KEY, JSON.stringify(cfg || {}));
+  return { ok: true };
+}
+
+/**
+ * Adds/updates the Install line item per the org's "Program Install Cost" option:
+ * variation + price from the configured {variation_id, percent} — percent>0 → percent
+ * of the deal's OTHER line items (excl. design + install, item_price × quantity), rounded
+ * to cents; else price 0. Idempotent (updates an existing Install row). No-op (fail-safe)
+ * until configured, or if the org's option isn't mapped. Returns {ok, applied, price?, error?}.
+ */
+function pdApplyInstallCost_(dealId, pdCfg) {
+  var cfg = getInstallCostConfig_();
+  if (!cfg || !cfg.org_field_key || !cfg.install_product_id) return { ok: true, applied: false };
+
+  var org = pdGetOrgWithCustomFields_(pdCfg.orgId, [cfg.org_field_key]);
+  var optRaw = org ? pdOrgFieldValue_(org.custom_fields, cfg.org_field_key) : undefined;
+  if (optRaw === undefined || optRaw === null || optRaw === '') return { ok: true, applied: false };
+  var rule = (cfg.options && cfg.options[String(optRaw)]) ? cfg.options[String(optRaw)] : null;
+  if (!rule) return { ok: true, applied: false };   // unmapped option → skip (fail-safe)
+
+  var rows = pdListDealProducts_(dealId);
+
+  var price = 0, pct = Number(rule.percent) || 0;
+  if (pct > 0) {
+    var exclude = [String(cfg.install_product_id)];
+    if (cfg.design_product_id) exclude.push(String(cfg.design_product_id));
+    var subtotal = 0;
+    rows.forEach(function(p) {
+      if (exclude.indexOf(String(p.product_id)) !== -1) return;
+      subtotal += (Number(p.item_price) || 0) * (Number(p.quantity) || 0);
+    });
+    price = Math.round(subtotal * pct) / 100;   // subtotal × pct/100, rounded to cents
+  }
+
+  var varId = rule.variation_id ? Number(rule.variation_id) : null;
+  var existing = null;
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i].product_id) === String(cfg.install_product_id)) { existing = rows[i]; break; }
+  }
+  var res;
+  if (existing) {
+    res = pdUpdateDealProduct_(dealId, existing.id,
+            { item_price: price, quantity: Number(existing.quantity) || 1, product_variation_id: varId });
+  } else {
+    var add = { product_id: cfg.install_product_id, item_price: price, quantity: 1 };
+    if (varId) add.product_variation_id = varId;
+    res = pdAddDealProduct_(dealId, add);
+  }
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, applied: true, price: price };
+}
+
+/**
+ * Sets the auto-added Design line item's variation to "No Charge Design" — but ONLY when
+ * its variation is currently empty (a template-request deal already has a charged Design →
+ * left alone). The Design line is added by a Pipedrive automation a few seconds after deal
+ * creation, so it's polled for. Best-effort: if it hasn't appeared, returns
+ * {applied:false, designPending:true} (the push still succeeds; a re-push sets it).
+ */
+function pdApplyDesignVariation_(dealId) {
+  var cfg = getInstallCostConfig_();
+  if (!cfg || !cfg.design_product_id || !cfg.design_no_charge_variation_id) return { ok: true, applied: false };
+
+  var found = null;
+  for (var a = 0; a < 8 && !found; a++) {
+    if (a > 0) Utilities.sleep(2000);   // ~14s max over 8 polls — automation fires a few sec post-create
+    var rows = pdListDealProducts_(dealId);
+    for (var i = 0; i < rows.length; i++) {
+      if (String(rows[i].product_id) === String(cfg.design_product_id)) { found = rows[i]; break; }
+    }
+  }
+  if (!found) return { ok: true, applied: false, designPending: true };
+  if (!pdFieldEmpty_(found.product_variation_id)) return { ok: true, applied: false, alreadySet: true };
+
+  var u = pdUpdateDealProduct_(dealId, found.id, { product_variation_id: Number(cfg.design_no_charge_variation_id) });
+  if (!u.ok) return { ok: false, error: u.error };
+  return { ok: true, applied: true };
+}
+
+/**
+ * DIAGNOSTIC (temporary) — run from the editor with a deal id that has products, then read
+ * the log to confirm the /deals/{id}/products row shape (attachment `id`, product_id,
+ * product_variation_id, item_price, quantity) the install logic relies on.
+ */
+function pdDebugDealProducts(dealId) {
+  var rows = pdListDealProducts_(dealId);
+  var out = {
+    count: rows.length,
+    firstRowKeys: rows.length ? Object.keys(rows[0]) : [],
+    sample: rows.slice(0, 5).map(function(p) {
+      return { id: p.id, product_id: p.product_id, product_variation_id: p.product_variation_id,
+               item_price: p.item_price, quantity: p.quantity, name: p.name };
+    })
+  };
+  Logger.log(JSON.stringify(out, null, 2));
+  return out;
+}
+
 // ── Org-condition engine (mirror of the targeting engine, on org fields) ────
 // Parallel to conditionMatches_/groupMatches_ — those are left UNTOUCHED. Here
 // the "row" is an org's custom_fields object keyed by Pipedrive org-field key.
@@ -6110,7 +6237,32 @@ function pdApplyDealContents_(dealId, lineItems, pdCfg, currency, state, persist
     state.fieldsDone = true;
     persist(state);
   }
-  return { ok: true, fieldsSet: fieldsSet };
+
+  // ── Install line item — add/update per the org's Program Install Cost option. Idempotent. ──
+  if (!state.installDone) {
+    var ic = pdApplyInstallCost_(dealId, pdCfg);
+    if (!ic.ok) {
+      return { ok: false, stage: 'install', dealId: dealId, retryable: true,
+               message: 'Deal ' + dealId + ' built, but the install line item failed: ' + ic.error + ' — retry to finish.' };
+    }
+    state.installDone = true;
+    persist(state);
+  }
+
+  // ── Design no-charge variation — set on the auto-added Design line if its variation is
+  //    empty (template-request deals keep their charged Design). Best-effort (polls). ──
+  var designPending = false;
+  if (!state.designDone) {
+    var dv = pdApplyDesignVariation_(dealId);
+    if (!dv.ok) {
+      return { ok: false, stage: 'design', dealId: dealId, retryable: true,
+               message: 'Deal ' + dealId + ' built, but the design variation failed: ' + dv.error + ' — retry to finish.' };
+    }
+    if (dv.designPending) { designPending = true; }   // automation hadn't fired — a re-push will set it
+    else { state.designDone = true; persist(state); }
+  }
+
+  return { ok: true, fieldsSet: fieldsSet, designPending: designPending };
 }
 
 /**
