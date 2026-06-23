@@ -215,6 +215,29 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   `is_linkable`, not to soft-delete. Same recurring lesson as the `success`-field
   and inline-custom-fields traps: **don't guess a v2 response shape from v1 or the
   migration guide — confirm the field against live data.**
+- **Pipedrive has NO line-item update until you `PUT /deals/{id}/products/{attachmentId}`
+  with the deal-product ATTACHMENT id — which is distinct from `product_id`.** Attaching
+  a product (`POST /deals/{id}/products`) returns a *deal-product attachment* row whose
+  own `id` identifies that line on that deal; editing the line (price, quantity,
+  variation) is a `PUT` against `/deals/{id}/products/{that-attachment-id}`, NOT against
+  the product or the deal. (`pdUpdateDealProduct_` — the first line-item UPDATE in the
+  codebase; `pdListDealProducts_` rows carry both `id` (attachment) and `product_id`.)
+  Confirm the row shape against a live deal before relying on it — a temporary
+  `pdDebugDealProducts(dealId)` logged `Object.keys` + a sample for exactly this. To make
+  a line idempotent, look it up by `product_id` among the deal's current rows and PUT the
+  existing attachment `id` if found, else POST a new one (`pdApplyInstallCost_`).
+- **To set a value on a line item that a THIRD-PARTY AUTOMATION adds asynchronously,
+  POLL for it — don't read immediately — and update ONLY-IF-EMPTY so you never clobber a
+  real value.** A Pipedrive automation adds the "Design" line a few seconds *after* deal
+  creation, so reading the deal's products right after create finds no Design row at all.
+  `pdApplyDesignVariation_` polls (~8 × 2s) for the row, then sets the No-Charge variation
+  **only if its variation is currently empty** (`pdFieldEmpty_`) — a deal that already
+  carries a meaningful value (a template-request deal with a charged Design) is left
+  untouched. Make it **best-effort**: if the automation hasn't fired within the poll
+  window, return a `…Pending` flag and let the push still succeed (a later re-push sets
+  it) rather than failing the run or blocking forever. Same family as the constant-rule
+  `if_empty` policy and the org-engine fail-safe: when another system may own the value,
+  read-then-set-if-empty, never blind-write.
 
 ## Google Sheets behavior
 

@@ -192,6 +192,21 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
   `pushRunToPipedrive` was split into `pdResolveRunContext_`/`pdResolveDealId_`/
   `pdCheckInactiveProducts_`/`pdApplyDealContents_` with **no** behavior/signature
   change — the ViewVinLog push + link/retry paths are unchanged.
+- Pipedrive install cost + Design no-charge variation *(branch
+  `feature/pipedrive-install-cost`)*: `pdApplyInstallCost_` + `pdApplyDesignVariation_`
+  run inside `pdApplyDealContents_` **after** products + fields, on **every** push
+  (create + link), each gated by its own `state` flag (`installDone`/`designDone`,
+  retry-safe). Config-driven via the **`install_cost_config`** `PIPEDRIVE_SETTINGS` row
+  (`PD_INSTALL_COST_KEY`; `getInstallCostConfig_`) — **nothing dealer- or id-hardcoded**,
+  inert until set. Install price = the org's "Program Install Cost" option's
+  `percent × subtotal` (subtotal **EXCLUDES the design + install products**), rounded to
+  the cent, else 0; the install line is **add-or-update** (idempotent). Design variation
+  is set **only if the Design line's variation is empty** (`pdFieldEmpty_`) — never
+  clobber a template-request deal's existing Design; the Design line is **polled** for
+  (a PD automation adds it post-create), `designPending` if it hasn't fired (a re-push
+  sets it). `pdUpdateDealProduct_` = the only line-item UPDATE
+  (`PUT /deals/{id}/products/{attachmentId}`, keyed on the attachment `id`, not
+  `product_id`). `pushRunToPipedrive` signature/gates/returns unchanged.
 - Pipedrive line-item quantity is **GROSS** — `buildLineItems_` does **not**
   subtract VIN-log dupes (a re-printed VIN is still produced and billed); reads the
   gross `totalNew`/`totalPO`/`totalCpo`/`totalCpoEl` from `readBillingTotals_`. All
