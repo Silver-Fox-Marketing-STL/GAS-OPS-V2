@@ -6471,6 +6471,32 @@ function readBillingForPdf_(outputDoc, sheetName) {
 }
 
 /**
+ * Lays produced VINs out column-major into a grid `cols` wide: fill the first column
+ * top-to-bottom to a generous height (≥ MIN_PER_COL) before wrapping into the next column —
+ * there's ample vertical space, so prefer tall columns over many short ones. Column height
+ * grows past the minimum only when there are more than MIN_PER_COL × cols VINs (which caps
+ * the grid at `cols` columns for page width). Returns a 2D array (gridHeight × cols).
+ */
+function billingVinGrid_(vins, cols) {
+  var MIN_PER_COL = 15;
+  var n = vins.length;
+  if (n === 0) return [];
+  var perCol  = Math.max(MIN_PER_COL, Math.ceil(n / cols));   // column height
+  var numCols = Math.ceil(n / perCol);
+  var gridH   = (numCols >= 2) ? perCol : n;                  // single column: exactly n rows, no trailing blanks
+  var grid = [];
+  for (var rr = 0; rr < gridH; rr++) {
+    var line = [];
+    for (var cc = 0; cc < cols; cc++) {
+      var idx = cc * perCol + rr;   // column-major: fill col 0 fully, then col 1, …
+      line.push(idx < n ? vins[idx] : '');
+    }
+    grid.push(line);
+  }
+  return grid;
+}
+
+/**
  * Builds a polished, formatted layout of the billing data in a temp tab and returns it.
  * Vertical sections (summary, by-type, by-source, duplicates + detail, produced VINs);
  * the produced VINs are laid out in a compact column-major multi-column grid (fill the
@@ -6569,17 +6595,11 @@ function buildBillingPdfTab_(outputDoc, data, meta) {
   if (!vins.length) {
     row(['No vehicles produced.'], { fs: 10 });
   } else {
-    var rowsNeeded = Math.ceil(vins.length / W);
-    var vStart = values.length + 1;
-    for (var rr = 0; rr < rowsNeeded; rr++) {
-      var line = [];
-      for (var cc = 0; cc < W; cc++) {
-        var idx = cc * rowsNeeded + rr;   // column-major: fill col 0 down, then col 1, …
-        line.push(idx < vins.length ? vins[idx] : '');
-      }
+    // Banded only (no outer border) so a narrow grid of full columns doesn't draw a
+    // wide mostly-empty box; the alternating row shading carries the structure.
+    billingVinGrid_(vins, W).forEach(function(line, rr) {
       row(line, { bg: (rr % 2 === 0 ? WHITE : BAND), fs: 9 });
-    }
-    borderBlocks.push({ top: vStart, bottom: values.length });
+    });
   }
 
   // ── Apply (batched) ──
