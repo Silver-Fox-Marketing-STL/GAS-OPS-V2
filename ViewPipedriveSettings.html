@@ -93,6 +93,22 @@
       </div>
     </div>
 
+    <!-- ── Install Cost (org enum field → install variation/price + design no-charge) ── -->
+    <div class="ps-card" id="pdInstallCard" style="display:none;">
+      <button type="button" class="ps-collapse-head" id="pdInstallToggle" onclick="pdInstallToggle_()" aria-expanded="false">
+        <span class="ps-section-label" style="margin:0;">Install Cost</span>
+        <span class="ps-collapse-arrow" id="pdInstallArrow">▸</span>
+      </button>
+      <div id="pdInstallBody" style="display:none;">
+        <div class="ps-hint">Derive a deal's Install line item (variation + price) from the organization's "Program Install Cost" enum field, and set the auto-added Design line's No-Charge variation. Nothing is hardcoded — configure the field, products, per-option variations/percents, and design variation here.</div>
+        <div id="pdInstallControls"></div>
+        <div class="ps-link-saverow">
+          <span id="pdInstallUnsaved" class="ps-unsaved" style="display:none;">Unsaved changes</span>
+          <button class="ps-btn-primary" id="pdInstallSaveBtn" onclick="pdInstallSave_()">Save Install Cost</button>
+        </div>
+      </div>
+    </div>
+
     <!-- ── Global deal-field rules ──────────────────────────────────────────── -->
     <div class="ps-card">
       <div class="ps-section-label">Global Deal-Field Rules</div>
@@ -280,6 +296,35 @@
     border-radius: 4px; width: 100%; background: var(--bg); color: var(--text);
   }
   #view-pipedrive-settings .ps-opt-table select:focus { outline: none; border-color: var(--accent); }
+
+  /* ── Install Cost ─────────────────────────────────────────────────────────── */
+  #view-pipedrive-settings .pd-install-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 8px 0 4px;
+  }
+  #view-pipedrive-settings .pd-install-grid .ps-te-field select {
+    padding: 6px 8px; font-size: 12px; border: 1px solid var(--border-2); border-radius: 4px;
+    width: 100%; background: var(--bg); color: var(--text);
+  }
+  #view-pipedrive-settings .pd-install-grid .ps-te-field select:focus { outline: none; border-color: var(--accent); }
+  #view-pipedrive-settings .pd-install-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 4px; }
+  #view-pipedrive-settings .pd-install-table th {
+    background: var(--surface-2); padding: 6px 8px; text-align: left;
+    font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.3px;
+    color: var(--text-3); border-bottom: 1px solid var(--border);
+  }
+  #view-pipedrive-settings .pd-install-table td {
+    padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; color: var(--text);
+  }
+  #view-pipedrive-settings .pd-install-table tr:last-child td { border-bottom: none; }
+  #view-pipedrive-settings .pd-install-table td:first-child { width: 34%; color: var(--text-2); }
+  #view-pipedrive-settings .pd-install-table td:last-child { width: 110px; }
+  #view-pipedrive-settings .pd-install-table select,
+  #view-pipedrive-settings .pd-install-table input {
+    padding: 4px 6px; font-size: 12px; border: 1px solid var(--border-2); border-radius: 4px;
+    width: 100%; background: var(--bg); color: var(--text);
+  }
+  #view-pipedrive-settings .pd-install-table select:focus,
+  #view-pipedrive-settings .pd-install-table input:focus { outline: none; border-color: var(--accent); }
 
   /* Conditional mode — reused AND/OR group builder (mirrors ViewRules .tr-*) */
   #view-pipedrive-settings .ps-group {
@@ -495,6 +540,15 @@
   var psLinkScanned = false;
   var psLinkOrgTimers = {}; // per-row org-search debounce timers, keyed by dealerKey
 
+  // Install Cost config state (its own client model; round-trips as one JSON blob):
+  //   { org_field_key, install_product_id, options:{<optId>:{variation_id, percent}},
+  //     design_product_id, design_no_charge_variation_id }
+  var pdInstallCfg      = null;   // loaded config (null until fetched)
+  var pdInstallLoaded   = false;
+  var pdInstallProducts = null;   // product catalog cache ([] once loaded); null = not loaded
+  var pdInstallVariations = {};   // productId → [{id,name,prices}] | 'loading'
+  var pdInstallDirty    = false;
+
   var PS_OPS = ['is','is_not','in','not_in','contains','not_contains','gte','lte','gt','lt'];
   var PS_OP_LABELS = {
     is: 'is exactly', is_not: 'is not',
@@ -511,6 +565,7 @@
   // ── Init (lazy — first nav into the view) ──────────────────────────────────
   function initPipedriveSettingsView() {
     psLoadBootstrap(false);
+    pdInstallLoadConfig_();   // the saved Install Cost config (org fields come from the bootstrap)
   }
   window.VIEW_INITS = window.VIEW_INITS || {};
   VIEW_INITS['view-pipedrive-settings'] = initPipedriveSettingsView;
@@ -518,7 +573,7 @@
   // Close guard: unsaved settings shouldn't be lost silently.
   if (window.AppGuards) {
     AppGuards.register(function() {
-      return psDirty ? 'Unsaved Pipedrive settings' : null;
+      return (psDirty || pdInstallDirty) ? 'Unsaved Pipedrive settings' : null;
     });
   }
 
@@ -544,6 +599,7 @@
         psRenderConnection_(b.domain || (b.defaults && b.defaults.domain) || '');
         psRenderProductOrgField_();
         psRenderRules_();
+        pdInstallRender_();   // org-field select needs psOrgFields from the bootstrap
         psUpdateDirty_();
         if (overlay) overlay.classList.add('hidden');
         if (rbtn) { rbtn.disabled = false; rbtn.textContent = 'Refresh from Pipedrive'; }
@@ -624,6 +680,285 @@
   }
 
   function psRefreshCatalog() { psLoadBootstrap(true); }
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // INSTALL COST
+  // Maps the org's "Program Install Cost" enum option → an install product
+  // variation + percent, plus a design product's no-charge variation. The whole
+  // config round-trips as one JSON blob (getPipedriveInstallCostConfig /
+  // saveInstallCostConfig). Nothing is hardcoded — the user picks every id here.
+  // ════════════════════════════════════════════════════════════════════════════
+  function pdInstallToggle_() {
+    var open = document.getElementById('pdInstallBody').style.display !== 'block';
+    document.getElementById('pdInstallBody').style.display = open ? 'block' : 'none';
+    document.getElementById('pdInstallArrow').textContent = open ? '▾' : '▸';
+    document.getElementById('pdInstallToggle').setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+
+  // Normalize the loaded config into the client model (tolerating {} / partials).
+  function pdInstallNormalize_(cfg) {
+    cfg = (cfg && typeof cfg === 'object') ? cfg : {};
+    var opts = {};
+    if (cfg.options && typeof cfg.options === 'object') {
+      Object.keys(cfg.options).forEach(function(k) {
+        var o = cfg.options[k] || {};
+        opts[k] = {
+          variation_id: (o.variation_id != null && o.variation_id !== '') ? o.variation_id : null,
+          percent: (o.percent != null && o.percent !== '') ? o.percent : null
+        };
+      });
+    }
+    return {
+      org_field_key: cfg.org_field_key || '',
+      install_product_id: (cfg.install_product_id != null && cfg.install_product_id !== '') ? cfg.install_product_id : '',
+      options: opts,
+      design_product_id: (cfg.design_product_id != null && cfg.design_product_id !== '') ? cfg.design_product_id : '',
+      design_no_charge_variation_id: (cfg.design_no_charge_variation_id != null && cfg.design_no_charge_variation_id !== '') ? cfg.design_no_charge_variation_id : ''
+    };
+  }
+
+  function pdInstallLoadConfig_() {
+    google.script.run
+      .withSuccessHandler(function(cfg) {
+        pdInstallCfg = pdInstallNormalize_(cfg);
+        pdInstallLoaded = true;
+        pdInstallDirty = false;
+        // Pre-fetch variations for any saved install/design products so their
+        // variation dropdowns pre-select on first render.
+        if (pdInstallCfg.install_product_id) pdInstallLoadVariations_(pdInstallCfg.install_product_id);
+        if (pdInstallCfg.design_product_id)  pdInstallLoadVariations_(pdInstallCfg.design_product_id);
+        pdInstallRender_();
+      })
+      .withFailureHandler(function(e) {
+        pdInstallCfg = pdInstallNormalize_({});
+        pdInstallLoaded = true;
+        pdInstallRender_();
+        toast('Could not load Install Cost config: ' + e.message, 'error');
+      })
+      .getPipedriveInstallCostConfig();
+  }
+
+  // Lazy product catalog (same source as the dealer product picker), cached.
+  // pdInstallProducts: null = not started, 'loading' = in flight, array = loaded.
+  function pdInstallLoadCatalog_() {
+    if (pdInstallProducts !== null) return;   // loading or loaded already
+    pdInstallProducts = 'loading';
+    google.script.run
+      .withSuccessHandler(function(b) {
+        b = b || {};
+        pdInstallProducts = b.products || [];
+        pdInstallRender_();
+      })
+      .withFailureHandler(function(e) {
+        pdInstallProducts = [];
+        pdInstallRender_();
+        toast('Could not load product catalog: ' + e.message, 'error');
+      })
+      .getPipedriveConfigBootstrap(false);
+  }
+
+  // Lazy variation fetch + cache, re-rendering so the variation selects populate.
+  function pdInstallLoadVariations_(productId) {
+    var key = String(productId);
+    if (pdInstallVariations[key] !== undefined) return;   // loading or loaded
+    pdInstallVariations[key] = 'loading';
+    google.script.run
+      .withSuccessHandler(function(vars) {
+        pdInstallVariations[key] = Array.isArray(vars) ? vars : [];
+        pdInstallRender_();
+      })
+      .withFailureHandler(function() {
+        pdInstallVariations[key] = [];
+        pdInstallRender_();
+      })
+      .getProductVariations(productId);
+  }
+
+  // ── Render ──────────────────────────────────────────────────────────────────
+  function pdInstallRender_() {
+    var wrap = document.getElementById('pdInstallControls');
+    if (!wrap) return;
+    if (!psConfigured) { wrap.innerHTML = '<div class="ps-placeholder">Connect Pipedrive above to configure Install Cost.</div>'; return; }
+    if (!pdInstallLoaded) { wrap.innerHTML = '<div class="ps-placeholder">Loading Install Cost config…</div>'; return; }
+    pdInstallLoadCatalog_();   // ensure the product catalog is on its way
+    var cfg = pdInstallCfg;
+
+    var orgFieldSel = '<option value="">— org field —</option>' + psOrgFields.map(function(f) {
+      return '<option value="' + psEscAttr_(f.key) + '"' + (String(f.key) === String(cfg.org_field_key) ? ' selected' : '') +
+        '>' + escHtml(f.name) + '</option>';
+    }).join('');
+
+    var html =
+      '<div class="pd-install-grid">' +
+        '<div class="ps-te-field"><label>Program Install Cost org field</label>' +
+          '<select onchange="pdInstallSetOrgField_(this.value)">' + orgFieldSel + '</select></div>' +
+        '<div class="ps-te-field"><label>Install product</label>' +
+          pdInstallProductSelect_('install', cfg.install_product_id) + '</div>' +
+      '</div>' +
+      pdInstallOptionsTable_(cfg) +
+      '<div class="ps-sub-label">Design line (No-Charge)</div>' +
+      '<div class="pd-install-grid">' +
+        '<div class="ps-te-field"><label>Design product</label>' +
+          pdInstallProductSelect_('design', cfg.design_product_id) + '</div>' +
+        '<div class="ps-te-field"><label>Design No-Charge variation</label>' +
+          pdInstallVariationSelect_('design', cfg.design_product_id, cfg.design_no_charge_variation_id) + '</div>' +
+      '</div>';
+    wrap.innerHTML = html;
+    pdInstallUpdateDirty_();
+  }
+
+  // Product <select> — which is 'install' or 'design' (drives the onchange target).
+  function pdInstallProductSelect_(which, selectedId) {
+    if (pdInstallProducts === null || pdInstallProducts === 'loading') {
+      return '<select disabled><option value="">Loading…</option></select>';
+    }
+    var opts = ['<option value="">— none —</option>'];
+    var sawSaved = false;
+    pdInstallProducts.forEach(function(p) {
+      // Hide deactivated products from a NEW pick, but keep an already-saved one.
+      var isSel = (selectedId != null && selectedId !== '' && String(selectedId) === String(p.id));
+      if (p.inactive === true && !isSel) return;
+      if (isSel) sawSaved = true;
+      var label = p.name + (p.inactive === true && isSel ? ' (inactive)' : '');
+      opts.push('<option value="' + psEscAttr_(p.id) + '"' + (isSel ? ' selected' : '') + '>' + escHtml(label) + '</option>');
+    });
+    if (selectedId != null && selectedId !== '' && !sawSaved) {
+      opts.push('<option value="' + psEscAttr_(selectedId) + '" selected>Product #' + escHtml(String(selectedId)) + ' (saved)</option>');
+    }
+    return '<select onchange="pdInstallSetProduct_(\'' + which + '\', this.value)">' + opts.join('') + '</select>';
+  }
+
+  // Variation <select> for the install/design product; lazy-loads on demand.
+  function pdInstallVariationSelect_(which, productId, selectedVarId) {
+    if (productId == null || productId === '') {
+      return '<select disabled><option value="">— none —</option></select>';
+    }
+    var cached = pdInstallVariations[String(productId)];
+    if (cached === 'loading' || cached === undefined) {
+      pdInstallLoadVariations_(productId);
+      return '<select disabled><option value="">Loading…</option></select>';
+    }
+    var onchange = (which === 'design')
+      ? 'onchange="pdInstallSetDesignVariation_(this.value)"'
+      : 'onchange="pdInstallSetOptionVariation_(\'' + psEscAttr_(which) + '\', this.value)"';
+    var opts = ['<option value="">— none —</option>'];
+    var sawSaved = false;
+    (cached || []).forEach(function(v) {
+      var isSel = (selectedVarId != null && selectedVarId !== '' && String(selectedVarId) === String(v.id));
+      if (isSel) sawSaved = true;
+      opts.push('<option value="' + psEscAttr_(v.id) + '"' + (isSel ? ' selected' : '') + '>' + escHtml(v.name) + '</option>');
+    });
+    if (selectedVarId != null && selectedVarId !== '' && !sawSaved) {
+      opts.push('<option value="' + psEscAttr_(selectedVarId) + '" selected>Variation #' + escHtml(String(selectedVarId)) + ' (saved)</option>');
+    }
+    return '<select ' + onchange + '>' + opts.join('') + '</select>';
+  }
+
+  // Per-option grid: one row per the selected org field's options.
+  function pdInstallOptionsTable_(cfg) {
+    if (!cfg.org_field_key) {
+      return '<div class="ps-empty" style="margin-top:8px;">Select the Program Install Cost org field to map its options.</div>';
+    }
+    var orgF = psFindField_(psOrgFields, cfg.org_field_key);
+    var options = (orgF && orgF.options) ? orgF.options : [];
+    if (!options.length) {
+      return '<div class="ps-empty" style="margin-top:8px;">That org field has no options.</div>';
+    }
+    var rows = options.map(function(o) {
+      var saved = cfg.options[o.id] || {};
+      var varSel = pdInstallVariationSelect_(o.id, cfg.install_product_id, saved.variation_id);
+      var pct = (saved.percent != null) ? saved.percent : '';
+      return '<tr>' +
+        '<td>' + escHtml(o.label) + '</td>' +
+        '<td>' + varSel + '</td>' +
+        '<td><input type="number" class="pd-install-pct" value="' + psEscAttr_(pct) + '" placeholder="—" ' +
+          'oninput="pdInstallSetOptionPercent_(\'' + psEscAttr_(o.id) + '\', this.value)" /></td>' +
+      '</tr>';
+    }).join('');
+    return '<div class="ps-sub-label">Per-option install variation &amp; percent</div>' +
+      '<table class="pd-install-table"><thead><tr>' +
+        '<th>Option</th><th>Install variation</th><th>Percent</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table>';
+  }
+
+  // ── Edits ───────────────────────────────────────────────────────────────────
+  function pdInstallMarkDirty_() { pdInstallDirty = true; pdInstallUpdateDirty_(); }
+  function pdInstallUpdateDirty_() {
+    var u = document.getElementById('pdInstallUnsaved');
+    if (u) u.style.display = pdInstallDirty ? 'inline' : 'none';
+  }
+
+  function pdInstallSetOrgField_(key) {
+    pdInstallCfg.org_field_key = key;
+    pdInstallCfg.options = {};   // option ids belong to the old field — reset the grid
+    pdInstallMarkDirty_();
+    pdInstallRender_();          // re-render the per-option grid for the new field
+  }
+  function pdInstallSetProduct_(which, val) {
+    if (which === 'install') {
+      pdInstallCfg.install_product_id = val;
+      pdInstallCfg.options = {};   // variations belong to the old install product — reset
+    } else {
+      pdInstallCfg.design_product_id = val;
+      pdInstallCfg.design_no_charge_variation_id = '';   // variation belongs to old product
+    }
+    if (val) pdInstallLoadVariations_(val);
+    pdInstallMarkDirty_();
+    pdInstallRender_();
+  }
+  function pdInstallSetOptionVariation_(optionId, val) {
+    if (!pdInstallCfg.options[optionId]) pdInstallCfg.options[optionId] = { variation_id: null, percent: null };
+    pdInstallCfg.options[optionId].variation_id = (val === '' || val == null) ? null : val;
+    pdInstallMarkDirty_();   // no re-render — preserve focus
+  }
+  function pdInstallSetOptionPercent_(optionId, val) {
+    if (!pdInstallCfg.options[optionId]) pdInstallCfg.options[optionId] = { variation_id: null, percent: null };
+    var n = (val === '' || val == null) ? null : parseFloat(val);
+    pdInstallCfg.options[optionId].percent = (n != null && !isNaN(n)) ? n : null;
+    pdInstallMarkDirty_();   // no re-render — preserve focus
+  }
+  function pdInstallSetDesignVariation_(val) {
+    pdInstallCfg.design_no_charge_variation_id = (val === '' || val == null) ? '' : val;
+    pdInstallMarkDirty_();   // no re-render — preserve focus
+  }
+
+  // ── Save ────────────────────────────────────────────────────────────────────
+  // Serialize the client model into the saved blob shape; drop empty option rows.
+  function pdInstallBuildCfg_() {
+    var c = pdInstallCfg;
+    var options = {};
+    Object.keys(c.options || {}).forEach(function(optId) {
+      var o = c.options[optId] || {};
+      var v = (o.variation_id != null && o.variation_id !== '') ? o.variation_id : null;
+      var p = (o.percent != null && o.percent !== '') ? o.percent : null;
+      if (v === null && p === null) return;   // nothing set for this option — omit
+      options[optId] = { variation_id: v, percent: p };
+    });
+    return {
+      org_field_key: c.org_field_key || '',
+      install_product_id: (c.install_product_id !== '') ? c.install_product_id : null,
+      options: options,
+      design_product_id: (c.design_product_id !== '') ? c.design_product_id : null,
+      design_no_charge_variation_id: (c.design_no_charge_variation_id !== '') ? c.design_no_charge_variation_id : null
+    };
+  }
+
+  function pdInstallSave_() {
+    var btn = document.getElementById('pdInstallSaveBtn');
+    btn.disabled = true; btn.textContent = 'Saving…';
+    google.script.run
+      .withSuccessHandler(function(res) {
+        res = res || {};
+        btn.disabled = false; btn.textContent = 'Save Install Cost';
+        pdInstallDirty = false; pdInstallUpdateDirty_();
+        toast('Install Cost saved.', 'success');
+      })
+      .withFailureHandler(function(e) {
+        btn.disabled = false; btn.textContent = 'Save Install Cost';
+        toast('Install Cost save failed: ' + e.message, 'error');
+      })
+      .saveInstallCostConfig(pdInstallBuildCfg_());
+  }
 
   // ════════════════════════════════════════════════════════════════════════════
   // BULK DEALER → ORGANIZATION LINKER
@@ -868,6 +1203,9 @@
     // The bulk dealer→org linker card is only meaningful when connected.
     var linkCard = document.getElementById('psLinkCard');
     if (linkCard) linkCard.style.display = psConfigured ? 'block' : 'none';
+    // Install Cost card likewise needs a connection (org fields + product catalog).
+    var installCard = document.getElementById('pdInstallCard');
+    if (installCard) installCard.style.display = psConfigured ? 'block' : 'none';
   }
 
   function psShowSetupForm() {
