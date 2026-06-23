@@ -1,29 +1,31 @@
 # SilverFox Marketing — Production System Development Plan
-### Version 2 | Last Updated: June 2026
+### Version 2 | Last Updated: June 23, 2026
 
-> **Revision note (June 2026):** Updated to reflect V2's near-production status, a new V2 architecture-hardening track, and a firm V3 direction. The prior "Development Path Decision" (Flask vs. FastAPI + React, framed as a salvage decision) has been replaced by a firm recommendation — see **V3 Direction (Firm Recommendation)** below. The basis for the change is a side-by-side review of the V2 and V3 documentation that surfaced several divergences; these are captured in **Appendix A: V2 / V3 Divergence Findings**.
+> **Revision note (June 23, 2026):** Brought current after a dense two weeks of V2 work. Newly reflected here: the **SilverFox App** single-modal SPA (the five modals are now `View*.html` fragments in `App.html`), the **Targeting Rules engine** (replaced the flat `conditions` array, June 17), **Data Sources v2 + append-only schema growth**, **billing split** (MBCC/Sprinter resolved) and **source split** (Frank Leta dual-site), **post-run finalization** (deferred deal IDs + abandonable runs), a backend **performance sweep**, and the **Pipedrive integration** + **Lot Sherpa theming** (both fully built but **branch-only — not yet `clasp push`ed**). Deploy status is now tracked by `clasp push`, not by branch — a feature can be merged to `main` and still be undeployed.
+>
+> **Earlier revision note (June 2026):** Updated to reflect V2's near-production status, a V2 architecture-hardening track, and a firm V3 direction. The prior "Development Path Decision" (Flask vs. FastAPI + React) was replaced by a firm recommendation — see **V3 Direction (Firm Recommendation)** below, basis in **Appendix A**.
 
 ---
 
 ## System Hierarchy
 
-Before reading the development phases, it is important to understand the relationship between the three systems:
+Before reading the development phases, understand the relationship between the three systems:
 
 | System | Document | Status | Platform |
 |---|---|---|---|
 | **V1** | `SilverFox_V1_Production_System.md` | **Active production** | Google Sheets + Apps Script |
-| **V2** | `SilverFox_V2_Bridge_System.md` | **Active development — near production (final testing)** | Google Sheets + Apps Script (config-driven) |
-| **V3** | `SilverFox_V3_Flask_System.md` | Long-term development, not in use | Python (current: Flask) + PostgreSQL |
+| **V2** | `SilverFox_V2_Bridge_System.md` | **Active development — near production (final bug-hunt)** | Google Sheets + Apps Script (config-driven; the SilverFox App SPA) |
+| **V3** | `SilverFox_V3_Flask_System.md` | Long-term, paused — rebuild as FastAPI + React | Python (FastAPI) + React + PostgreSQL |
 
-V1 is the system running every order today. V2 is functionally complete and is in the final bug-hunt phase before it takes over production — config-driven, universal template, parallel QR generation, all while remaining on Google Sheets. V3 is the long-term Python-based replacement. Development priorities flow accordingly: finish hardening V2 into production, then build V3.
+V1 runs every order today. V2 is functionally complete and in final bug-hunt before it takes over production — config-driven, universal template, parallel QR, now wrapped in a single-modal SPA, all still on Google Sheets. V3 is the long-term Python replacement (greenfield FastAPI + React, V2 as the canonical spec). Priorities flow accordingly: finish hardening + deploying V2, then build V3.
 
-> **Note on the V2 doc's status field:** `SilverFox_V2_Bridge_System.md` currently labels V2 as "active production." That is slightly ahead of reality — V2 is feature-complete and very close, but still under test to flush out edge-case bugs. This plan treats V2 as **near-production, in final testing**. The V2 doc status line should be aligned to match at the next doc update.
+> **V2 status field:** the Bridge doc now labels V2 "Near Production (Final Bug-Hunt Testing)" — aligned with this plan. (The earlier "active production" overstatement has been corrected.)
 
 ---
 
 ## Vision
 
-Replace the current Google Sheets / Apps Script production system with a self-contained, multi-user web application. The new system will be faster, more accurate, easier to use, and easier to develop and debug. It will handle mixed inventory data from multiple sources through an intelligent translation layer, and will deliver output directly to the user as a downloadable package — no Google Drive dependency required.
+Replace the Google Sheets / Apps Script production system with a self-contained, multi-user web application — faster, more accurate, easier to use, easier to develop and debug. It handles mixed inventory from multiple sources through an intelligent translation layer and delivers output directly to the user as a downloadable package (no Google Drive dependency).
 
 **Core goals:** Efficiency. Accuracy. Ease of use. User-configurable without programming knowledge.
 
@@ -32,101 +34,86 @@ Replace the current Google Sheets / Apps Script production system with a self-co
 ## Current State
 
 ### V1 (Production)
-V1 is operational and handles all current orders. Its fundamental limitations are well-documented:
-- ~42 near-identical per-dealer Apps Script functions — all logic duplicated
-- QR code generation bottlenecked by sequential API calls (`sleep(2000)` per vehicle)
-- 6-minute Apps Script execution limit
-- No real debugging (flat logs, no breakpoints)
-- No version control
-- ~42 separate template spreadsheets and ~42 separate VIN log spreadsheets
+Operational, handles all current orders. Limitations: ~42 near-identical per-dealer functions; sequential QR generation (`sleep(2000)`/vehicle); 6-minute execution limit; no real debugging; no version control; ~42 template spreadsheets + ~42 VIN-log spreadsheets.
 
 ### V2 (Bridge — Near Production)
-V2 is functionally complete and in final testing. Core improvements over V1:
-- Single universal script + single universal template (replaces ~42 of each)
-- Config-driven dealer settings in one spreadsheet (`SF_DEALER_CONFIG`)
-- Master VIN log (`SF_VIN_LOGS`) consolidates ~42 separate spreadsheets
-- Parallel QR generation via `UrlFetchApp.fetchAll()` — 50-vehicle order: ~3–5 seconds vs. 100+ seconds in V1
-- Modal-based workflow (Run Dealer, Import Scraper Data, VIN Log Updater, Dealer Rules Editor, Normalization Maps)
-- CAO automation with `filtering_rules` — pre-fills net-new VIN list with filter rejection summary
-- Per-user QR base path — `USER_PROFILES` tab + "Running as:" modal selector; last selection persisted per Google account
+Functionally complete and in final testing. Core improvements over V1:
+- Single universal script + universal template; config-driven dealers (`SF_DEALER_CONFIG`); master VIN log (`SF_VIN_LOGS`)
+- Parallel QR generation via `UrlFetchApp.fetchAll()` (~3–5s for 50 vehicles vs 100+s)
+- **The SilverFox App** — a single-modal SPA (`App.html` shell + `View*.html` fragments via HtmlService templating) that replaced the five standalone modals; instant client-side nav with hidden views retaining state; `AppBusy` mutual exclusion; a Classic fallback menu during validation
+- CAO automation + the **`filtering_rules`** / **`targeting_rules`** engine (IF nested AND/OR THEN action; fail-SAFE)
+- **Data Sources v2** — per-dealer header mapping + append-only schema growth (`SCHEMA`/`META` tabs)
+- **billing_split** (MBCC/Sprinter: one run, two billing outputs/deals) and **source_split** (Frank Leta: one deal, two CSVs per source)
+- **Post-run finalization** — deal IDs deferred to a finalization step; abandonable runs; no log row without a deal id; the VIN log never written implicitly
+- Health monitoring + live DASHBOARD; in-app Transcription tab; per-user QR base path
+- A backend **performance sweep** — handle caches, early-exit recalc polling, parallel QR + batch Drive trashing, batched dashboard formatting
 
-**What remains before V2 is production:** end-to-end testing across many real dealers to find the bugs hiding in the edge cases (multi-rule dealers, unusual scraper data, large orders), plus the two-stream order types (Maintenance, Hybrid) and two outstanding design decisions (MBCC/Sprinter, Glendale price). A dedicated architecture-hardening track is added below (**Phase 1A**) to reduce the surface area where those edge-case bugs hide.
+**Built but not yet deployed (branch-only — no `clasp push`):**
+- **Pipedrive integration** (Code.gs Section 31) — pushes a finalized run to Pipedrive as a deal; pending deploy + ScriptProperties secrets + `PIPEDRIVE_SETTINGS` rules + `PIPEDRIVE` config rows
+- **Lot Sherpa theming** — CSS design tokens + light/dark; pending deploy + visual QA (two import-health fixes on the same branch are ready to push)
+- **Dealer Rules "Discard Changes"** button
+
+**What remains before V2 is production:** end-to-end testing across many real dealers; the two-stream order types (Maintenance, Hybrid) + the Auffenberg type-override; deploying the Pipedrive + theming branches; plus the architecture-hardening track (**Phase 1A**).
 
 ### V3 (Long-Term Replacement)
-A Flask + PostgreSQL web application has been built: a two-phase order wizard, CAO and LIST order processing, QR generation, CSV building, VIN log management via PostgreSQL, and WebSocket-based real-time progress. It runs locally at `http://127.0.0.1:5000`.
-
-However, a side-by-side review against the now-hardened V2 system shows that the existing Flask implementation has **diverged from V2's validated production logic** in several material ways (config schema, QR content, VIN-log table design, price formatting). See **Appendix A**. Because the divergent logic is baked into the Flask business layer, the previous assumption that this code is a low-cost reusable asset no longer holds. The recommendation has therefore changed from "evolve or pivot the existing code" to **a clean rebuild using V2 as the canonical specification** — see below.
+A Flask + PostgreSQL app exists (two-phase wizard, CAO/LIST, QR, CSV, VIN-log via Postgres, WebSocket progress) at `http://127.0.0.1:5000`. A side-by-side review shows it has **diverged from V2's validated logic** (config schema, QR content, VIN-log table design, price formatting — Appendix A). Because the divergence is baked into the Flask business layer, the recommendation is **a clean rebuild using V2 as the canonical spec** — below.
 
 ---
 
 ## V3 Direction (Firm Recommendation)
 
-> This decision applies to V3 only. V2 development continues regardless. The team has stated it is willing to rebuild V3 from the ground up if doing so escapes technical debt. **It does. This plan recommends the rebuild.**
+> Applies to V3 only. V2 development continues regardless. The team is willing to rebuild V3 to escape technical debt. **This plan recommends the rebuild.**
 
 ### Recommendation
-
-**Rebuild V3 from the ground up as FastAPI + React, treating the V2 configuration model as the canonical domain specification.** The existing Flask codebase is retained only as a *reference implementation* for problems it already solved well (local QR generation, the two-phase review UX, a starting Postgres schema) — not as the base to extend.
+**Rebuild V3 from the ground up as FastAPI + React, treating the V2 configuration model as the canonical domain specification.** The Flask codebase is retained only as a *reference implementation* for what it solved well (local QR generation, the two-phase review UX, a starting Postgres schema) — not as a base to extend.
 
 ### Why rebuild rather than evolve Flask
+1. **The Flask logic encodes the *old* rules.** Its `filtering_rules`, `output_rules`, vehicle-type taxonomy, and CSV row builder predate V2's hardening and have drifted (Appendix A, items 1–3). Porting it forward ports the drift. V2 has since gone *further* — the `targeting_rules` engine, billing/source splits, and the finalization model don't exist in Flask at all.
+2. **V3 reproduces a V1 anti-pattern** — 36+ per-dealer `*_vin_log` tables via dynamic f-string SQL (item 4), the proliferation V2 consolidated.
+3. **V3 carries bugs V2 already fixed** (`$`-prefixed `PRICE_FMT`, hardcoded field-code builder — item 5).
+4. **V2 is now the source of truth for *correct* behavior** — validated business rules live in V2's config sheets + `Code.gs`. Porting V2's rules ports the truth.
 
-The original plan framed the choice as Flask-vs-FastAPI with the Flask business logic (`correct_order_processing.py`) as a "largely framework-agnostic" asset worth preserving. The V2/V3 review undermines that premise:
-
-1. **The Flask logic encodes the *old* rules, not V2's hardened rules.** V3's `filtering_rules`, `output_rules`, vehicle-type taxonomy, and CSV row builder all predate V2's production hardening and have drifted from it (Appendix A, items 1–3). Porting that logic forward would port the drift forward.
-2. **V3 reproduces a V1 anti-pattern.** 36+ per-dealer `*_vin_log` tables addressed via dynamic f-string SQL (Appendix A, item 4) is the same proliferation problem V2 solved by consolidating ~42 VIN-log spreadsheets into one master. It blocks parameterized queries, foreign keys, and central indexing.
-3. **V3 carries bugs V2 already fixed** (e.g. `$`-prefixed `PRICE_FMT`, hardcoded field-code builder — Appendix A, item 5).
-4. **V2 is now the source of truth for *correct* behavior.** After the V1→V2 migration and months of fixes, the validated business rules live in V2's config sheets and `Code.gs`. A rebuild that ports *V2's* rules is porting the truth; extending Flask is extending a fork that diverged before that truth existed.
-
-The cost of the rebuild is the frontend and the route layer. The value is escaping the divergence permanently and landing on the stack originally intended for V3 (FastAPI + React), with async-native QR/IO handling and a component model well-suited to the config-management UI.
+The cost of the rebuild is the frontend + route layer. The value is escaping the divergence permanently and landing on the originally-intended stack (FastAPI + React), with async-native QR/IO and a component model suited to the config-management UI.
 
 ### What "use V2 as the canonical spec" means concretely
-
-- **Domain model ported from V2, not Flask:**
-  - `type_rules` (per-type `match` → `csv_schema` → `utm`, evaluated in order, first match wins; title-case types `New / PO / CPO / CPO-EL`, with CPO-EL ordered before CPO)
-  - `filtering_rules` with **per-type `seasoning` arrays**, `require_stock`, `require_price`, `min_price`/`max_price`, `allowed_types`, `exclude_status` — matching V2 field-for-field
-  - `CSV_SCHEMAS` + a **data-driven `FIELD_CODES` registry** (not a hardcoded `build_csv_row()`), so adding a field code is config, not code
-  - `NORM_MAPS` normalization (global + per-column passes, first-match-wins, O(1) lookup)
-  - `USER_PROFILES` → per-user `qr_base_path` (V2 already validated this design)
-- **QR content matches V2:** encode the **UTM-tagged VDP URL**, not the bare VIN (Appendix A, item 2). Keep V3's local `qrcode`-library generation — it is faster than V2's API approach and is one of the things the Flask build got right.
-- **Single `vin_logs` table** keyed by `dealer_key` (FK + indexes), replacing the 36+ per-dealer tables and all dynamic-table SQL.
-- **First-class billing-group / sub-dealer concept** to solve MBCC/Sprinter cleanly (one run, multiple tagged billing outputs) rather than the V2 workaround.
+- Domain model ported from V2 (not Flask): `type_rules`; `filtering_rules` (per-type `seasoning`, `require_stock/price/url`, `min/max_price`, `allowed_types`, `exclude_status`); the **`targeting_rules`** engine (IF nested AND/OR THEN `drop_on_import`/`exclude_cao`/`exclude_order`, fail-SAFE); `CSV_SCHEMAS` + a data-driven `FIELD_CODES` registry; `NORM_MAPS`; `USER_PROFILES`; the **billing-group / source-split** partition axes; the **finalization** invariants.
+- **QR content matches V2:** encode the **UTM-tagged VDP URL**, not the bare VIN (item 2). Keep V3's local `qrcode` generation.
+- **Single `vin_logs` table** keyed by `dealer_key` (FK + indexes), no dynamic-table SQL.
+- **First-class billing-group / sub-dealer concept** for MBCC/Sprinter (V2 solved this with `billing_split`; V3 makes it native).
 
 ### Decision timing
-This decision is made now and applies before any further V3 work. The greenfield FastAPI + React build does not start in earnest until V2 is in production and stable; until then, V3 effort is limited to (a) finalizing the canonical spec extracted from V2 and (b) the framework-agnostic data/migration design.
+Made now, applies before any further V3 work. The greenfield build doesn't start in earnest until V2 is in production and stable; until then, V3 effort is limited to (a) finalizing the canonical spec extracted from V2 and (b) the framework-agnostic data/migration design.
 
 ---
 
 ## Key Design Decisions
 
 ### Multi-User Access
-The backend runs on a cloud server. Users access the system through a web browser — no installation required, works on any machine. Authentication via Google OAuth (leverages existing Google accounts, no separate password management).
+Cloud backend, browser access (no install), Google OAuth.
 
 ### Adjustable VL (Variable Library) Path
-Each user has a saved `qr_base_path` — the local folder path where QR PNGs will be placed on their machine. The CSV builder uses this path when writing `@QR` column values, so Illustrator resolves the correct path for that user automatically.
-
-**Implemented in V2 (May 2026):** The `USER_PROFILES` tab in `SF_DEALER_CONFIG` stores `user_key`, `display_name`, and `qr_local_base_path` per user. The Run Dealer modal has a "Running as:" dropdown that resolves the correct path at run time. Adding a new user requires only a new row in the tab — no code changes. The last-used selection is persisted per Google account.
-
-**V3 path:** User model with `qr_base_path` field, editable from the User Settings UI. The V2 implementation validates this design pattern.
+Each user has a saved `qr_base_path`; the CSV builder uses it for `@QR` values so Illustrator resolves the right path. **Implemented in V2 (May 2026):** `USER_PROFILES` tab + "Running as:" dropdown; adding a user is a new row, no code change. **V3:** a `qr_base_path` field on the user model — the V2 implementation validates the design.
 
 ### Direct ZIP Download
-The output is never stored on the server. When an order run completes, the user downloads a ZIP containing CSV files, a `QR_Codes/` folder with all PNGs, and an `order_summary.txt`. The user extracts the ZIP to their local QRS folder and imports the CSV into Illustrator.
+Output never stored on the server — a completed run downloads a ZIP (CSVs + `QR_Codes/` + `order_summary.txt`).
 
 ### Order Type System
-Four first-class order types are supported. See `SilverFox_V2_Bridge_System.md` and `SilverFox_V3_Flask_System.md` for full specifications.
+Four first-class order types (see the Bridge doc + V3 doc):
 
 | Order Type | Purpose |
 |---|---|
 | **CAO** | Automated — current inventory minus VIN log history |
-| **LIST** | Manual VIN list — validated against scraper, VIN log for flagging only |
-| **Maintenance** | Monthly sweep — CAO + manual lot scan merged; VIN log for flagging only on manual stream |
-| **Hybrid** | CAO + manual with optional type override on manual stream (e.g., Auffenberg Courtesy Loaners) |
+| **LIST** | Manual VIN list — validated against scraper; VIN log for flagging only |
+| **Maintenance** | CAO + manual lot scan merged; VIN log flagging-only on the manual stream |
+| **Hybrid** | CAO + manual with optional type override on the manual stream (e.g. Auffenberg Courtesy Loaners) |
 
-**Core principle:** The VIN log is never a gate for manually entered VINs. Any manually entered VIN means a graphic is definitely needed. The VIN log is checked on manual streams only to flag duplicates in billing.
+**Core principle:** the VIN log is never a gate for manually entered VINs — a manual VIN always means a graphic is needed; the log is checked on manual streams only to flag billing duplicates.
 
 ### Translation Layer
-A dedicated module accepts inventory files in any format and normalizes them to the standard 21-column schema. Handles multiple files in a single upload, different column names, and DMS direct feeds.
+A module that accepts inventory files in any format and normalizes to the standard 21-column schema (multiple files, different column names, DMS feeds). *(V2 now has a Sheets-side version of this — Data Sources header mapping — that the Python translator should mirror.)*
 
 ### VIN Log with Real Transactions (V3)
-PostgreSQL transactions enable safe automatic VIN log appending after a confirmed run. Duplicate log entries (from re-prints in Maintenance/Hybrid orders) have no effect on future CAO runs since the exclusion query always uses `SELECT DISTINCT`. **V3 stores all VIN history in a single `vin_logs` table keyed by `dealer_key`** (not per-dealer tables) — see V3 Direction above.
+Postgres transactions enable safe auto-append after a confirmed run; duplicate entries don't affect CAO (`SELECT DISTINCT`). **V3 uses a single `vin_logs` table keyed by `dealer_key`.**
 
 ---
 
@@ -134,303 +121,244 @@ PostgreSQL transactions enable safe automatic VIN log appending after a confirme
 
 ---
 
-### Phase 1 — Stabilize V2 (Current Priority)
+### Phase 1 — Stabilize & Deploy V2 (Current Priority)
 
-V2 is the active bridge and the near-term production system. The goal is to make it fully reliable for all active dealers before V3 work begins in earnest.
+V2 is the active bridge and near-term production system. The goal is full reliability for all active dealers before V3 work begins in earnest.
 
 #### Already Complete
-- [x] Universal script + universal template (replaces per-dealer duplication)
-- [x] `SF_DEALER_CONFIG` with `type_rules` JSON column
-- [x] `SF_VIN_LOGS` master spreadsheet (consolidated from ~42 separate logs)
+- [x] Universal script + universal template
+- [x] `SF_DEALER_CONFIG` with `type_rules` JSON column; `SF_VIN_LOGS` master spreadsheet
 - [x] Parallel QR generation via `UrlFetchApp.fetchAll()`
-- [x] Run Dealer modal (replaced sidebar; deal ID required; progress bar; post-run actions)
-- [x] Import Scraper Data modal (replaced sidebar; two-column column mapping preview)
-- [x] VIN log migration from V1
-- [x] CAO automation — `getCaoVins`, filtering_rules engine, pre-fill button with rejection summary
-- [x] filtering_rules per dealer — col W in DEALERS; applied at pre-fill and run time; bypass checkbox
-- [x] VIN log commit/rollback — VIN Log Updater modal; RUN_LOG produced_vins + vin_log_status
-- [x] Dealer Rules Editor modal — GUI for type_rules and filtering_rules; live CSV schema loading
-- [x] Scraper data normalization — NORM_MAPS tab; Normalization Maps modal; post-import review
-- [x] Real-time progress bar — ScriptProperties polling; step messages; elapsed timer
-- [x] **Multi-user QR base path** — USER_PROFILES tab in SF_DEALER_CONFIG; "Running as:" dropdown in Run Dealer modal; per-user path resolved and persisted per Google account
-- [x] Performance optimizations (v2.4) — `getConfigSS_()` cache, `buildNormLookup_()` O(1) normalization, `calcRecalcDelay_()` scaled sleeps, consolidated `applyDataTransforms_` reads/writes
-- [x] **Import health monitoring (v2.5, Section 29)** — `IMPORT_STATS` tab + `writeImportStats_()` per-location history; `checkImportHealth_()` rolling-baseline anomaly detection (zero-total, >20% missing stock/price, >40% drops vs. average, unexpected types); health issues rendered in the ScraperImport review panel
-- [x] **ORDER_STATS analytics side-write (v2.5)** — flat 12-column per-run analytics row appended by `writeRunLog_()`, isolated try/catch; designed to port directly to a Postgres table in V3
-- [x] **DASHBOARD auto-refresh (v2.5, Section 30)** — `refreshDashboard_()` rewrites the live dashboard (per-location inventory snapshot, TOTALS, RUN LOG SUMMARY / MOST RECENT RUN / RUNS BY DEALER) on every scraper import; dynamic section positions, no merged cells, IFERROR-wrapped formulas, non-fatal
-- [x] Produced VINs list in BILLING — fifth section in col B below the order summary, one VIN per row
-- [x] VIN Log status row in Run Dealer modal — most recent order ID via `getLatestOrderId` + Update VIN Log button
-- [x] `getRunsForDealer` updated to the 23-column RUN_LOG (was reading 19 columns against the pre-expansion schema)
-- [x] **Generalized targeting rules (v2.7, June 10)** — `filtering_rules` gains `conditions` (generic field criteria via `FILTER_FIELD_INDEX`/`evaluateCondition_`, fail-open) + `cao_exclude_types` (manual-only types); Rules Editor Targeting Conditions UI; applied in CAO + run phases
-- [x] **Dean Team Brentwood dealer + `PRICE_TAGLINE` field code + `SCP_TAGLINE` schema (v2.7)** — 43rd dealer; price-tier tagline at ORDERMATCH col 21 (U)
-- [x] **NORM_MAPS performance fix (v2.7)** — removed volatile `UNIQUE()` reference formulas (were timing out programmatic access to SF_DEALER_CONFIG at 10k+ rows); added on-demand `refreshNormReference()`
+- [x] CAO automation — `getCaoVins`, filtering_rules engine, pre-fill with rejection summary
+- [x] filtering_rules per dealer (col W); applied at pre-fill + run; bypass checkbox
+- [x] VIN log commit/rollback — RUN_LOG `produced_vins` + `vin_log_status`; manual-entry path
+- [x] Dealer Rules Editor — GUI for type_rules + filtering_rules; live CSV schema loading
+- [x] Scraper normalization — NORM_MAPS; Norm Manager; post-import review
+- [x] Real-time progress bar (ScriptProperties polling)
+- [x] **Multi-user QR base path** — USER_PROFILES + "Running as:" selector
+- [x] **Performance optimizations (v2.4)** — `getConfigSS_()` cache, O(1) `buildNormLookup_()`, scaled sleeps, consolidated transform I/O
+- [x] **Import health monitoring (v2.5, §29)** + **ORDER_STATS analytics side-write** + **DASHBOARD auto-refresh (§30)**
+- [x] Produced VINs list in BILLING; VIN Log status row in Run Dealer; `getRunsForDealer` → 23-col RUN_LOG
+- [x] **Dean Team Brentwood dealer + `PRICE_TAGLINE` + `SCP_TAGLINE` (v2.7)**; **NORM_MAPS performance fix (v2.7)**
+- [x] **Multi-file import + Replace/Merge + VIN conflict engine (v2.8)** — two-phase protocol, tolerant compare, `LockService`, Location grouping
+- [x] **Uniform 1400×900 modals (v2.8)**
+- [x] **Billing split (v2.9)** — `billing_split`; MBCC/Sprinter resolved (one run → two billing sheets + two deals + two RUN_LOG rows)
+- [x] **Post-run finalization (v2.10)** — `pendingRuns`/`finalizeRun`/`abandonRun`; deal IDs deferred; no log row without a deal id; VIN log never written implicitly
+- [x] **Targeting Rules engine (v2.11, June 17)** — `targeting_rules` (IF nested AND/OR THEN `drop_on_import`/`exclude_cao`/`exclude_order`); `conditionMatches_`/`groupMatches_`/`ruleMatches_`; fail-SAFE; `gt`/`lt`; **replaced the flat `conditions` array**; 4 dealers migrated
+- [x] **Data Sources v2 (v2.11, June 17)** — multiple named sources per dealer, header mapping, append-only schema growth (`SCHEMA`/`META` tabs, `getSchemaColCount_`), schema-driven `getFilterFieldIndex_()`, `require_url`
+- [x] **Source split** — `source_split` (Frank Leta dual-site): one order → `CSV` + `CSV_<group>`, one deal, BY-SOURCE billing section, import-time waterfall dedup
+- [x] **The SilverFox App SPA** — `App.html` + `SharedUtils`/`Classic` + the migrated `View*` fragments + new Home/Transcription/Utilities/DataSources views
+- [x] **Performance sweep** — `getAppBootstrap`, `getMasterSS_`/`getVinLogsSS_` handle caches, `waitForRecalc_` early-exit polling, parallel QR uploads + `trashFilesParallel_` + QR-folder hygiene, batched DASHBOARD formatting, in-app Transcription + Home dashboard
+
+#### Built — deploy pending
+- [ ] **Pipedrive integration** (branch `pipedrive-integration` + `finalize-flow`/`install-cost`/`followups`) — `clasp push` + ScriptProperties secrets + `PIPEDRIVE_SETTINGS` global rules + per-dealer `PIPEDRIVE` rows, then live-config validation
+- [ ] **Lot Sherpa theming** (branch `styling-updates`) — `clasp push` + in-app visual QA; the two import-health fixes on this branch can ship independently first
+- [ ] **Dealer Rules "Discard Changes"** button (branch `feature/dealer-rules-discard`)
 
 #### Remaining V2 Tasks
-
 **Core reliability (the current bug-hunt):**
-- [ ] End-to-end test on 5+ real dealers with real scraper data — the priority right now
-- [ ] Fix BILLING2 `#VALUE!` errors in the universal template (root cause: `#N/A` rows in ORDERMATCH when a VIN is not found in scraper) — see Phase 1A for the structural fix
+- [ ] End-to-end test on 5+ real dealers with real scraper data — the priority
 - [ ] Add automatic ORDERS column clear after a successful run
-- [ ] Confirm `type_rules` behavior for all multi-rule dealers (Bommarito, Serra Honda, Mercedes-Benz of Creve Coeur, Auffenberg)
+- [ ] Confirm multi-rule + split behavior end-to-end (Bommarito, Serra Honda, MBCC split, Frank Leta source-split, Auffenberg)
 
 **Order type system:**
-- [ ] Add order type selection to the Run Dealer modal (CAO, LIST, Maintenance, Hybrid)
-- [ ] Implement Maintenance Order: two-stream modal (CAO auto-fill + manual lot scan textarea), merge logic, VIN log bypass on manual stream
-- [ ] Implement Hybrid Order: same two-stream structure with type override option on the manual stream
-- [ ] Implement two-phase review modal with bucket breakdown (CAO-only, manual-new, manual-duplicate, in-both-streams)
+- [ ] Add order-type selection to Run Order (CAO, LIST, Maintenance, Hybrid)
+- [ ] Maintenance Order — two-stream modal (CAO + manual lot scan), merge logic, VIN-log bypass on the manual stream
+- [ ] Hybrid Order — same two-stream structure + type override on the manual stream
+- [ ] Two-phase review modal with bucket breakdown (CAO-only, manual-new, manual-dupe, in-both)
 
-**Outstanding design challenges (require decisions before implementation):**
-- [ ] **MBCC / Sprinter shared inventory:** Decide between (a) separate dealer config entry for Sprinter reading from the same scraper location, or (b) a single run producing two billing outputs. Implement chosen approach.
-- [x] **Glendale CDJR price + $2,000:** Implemented. `PRICE_PLUS_2000` live at ORDERMATCH col 20 (T) via template ARRAYFORMULA (`"$"&TEXT(H2:H+2000,"#,##0")`, `*`-safe); used by the GLENDALE_COMBINED schema.
-- [ ] **Auffenberg Hybrid config:** Add `type_override` field to `SF_DEALER_CONFIG` for the manual stream. Wire through to sidebar and CSV builder.
+**Outstanding design challenges:**
+- [x] **MBCC / Sprinter shared inventory** — resolved (v2.9 `billing_split`, Option B)
+- [x] **Glendale CDJR price + $2,000** — `PRICE_PLUS_2000` live at ORDERMATCH col 20 (T)
+- [ ] **Auffenberg Hybrid config** — `type_override: "used"` on the manual stream; wire through the modal + CSV builder
 
 **Housekeeping:**
-- [ ] Delete `VINLogMigration.gs` and `FolderSetup.gs` from Apps Script (one-time scripts, no longer needed)
-- [ ] Delete blank `Sheet1` tab from `SF_VIN_LOGS`
-- [ ] Rename `JOE_MACHENS_CDJR` tab in `SF_VIN_LOGS` to `CDJR_OF_COLUMBIA`
-- [ ] Fix `#ERROR!` cells in README tabs of `SF_SYSTEM_MASTER` and `SF_DEALER_CONFIG`
-- [ ] Update `_CONFIG_CACHE` header row in universal template to reflect current config schema
-- [ ] Resolve remaining `scraper_location_name` mismatches (BMW of West St. Louis, Serra Honda O'Fallon)
-- [x] Align the V2 doc status field from "active production" to "near production (final testing)" — done in Bridge doc v2.5 update (June 2026)
-- [ ] Delete `test-write-access.txt` from the GitHub repo root (`git rm` locally and push)
+- [ ] Delete `VINLogMigration.gs` and `FolderSetup.gs` from Apps Script
+- [ ] Fix `#ERROR!` cells in README tabs; update `_CONFIG_CACHE` header row
+- [ ] `git rm test-write-access.txt` and push
+- [ ] Fix stale "Scraper #N/A" notes on the active Jefferson City dealers; consider consolidating `SCP_NEW` (now identical to `SCP`)
+- [x] Align the V2 doc status field to "near production" — done (Bridge doc)
+- [x] Resolve the `scraper_location_name` audit — done June 18 (BMW J6 was the only real drift; Serra/CDJR confirmed not drift)
 
-**Success criteria:** V2 can run a full order for any active dealer without errors. All four order types are supported. BILLING totals are accurate. CAO automation works.
+**Success criteria:** V2 runs a full order for any active dealer without errors; all four order types supported; BILLING totals accurate; CAO works; Pipedrive + theming deployed and validated.
 
 ---
 
-### Phase 1A — V2 Architecture Hardening (New)
+### Phase 1A — V2 Architecture Hardening
 
-The fastest way to finish the bug-hunt is to shrink the places bugs can hide. These changes harden V2 without changing its behavior, and several directly attack the recurring failure modes documented in the project knowledge base (hardcoded indices, schema-migration fragility, the 6-minute ceiling).
+Shrink the places bugs can hide. These harden V2 without changing behavior and attack the recurring failure modes (hardcoded indices, schema-migration fragility, the 6-minute ceiling).
 
-- [ ] **`IFERROR`-wrap ORDERMATCH formulas.** *(Partial precedent: all DASHBOARD formulas added in v2.5 are IFERROR-wrapped; ORDERMATCH itself still pending.)* Wrap the QUERY spill and the downstream ARRAYFORMULA columns so a single unmatched VIN produces a blank/`*` rather than an `#N/A` that cascades into BILLING2 `#VALUE!`. This is the structural fix for the BILLING2 error rather than a per-symptom patch.
-- [ ] **Make `FIELD_TO_COL` self-describing.** Read the ORDERMATCH header row at runtime to build the field-code→column map (cached for the run, with the current hardcoded constant as a fallback only). Adding a field code then stops requiring a `Code.gs` edit and removes the class of bug where a template column shift silently breaks output. Directly addresses the "hardcoded column indices are fragile" learning from the RUN_LOG migration.
-- [ ] **Resumable runs for the 6-minute ceiling.** For large orders, checkpoint progress to ScriptProperties and continue via a time-driven trigger if the run approaches the execution limit. Prevents the one failure mode V2 inherits unchanged from V1.
-- [ ] **Lightweight regression harness.** A `runQATest()` function that runs a frozen scraper sample + a known multi-rule dealer through the full pipeline and diffs the resulting CSV against a stored expected output. Run before every `clasp push`. Turns "test on real dealers and hope" into a repeatable check.
-- [ ] **Scheduled config audit.** Run `auditConfigPlaceholders()` on a daily trigger and surface results, rather than running it ad hoc, so a malformed `filtering_rules` or missing `type_rules` is caught before an order does.
-- [ ] **Extend the per-run cache.** Apply the `getConfigSS_()` single-open pattern to the master spreadsheet object as well, eliminating remaining redundant `openById` round trips within a run.
+- [ ] **`IFERROR`-wrap ORDERMATCH formulas.** *(Precedent: DASHBOARD formulas are IFERROR-wrapped; the `PRICE_TAGLINE` formula is too.)* Wrap the QUERY spill + downstream ARRAYFORMULAs so one unmatched VIN yields blank/`*` rather than an `#N/A` cascading into BILLING `#VALUE!`. The structural fix for the BILLING error.
+- [ ] **Make `FIELD_TO_COL` self-describing.** Read the ORDERMATCH header row at runtime (cached, with the constant as fallback), so adding a field code stops needing a `Code.gs` edit and a template column shift can't silently break output.
+- [ ] **Resumable runs for the 6-minute ceiling.** Checkpoint large orders to ScriptProperties and continue via a time-driven trigger.
+- [ ] **Lightweight regression harness.** A `runQATest()` that runs a frozen scraper sample + a known multi-rule dealer through the full pipeline and diffs the CSV against a stored expected output; run before every `clasp push`. *(Partial precedent: the Pipedrive + install-cost work added focused backend unit tests — 15/15 and 11/11 — but there's no full-pipeline harness yet.)*
+- [ ] **Scheduled config audit.** Run `auditConfigPlaceholders()` on a daily trigger so a malformed `filtering_rules`/`type_rules` is caught before an order.
+- [x] **Extend the per-run cache** — done: `getMasterSS_()` / `getVinLogsSS_()` mirror `getConfigSS_()`; all scattered `openById(MASTER/VIN_LOGS)` sites routed through them (`getActiveSpreadsheet()` sites intentionally untouched).
+- [x] **Replace fixed post-formula sleeps** — done: `waitForRecalc_` (250ms early-exit polls) replaced the fixed ORDERMATCH/LINKBUILDER sleeps.
 
-**Success criteria:** No `#N/A`/`#VALUE!` cascades reach BILLING; a template column change cannot silently corrupt output; large orders complete or resume cleanly; the regression harness passes before each deploy.
+**Success criteria:** no `#N/A`/`#VALUE!` cascades reach BILLING; a template column change can't silently corrupt output; large orders complete or resume; the regression harness passes before each deploy.
 
 ---
 
 ### Phase 2 — Translation Layer (Python)
 
-Build the data normalization module in Python. This is relevant to V3 but can also deliver immediate value into V2 by producing clean, consistently formatted CSVs for the Import Scraper Data modal.
+Build the data-normalization module in Python (relevant to V3; can also feed clean CSVs into V2's Import screen immediately).
 
-**Goals:**
-- Accept one or more inventory files (CSV, Excel, or API response) in any column layout
-- Map source columns to the standard 21-column schema by header name (case-insensitive, with alias support)
-- Merge multiple files into a single homogenized dataset (deduplication by VIN across files)
-- Flag unrecognized columns without failing
-- Output a clean CSV in the standard schema format
+**Goals:** accept one+ files (CSV/Excel/API) in any layout; map source columns to the standard 21-column schema by header (case-insensitive + alias); merge with VIN dedup; flag unrecognized columns without failing; output a clean standard-schema CSV.
 
 **Standard schema (21 columns):**
 `VIN | Stock | Type | Year | Make | Model | Trim | Ext Color | Status | Price | Body Style | Fuel Type | MSRP | Date In Stock | Street Address | Locality | Postal Code | Region | Country | Location | Vehicle URL`
 
-**Deliverables:**
-- [ ] `translator.py` — core normalization logic
-- [ ] Column alias map — common alternative names for each standard column
-- [ ] Multi-file merge logic with VIN deduplication
-- [ ] CLI: `python translate.py --input file1.csv file2.xlsx --output inventory.csv`
-- [ ] Unit tests for column mapping and merge logic
-- [ ] Documentation of supported source formats
+**Deliverables:** `translator.py`; a column alias map; multi-file merge with VIN dedup; a CLI; unit tests; supported-format docs.
 
-**Note:** The translation layer outputs a CSV that can be imported into V2 via the existing Import Scraper Data modal immediately upon completion. No changes to V2 required. All work here is directly reusable in V3, and the normalization rules should mirror V2's `NORM_MAPS` so the two systems normalize identically.
+**Note:** the alias logic should mirror V2's **Data Sources** header mapping + `NORM_MAPS` so the two systems normalize identically; output imports into V2 unchanged.
 
 ---
 
 ### Phase 3 — Core V3 Application (Greenfield FastAPI + React)
 
-Per **V3 Direction**, V3 is a clean rebuild on FastAPI + React with the V2 config model as the canonical spec. The existing Flask code is a reference, not a base. This phase does not begin in earnest until V2 is in production.
+V3 is a clean rebuild on FastAPI + React with the V2 config model as the canonical spec. The Flask code is a reference, not a base. Doesn't begin in earnest until V2 is in production.
 
 #### Reference assets from the Flask build (reuse, don't extend)
-- Local QR generation via the `qrcode` library (388×388 PNG) — **but encode the UTM-tagged VDP URL, not the bare VIN**
-- Two-phase order wizard UX and the bucket-breakdown review modal concept
-- A starting Postgres schema for inventory and import tracking
-- The order-processing *flow shapes* (prepare → review → generate) for CAO/LIST/Maintenance/Hybrid
+- Local `qrcode` generation (388×388) — **but encode the UTM-tagged VDP URL, not the bare VIN**
+- The two-phase wizard UX + bucket-breakdown review modal
+- A starting Postgres schema; the prepare → review → generate flow shapes
 
 #### Canonical domain model (ported from V2)
-- [ ] `type_rules` engine — per-type `match`/`csv_schema`/`utm`, first-match-wins, title-case types incl. `CPO-EL` (ordered before `CPO`)
-- [ ] `filtering_rules` engine — `allowed_types`, `exclude_status`, `require_stock`, `require_price`, `min_price`/`max_price`, **per-type `seasoning` arrays**; rejection reasons enumerated (`no_stock`, `no_price`, `type`, `status`, `price_low`, `price_high`, `seasoning`)
-- [ ] `CSV_SCHEMAS` table + **data-driven field-code registry** (replaces hardcoded `build_csv_row()`); auto-suffix duplicate field codes in headers (`YEARMODELSTOCK`, `YEARMODELSTOCK2`, …)
-- [x] `PRICE_FMT` without `$`; `PRICE_PLUS_2000` implemented (V2 — port to V3 field-code registry)
+- [ ] `type_rules` engine (first-match-wins, title-case incl. `CPO-EL` before `CPO`)
+- [ ] `filtering_rules` engine (`allowed_types`, `exclude_status`, `require_stock/price/url`, `min/max_price`, per-type `seasoning`; enumerated rejection reasons)
+- [ ] **`targeting_rules` engine** — IF nested AND/OR THEN action (`drop_on_import`/`exclude_cao`/`exclude_order`), fail-SAFE, schema-driven fields, `gt`/`lt`/`in`/`contains`/…
+- [ ] **billing_split** (separate deals/orgs/product maps) and **source_split** (one deal, separate products/CSVs per source) — both driven generically off filtering_rules
+- [ ] `CSV_SCHEMAS` + a **data-driven field-code registry** (replaces hardcoded `build_csv_row()`); auto-suffix duplicate field codes
+- [x] `PRICE_FMT` without `$`; `PRICE_PLUS_2000` + `PRICE_TAGLINE` implemented (V2 — port to the field-code registry)
 - [ ] `NORM_MAPS`-equivalent normalization (shared with the Phase 2 translator)
-- [ ] Single `vin_logs` table keyed by `dealer_key` (FK + indexes); no per-dealer tables, no dynamic-table SQL
+- [ ] **Data Sources** equivalent — per-source header mapping + schema growth
+- [ ] Single `vin_logs` table keyed by `dealer_key` (FK + indexes); no per-dealer tables
+- [ ] **Post-run finalization** invariants — no log row without a deal id; VIN log never auto-written; abandonable runs
 
 #### Order processing (all four types)
-- [ ] CAO, LIST, Maintenance, Hybrid prepare + generate flows
-- [ ] `merge_order_streams()` (CAO precedence on shared VINs)
-- [ ] Type override on LIST/Hybrid manual streams
-- [ ] VIN log behavior: flagging-only on all manual streams; exclusion only for the CAO stream (`SELECT DISTINCT`)
-- [ ] Billing-group / sub-dealer support for MBCC/Sprinter (one run → tagged billing outputs)
+- [ ] CAO / LIST / Maintenance / Hybrid prepare + generate
+- [ ] `merge_order_streams()` (CAO precedence on shared VINs); type override on LIST/Hybrid manual streams
+- [ ] VIN-log behavior: flagging-only on manual streams; exclusion only for CAO (`SELECT DISTINCT`)
 
-#### Platform
-- [ ] FastAPI route layer (async-native; OpenAPI docs auto-generated)
-- [ ] Google OAuth 2.0 auth; user model with `qr_base_path`
-- [ ] React frontend (Vite): Run Dealer, Inventory/Import, Config Management, Run History, User Settings
-- [ ] ZIP output endpoint (CSV + QR codes + `order_summary.txt`)
-- [ ] Alembic migrations; env-based config; HTTPS; deploy to Railway or Render
+#### Integrations & platform
+- [ ] **Pipedrive push** — port the V2 spec: global deal-field rules (copy/conditional/constant) + per-dealer overrides, org-scoped products, gross line items, idempotent retry-safe create/link
+- [ ] FastAPI route layer (async; OpenAPI); Google OAuth 2.0; user model with `qr_base_path`
+- [ ] React frontend (Vite): Run Dealer, Inventory/Import + Data Sources, Config Management, Run History, User Settings; **light/dark theming** (port the V2 token system)
+- [ ] ZIP output endpoint; Alembic migrations; env config; HTTPS; deploy to Railway/Render
 
-**Success criteria:** A user can log in from any machine with a browser, select a dealer, run any of the four order types, and download a ZIP containing correct CSVs and QR codes — where "correct" is defined by parity with V2 output for the same dealer and inventory.
+**Success criteria:** a user logs in from any browser, runs any of the four order types, and downloads a ZIP with correct CSVs + QR codes — "correct" = parity with V2 output for the same dealer + inventory.
 
 ---
 
 ### Phase 4 — Configuration Management UI
 
-Once the core workflow is stable, dealer and schema configuration should be fully manageable from the UI without database or spreadsheet access. This is the feature most directly aligned with "user-configurable without programming knowledge," and React's component model is well-suited to the form-heavy config UI (a reason the rebuild lands here cleanly).
+Make dealer + schema config fully manageable from the UI (no sheet/DB access) — the feature most aligned with "user-configurable without programming knowledge"; React's component model suits the form-heavy UI.
 
-**Dealer management:**
-- [ ] List all dealers (active and inactive)
-- [ ] Edit dealer config (type_rules, scraper location, QR prefix, filtering rules, etc.)
-- [ ] Add new dealer (guided setup)
-- [ ] Activate / deactivate dealers
-- [ ] View dealer's VIN log (read-only)
+**Dealer management:** list (active/inactive); edit config (type_rules, scraper location, QR prefix, filtering + **targeting** rules, billing/source split, **Pipedrive** org/product mapping); guided add; activate/deactivate; read-only VIN log.
 
-**Schema management:**
-- [ ] List CSV schemas
-- [ ] Edit schema column layout
-- [ ] Add new schema with field code selector
-- [ ] Preview schema output with sample data
+**Schema management:** list/edit/add CSV schemas with a field-code selector; preview with sample data; manage Data Sources mappings + schema columns.
 
-The V2 Dealer Rules Editor modal (`RulesEditor.html`) is the functional reference for this UI — the React build should reach parity with it (independent save for type_rules and filtering_rules, live schema loading, reorderable rule cards) and then exceed it.
+The V2 **`ViewRules.html`** is the functional reference — the recursive `targeting_rules` builder, the per-tab independent save, live schema loading, and the Pipedrive panel (org-scoped product picker, variation selector, overrides). React should reach parity, then exceed it.
 
 ---
 
 ### Phase 5 — CAO Automation (V3)
 
-The CAO automation built in V2 is manual-assist (pre-fills a VIN list for the user to review). V3 should fully automate the comparative analysis and present results in the two-phase modal.
-
-- [ ] "Auto-Fill from Inventory" flow: pull current inventory → apply filtering_rules → cross-reference VIN log (`SELECT DISTINCT`) → present net-new VIN list
-- [ ] CAO review modal with checkboxes (pre-checked, user can deselect)
-- [ ] Duplicate count and already-produced count displayed
-- [ ] Maintenance Order CAO stream runs automatically alongside the manual textarea
+V2's CAO is manual-assist (pre-fills a list). V3 fully automates the comparative analysis in the two-phase modal.
+- [ ] Auto-fill flow: pull inventory → apply filtering + targeting rules → cross-reference VIN log (`SELECT DISTINCT`) → net-new list
+- [ ] Review modal with pre-checked checkboxes; duplicate/already-produced counts; Maintenance CAO stream runs alongside the manual textarea
 
 ---
 
 ### Phase 6 — V2 Retirement
 
-Once V3 is stable and has run in production long enough to be trusted, V2 is retired.
-
-**Retirement checklist:**
-- [ ] All active dealers confirmed working in V3
-- [ ] Full VIN log history confirmed in PostgreSQL (single `vin_logs` table)
-- [ ] All dealer config confirmed migrated
-- [ ] Run log history migrated or archived
-- [ ] `SF_SYSTEM_MASTER`, `SF_DEALER_CONFIG`, `SF_UNIVERSAL_TEMPLATE`, `SF_VIN_LOGS` archived in Drive (not deleted)
-- [ ] Apps Script project archived
-- [ ] Team notified — V3 URL is the new workflow
+Once V3 is stable and trusted in production: confirm all dealers in V3; full VIN-log history in the single `vin_logs` table; all config migrated; run-log history migrated/archived; archive the four spreadsheets + Apps Script project in Drive (not deleted); notify the team.
 
 ---
 
 ## Dealer Configuration Outstanding Issues
 
-These are known design challenges that must be resolved before the relevant dealers can be fully configured in V2 or V3. Documented here and in `SilverFox_Dealer_Account_Catalog.md`.
+### MBCC / Sprinter of Creve Coeur — RESOLVED (June 12, 2026)
+Resolved via **`billing_split`** (Option B): a single run produces **BILLING** (MBCC) + **BILLING_SPRINTER** and two finalization cards with independent deal IDs / two Pipedrive orgs. MBCC's `filtering_rules` carries `billing_split` (`field:model, op:contains, values:["Sprinter","Metris"]`). V3 makes the billing-group concept native. *(Live-test verification remains as part of the Phase 1 bug-hunt.)*
 
-### MBCC / Sprinter of Creve Coeur
-Mercedes-Benz of Creve Coeur and Sprinter of Creve Coeur share a scraper location (`Location` column value) and use identical print templates, but require separate Pipedrive entries and invoices. Currently only MBCC has a dealer config entry. Sprinter has no entry in V2 or V3.
+### Glendale CDJR — Price + $2,000 — RESOLVED
+`PRICE_PLUS_2000` field code live at ORDERMATCH col 20 (T) via a `*`-safe template ARRAYFORMULA; used by `GLENDALE_COMBINED`.
 
-**Options under consideration:**
-- **(A)** Add a `SPRINTER_CREVE_COEUR` dealer entry pointing to the same `scraper_location_name`. Each dealer runs as a separate order. User splits the VIN list between the two dealers manually.
-- **(B)** Build a shared-inventory concept: a single order run produces two billing outputs (one for MBCC, one for Sprinter) by tagging each VIN with the appropriate sub-dealer.
+### Frank Leta Honda — Dual-site — RESOLVED (June 2026)
+**`source_split`** (main site + AUTOLOANPRO): one order, one deal, two CSV outputs by URL domain; BY-SOURCE billing section; import-time main-first waterfall dedup. Per-source Pipedrive products supported via the `PIPEDRIVE` tab col L `source_product_map` (branch-only until Pipedrive deploys).
 
-Option A is simpler to implement in V2. **Option B is the recommended target for V3**, where the billing-group / sub-dealer concept can be a first-class part of the data model rather than a workaround. Decision for V2 pending; V3 should build Option B.
+### Auffenberg Hyundai — Hybrid Order Config (pending)
+Needs `type_override: "used"` on the manual stream (Courtesy Loaners appear New, must print/bill Used). V2: a manual-stream override surfaced in the (not-yet-built) two-stream modal + CSV builder. V3: a parameter on the Hybrid order request.
 
-### Glendale CDJR — Price + $2,000
-The `GLENDALE_COMBINED` schema includes a `PRICE_FMT` field, but the actual requirement is `vehicle price + $2,000` in the output. The current `PRICE_FMT` field code applies no arithmetic offset.
-
-**Solution:** Add a `PRICE_PLUS_2000` field code to `SF_DEALER_CONFIG FIELD_CODES` (V2; reserved at ORDERMATCH col 20) and to the field-code registry (V3). Straightforward once prioritized.
-
-### Auffenberg Hyundai — Hybrid Order Config
-Auffenberg needs a `type_override: "used"` flag on the manual stream (Courtesy Loaners appear as "New" in the scraper but must print as "Used"). In V2, this requires adding a `manual_stream_type_override` column to `SF_DEALER_CONFIG`. In V3, this is a parameter on the Hybrid order request. The sidebar and order wizard both need to surface this option at order time.
-
-### CDJR of Columbia — Naming Alignment
-Listed as "CDJR of Columbia" in the dealer catalog but as "SoCo DCJR" in the V1/V2 system, with a `scraper_location_name` of "Joe Machens Chrysler Dodge Jeep Ram" (legacy scraper feed name). The system functions correctly; this is a documented cleanup item. Align naming and rename the `JOE_MACHENS_CDJR` VIN-log tab to `CDJR_OF_COLUMBIA` before V3 migration to avoid scraper `location` filter mismatches.
+### CDJR of Columbia — Naming (cleanup)
+`scraper_location_name` stays "Joe Machens Chrysler Dodge Jeep Ram" (matches the live feed — do not change until the scraper is updated); the VIN-log tab is already `CDJR_OF_COLUMBIA`. The system functions correctly.
 
 ---
 
 ## Data Migration Plan
 
-### Dealer Config (SF_DEALER_CONFIG → PostgreSQL)
-The DEALERS, CSV_SCHEMAS, and FIELD_CODES tabs are structured and clean. Migration is a CSV export → database insert. The `type_rules` and `filtering_rules` JSON columns map directly to JSONB columns in Postgres. **The V2 config is the source of truth — V3 config is rebuilt from it, not from the existing Flask `dealership_configs` table** (which uses the divergent schema in Appendix A).
-
-### VIN Logs (SF_VIN_LOGS → PostgreSQL)
-SF_VIN_LOGS was already standardized during the V1→V2 migration (`ORDER_ID | VIN | committed_at`, one tab per dealer). Migration is a tab-by-tab read → bulk insert into a **single `vin_logs` table** with `dealer_key` as a foreign key (not per-dealer tables). Any existing Flask per-dealer `*_vin_log` tables are consolidated into this single table during the rebuild.
-
-### Run Log (RUN_LOG → PostgreSQL)
-Historical run log rows import as-is. The 23-column schema is well-defined.
-
-### Inventory Data (SCRAPERDATA → PostgreSQL `inventory` table)
-The current SCRAPERDATA sheet is ephemeral — replaced on every scraper import. Whether V3 keeps a current-snapshot-only model or adds an append-only timestamped history is an open question (below) tied to whether historical CAO analytics is wanted. No historical data migration is required either way.
+- **Dealer Config (SF_DEALER_CONFIG → Postgres):** DEALERS/CSV_SCHEMAS/FIELD_CODES export → insert; `type_rules`/`filtering_rules` (incl. `targeting_rules`/`billing_split`/`source_split`) JSON → JSONB. **V2 config is the source of truth — V3 is rebuilt from it, not the divergent Flask `dealership_configs` table.** The new `PIPEDRIVE`/`PIPEDRIVE_SETTINGS` tabs port as their own tables.
+- **VIN Logs (SF_VIN_LOGS → Postgres):** tab-by-tab read → bulk insert into a **single `vin_logs` table** with `dealer_key` FK (not per-dealer tables). Consolidate any Flask `*_vin_log` tables here.
+- **Run Log (RUN_LOG → Postgres):** import as-is (23-col schema). IMPORT_STATS/ORDER_STATS were deliberately built flat/formula-free → port 1:1.
+- **Inventory (SCRAPERDATA → `inventory`):** ephemeral (replaced per import) — no historical migration. Whether V3 keeps snapshot-only or adds timestamped history is an open question.
 
 ---
 
 ## Technology Stack Summary
 
-| Layer | V2 (Bridge) | V3 (Recommended: FastAPI + React) |
+| Layer | V2 (Bridge) | V3 (FastAPI + React) |
 |---|---|---|
 | **Backend** | Google Apps Script | Python / FastAPI |
-| **Frontend** | Google Sheets + HTML modals | React + Vite |
+| **Frontend** | The SilverFox App — Google Sheets HtmlService SPA | React + Vite |
 | **Database** | Google Sheets | PostgreSQL |
 | **Auth** | Google account (implicit) | Google OAuth 2.0 |
 | **QR Generation** | qrserver.com API (parallel), encodes UTM VDP URL | `qrcode` library (local), encodes UTM VDP URL |
+| **CRM push** | Pipedrive (Code.gs §31, built; not yet deployed) | Pipedrive (port the V2 spec) |
 | **Hosting** | Google (Sheets/Drive) | Railway or Render |
 | **Output delivery** | Google Drive download | ZIP download |
 | **Migrations** | None | Alembic |
 | **Version control** | Git (GitHub) | Git (GitHub) |
 
-> The earlier "V3 Path A (Flask) vs Path B (FastAPI + React)" comparison table has been removed; the decision is made (rebuild on FastAPI + React). The Flask column is preserved in `SilverFox_V3_Flask_System.md` as the reference implementation.
-
 ---
 
 ## Open Questions
 
-1. **MBCC / Sprinter shared inventory (V2):** Option A (two separate dealer entries) or Option B (one run, two billing outputs) for the V2 bridge? (V3 builds Option B regardless.)
+1. **Inventory storage model (V3):** current-snapshot-only (simpler) or append-only timestamped history (enables historical CAO analytics)? Leans snapshot-plus-optional-history if analytics is on the roadmap. *(V2's append-only `SCHEMA` growth + IMPORT_STATS history are relevant precedents.)*
+2. **QR caching (V3):** cache PNGs by VIN+UTM to avoid regenerating identical codes?
+3. **Output ZIP retention (V3):** retain for re-download within a window, or regenerate?
+4. **DMS direct feed:** scheduled auto-push or user-triggered import?
+5. **Multi-tenant:** internal-only, or future dealer read access to their own order history?
+6. **Maintenance Order frequency:** per-dealer configurable or fixed monthly?
+7. **Rebuild sequencing:** does the V3 rebuild wait fully for V2 production, or can the framework-agnostic pieces (spec extraction, data model, migrations, translator) start during the V2 bug-hunt?
 
-2. **Inventory storage model (V3):** Current-snapshot-only (simpler) or append-only timestamped history (enables historical CAO comparisons and analytics)? Recommendation leans snapshot-plus-optional-history if analytics is on the roadmap.
-
-3. **QR code caching (V3):** Cache QR PNGs by VIN+UTM to avoid regenerating identical codes across orders?
-
-4. **Output ZIP retention (V3):** Retain the output ZIP for re-download within a time window, or generate fresh every time?
-
-5. **DMS direct feed integration:** When a DMS provider is onboarded, does data push automatically on a schedule, or does a user trigger the import manually?
-
-6. **Multi-tenant considerations:** Is V3 exclusively for SilverFox internal use, or is there a future where dealer clients have limited read access to their own order history?
-
-7. **Maintenance Order frequency:** Configurable per dealer, or a fixed monthly cadence?
-
-8. **Rebuild sequencing:** Does the V3 rebuild wait fully for V2 production, or can the framework-agnostic pieces (canonical spec extraction, data model, migrations, translator) start in parallel during the V2 bug-hunt?
+> *Resolved:* MBCC/Sprinter V2 approach (Option B — `billing_split`); V3 Flask-vs-FastAPI (FastAPI + React rebuild).
 
 ---
 
 ## Appendix A: V2 / V3 Divergence Findings
 
-These are the specific divergences (June 2026 review) that motivate rebuilding V3 from V2 rather than extending the existing Flask code. Each is a place where the Flask implementation encodes behavior that V2 has since corrected or superseded.
+These (June 2026 review) motivate rebuilding V3 from V2 rather than extending Flask. Each is where Flask encodes behavior V2 has corrected or superseded.
 
-1. **Config schema drift.** Flask `filtering_rules` uses `allowed_vehicle_types` (lowercase `new/used/cpo`) and a single `seasoning_days` integer; V2 uses `allowed_types` (title-case `New/PO/CPO/CPO-EL`), **per-type** `seasoning` arrays, plus `require_price` and `min/max_price`. Flask `output_rules` is a separate object (`template_type`, `custom_templates`, `csv_columns`, `sort_by`) that diverges from V2's battle-tested `type_rules` + `CSV_SCHEMAS` + `FIELD_CODES` system.
-
-2. **QR content mismatch (correctness bug).** Flask `generate_qr_code()` encodes the bare VIN (`qr.add_data(vin.upper())`). V2 encodes the **UTM-tagged VDP URL** built in LINKBUILDER from the `utm` value in `type_rules`. VIN-only QR codes would break dealer link tracking and the entire UTM system. V3 must encode the URL.
-
-3. **Vehicle-type taxonomy gap.** Flask `vehicle_condition` is `new/used/cpo` with no PO-vs-CPO-vs-CPO-EL distinction. V2 distinguishes `New / PO / CPO / CPO-EL`, and MBCC's configuration depends on `CPO-EL` (ordered before `CPO` because "CPO" is a substring). MBCC cannot be expressed in the Flask model as built.
-
-4. **VIN-log table proliferation.** Flask uses 36+ per-dealer `*_vin_log` tables accessed via dynamic f-string SQL (`SELECT DISTINCT vin FROM {table}`). This mirrors V1's ~42-spreadsheet anti-pattern that V2 explicitly consolidated, and it blocks parameterized queries, foreign keys, and central indexing. V3 should use a single `vin_logs` table keyed by `dealer_key`.
-
-5. **Carried-over fixes.** Flask `build_csv_row()` sets `PRICE_FMT` with a `$` prefix; V2 removed the `$` (v2.3) because Illustrator cannot map two variables to the same field code and the dollar sign caused type conflicts. Flask also hardcodes the CSV row builder in code, whereas V2's direction is a data-driven field-code registry so new field codes are config, not code.
+1. **Config schema drift.** Flask `filtering_rules` uses `allowed_vehicle_types` (lowercase `new/used/cpo`) + a single `seasoning_days` int; V2 uses `allowed_types` (title-case, incl. `CPO-EL`), **per-type** `seasoning` arrays, `require_price`, `min/max_price`, **plus the `targeting_rules` engine and billing/source splits that don't exist in Flask at all.** Flask `output_rules` diverges from V2's `type_rules` + `CSV_SCHEMAS` + `FIELD_CODES`.
+2. **QR content mismatch (correctness bug).** Flask `generate_qr_code()` encodes the bare VIN; V2 encodes the **UTM-tagged VDP URL** (breaks link tracking + the whole UTM system). V3 must encode the URL.
+3. **Vehicle-type taxonomy gap.** Flask `new/used/cpo` has no PO-vs-CPO-vs-CPO-EL distinction; V2 distinguishes `New/PO/CPO/CPO-EL` and MBCC depends on `CPO-EL` (ordered before `CPO`). MBCC can't be expressed in the Flask model.
+4. **VIN-log table proliferation.** Flask: 36+ per-dealer `*_vin_log` tables via dynamic f-string SQL — V1's anti-pattern V2 consolidated. V3: a single `vin_logs` table keyed by `dealer_key`.
+5. **Carried-over fixes.** Flask `build_csv_row()` sets `PRICE_FMT` with a `$` prefix (V2 removed it in v2.3) and hardcodes the CSV row builder; V2's direction is a data-driven field-code registry.
 
 ---
 
 ## Document Maintenance
 
-This document should be updated at the start of each new phase and whenever a significant architectural decision is made. Key things to keep current:
+Update at the start of each phase and on any significant architectural decision. Keep current: phase completion status; V2 production/deploy status; technology decisions; open questions; new dealer requirements; Appendix A as divergences are found/resolved.
 
-- Phase completion status (check off completed items)
-- V2 production status (and align the V2 doc status field when V2 goes live)
-- Technology decisions that diverge from what's documented here
-- Open questions as they are resolved or added
-- New dealer configuration requirements from `SilverFox_Dealer_Account_Catalog.md`
-- Appendix A as additional V2/V3 divergences are found or resolved during the rebuild
+### Branch & Merge Strategy (as of June 23, 2026)
 
-### Branch & Merge Strategy (as of June 10, 2026)
-
-- **`feature/health-monitoring` was merged into `main` (June 10, 2026).** `main` is now the **single deployed/integration branch**; all subsequent work (Dean Team Brentwood dealer, PRICE_TAGLINE, generalized targeting rules, NORM_MAPS performance fix, trim-cleanup docs) was committed directly to `main`.
-- Deploy flow: edit locally → commit/push to `main` → `clasp push`. Rollback = `git checkout <last good commit>` + `clasp push`.
-- **Merge-conflict caution:** `Code.gs` is a single ~3,000-line file, so any two branches that both touch it will conflict on merge. With `main` as the single integration point, prefer short-lived feature branches (or direct commits for small changes) and avoid parallel long-lived branches that both edit `Code.gs`.
-- The `feature/health-monitoring` branch still exists (not yet deleted) but is fully merged.
+- **`main` is the single deployed/integration branch.** Deploy flow: edit locally → commit/push to GitHub → `clasp push`. Rollback = `git checkout <last good commit>` + `clasp push`. **A git merge to `main` ≠ a deploy** — deploying is the separate `clasp push`.
+- **What's on `main` and deployed:** everything through v2.11 (Data Sources + Targeting Rules, tag `stable-post-targeting-rules`), plus the App SPA, the performance sweep, and `source_split` (Frank Leta).
+- **Live, undeployed branches (built, no `clasp push` yet):**
+  - `pipedrive-integration` — the base Pipedrive feature; with stacked sub-branches `feature/pipedrive-finalize-flow` (method-first finalize), `feature/pipedrive-install-cost`, and `feature/pipedrive-followups` (constant deal-field rule). The current working branch `feature/pipedrive-billing-pdf` continues this line.
+  - `styling-updates` — Lot Sherpa theming (+ two ready-to-push import-health fixes).
+  - `feature/dealer-rules-discard` — the Discard Changes button.
+- **Merge-conflict caution — `Code.gs` is one ~3,400-line file**, so any two branches that both touch it conflict on merge. This is acute right now with several stacked Pipedrive sub-branches. Prefer short-lived branches off the right base, land them in order, and avoid parallel long-lived branches that both edit `Code.gs`. (Doc-only branches like the one this plan is being edited on don't have that problem — these two planning docs are dormant on `main`, so they merge cleanly.)
+- The merged `feature/health-monitoring` branch still exists but is fully integrated.
