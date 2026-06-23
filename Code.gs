@@ -6723,30 +6723,6 @@ function attachBillingPdfToDeal_(dealId, outputDocId, group, meta) {
   return att.ok ? { ok: true } : { ok: false, error: att.error };
 }
 
-/**
- * DIAGNOSTIC (temporary) — confirms the Sheets PDF export + the Pipedrive /files upload
- * live: generates a billing PDF and attaches it to a deal, logging the result. With NO
- * args it targets the MOST RECENT RUN_LOG row (deal id col D, output doc col R, dealer col
- * C, group from the col-U note), so it can be run straight from the editor's Run button.
- * Remove after verification.
- */
-function pdDebugBillingPdf(dealId, outputDocId, group) {
-  var dealerName = 'Order';
-  if (!dealId || !outputDocId) {
-    var ls  = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('RUN_LOG');
-    var row = ls.getRange(ls.getLastRow(), 1, 1, 23).getValues()[0];
-    dealId      = dealId      || row[3];
-    outputDocId = outputDocId || row[17];
-    dealerName  = row[2] || dealerName;
-    var note = String(row[20] || '');
-    if (!group) group = (note.indexOf('SPLIT:') === 0) ? note.substring(6).toUpperCase() : 'PRIMARY';
-  }
-  var res = attachBillingPdfToDeal_(dealId, outputDocId, group || 'PRIMARY', { dealerName: dealerName });
-  Logger.log(JSON.stringify({ dealId: dealId, outputDocId: outputDocId, group: group, dealerName: dealerName, result: res }, null, 2));
-  return res;
-}
-
-
 // ============================================================================
 // END OF SCRIPT
 // ============================================================================

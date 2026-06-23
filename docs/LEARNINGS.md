@@ -41,8 +41,8 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   blob conversion exports the whole spreadsheet and ignores the per-sheet print
   options.) Pattern: render the formatted content into a **temp tab**, export by its
   `getSheetId()`, then **always delete the temp tab** (even on export failure).
-  (`exportSheetPdf_` / `generateBillingPdf_`, for the Pipedrive billing-PDF.) *(The
-  exact param set is still pending one live confirmation at the time of writing.)*
+  (`exportSheetPdf_` / `generateBillingPdf_`, for the Pipedrive billing-PDF.)
+  Confirmed working live: portrait, `fitw=true`, `gridlines=false`, letter size.
 - **A comparison table inside a narrow, `overflow:hidden` card silently drops
   trailing columns.** The import conflict panel put cards in a 2-col grid
   (wide-canvas rework); each half-width card had `overflow:hidden`, and the
