@@ -207,6 +207,16 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
   sets it). `pdUpdateDealProduct_` = the only line-item UPDATE
   (`PUT /deals/{id}/products/{attachmentId}`, keyed on the attachment `id`, not
   `product_id`). `pushRunToPipedrive` signature/gates/returns unchanged.
+- Pipedrive billing-PDF attach *(branch `feature/pipedrive-billing-pdf`)*:
+  `attachBillingPdfToDeal_` (via `state.billingPdfDone` in `pdApplyDealContents_`,
+  after `designDone`, gated by the new `runCtx` 8th param) generates a formatted PDF
+  of the run's BILLING sheet and attaches it to the deal on **every** push. It is
+  **best-effort / never fails a push** (own try/catch — like the stats/dashboard
+  writes; a failure flags `billingPdfPending` and a re-push retries) and **idempotent
+  — one billing PDF per deal** (`pdDealHasBillingPdf_` does a `GET /files` by the
+  **date-free** filename). The working **BILLING sheet is never modified** — the PDF
+  is built fresh in a temp tab (`_BILLING_PDF`, always deleted). `pushRunToPipedrive`
+  signature/gates/returns unchanged.
 - Pipedrive line-item quantity is **GROSS** — `buildLineItems_` does **not**
   subtract VIN-log dupes (a re-printed VIN is still produced and billed); reads the
   gross `totalNew`/`totalPO`/`totalCpo`/`totalCpoEl` from `readBillingTotals_`. All

@@ -33,6 +33,16 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   `generateQRCodesParallel_`). Related: folders that only ever accumulate
   (the QR folders did, with duplicate filenames) make every later folder
   operation slower — clear at the start of the producing operation.
+- **Export ONE sheet (a single gid) to a formatting-preserving PDF via the Sheets
+  `…/export` URL — not DriveApp's `getAs`.** `…/spreadsheets/d/<id>/export?format=pdf&gid=<gid>&fitw=true&portrait=true&size=letter&gridlines=false&sheetnames=false&printtitle=false` fetched with
+  `Authorization: Bearer ScriptApp.getOAuthToken()` returns a PDF Blob of just that
+  one tab **with its cell formatting intact** (banding, fonts, borders, alignment) —
+  `fitw=true` scales it to the page width so wide tables don't clip. (DriveApp's
+  blob conversion exports the whole spreadsheet and ignores the per-sheet print
+  options.) Pattern: render the formatted content into a **temp tab**, export by its
+  `getSheetId()`, then **always delete the temp tab** (even on export failure).
+  (`exportSheetPdf_` / `generateBillingPdf_`, for the Pipedrive billing-PDF.) *(The
+  exact param set is still pending one live confirmation at the time of writing.)*
 - **A comparison table inside a narrow, `overflow:hidden` card silently drops
   trailing columns.** The import conflict panel put cards in a 2-col grid
   (wide-canvas rework); each half-width card had `overflow:hidden`, and the
@@ -183,6 +193,19 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   retryable message — it can **never** fail the run it's attached to. Same rule as
   "non-critical writes get their own try/catch": an integration bolted onto a
   production run must isolate every failure mode at the boundary.
+- **GAS auto-builds `multipart/form-data` from a `UrlFetchApp` payload OBJECT whose
+  field is a Blob — no manual boundary needed.** To upload a file to a REST endpoint
+  that wants `multipart/form-data` (Pipedrive `POST /api/v1/files` to attach a file to
+  a deal), pass `payload: { deal_id: '123', file: blob }` to `UrlFetchApp.fetch` — when
+  any payload field is a Blob, GAS builds the multipart body, boundary, and per-part
+  headers for you. This is **different from** the hand-rolled `multipart/related` body
+  (explicit boundary string + `Content-Type` line) used for the Drive REST multipart
+  upload in `generateQRCodesParallel_` — that one is a different content type the helper
+  doesn't assemble. It also can't go through `pdFetch_` (which is JSON-only — it
+  `JSON.stringify`s the payload), so the upload is a raw `UrlFetchApp.fetch` with the
+  token on the query string. (`pdAttachFileToDeal_` — the first file upload in the
+  codebase.) Rule of thumb: **a Blob field in a plain payload object → let GAS do the
+  multipart;** only hand-roll the body when you need a non-form multipart type.
 - **Pipedrive product variations live behind a SEPARATE, v2-ONLY endpoint.** A
   product's variations come from `GET /api/v2/products/{id}/variations` (cursor
   pagination) — they do **not** exist on v1 and are *not* embedded in the `/products`
@@ -248,6 +271,17 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
 - **QUERY `MATCHES` doesn't reliably honor `(?i)`** — use explicit-case patterns.
 - **Substring traps in type matching.** `SEARCH("CPO", "CPO-EL")` matches.
   Order checks CPO-EL → CPO → New → fallback, in formulas and in `type_rules`.
+- **Section-marker parsing has the SAME substring trap as type matching — order
+  the longer/more-specific marker first.** Parsing a sheet back into structure by
+  matching its section-header rows (`── ORDER SUMMARY ──`, `── BY TYPE ──`,
+  `── DUPLICATES BY TYPE ──`, …) with `indexOf` hits the exact CPO/CPO-EL problem:
+  `── DUPLICATES BY TYPE ──` **contains** the substring `BY TYPE`, so a naive
+  `if BY TYPE … else if DUPLICATES …` chain mis-buckets every duplicate row under
+  By-Type. Check **`DUPLICATES` before `BY TYPE`** (the more-specific marker first),
+  exactly as type checks do CPO-EL before CPO. (`readBillingForPdf_`, which parses
+  the rendered BILLING sheet for the Pipedrive billing-PDF — caught by a unit test.)
+  Same lesson as the type substring trap: when one marker string is a substring of
+  another, the longer one must be tested first.
 - **`getValues()` returns real booleans** for TRUE/FALSE cells — compare with
   the `isTrue_()` helper, not string equality.
 - **`getValues()` returns numbers (and Dates) from non-`@` columns.** SCRAPERDATA

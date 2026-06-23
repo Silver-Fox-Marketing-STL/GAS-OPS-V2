@@ -6057,15 +6057,18 @@ function pushRunToPipedrive(dealerKey, runRowIndex, mode, existingDealId) {
     }
 
     var applied = pdApplyDealContents_(dealId, lineItems, pdCfg, currency, state,
-                    function(s) { pdPushStateSet_(runRowIndex, s); }, (mode === 'create'));
+                    function(s) { pdPushStateSet_(runRowIndex, s); }, (mode === 'create'),
+                    { outputDocId: outputDocId, group: group, dealerName: row[2] || dealerKey });
     if (!applied.ok) return applied;
 
     pdPushStateClear_(runRowIndex);
     return {
       ok: true, stage: 'done', dealId: dealId,
       productsAttached: lineItems.length, fieldsSet: applied.fieldsSet,
+      billingPdfPending: applied.billingPdfPending,
       message: (mode === 'link' ? 'Linked to deal ' : 'Created deal ') + dealId +
-               ' (' + lineItems.length + ' product line' + (lineItems.length === 1 ? '' : 's') + ').'
+               ' (' + lineItems.length + ' product line' + (lineItems.length === 1 ? '' : 's') + ').' +
+               (applied.billingPdfPending ? ' (billing PDF will attach on a re-push)' : '')
     };
   } catch (e) {
     return { ok: false, stage: 'error', message: 'Unexpected error: ' + e.message, retryable: true };
@@ -6181,7 +6184,7 @@ function pdResolveDealId_(mode, existingDealId, pdCfg, currency, ctx) {
  * after each step flips so a retry resumes. Returns {ok, fieldsSet} or a failure
  * shape (carrying dealId) for the products/fields stage.
  */
-function pdApplyDealContents_(dealId, lineItems, pdCfg, currency, state, persist, isNewDeal) {
+function pdApplyDealContents_(dealId, lineItems, pdCfg, currency, state, persist, isNewDeal, runCtx) {
   if (!state.productsDone) {
     var att = pdAttachProducts_(dealId, lineItems);
     if (!att.ok) {
@@ -6243,7 +6246,20 @@ function pdApplyDealContents_(dealId, lineItems, pdCfg, currency, state, persist
     else { state.designDone = true; persist(state); }
   }
 
-  return { ok: true, fieldsSet: fieldsSet, designPending: designPending };
+  // ── Billing PDF — generate a formatted PDF of the run's billing sheet and attach it to the
+  //    deal. Best-effort / non-fatal: a failure flags billingPdfPending (a re-push retries);
+  //    idempotent (skips if a billing PDF is already on the deal). Never fails the push. ──
+  var billingPdfPending = false;
+  if (!state.billingPdfDone && runCtx && runCtx.outputDocId) {
+    try {
+      var bp = attachBillingPdfToDeal_(dealId, runCtx.outputDocId, runCtx.group || 'PRIMARY',
+                 { dealerName: runCtx.dealerName || pdCfg.orgName || '' });
+      if (bp.ok) { state.billingPdfDone = true; persist(state); }
+      else { billingPdfPending = true; Logger.log('billing PDF attach failed: ' + bp.error); }
+    } catch (e) { billingPdfPending = true; Logger.log('billing PDF attach threw: ' + e.message); }
+  }
+
+  return { ok: true, fieldsSet: fieldsSet, designPending: designPending, billingPdfPending: billingPdfPending };
 }
 
 /**
@@ -6293,7 +6309,8 @@ function finalizeRunNewDeal(dealerKey, entry) {
     var state = pdPushStateGet_(rowIndex);
     if (!state.dealId) state.dealId = dealId;
     var applied = pdApplyDealContents_(dealId, ctx.lineItems, ctx.pdCfg, ctx.currency, state,
-                    function(s) { pdPushStateSet_(rowIndex, s); pdNewDealCacheMerge_(token, { rowIndex: rowIndex }); }, true);
+                    function(s) { pdPushStateSet_(rowIndex, s); pdNewDealCacheMerge_(token, { rowIndex: rowIndex }); }, true,
+                    { outputDocId: outputDocId, group: group, dealerName: ctx.pdCfg.orgName || dealerKey });
     if (!applied.ok) { applied.rowIndex = rowIndex; applied.dealId = dealId; return applied; }
 
     pdPushStateClear_(rowIndex);
@@ -6301,9 +6318,11 @@ function finalizeRunNewDeal(dealerKey, entry) {
     return {
       ok: true, stage: 'done', dealId: dealId, rowIndex: rowIndex,
       productsAttached: ctx.lineItems.length, fieldsSet: applied.fieldsSet,
+      billingPdfPending: applied.billingPdfPending,
       vinCount: (entry.producedVins || []).length,
       message: 'Created deal ' + dealId + ' (' + ctx.lineItems.length + ' product line' +
-               (ctx.lineItems.length === 1 ? '' : 's') + ').'
+               (ctx.lineItems.length === 1 ? '' : 's') + ').' +
+               (applied.billingPdfPending ? ' (billing PDF will attach on a re-push)' : '')
     };
   } catch (e) {
     return { ok: false, stage: 'error', message: 'Unexpected error: ' + e.message, retryable: true };
@@ -6352,6 +6371,348 @@ function getRunPushModes(dealerKey, group) {
     modes.newDeal = true; modes.existing = true;
   } catch (e) { modes.reason = 'Pipedrive check failed: ' + e.message; }
   return modes;
+}
+
+
+// ── Billing PDF: generate a formatted PDF of the run's BILLING sheet + attach to the deal ──
+//
+// A best-effort, idempotent supplement to the push. The working BILLING sheet
+// (renderBillingSheet_) is left untouched — this READS it, lays the data out fresh in a
+// temp tab with full formatting, exports that tab to PDF, deletes the temp tab, and
+// attaches the PDF to the Pipedrive deal. A failure never fails the push (the deal +
+// products + fields are the critical parts); it flags billingPdfPending and a re-push
+// retries (the GET /files dup check keeps it to one per deal).
+
+var BILLING_PDF_TMP_TAB = '_BILLING_PDF';
+
+/** Filesystem-safe, DATE-FREE billing PDF filename for a deal/group (so idempotency matches). */
+function billingPdfFilename_(dealerName, group) {
+  var clean = String(dealerName || 'Order').replace(/[\\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
+  var name = 'Billing - ' + (clean || 'Order');
+  if (group && group !== 'PRIMARY') name += ' (' + group + ')';
+  return name + '.pdf';
+}
+
+/**
+ * Parses an already-rendered BILLING / BILLING_<group> sheet into a structured object.
+ * Mirrors renderBillingSheet_'s layout: section markers in col B; values col C; the
+ * not-found list col D; the duplicate-detail table at col F (Year/Make/Model/Stock/VIN/
+ * URL/Prior Orders); produced VINs one-per-row in col B under the PRODUCED VINS header.
+ * @return {Object|null} {summary, byType, bySource, duplicates, dupDetail, producedVins, producedCount}
+ */
+function readBillingForPdf_(outputDoc, sheetName) {
+  var sheet = outputDoc.getSheetByName(sheetName || 'BILLING');
+  if (!sheet) return null;
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 1) return null;
+  var vals = sheet.getRange(1, 1, lastRow, 12).getValues();   // A–L
+
+  var data = {
+    summary:      { ordered: '', matched: '', notFoundCount: '', notFoundList: '' },
+    byType:       [],
+    bySource:     [],
+    duplicates:   { byType: [], total: '' },
+    dupDetail:    { hasRows: false, rows: [] },
+    producedVins: [],
+    producedCount: 0
+  };
+
+  var section = '';
+  for (var r = 0; r < vals.length; r++) {
+    var b = String(vals[r][1] == null ? '' : vals[r][1]).trim();   // col B
+    var c = vals[r][2];                                            // col C
+    var d = vals[r][3];                                            // col D
+    if (b.indexOf('──') === 0) {
+      // Check DUPLICATES before BY TYPE — "── DUPLICATES BY TYPE ──" contains "BY TYPE".
+      if      (b.indexOf('ORDER SUMMARY')      !== -1) section = 'summary';
+      else if (b.indexOf('DUPLICATES')         !== -1) section = 'dupes';
+      else if (b.indexOf('BY SOURCE')          !== -1) section = 'bysource';
+      else if (b.indexOf('BY TYPE')            !== -1) section = 'bytype';
+      else if (b.indexOf('PRODUCED VINS')      !== -1) {
+        section = 'vins';
+        var m = b.match(/\((\d+)\)/); data.producedCount = m ? Number(m[1]) : 0;
+      } else section = '';
+      continue;
+    }
+    if (!b) continue;   // blank spacer
+    if (section === 'summary') {
+      if      (b === 'Total Ordered')            data.summary.ordered = c;
+      else if (b === 'Total Matched in Scraper') data.summary.matched = c;
+      else if (b === 'Not Found in Scraper')   { data.summary.notFoundCount = c; data.summary.notFoundList = String(d == null ? '' : d); }
+    } else if (section === 'bytype') {
+      if (b.indexOf('Total Matched (check)') !== 0) data.byType.push({ label: b, count: c });
+    } else if (section === 'bysource') {
+      data.bySource.push({ label: b, count: c });
+    } else if (section === 'dupes') {
+      if (b === 'Total Duplicates') data.duplicates.total = c;
+      else data.duplicates.byType.push({ label: b, count: c });
+    } else if (section === 'vins') {
+      if (b !== 'No vehicles produced.') data.producedVins.push(b);
+    }
+  }
+
+  // Duplicate-detail table at col F (index 5): a marker row, then either a 'Year…' header
+  // + detail rows, or 'No duplicates in this order.'. URL (col K) is dropped for the PDF.
+  for (var r2 = 0; r2 < vals.length; r2++) {
+    var f = String(vals[r2][5] == null ? '' : vals[r2][5]).trim();
+    if (!f || f.indexOf('── DUPLICATE DETAIL') !== -1 || f === 'Year') continue;
+    if (f.indexOf('No duplicates') !== -1) break;
+    data.dupDetail.hasRows = true;
+    data.dupDetail.rows.push([
+      String(vals[r2][5]  == null ? '' : vals[r2][5]),    // Year  (F)
+      String(vals[r2][6]  == null ? '' : vals[r2][6]),    // Make  (G)
+      String(vals[r2][7]  == null ? '' : vals[r2][7]),    // Model (H)
+      String(vals[r2][8]  == null ? '' : vals[r2][8]),    // Stock (I)
+      String(vals[r2][9]  == null ? '' : vals[r2][9]),    // VIN   (J)
+      String(vals[r2][11] == null ? '' : vals[r2][11])    // Prior Order #s (L)
+    ]);
+  }
+  return data;
+}
+
+/**
+ * Builds a polished, formatted layout of the billing data in a temp tab and returns it.
+ * Vertical sections (summary, by-type, by-source, duplicates + detail, produced VINs);
+ * the produced VINs are laid out in a compact column-major multi-column grid (fill the
+ * first column top-to-bottom, then wrap into the next column). Backgrounds/fonts/borders
+ * are applied as batched matrices (runs once per push). Caller exports + deletes it.
+ */
+function buildBillingPdfTab_(outputDoc, data, meta) {
+  var existing = outputDoc.getSheetByName(BILLING_PDF_TMP_TAB);
+  if (existing) outputDoc.deleteSheet(existing);
+  var sheet = outputDoc.insertSheet(BILLING_PDF_TMP_TAB);
+
+  var W = 6;
+  var NAVY = '#1f3864', SECT = '#305496', SUBH = '#d9e1f2', BAND = '#eef3fb',
+      WHITE = '#ffffff', GREY = '#595959', INK = '#1b1b1b', LINE = '#8ea9db';
+
+  var values = [], bgs = [], colors = [], weights = [], sizes = [];
+  var mergeRows = [], rightCells = [], borderBlocks = [];
+
+  function row(cells, st) {
+    st = st || {};
+    var v = cells.slice(); while (v.length < W) v.push('');
+    var bg = st.bg || WHITE, fc = st.fc || INK, fw = st.fw || 'normal', fs = st.fs || 10;
+    values.push(v);
+    var br = [], cr = [], wr = [], sr = [];
+    for (var i = 0; i < W; i++) { br.push(bg); cr.push(fc); wr.push(fw); sr.push(fs); }
+    bgs.push(br); colors.push(cr); weights.push(wr); sizes.push(sr);
+    return values.length;   // 1-based row number
+  }
+  function blank() { return row(['']); }
+  function section(title) { var r = row([title], { bg: SECT, fc: WHITE, fw: 'bold', fs: 11 }); mergeRows.push(r); return r; }
+  function subHeader(c1, c2) { var v = ['', '', '', '', '', '']; v[0] = c1; v[W - 1] = c2; return row(v, { bg: SUBH, fw: 'bold', fs: 10 }); }
+  function countRow(label, count, idx) {
+    var r = row([label, '', '', '', '', count], { bg: (idx % 2 === 0 ? WHITE : BAND), fs: 10 });
+    rightCells.push({ row: r, col: W });
+    return r;
+  }
+
+  // ── Title + subtitle ──
+  var rTitle = row(['BILLING SUMMARY'], { bg: NAVY, fc: WHITE, fw: 'bold', fs: 18 }); mergeRows.push(rTitle);
+  var sub = [];
+  if (meta && meta.dealerName) sub.push(meta.dealerName);
+  if (meta && meta.dealId)     sub.push('Deal #' + meta.dealId);
+  if (meta && meta.group && meta.group !== 'PRIMARY') sub.push(meta.group);
+  sub.push(Utilities.formatDate(new Date(), 'America/Chicago', 'MMMM d, yyyy'));
+  var rSub = row([sub.join('   •   ')], { fc: GREY, fs: 10 }); mergeRows.push(rSub);
+  blank();
+
+  // ── Order Summary ──
+  section('ORDER SUMMARY');
+  var sumStart = values.length + 1;
+  var sumPairs = [['Total Ordered', data.summary.ordered], ['Total Matched', data.summary.matched], ['Not Found', data.summary.notFoundCount]];
+  sumPairs.forEach(function(p, i) { var r = row([p[0], p[1]], { bg: (i % 2 === 0 ? WHITE : BAND), fs: 10 }); weights[r - 1][0] = 'bold'; });
+  if (data.summary.notFoundList && data.summary.notFoundList !== '—' && data.summary.notFoundList !== '') {
+    var rn = row(['Not Found VINs', data.summary.notFoundList], { bg: BAND, fs: 9 }); weights[rn - 1][0] = 'bold';
+  }
+  borderBlocks.push({ top: sumStart, bottom: values.length });
+  blank();
+
+  // ── By Type (gross) ──
+  section('BY TYPE (GROSS)');
+  var bth = subHeader('Type', 'Quantity');
+  data.byType.forEach(function(t, i) { countRow(t.label, t.count, i); });
+  borderBlocks.push({ top: bth, bottom: values.length });
+  blank();
+
+  // ── By Source (source_split only) ──
+  if (data.bySource && data.bySource.length) {
+    section('BY SOURCE (QTY PER SKU)');
+    var bsh = subHeader('Source — Type', 'Quantity');
+    data.bySource.forEach(function(t, i) { countRow(t.label, t.count, i); });
+    borderBlocks.push({ top: bsh, bottom: values.length });
+    blank();
+  }
+
+  // ── Duplicates by type ──
+  section('DUPLICATES BY TYPE');
+  var dh = subHeader('Type', 'Duplicates');
+  data.duplicates.byType.forEach(function(t, i) { countRow(t.label, t.count, i); });
+  var rTot = countRow('Total Duplicates', data.duplicates.total, data.duplicates.byType.length);
+  weights[rTot - 1][0] = 'bold'; weights[rTot - 1][W - 1] = 'bold';
+  borderBlocks.push({ top: dh, bottom: values.length });
+  blank();
+
+  // ── Duplicate detail (only when there are dupes) ──
+  if (data.dupDetail.hasRows && data.dupDetail.rows.length) {
+    section('DUPLICATE DETAIL');
+    var ddh = row(['Year', 'Make', 'Model', 'Stock', 'VIN', 'Prior Orders'], { bg: SUBH, fw: 'bold', fs: 9 });
+    data.dupDetail.rows.forEach(function(rw, i) { row(rw, { bg: (i % 2 === 0 ? WHITE : BAND), fs: 9 }); });
+    borderBlocks.push({ top: ddh, bottom: values.length });
+    blank();
+  }
+
+  // ── Produced VINs — compact column-major multi-column grid ──
+  section('PRODUCED VINS (' + data.producedCount + ')');
+  var vins = data.producedVins || [];
+  if (!vins.length) {
+    row(['No vehicles produced.'], { fs: 10 });
+  } else {
+    var rowsNeeded = Math.ceil(vins.length / W);
+    var vStart = values.length + 1;
+    for (var rr = 0; rr < rowsNeeded; rr++) {
+      var line = [];
+      for (var cc = 0; cc < W; cc++) {
+        var idx = cc * rowsNeeded + rr;   // column-major: fill col 0 down, then col 1, …
+        line.push(idx < vins.length ? vins[idx] : '');
+      }
+      row(line, { bg: (rr % 2 === 0 ? WHITE : BAND), fs: 9 });
+    }
+    borderBlocks.push({ top: vStart, bottom: values.length });
+  }
+
+  // ── Apply (batched) ──
+  var n = values.length;
+  var rng = sheet.getRange(1, 1, n, W);
+  rng.setValues(values);
+  rng.setBackgrounds(bgs);
+  rng.setFontColors(colors);
+  rng.setFontWeights(weights);
+  rng.setFontSizes(sizes);
+  rng.setFontFamily('Arial');
+  rng.setVerticalAlignment('middle');
+
+  mergeRows.forEach(function(r) { sheet.getRange(r, 1, 1, W).merge(); });
+  sheet.getRange(rTitle, 1, 1, W).setHorizontalAlignment('center');
+  sheet.getRange(rSub,   1, 1, W).setHorizontalAlignment('center');
+  sheet.setRowHeight(rTitle, 34);
+  rightCells.forEach(function(rc) { sheet.getRange(rc.row, rc.col).setHorizontalAlignment('right'); });
+  borderBlocks.forEach(function(b) {
+    sheet.getRange(b.top, 1, b.bottom - b.top + 1, W)
+         .setBorder(true, true, true, true, false, false, LINE, SpreadsheetApp.BorderStyle.SOLID);
+  });
+
+  sheet.setColumnWidth(1, 160);
+  for (var col = 2; col <= W; col++) sheet.setColumnWidth(col, 108);
+
+  SpreadsheetApp.flush();
+  return sheet;
+}
+
+/** Exports one sheet (by gid) of a spreadsheet to a PDF Blob. Returns {ok, blob} or {ok:false, error}. */
+function exportSheetPdf_(spreadsheetId, gid) {
+  var url = 'https://docs.google.com/spreadsheets/d/' + spreadsheetId + '/export?' + [
+    'format=pdf', 'gid=' + gid,
+    'portrait=true', 'fitw=true', 'size=letter',
+    'gridlines=false', 'sheetnames=false', 'printtitle=false', 'pagenumbers=false', 'fzr=false',
+    'top_margin=0.40', 'bottom_margin=0.40', 'left_margin=0.40', 'right_margin=0.40'
+  ].join('&');
+  var resp;
+  try {
+    resp = UrlFetchApp.fetch(url, { method: 'get', headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true });
+  } catch (e) { return { ok: false, error: 'export fetch: ' + e.message }; }
+  if (resp.getResponseCode() !== 200) return { ok: false, error: 'export HTTP ' + resp.getResponseCode() };
+  return { ok: true, blob: resp.getBlob() };
+}
+
+/**
+ * Opens the run output doc, reads the billing sheet, builds the formatted temp tab,
+ * exports it to PDF, deletes the temp tab, and returns {ok, blob, filename}.
+ * The temp tab is always removed (even on export failure).
+ */
+function generateBillingPdf_(outputDocId, sheetName, meta) {
+  var doc;
+  try { doc = SpreadsheetApp.openById(outputDocId); }
+  catch (e) { return { ok: false, error: 'open output doc: ' + e.message }; }
+  var data = readBillingForPdf_(doc, sheetName);
+  if (!data) return { ok: false, error: 'billing sheet "' + sheetName + '" not found' };
+
+  var filename = (meta && meta.filename) || billingPdfFilename_(meta && meta.dealerName, meta && meta.group);
+  var sheet = null;
+  try {
+    sheet = buildBillingPdfTab_(doc, data, meta);
+    SpreadsheetApp.flush();
+    var exp = exportSheetPdf_(outputDocId, sheet.getSheetId());
+    try { doc.deleteSheet(sheet); } catch (e2) {}
+    if (!exp.ok) return { ok: false, error: exp.error };
+    return { ok: true, blob: exp.blob.setName(filename), filename: filename };
+  } catch (e) {
+    if (sheet) { try { doc.deleteSheet(sheet); } catch (e3) {} }
+    return { ok: false, error: 'build/export: ' + e.message };
+  }
+}
+
+/** True if a billing PDF (by filename) is already attached to the deal. Best-effort (false on error). */
+function pdDealHasBillingPdf_(dealId, filename) {
+  try {
+    var res = pdFetch_('get', '/files?deal_id=' + encodeURIComponent(dealId));
+    if (!res.ok || !res.data || !res.data.length) return false;
+    for (var i = 0; i < res.data.length; i++) {
+      var n = String(res.data[i].name || res.data[i].clean_name || '');
+      if (n === filename) return true;
+    }
+    return false;
+  } catch (e) { return false; }
+}
+
+/**
+ * Uploads a PDF Blob to Pipedrive and associates it with the deal (POST /files,
+ * multipart/form-data — GAS auto-builds the body from a Blob payload field; pdFetch_
+ * is JSON-only so this is a raw fetch). Returns {ok} or {ok:false, error}.
+ */
+function pdAttachFileToDeal_(dealId, blob, filename) {
+  try {
+    var s = pdGetSecrets_();
+    if (!s) return { ok: false, error: 'Pipedrive is not configured' };
+    var url = s.baseV1 + '/files?api_token=' + encodeURIComponent(s.token);
+    var resp = UrlFetchApp.fetch(url, {
+      method: 'post',
+      payload: { deal_id: String(dealId), file: blob.setName(filename) },
+      muteHttpExceptions: true
+    });
+    var code = resp.getResponseCode();
+    if (code >= 200 && code < 300) return { ok: true };
+    return { ok: false, error: 'files HTTP ' + code + ': ' + String(resp.getContentText() || '').slice(0, 200) };
+  } catch (e) { return { ok: false, error: e.message }; }
+}
+
+/**
+ * Generates the billing PDF for a run and attaches it to the deal. Idempotent — skips if a
+ * billing PDF (same filename) is already on the deal. Returns {ok} | {ok, skipped} | {ok:false, error}.
+ */
+function attachBillingPdfToDeal_(dealId, outputDocId, group, meta) {
+  var sheetName = (group === 'PRIMARY') ? 'BILLING' : ('BILLING_' + group);
+  var filename  = billingPdfFilename_(meta && meta.dealerName, group);
+  if (pdDealHasBillingPdf_(dealId, filename)) return { ok: true, skipped: true };
+  var gen = generateBillingPdf_(outputDocId, sheetName, {
+    dealerName: (meta && meta.dealerName) || '', dealId: dealId, group: group, filename: filename
+  });
+  if (!gen.ok) return { ok: false, error: gen.error };
+  var att = pdAttachFileToDeal_(dealId, gen.blob, gen.filename);
+  return att.ok ? { ok: true } : { ok: false, error: att.error };
+}
+
+/**
+ * DIAGNOSTIC (temporary) — run from the editor via a no-arg wrapper, e.g.
+ *   function dbgBillingPdf() { return pdDebugBillingPdf(<dealId>, '<outputDocId>', 'PRIMARY'); }
+ * Generates + attaches a billing PDF once and logs the result, to confirm the Sheets PDF
+ * export + the Pipedrive /files upload live. Remove after verification.
+ */
+function pdDebugBillingPdf(dealId, outputDocId, group) {
+  var res = attachBillingPdfToDeal_(dealId, outputDocId, group || 'PRIMARY', { dealerName: 'TEST' });
+  Logger.log(JSON.stringify(res, null, 2));
+  return res;
 }
 
 
