@@ -11,55 +11,10 @@
     </select>
   </div>
 
-  <!-- Type Rules stacked over Filtering Rules (full-width); each saves independently -->
+  <!-- Filtering Rules over Pipedrive (full-width); each saves independently.
+       (Type Rules panel removed June 2026 — the Pipedrive product map is now the
+       sole per-type config; Schema + UTM live on each product cell.) -->
   <div class="panels-row">
-
-  <!-- ════════════════════════════════════════════════════════════════════════════
-       TYPE RULES PANEL
-  ════════════════════════════════════════════════════════════════════════════ -->
-  <div class="tab-panel" id="panel-type">
-    <div class="panel-title-bar">Type Rules</div>
-    <div class="panel-scroll">
-      <div class="section-label">Current Rules</div>
-      <div class="order-note">Rules are evaluated in order — first match wins. Use arrows to reorder. The catch-all (*) must always be last.</div>
-      <div id="rulesList" style="margin-top: 8px;">
-        <div class="placeholder">Select a dealer to load rules.</div>
-      </div>
-
-      <div class="section-label" style="margin-top: 20px;">Add Rule</div>
-      <div class="add-rule-hint">Map a vehicle type to its output. Rules apply top-to-bottom — first match wins; use <code>*</code> as a catch-all. Types are post-normalization (New / PO / CPO / CPO-EL).</div>
-      <div class="add-rule-form">
-        <div class="form-field">
-          <label for="newMatch">When type is</label>
-          <select id="newMatch">
-            <option value="New">New</option>
-            <option value="PO">PO</option>
-            <option value="CPO">CPO</option>
-            <option value="CPO-EL">CPO-EL</option>
-            <option value="*">* (any)</option>
-          </select>
-        </div>
-        <div class="add-rule-arrow" aria-hidden="true">&#8594;</div>
-        <div class="form-field">
-          <label for="newSchema">Fallback schema</label>
-          <select id="newSchema">
-            <option value="">-- (use product's schema) --</option>
-          </select>
-          <div class="field-hint-small">Used only if the type's product has no schema set.</div>
-        </div>
-        <div class="form-field">
-          <label for="newUtm">UTM medium</label>
-          <input type="text" id="newUtm" placeholder="e.g. VDP_ShortCut" />
-        </div>
-        <button class="btn-add-rule" onclick="addTypeRule()">+ Add</button>
-      </div>
-    </div>
-    <div class="save-row">
-      <div id="typeUnsaved" style="font-size:11px;color:var(--warning);align-self:center;display:none;">Unsaved changes</div>
-      <button class="btn-secondary" id="discardTypeBtn" onclick="discardTypeRules()" disabled>Discard Changes</button>
-      <button class="btn-primary" id="saveTypeBtn" onclick="saveTypeRules()" disabled>Save Type Rules</button>
-    </div>
-  </div>
 
   <!-- ════════════════════════════════════════════════════════════════════════════
        FILTERING RULES PANEL
@@ -361,7 +316,6 @@
       overflow-x: hidden;
     }
     #view-rules .tab-panel { display: block; min-width: 0; }
-    #view-rules #panel-type { border-bottom: 1px solid var(--border); }
     #view-rules #panel-filter { border-bottom: 1px solid var(--border); }
     #view-rules .panel-title-bar {
       position: sticky;     /* keep the section header in view while scrolling */
@@ -453,125 +407,6 @@
     }
     #view-rules .section-label:first-child { margin-top: 0; }
 
-    /* ════════════════════════════════════════════════════════════════════════════
-       TYPE RULES TAB
-    ════════════════════════════════════════════════════════════════════════════ */
-
-    /* ── Rule card ───────────────────────────────────────────────────────────── */
-    #view-rules .rule-card {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 10px;
-      border: 1px solid var(--border);
-      border-radius: 5px;
-      background: var(--bg);
-      margin-bottom: 6px;
-    }
-    #view-rules .rule-card.catch-all { border-color: var(--text-muted); background: var(--surface-2); }
-    #view-rules .rule-order-btns {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
-    #view-rules .btn-reorder {
-      width: 22px; height: 18px;
-      background: var(--bg);
-      border: 1px solid var(--border-2);
-      border-radius: 3px;
-      font-size: 9px;
-      cursor: pointer;
-      color: var(--text-2);
-      display: flex; align-items: center; justify-content: center;
-      padding: 0;
-    }
-    #view-rules .btn-reorder:hover:not(:disabled) { background: var(--accent-weak); border-color: var(--accent); color: var(--accent); }
-    #view-rules .btn-reorder:disabled { opacity: 0.3; cursor: default; }
-    #view-rules .rule-fields {
-      flex: 1;
-      min-width: 0;   /* allow the flex item to shrink so the delete button stays in view */
-      display: grid;
-      grid-template-columns: 90px 1fr 1fr;
-      gap: 6px;
-      align-items: center;
-    }
-    /* min-width:0 lets the 1fr columns shrink below content width so a long UTM
-       string truncates with an ellipsis instead of pushing the card wider. */
-    #view-rules .rule-field { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-    #view-rules .rule-field-label { font-size: 10px; color: var(--text-3); font-weight: bold; text-transform: uppercase; }
-    #view-rules .rule-field-val {
-      font-size: 12px;
-      font-family: monospace;
-      color: var(--text);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    #view-rules .rule-badge {
-      display: inline-block;
-      padding: 2px 7px;
-      border-radius: 10px;
-      font-size: 11px;
-      font-weight: bold;
-      background: var(--accent-weak);
-      color: var(--accent);
-    }
-    #view-rules .rule-badge.catch { background: var(--surface-2); color: var(--text-3); }
-    #view-rules .btn-delete-rule {
-      padding: 4px 9px;
-      background: var(--bg);
-      border: 1px solid var(--border-2);
-      border-radius: 3px;
-      font-size: 11px;
-      color: var(--danger);
-      cursor: pointer;
-      white-space: nowrap;
-      flex-shrink: 0;
-    }
-    #view-rules .btn-delete-rule:hover { background: var(--danger-weak); border-color: var(--danger); }
-
-    /* ── Add rule form ───────────────────────────────────────────────────────── */
-    #view-rules .add-rule-hint { font-size: 11px; color: var(--text-3); line-height: 1.5; margin: 5px 0 8px; }
-    #view-rules .add-rule-hint code {
-      font-family: monospace; background: var(--surface-2);
-      padding: 0 4px; border-radius: 3px; color: var(--text-2);
-    }
-    #view-rules .add-rule-form {
-      display: grid;
-      /* Capped-but-shrinkable selects (minmax 0..cap, so they never stretch AND
-         never force overflow) + flexible UTM input; the arrow makes the
-         type → output mapping read as a sentence. */
-      grid-template-columns: minmax(0, 118px) auto minmax(0, 160px) minmax(90px, 1fr) auto;
-      gap: 8px;
-      align-items: end;
-      padding: 12px;
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      background: var(--surface);
-      margin-top: 4px;
-    }
-    #view-rules .add-rule-form .form-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-    #view-rules .add-rule-arrow {
-      align-self: end;
-      padding-bottom: 7px;
-      color: var(--accent);
-      font-size: 15px;
-      font-weight: bold;
-    }
-    #view-rules .add-rule-form label { font-size: 11px; font-weight: bold; color: var(--text-2); }
-    #view-rules .add-rule-form select,
-  #view-rules .add-rule-form input[type="text"] {
-      padding: 6px 8px;
-      font-size: 12px;
-      font-family: monospace;
-      border: 1px solid var(--border-2);
-      border-radius: 4px;
-      width: 100%;
-    }
-    #view-rules .add-rule-form select:focus,
-  #view-rules .add-rule-form input[type="text"]:focus { outline: none; border-color: var(--accent); }
-    #view-rules .field-hint-small { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
-
     /* ── Save button row ─────────────────────────────────────────────────────── */
     #view-rules .save-row {
       display: flex;
@@ -603,15 +438,6 @@
       border-radius: 4px;
     }
     #view-rules .btn-secondary:hover { background: var(--surface); }
-
-    /* ── Order matters note ──────────────────────────────────────────────────── */
-    #view-rules .order-note {
-      font-size: 11px;
-      color: var(--text-3);
-      font-style: italic;
-      margin-top: 6px;
-      margin-bottom: 2px;
-    }
 
     /* ════════════════════════════════════════════════════════════════════════════
        FILTERING RULES TAB
@@ -755,21 +581,6 @@
       font-weight: bold;
     }
     #view-rules .btn-add-season:hover { background: var(--accent-weak); }
-
-    /* ── Add rule button ─────────────────────────────────────────────────────── */
-    #view-rules .btn-add-rule {
-      padding: 6px 14px;
-      background: var(--accent);
-      color: var(--bg);
-      border: none;
-      border-radius: 4px;
-      font-size: 12px;
-      font-weight: bold;
-      cursor: pointer;
-      white-space: nowrap;
-      align-self: flex-end;
-    }
-    #view-rules .btn-add-rule:hover { background: var(--accent-hover); }
 
     /* ════════════════════════════════════════════════════════════════════════════
        PIPEDRIVE PANEL
@@ -1047,8 +858,6 @@
     var availableFilterOps     = [];
     var availableFilterActions = [];
     var filterNumericFields    = [];
-    var typeRules        = [];   // live working copy
-    var typeDirty        = false;
     var filterDirty      = false;
     var pipedriveDirty   = false;
 
@@ -1057,13 +866,15 @@
       google.script.run
         .withSuccessHandler(function(data) {
           // data = { dealers, schemas, filterFields, filterOps, filterNumericFields }
+          // availableSchemas feeds the Pipedrive product picker's Schema column
+          // (pdProductSchemaSelect_) — keep it loaded even though the Type Rules
+          // editor that formerly also consumed it is gone.
           availableSchemas       = data.schemas;
           availableFilterFields  = data.filterFields || [];
           availableFilterOps     = data.filterOps || [];
           availableFilterActions = data.filterActions || ['drop_on_import', 'exclude_cao', 'exclude_order'];
           filterNumericFields    = data.filterNumericFields || [];
           populateDealerDropdown(data.dealers);
-          populateSchemaDropdown(data.schemas);
           document.getElementById('loadingOverlay').classList.add('hidden');
         })
         .withFailureHandler(function(e) {
@@ -1081,7 +892,7 @@
     // Close guard: unsaved rule edits shouldn't be lost silently.
     if (window.AppGuards) {
       AppGuards.register(function() {
-        return (typeDirty || filterDirty || pipedriveDirty) ? 'Unsaved dealer-rule changes' : null;
+        return (filterDirty || pipedriveDirty) ? 'Unsaved dealer-rule changes' : null;
       });
     }
 
@@ -1103,7 +914,6 @@
       var key = document.getElementById('rulesDealerSelect').value;
       if (!key) {
         currentDealerKey = null;
-        resetTypePanel();
         resetFilterPanel();
         resetPipedrivePanel();
         disableSaveButtons();
@@ -1122,18 +932,12 @@
       google.script.run
         .withSuccessHandler(function(data) {
           document.getElementById('loadingOverlay').classList.add('hidden');
-          // Type rules
-          typeRules = data.typeRules || [];
-          renderTypeRules();
-          typeDirty = false;
-          updateTypeDirty();
-
-          // Filtering rules
+          // Filtering rules (Type Rules editor removed June 2026 — the Pipedrive
+          // product map is now the sole per-type config; data.typeRules is ignored).
           applyFilteringRulesToUI(data.filteringRules || {});
           filterDirty = false;
           updateFilterDirty();
 
-          document.getElementById('saveTypeBtn').disabled   = false;
           document.getElementById('saveFilterBtn').disabled = false;
           setRulesStatus('Loaded rules for ' + data.dealerName + '.', 'success');
         })
@@ -1142,199 +946,6 @@
           setRulesStatus('Error loading rules: ' + e.message, 'error');
         })
         .getDealerRulesData(key);
-    }
-
-    // ════════════════════════════════════════════════════════════════════════════
-    // TYPE RULES
-    // ════════════════════════════════════════════════════════════════════════════
-
-    function populateSchemaDropdown(schemas) {
-      var sel = document.getElementById('newSchema');
-      sel.innerHTML = '';
-      // Blank = no fallback; the product's own schema (or the server's SCP default)
-      // is used. The CSV schema is now demoted to a fallback, so this is optional.
-      var blank = document.createElement('option');
-      blank.value = ''; blank.textContent = '— (use product’s schema) —';
-      sel.appendChild(blank);
-      schemas.forEach(function(s) {
-        var opt = document.createElement('option');
-        opt.value = s; opt.textContent = s;
-        sel.appendChild(opt);
-      });
-    }
-
-    function renderTypeRules() {
-      var container = document.getElementById('rulesList');
-      container.innerHTML = '';
-
-      if (!typeRules || typeRules.length === 0) {
-        container.innerHTML = '<div class="placeholder">No type rules configured. Add one below.</div>';
-        return;
-      }
-
-      typeRules.forEach(function(rule, idx) {
-        var isCatchAll = rule.match === '*';
-        var card = document.createElement('div');
-        card.className = 'rule-card' + (isCatchAll ? ' catch-all' : '');
-
-        // Reorder buttons
-        var reorderDiv = document.createElement('div');
-        reorderDiv.className = 'rule-order-btns';
-
-        var upBtn = document.createElement('button');
-        upBtn.className = 'btn-reorder';
-        upBtn.textContent = '▲';
-        upBtn.title = 'Move up';
-        upBtn.disabled = idx === 0;
-        upBtn.onclick = (function(i) { return function() { moveRule(i, -1); }; })(idx);
-
-        var downBtn = document.createElement('button');
-        downBtn.className = 'btn-reorder';
-        downBtn.textContent = '▼';
-        downBtn.title = 'Move down';
-        downBtn.disabled = idx === typeRules.length - 1;
-        downBtn.onclick = (function(i) { return function() { moveRule(i, 1); }; })(idx);
-
-        reorderDiv.appendChild(upBtn);
-        reorderDiv.appendChild(downBtn);
-
-        // Fields display
-        var fieldsDiv = document.createElement('div');
-        fieldsDiv.className = 'rule-fields';
-
-        fieldsDiv.innerHTML =
-          '<div class="rule-field">' +
-            '<div class="rule-field-label">Match</div>' +
-            '<div class="rule-field-val"><span class="rule-badge' + (isCatchAll ? ' catch' : '') + '">' +
-              escHtml(rule.match) + '</span></div>' +
-          '</div>' +
-          '<div class="rule-field">' +
-            '<div class="rule-field-label">Fallback Schema</div>' +
-            '<div class="rule-field-val" title="' + escHtml(rule.csv_schema || '') + '">' + escHtml(rule.csv_schema || '—') + '</div>' +
-          '</div>' +
-          '<div class="rule-field">' +
-            '<div class="rule-field-label">UTM Medium</div>' +
-            '<div class="rule-field-val" title="' + escHtml(rule.utm || '') + '">' + escHtml(rule.utm || '—') + '</div>' +
-          '</div>';
-
-        // Delete button (always show, including catch-all — user may want to rebuild)
-        var delBtn = document.createElement('button');
-        delBtn.className = 'btn-delete-rule';
-        delBtn.textContent = 'Remove';
-        delBtn.onclick = (function(i) { return function() { removeTypeRule(i); }; })(idx);
-
-        card.appendChild(reorderDiv);
-        card.appendChild(fieldsDiv);
-        card.appendChild(delBtn);
-        container.appendChild(card);
-      });
-    }
-
-    function addTypeRule() {
-      var match  = document.getElementById('newMatch').value;
-      var schema = document.getElementById('newSchema').value;
-      var utm    = document.getElementById('newUtm').value.trim();
-
-      // Schema is now an OPTIONAL fallback — when blank, the product's own schema
-      // (or the server's SCP default) is used. Push the rule with csv_schema: ''.
-      if (!utm)    { setRulesStatus('Please enter a UTM Medium value.', 'error'); return; }
-
-      // Warn if catch-all already exists and user is adding another non-catch-all after it
-      var catchAllIdx = typeRules.findIndex(function(r) { return r.match === '*'; });
-      if (match !== '*' && catchAllIdx !== -1) {
-        // Insert before the catch-all
-        typeRules.splice(catchAllIdx, 0, { match: match, csv_schema: schema, utm: utm });
-      } else {
-        typeRules.push({ match: match, csv_schema: schema, utm: utm });
-      }
-
-      document.getElementById('newUtm').value = '';
-      renderTypeRules();
-      markTypeDirty();
-      setRulesStatus('Rule added. Click "Save Type Rules" to apply.', 'info');
-    }
-
-    function removeTypeRule(idx) {
-      typeRules.splice(idx, 1);
-      renderTypeRules();
-      markTypeDirty();
-    }
-
-    function moveRule(idx, dir) {
-      var target = idx + dir;
-      if (target < 0 || target >= typeRules.length) return;
-      var tmp = typeRules[idx];
-      typeRules[idx] = typeRules[target];
-      typeRules[target] = tmp;
-      renderTypeRules();
-      markTypeDirty();
-    }
-
-    function saveTypeRules() {
-      if (!currentDealerKey) return;
-      var btn = document.getElementById('saveTypeBtn');
-      btn.disabled = true;
-      btn.textContent = 'Saving…';
-
-      google.script.run
-        .withSuccessHandler(function() {
-          typeDirty = false;
-          updateTypeDirty();
-          btn.disabled = false;
-          btn.textContent = 'Save Type Rules';
-          setRulesStatus('Type rules saved successfully.', 'success');
-        })
-        .withFailureHandler(function(e) {
-          btn.disabled = false;
-          btn.textContent = 'Save Type Rules';
-          setRulesStatus('Save failed: ' + e.message, 'error');
-        })
-        .saveDealerTypeRules(currentDealerKey, JSON.stringify(typeRules));
-    }
-
-    function markTypeDirty() {
-      typeDirty = true;
-      updateTypeDirty();
-    }
-
-    function updateTypeDirty() {
-      document.getElementById('typeUnsaved').style.display = typeDirty ? 'block' : 'none';
-      // Nothing to discard unless this panel is dirty.
-      document.getElementById('discardTypeBtn').disabled = !typeDirty;
-    }
-
-    // Revert the Type Rules panel to what's saved in the dealer config sheet.
-    // Per-panel: leaves the Filtering panel's edits untouched.
-    function discardTypeRules() {
-      if (!currentDealerKey || !typeDirty) return;
-      if (!confirm('Discard unsaved Type Rules changes and reload the saved version?')) return;
-
-      var btn = document.getElementById('discardTypeBtn');
-      btn.disabled = true;
-      setRulesStatus('Discarding Type Rules changes…', 'info');
-
-      google.script.run
-        .withSuccessHandler(function(data) {
-          typeRules = data.typeRules || [];
-          renderTypeRules();
-          typeDirty = false;
-          updateTypeDirty();
-          setRulesStatus('Type Rules changes discarded — reloaded saved version.', 'success');
-        })
-        .withFailureHandler(function(e) {
-          // Still dirty — re-enable so the user can retry.
-          updateTypeDirty();
-          setRulesStatus('Discard failed: ' + e.message, 'error');
-        })
-        .getDealerRulesData(currentDealerKey);
-    }
-
-    function resetTypePanel() {
-      typeRules = [];
-      document.getElementById('rulesList').innerHTML =
-        '<div class="placeholder">Select a dealer to load rules.</div>';
-      typeDirty = false;
-      updateTypeDirty();
     }
 
     // ════════════════════════════════════════════════════════════════════════════
@@ -1803,9 +1414,7 @@
 
     // ── Shared helpers ─────────────────────────────────────────────────────────
     function disableSaveButtons() {
-      document.getElementById('saveTypeBtn').disabled   = true;
       document.getElementById('saveFilterBtn').disabled = true;
-      document.getElementById('discardTypeBtn').disabled   = true;
       document.getElementById('discardFilterBtn').disabled = true;
       document.getElementById('savePipedriveBtn').disabled    = true;
       document.getElementById('discardPipedriveBtn').disabled = true;
@@ -1980,6 +1589,7 @@
           out[type] = { product_id: v.product_id };
           if (v.variation_id != null && v.variation_id !== '') out[type].variation_id = v.variation_id;
           if (v.schema != null && v.schema !== '') out[type].schema = v.schema;
+          if (v.utm != null && v.utm !== '') out[type].utm = v.utm;
         } else {
           out[type] = { product_id: v };   // bare id → object form
         }
@@ -2068,7 +1678,7 @@
         sourceGrid =
           '<div class="pd-sub-label">Products for the ' + escHtml(sgName) + ' output</div>' +
           pdSchemaHint_() +
-          '<table class="pd-product-table"><thead><tr><th>Type</th><th>Product</th><th>Variation</th><th>Schema</th></tr></thead>' +
+          '<table class="pd-product-table"><thead><tr><th>Type</th><th>Product</th><th>Variation</th><th>Schema</th><th>UTM</th></tr></thead>' +
             '<tbody>' + srcRows + '</tbody></table>';
       }
 
@@ -2096,7 +1706,7 @@
           '<div class="pd-sub-label">Type → Product</div>' +
           showAllRow +
           pdSchemaHint_() +
-          '<table class="pd-product-table"><thead><tr><th>Type</th><th>Product</th><th>Variation</th><th>Schema</th></tr></thead>' +
+          '<table class="pd-product-table"><thead><tr><th>Type</th><th>Product</th><th>Variation</th><th>Schema</th><th>UTM</th></tr></thead>' +
             '<tbody>' + rows + '</tbody></table>' +
           sourceGrid +
 
@@ -2159,10 +1769,11 @@
       return prod.customerOrgId !== undefined && String(prod.customerOrgId) === String(groupOrgId);
     }
 
-    // One-line helper text shown above each product grid (the Schema column).
+    // One-line helper text shown above each product grid (the Schema + UTM columns).
     function pdSchemaHint_() {
       return '<div class="pill-hint" style="margin-bottom:6px;">' +
-        'Schema sets the CSV layout for this product. Blank = use the type rule\'s fallback schema.' +
+        'Schema = the CSV layout (required — a run won\'t proceed without it); ' +
+        'UTM = the QR tracking tag. Both come from the product now.' +
         '</div>';
     }
 
@@ -2177,6 +1788,7 @@
           '<td>' + pdProductSelect_(group, t, cell.product_id, mapKey) + '</td>' +
           '<td>' + pdVariationSelect_(group, t, cell.product_id, cell.variation_id, mapKey) + '</td>' +
           '<td>' + pdProductSchemaSelect_(group, t, mapKey, cell.schema) + '</td>' +
+          '<td>' + pdProductUtmInput_(group, t, mapKey, cell.utm) + '</td>' +
         '</tr>';
       }).join('');
     }
@@ -2281,6 +1893,17 @@
       }
       return '<select onchange="pdSetProductSchema(\'' + group + '\', \'' + escAttr_(type) + '\', this.value, \'' + escAttr_(mapKey) + '\')">' +
         opts.join('') + '</select>';
+    }
+
+    // UTM input for a type row. The chosen value writes to the product-map cell's
+    // `utm` (the QR tracking tag for that product); blank falls back to the type
+    // rule's utm on the server. Mirrors pdProductSchemaSelect_ (text input rather
+    // than a dropdown — UTM values are free-text).
+    function pdProductUtmInput_(group, type, mapKey, savedUtm) {
+      mapKey = mapKey || '';
+      var val = (savedUtm != null) ? String(savedUtm) : '';
+      return '<input type="text" placeholder="e.g. VDP_ShortCut" value="' + escAttr_(val) + '" ' +
+        'onchange="pdSetProductUtm(\'' + group + '\', \'' + escAttr_(type) + '\', this.value, \'' + escAttr_(mapKey) + '\')" />';
     }
 
     // DOM-id-safe type token (e.g. CPO-EL → CPO_EL).
@@ -2503,6 +2126,18 @@
       else { cell.schema = val; }
       markPipedriveDirty();   // no re-render — keep the schema select focused
     }
+    // UTM change → set/clear the product-map cell's `utm` (the QR tracking tag for
+    // this product; blank = fall back to the type rule's utm on the server).
+    // Mirrors pdSetProductSchema exactly.
+    function pdSetProductUtm(group, type, val, mapKey) {
+      var g = pdEnsureGroup_(group);
+      var cell = pdGetMap_(g, mapKey || '')[type];
+      if (!cell || cell.product_id == null) return;   // no product → no utm to set
+      val = (val == null) ? '' : String(val).trim();
+      if (val === '') { delete cell.utm; }
+      else { cell.utm = val; }
+      markPipedriveDirty();   // no re-render — keep the utm input focused
+    }
     // Per-group "Show all products" — a view-only toggle that bypasses the org
     // scope filter for this group's product dropdowns. NOT persisted (it doesn't
     // change saved config), so it doesn't mark the panel dirty.
@@ -2625,6 +2260,9 @@
         }
         if (cell.schema != null && cell.schema !== '') {
           out[type].schema = cell.schema;
+        }
+        if (cell.utm != null && cell.utm !== '') {
+          out[type].utm = cell.utm;
         }
       });
       return out;
