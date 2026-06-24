@@ -967,11 +967,8 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     if (!isTrue_(config[CFG.ACTIVE])) throw new Error('Dealer is marked inactive: ' + dealerKey);
     Logger.log('Starting run for: ' + config[CFG.NAME]);
 
-    // 2. Load type rules
-    var typeRules = getTypeRules_(config);
-    Logger.log('Type rules: ' + JSON.stringify(typeRules));
-
-    // 3. Load VINs from ORDERS sheet
+    // 2. Load VINs from ORDERS sheet. (Type rules now come from the Pipedrive product map —
+    //    built after matching; see step 9b.)
     var vins = getOrderVINs_(config[CFG.ORDERS_COL]);
     if (!vins || vins.length === 0) throw new Error('No VINs found in ORDERS column ' + config[CFG.ORDERS_COL]);
     Logger.log('VINs to process: ' + vins.length);
@@ -1067,6 +1064,21 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     var matchedRows = readOrderMatchResults_(outputDoc);
     Logger.log('Matched rows: ' + matchedRows.length);
 
+    // 9b. The Pipedrive product map is now the SOLE per-type config (schema + UTM). Build the
+    //     run's type rules from it, and BLOCK if any matched vehicle's type has no product or no
+    //     schema — the user is prompted to set it in Dealer Rules → Pipedrive.
+    var csvSourceSplit = getSourceSplit_(config);
+    var csvProductMaps = getCsvProductMaps_(config[CFG.KEY], csvSourceSplit);
+    var matchedTypes = {};
+    matchedRows.forEach(function(r) { var t = String(r[6] || '').trim(); if (t) matchedTypes[t] = true; });
+    var missingCfg = validateProductMapForRun_(Object.keys(matchedTypes), csvProductMaps.main);
+    if (missingCfg.length) {
+      throw new Error('Cannot run ' + config[CFG.NAME] + ' — no product/schema set for type(s): ' +
+        missingCfg.join(', ') + '. Set them in Dealer Rules → Pipedrive.');
+    }
+    var typeRules = buildTypeRulesFromProductMap_(csvProductMaps.main);
+    Logger.log('Type rules (from product map): ' + JSON.stringify(typeRules));
+
     // 10. Copy VIN log into LOG tab of output doc
     setProgress_(runId, 'Copying VIN log (' + matchedRows.length + ' matched)...', 50);
     copyVINLogToOutput_(outputDoc, dealerKey);
@@ -1093,8 +1105,6 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     //     (source_split) additionally splits each CSV by URL domain
     //     (e.g. main vs AutoLoanPro) — one billing/deal, separate CSVs.
     setProgress_(runId, 'Building CSV output...', 88);
-    var csvSourceSplit = getSourceSplit_(config);
-    var csvProductMaps = getCsvProductMaps_(config[CFG.KEY], csvSourceSplit);  // {} if Pipedrive unset → csv_schema fallback
     buildCSVSheet_(outputDoc, typeRules, csvSourceSplit, csvProductMaps.main, csvProductMaps.secondary);
 
     // 14. Write BILLING sheet(s) from ORDERMATCH + LOG data. An optional
@@ -1924,6 +1934,89 @@ function getCsvProductMaps_(dealerKey, sourceSplit) {
     }
   });
   return out;
+}
+
+/**
+ * Builds the run's type rules from the Pipedrive product map — the product map is now the SOLE
+ * per-type config. One synthetic rule per mapped type: `{match, csv_schema: entry.schema, utm:
+ * entry.utm}`. Ordered so **CPO-EL precedes CPO** because `matchRule_` is substring-based ("CPO"
+ * is a substring of "CPO-EL"). Pure + testable.
+ */
+function buildTypeRulesFromProductMap_(productMap) {
+  var ORDER = ['CPO-EL', 'CPO', 'New', 'PO'];
+  var keys = Object.keys(productMap || {});
+  keys.sort(function(a, b) {
+    var ia = ORDER.indexOf(a), ib = ORDER.indexOf(b);
+    if (ia === -1) ia = ORDER.length;
+    if (ib === -1) ib = ORDER.length;
+    return ia - ib;
+  });
+  return keys.map(function(t) {
+    var e = productMap[t] || {};
+    return { match: t, csv_schema: String(e.schema || ''), utm: String(e.utm || '') };
+  });
+}
+
+/**
+ * Returns the matched vehicle types that can't be produced because their product-map entry is
+ * missing a product or a schema (the run blocks on a non-empty result — the user is prompted to
+ * set it). A type with no entry, no `product_id`, or no `schema` is reported. Pure + testable.
+ */
+function validateProductMapForRun_(matchedTypes, productMap) {
+  productMap = productMap || {};
+  var missing = [];
+  (matchedTypes || []).forEach(function(t) {
+    var e = productMap[t];
+    if (!e || typeof e !== 'object' || e.product_id == null || e.product_id === '' ||
+        e.schema == null || String(e.schema).trim() === '') {
+      missing.push(t);
+    }
+  });
+  return missing;
+}
+
+/**
+ * ONE-TIME MIGRATION — run manually from the Apps Script editor. Copies each dealer's per-type
+ * schema + UTM from its legacy `type_rules` (DEALERS col O) into its PIPEDRIVE `product_map` /
+ * `source_product_map` entries (the product map is now the sole per-type config). Only fills
+ * entries that already have a product mapped; never overwrites an existing schema/utm. Logs a
+ * per-dealer summary; idempotent. After this + finishing the product config, type_rules (col O)
+ * is dormant.
+ */
+function migrateTypeRulesIntoProductMap() {
+  var dealers = getConfigSS_().getSheetByName('DEALERS').getDataRange().getValues();
+  var summary = [];
+
+  function fillMap_(map, typeRules) {
+    var n = 0;
+    Object.keys(map || {}).forEach(function(t) {
+      var rule = matchRule_(t, typeRules);
+      if (!rule) return;
+      if (rule.csv_schema && !map[t].schema) { map[t].schema = rule.csv_schema; n++; }
+      if (rule.utm && !map[t].utm)           { map[t].utm    = rule.utm;        n++; }
+    });
+    return n;
+  }
+
+  for (var i = 1; i < dealers.length; i++) {
+    var dealerKey = String(dealers[i][CFG.KEY] || '').trim();
+    if (!dealerKey) continue;
+    var typeRules = getTypeRules_(dealers[i]);   // legacy col O
+    var rows = getPipedriveDealerRows_(dealerKey);
+    if (!rows.length) continue;
+
+    var touched = 0;
+    rows.forEach(function(r) {
+      touched += fillMap_(r.productMap, typeRules);
+      Object.keys(r.sourceProductMap || {}).forEach(function(grp) {
+        touched += fillMap_(r.sourceProductMap[grp], typeRules);
+      });
+    });
+    if (touched > 0) { savePipedriveDealerConfig(dealerKey, rows); summary.push(dealerKey + ': ' + touched + ' field(s)'); }
+  }
+  var msg = 'migrateTypeRulesIntoProductMap: updated ' + summary.length + ' dealer(s).\n' + summary.join('\n');
+  Logger.log(msg);
+  return msg;
 }
 
 /**
