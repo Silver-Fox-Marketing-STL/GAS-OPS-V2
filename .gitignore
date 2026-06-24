@@ -1,3 +1,7 @@
 # Locally-generated documentation PDFs — regenerate from the .md sources.
 # Kept local, not versioned (large binaries, reproducible).
 docs/pdf/
+
+# Node deps for the local doc-PDF builder (scripts/). Run `cd scripts && npm install`.
+scripts/node_modules/
+node_modules/

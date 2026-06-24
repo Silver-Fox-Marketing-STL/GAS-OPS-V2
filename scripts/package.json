@@ -1,0 +1,9 @@
+{
+  "name": "docs-pdf-builder",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Render Markdown docs to print-ready PDFs (marked + headless Chrome).",
+  "dependencies": {
+    "marked": "^18.0.5"
+  }
+}
