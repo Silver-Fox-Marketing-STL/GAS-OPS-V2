@@ -41,10 +41,11 @@
         </div>
         <div class="add-rule-arrow" aria-hidden="true">&#8594;</div>
         <div class="form-field">
-          <label for="newSchema">Use CSV schema</label>
+          <label for="newSchema">Fallback schema</label>
           <select id="newSchema">
-            <option value="">-- Loading… --</option>
+            <option value="">-- (use product's schema) --</option>
           </select>
+          <div class="field-hint-small">Used only if the type's product has no schema set.</div>
         </div>
         <div class="form-field">
           <label for="newUtm">UTM medium</label>
@@ -1150,6 +1151,11 @@
     function populateSchemaDropdown(schemas) {
       var sel = document.getElementById('newSchema');
       sel.innerHTML = '';
+      // Blank = no fallback; the product's own schema (or the server's SCP default)
+      // is used. The CSV schema is now demoted to a fallback, so this is optional.
+      var blank = document.createElement('option');
+      blank.value = ''; blank.textContent = '— (use product’s schema) —';
+      sel.appendChild(blank);
       schemas.forEach(function(s) {
         var opt = document.createElement('option');
         opt.value = s; opt.textContent = s;
@@ -1203,7 +1209,7 @@
               escHtml(rule.match) + '</span></div>' +
           '</div>' +
           '<div class="rule-field">' +
-            '<div class="rule-field-label">CSV Schema</div>' +
+            '<div class="rule-field-label">Fallback Schema</div>' +
             '<div class="rule-field-val" title="' + escHtml(rule.csv_schema || '') + '">' + escHtml(rule.csv_schema || '—') + '</div>' +
           '</div>' +
           '<div class="rule-field">' +
@@ -1229,7 +1235,8 @@
       var schema = document.getElementById('newSchema').value;
       var utm    = document.getElementById('newUtm').value.trim();
 
-      if (!schema) { setRulesStatus('Please select a CSV Schema.', 'error'); return; }
+      // Schema is now an OPTIONAL fallback — when blank, the product's own schema
+      // (or the server's SCP default) is used. Push the rule with csv_schema: ''.
       if (!utm)    { setRulesStatus('Please enter a UTM Medium value.', 'error'); return; }
 
       // Warn if catch-all already exists and user is adding another non-catch-all after it
@@ -1972,6 +1979,7 @@
           if (v.product_id == null || v.product_id === '') return;
           out[type] = { product_id: v.product_id };
           if (v.variation_id != null && v.variation_id !== '') out[type].variation_id = v.variation_id;
+          if (v.schema != null && v.schema !== '') out[type].schema = v.schema;
         } else {
           out[type] = { product_id: v };   // bare id → object form
         }
@@ -2059,7 +2067,8 @@
         var srcRows = pdRenderProductRows_(group, srcMap, sgName);
         sourceGrid =
           '<div class="pd-sub-label">Products for the ' + escHtml(sgName) + ' output</div>' +
-          '<table class="pd-product-table"><thead><tr><th>Type</th><th>Product</th><th>Variation</th></tr></thead>' +
+          pdSchemaHint_() +
+          '<table class="pd-product-table"><thead><tr><th>Type</th><th>Product</th><th>Variation</th><th>Schema</th></tr></thead>' +
             '<tbody>' + srcRows + '</tbody></table>';
       }
 
@@ -2086,7 +2095,8 @@
 
           '<div class="pd-sub-label">Type → Product</div>' +
           showAllRow +
-          '<table class="pd-product-table"><thead><tr><th>Type</th><th>Product</th><th>Variation</th></tr></thead>' +
+          pdSchemaHint_() +
+          '<table class="pd-product-table"><thead><tr><th>Type</th><th>Product</th><th>Variation</th><th>Schema</th></tr></thead>' +
             '<tbody>' + rows + '</tbody></table>' +
           sourceGrid +
 
@@ -2149,8 +2159,15 @@
       return prod.customerOrgId !== undefined && String(prod.customerOrgId) === String(groupOrgId);
     }
 
-    // Build the per-type product (+ variation) rows for one map. Shared by the
-    // main grid (mapKey '') and the secondary-source grid (mapKey = group name).
+    // One-line helper text shown above each product grid (the Schema column).
+    function pdSchemaHint_() {
+      return '<div class="pill-hint" style="margin-bottom:6px;">' +
+        'Schema sets the CSV layout for this product. Blank = use the type rule\'s fallback schema.' +
+        '</div>';
+    }
+
+    // Build the per-type product (+ variation + schema) rows for one map. Shared by
+    // the main grid (mapKey '') and the secondary-source grid (mapKey = group name).
     function pdRenderProductRows_(group, map, mapKey) {
       map = map || {};
       return pdTypes.map(function(t) {
@@ -2159,6 +2176,7 @@
           '<td><span class="pd-type-badge ' + pdTypeClass_(t) + '">' + escHtml(t) + '</span></td>' +
           '<td>' + pdProductSelect_(group, t, cell.product_id, mapKey) + '</td>' +
           '<td>' + pdVariationSelect_(group, t, cell.product_id, cell.variation_id, mapKey) + '</td>' +
+          '<td>' + pdProductSchemaSelect_(group, t, mapKey, cell.schema) + '</td>' +
         '</tr>';
       }).join('');
     }
@@ -2239,6 +2257,29 @@
         opts.push('<option value="' + escAttr_(selectedVarId) + '" selected>Variation #' + escHtml(String(selectedVarId)) + '</option>');
       }
       return '<select id="' + domId + '" onchange="pdSetVariation(\'' + group + '\', \'' + escAttr_(type) + '\', this.value, \'' + escAttr_(mapKey) + '\')">' +
+        opts.join('') + '</select>';
+    }
+
+    // Schema select for a type row. Options: "— (fallback) —" (empty value) + every
+    // CSV schema key in availableSchemas. The chosen value writes to the product-map
+    // cell's `schema` (which picks the CSV layout for that product); blank falls back
+    // to the type rule's csv_schema on the server. Preserves an unknown saved schema
+    // so a round-trip never drops it.
+    function pdProductSchemaSelect_(group, type, mapKey, savedSchema) {
+      mapKey = mapKey || '';
+      var hasSaved = (savedSchema != null && savedSchema !== '');
+      var opts = ['<option value="">— (fallback) —</option>'];
+      var sawSaved = false;
+      (availableSchemas || []).forEach(function(s) {
+        var isSel = (hasSaved && String(savedSchema) === String(s));
+        if (isSel) sawSaved = true;
+        opts.push('<option value="' + escAttr_(s) + '"' + (isSel ? ' selected' : '') + '>' +
+          escHtml(s) + '</option>');
+      });
+      if (hasSaved && !sawSaved) {
+        opts.push('<option value="' + escAttr_(savedSchema) + '" selected>' + escHtml(String(savedSchema)) + '</option>');
+      }
+      return '<select onchange="pdSetProductSchema(\'' + group + '\', \'' + escAttr_(type) + '\', this.value, \'' + escAttr_(mapKey) + '\')">' +
         opts.join('') + '</select>';
     }
 
@@ -2452,6 +2493,16 @@
       else { cell.variation_id = val; }
       markPipedriveDirty();   // no re-render — keep the variation select focused
     }
+    // Schema change → set/clear the product-map cell's `schema` (the CSV layout for
+    // this product; blank = fall back to the type rule's csv_schema on the server).
+    function pdSetProductSchema(group, type, val, mapKey) {
+      var g = pdEnsureGroup_(group);
+      var cell = pdGetMap_(g, mapKey || '')[type];
+      if (!cell || cell.product_id == null) return;   // no product → no schema to set
+      if (val === '' || val == null) { delete cell.schema; }
+      else { cell.schema = val; }
+      markPipedriveDirty();   // no re-render — keep the schema select focused
+    }
     // Per-group "Show all products" — a view-only toggle that bypasses the org
     // scope filter for this group's product dropdowns. NOT persisted (it doesn't
     // change saved config), so it doesn't mark the panel dirty.
@@ -2558,7 +2609,10 @@
       });
     }
 
-    // productMap → {type: {product_id, variation_id?}}; drop cells without a product.
+    // productMap → {type: {product_id, variation_id?, schema?}}; drop cells without a
+    // product. `schema` (the per-product CSV layout) is written only when non-empty,
+    // so a cell with no schema round-trips as {product_id, variation_id?} exactly as
+    // before (backward-compatible — no empty `schema` key).
     function buildProductMap_(pm) {
       var out = {};
       if (!pm || typeof pm !== 'object') return out;
@@ -2568,6 +2622,9 @@
         out[type] = { product_id: cell.product_id };
         if (cell.variation_id != null && cell.variation_id !== '') {
           out[type].variation_id = cell.variation_id;
+        }
+        if (cell.schema != null && cell.schema !== '') {
+          out[type].schema = cell.schema;
         }
       });
       return out;
