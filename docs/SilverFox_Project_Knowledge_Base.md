@@ -1,9 +1,9 @@
 # SilverFox Marketing — Project Knowledge Base
-### Compressed Reference | Last verified against live system: June 23, 2026
+### Compressed Reference | Last verified against live system: June 24, 2026
 
 This document distills all critical decisions, architecture, bugs, and context from the full project history. It is the primary memory document for continuing development.
 
-> **Deploy status is tracked by `clasp push`, not by branch.** "Live" = pushed to the bound Apps Script project (deploy = the separate `clasp push` step, not a git merge to `main`). "Branch-only" = committed but **not** yet `clasp push`ed. The two biggest bodies of branch-only work right now are the **Pipedrive integration** (Code.gs Section 31) and the **Lot Sherpa theming** redesign — both fully built, neither deployed. See **Deploy State Snapshot** below.
+> **Deploy status is tracked by `clasp push`, not by branch.** "Live" = pushed to the bound Apps Script project (deploy = the separate `clasp push` step, not a git merge to `main`). "Branch-only" = committed but **not** yet `clasp push`ed. The **Pipedrive integration** (Code.gs Section 31) was **merged to `main` and deployed June 24, 2026 (v2.12)** — it's now LIVE (activates per dealer once its live config is filled in). The remaining branch-only body of work is the **Lot Sherpa theming** redesign. See **Deploy State Snapshot** below.
 
 ---
 
@@ -19,7 +19,7 @@ V2 is the only system being actively developed. V3 development is paused until V
 
 ---
 
-## Deploy State Snapshot (June 23, 2026)
+## Deploy State Snapshot (June 24, 2026)
 
 **Live (deployed to the bound Apps Script via `clasp push`, on `main`):**
 - Universal script + template; config-driven dealers; master VIN log; parallel QR generation
@@ -32,12 +32,11 @@ V2 is the only system being actively developed. V3 development is paused until V
 - Source split — `source_split` (Frank Leta dual-site), one order → two CSVs
 - Health monitoring + live DASHBOARD; in-app Transcription tab; Home dashboard render
 - Performance sweep — `getAppBootstrap`, `getMasterSS_`/`getVinLogsSS_` handle caches, `waitForRecalc_` polling, parallel QR uploads + `trashFilesParallel_`, batched DASHBOARD formatting
+- **Pipedrive integration (v2.12, merged to `main` June 24)** — Code.gs **Section 31** (+ the stacked sub-branches `feature/pipedrive-finalize-flow`, `feature/pipedrive-install-cost`, `feature/pipedrive-followups`, `feature/pipedrive-billing-pdf`, `feature/product-driven-schema`). Push a finalized run as a deal with per-type product line items. The code is deployed; it **activates per dealer** once its live config is filled in (ScriptProperties secrets + `PIPEDRIVE_SETTINGS` rules + per-dealer `PIPEDRIVE` rows, incl. the product map — now the **sole per-type config**, which retired `type_rules` from the run).
 
 **Branch-only (committed, NOT `clasp push`ed — inert in production):**
-- **Pipedrive integration** — Code.gs **Section 31**; branch `pipedrive-integration` (+ `feature/pipedrive-finalize-flow`, `feature/pipedrive-install-cost`, `feature/pipedrive-followups`). Pushes a finalized run to Pipedrive as a deal. Needs deploy + ScriptProperties secrets + `PIPEDRIVE_SETTINGS` rules + `PIPEDRIVE` config rows before it does anything.
 - **Lot Sherpa theming** — branch `styling-updates`: CSS design-token system + light/dark theme. Two import-health fixes ride the same branch (deterministic baseline flush + smarter "missing location" check) and are ready to push.
 - **Dealer Rules "Discard Changes"** — branch `feature/dealer-rules-discard`.
-- Current working branch: **`feature/pipedrive-billing-pdf`**.
 
 ---
 
@@ -104,9 +103,10 @@ The five standalone modals (Run Dealer, Import, VIN Log Updater, Dealer Rules, N
 - `dedupFieldCodeHeaders_()` suffixes a repeated field code in the CSV header (`YEARMODELSTOCK`, `YEARMODELSTOCK2`, …) so Illustrator can link each graphic independently; data rows still both pull from the same mapping.
 - **Current FIELD_TO_COL:** YEAR:1, MAKE:2, MODEL:3, TRIM:4, VIN:5, STOCK:6, TYPE:7, PRICE_RAW:8, @QR:10, @QR2:10, YEARMAKE:11, YEARMODEL/QRYEARMODEL:12, MAKE_MODEL_COMBINED:13, QRSTOCK:14, MISC:15, PRICE_FMT:16, NEWYEARMAKE:17, TYPEVIN:18, YEARMODELSTOCK:19, PRICE_PLUS_2000:20, PRICE_TAGLINE:21
 
-### type_rules
-- Post-normalization values in `match`: `New`, `PO`, `CPO`, `CPO-EL`. Top-to-bottom, first match wins. `"*"` catch-all last.
-- Multi-rule dealers → one CSV sheet per rule (`CSV_NEW`, `CSV_PO`, `CSV_CPO`, …); single-rule → one sheet `CSV`.
+### type_rules → product map (v2.12: col O is DORMANT)
+- **The per-type output config now lives in the Pipedrive `product_map`, not `type_rules` (col O).** The run builds synthetic rules from the product map (`buildTypeRulesFromProductMap_`); a matched type missing a product/schema **blocks the run** — there is **no `*` catch-all** any more. See *Pipedrive → Product map = the sole per-type config*. The historical `type_rules` table below records the old (now-migrated) per-type config.
+- Per-type matching is still post-normalization `New`/`PO`/`CPO`/`CPO-EL`, first-match-wins, **CPO-EL before CPO** (substring trap).
+- Multi-schema dealers → one CSV sheet per resolved schema (`CSV_NEW`, `CSV_PO`, `CSV_CPO`, …); a single schema → one sheet `CSV`.
 
 ### filtering_rules (col W; `FILTER_RULES: 22`, 0-indexed)
 - Applied at CAO pre-fill **and** run-time step 8.5 in `runDealer` (build a VIN→scraperRow lookup, run each ordered VIN through `applyFilteringRules_`, drop filtered VINs before the ORDERMATCH QUERY). Bypass checkbox skips step 8.5.
@@ -150,7 +150,7 @@ Deals/log rows are created only once an order is known to exist. **`runDealer` w
 - **`abandonRun(dealerKey, outputDocId, qrFileIds)`** — abandoning the last live card with nothing finalized moves the output doc + this run's QR PNGs to **Drive trash** (30-day recovery; trashes exactly this run's files by ID, with a legacy name-scan fallback). Partial abandon of a split run keeps the shared doc/QRs.
 - **UI (ViewRun finalization cards):** one card per prospective entry (label, counts, status). v2.10 (LIVE) = a pre-filled deal-ID input + Finalize/Abandon, cards independent; "✓ Add to VIN Log" enables once ≥1 card is finalized and commits all finalized/uncommitted/non-zero rows via **`commitRunRows`** (skips already-committed). Discard guards on dealer change / new run / Cancel; an X-closed run is simply never logged (GAS can't intercept the dialog X).
 - **`test` runs are excluded from VIN-log commit** — `commitLatestRun` throws on a `test` col-D; `commitRunRows` skips it (returns `skippedTest`); the VIN Logs UI disables Commit.
-- **Method-first variant (BRANCH-ONLY, `feature/pipedrive-finalize-flow`):** each card leads with a **New Deal / Existing / Test** selector + one Finalize button (controls from **`getRunPushModes(dealerKey, group)` → `{test, newDeal, existing, reason}`**, carried as `pushModes`). `finalizeRunNewDeal` creates the deal first; `finalizeRunExisting` validates then links; `finalizeRun(…, 'test')` logs only. See the Pipedrive section.
+- **Method-first finalize (v2.12, LIVE — superseded the v2.10 deal-ID-input card UI above):** each card now leads with a **New Deal / Existing / Test** selector + one Finalize button (controls from **`getRunPushModes(dealerKey, group)` → `{test, newDeal, existing, reason}`**, carried as `pushModes`). `finalizeRunNewDeal` creates the deal first; `finalizeRunExisting` validates then links; `finalizeRun(…, 'test')` logs only. See the Pipedrive section.
 
 ### Run Order view (`ViewRun.html`, was the Run Dealer modal/sidebar)
 - **"Running as:" dropdown** (top, required — gates Run) from `USER_PROFILES`; last selection persisted per Google account.
@@ -220,9 +220,9 @@ A **Data Sources** screen (`ViewDataSources.html`) for header mapping and adding
 
 ---
 
-## Pipedrive Integration — Code.gs Section 31 *(BRANCH-ONLY: `pipedrive-integration` + sub-branches; NOT deployed, no `clasp push`; inert until configured)*
+## Pipedrive Integration — Code.gs Section 31 *(v2.12 — merged to `main` June 24, 2026; LIVE, activates per dealer once configured)*
 
-Pushes a **finalized** run to Pipedrive as a deal with per-type product line items — a **separate, explicit step AFTER** in-system finalization, never automatic, never before the RUN_LOG row (+ col-D Deal ID) exists.
+Pushes a **finalized** run to Pipedrive as a deal with per-type product line items — a **separate, explicit step AFTER** in-system finalization, never automatic, never before the RUN_LOG row (+ col-D Deal ID) exists. Deployed on `main`; inert until the live config is filled in (ScriptProperties secrets + `PIPEDRIVE_SETTINGS` rules + per-dealer `PIPEDRIVE` rows incl. the product map).
 
 ### Secrets (ScriptProperties only)
 `PD_API_TOKEN`, `PD_COMPANY_DOMAIN`, `PD_DEFAULT_PIPELINE_ID`/`_STAGE_ID`/`_CURRENCY` (read by `pdGetSecrets_`). **Never in repo/sheet.** `setupPipedriveSecrets(...)` validates via a live `GET /users/me` **before** saving; `getPipedriveStatus()` reports connection state and **never returns the token**.
@@ -234,16 +234,16 @@ Pushes a **finalized** run to Pipedrive as a deal with per-type product line ite
 Deal-field mapping is **GLOBAL**, not per-dealer. Row `deal_field_rules` = a JSON **array** of rules, each setting **one** deal field in one of **three modes**:
 - **copy** — `{id, deal_field, type, mode:"copy", org_field, option_map?}`: read the org's custom field and copy it (`option_map` translates an enum/set option id; `type:"monetary"` writes the `<deal_field>_currency` companion).
 - **conditional** — `{id, …, mode:"conditional", group, then_value, else_value}`: IF the org's fields match `group` THEN/ELSE. `group` is the targeting-rule shape but each `field` is a **Pipedrive org-field key**.
-- **constant** *(`feature/pipedrive-followups`)* — `{id, …, mode:"constant", value, if_empty}`: a fixed value, **no org needed**. `if_empty` makes one rule express create-vs-link: on a **New Deal** the value is **always set**; on a **Link** it's set **only if the deal field is empty**, and **skipped — never overwritten — if the current value can't be read** (fail-safe). *Motivating use: `Proof` = `"No Proof Required"` on every new deal, only-if-empty on a link — one global rule, nothing `Proof`/dealer-specific in code.*
+- **constant** — `{id, …, mode:"constant", value, if_empty}`: a fixed value, **no org needed**. `if_empty` makes one rule express create-vs-link: on a **New Deal** the value is **always set**; on a **Link** it's set **only if the deal field is empty**, and **skipped — never overwritten — if the current value can't be read** (fail-safe). *Motivating use: `Proof` = `"No Proof Required"` on every new deal, only-if-empty on a link — one global rule, nothing `Proof`/dealer-specific in code.*
 - Other keys in the tab: `product_org_field` (org-scoped picker) and `install_cost_config` (install line + Design variation). Generic accessors `getPipedriveSettingValue_`/`setPipedriveSettingValue_`. Server: `getPipedriveGlobalRules_`/`getPipedriveGlobalSettings`/`savePipedriveGlobalSettings` (assigns stable `id`s — `r1`, `r2`, … — so overrides keep pointing at the right rule), `getPipedriveSettingsBootstrap`.
 
 ### Org-condition engine (parallel mirror of the targeting engine)
 `pdOrgConditionMatches_` (leaf) + `pdOrgGroupMatches_` (recursive AND/OR) read an org's `custom_fields` by key and **fail SAFE** (unknown field/op, empty values, unparseable number, empty group → no match). Helpers `pdOrgFieldValue_` (pulls a comparable scalar from a scalar / `{id}` / `{value}`), `pdSetDealField_`, `pdCollectOrgKeys_` (fetch only the org keys a rule set references). **The production targeting engine (`conditionMatches_`/`groupMatches_`/`ruleMatches_`) is byte-for-byte unchanged** — a deliberate parallel implementation, not a refactor.
 
 ### `PIPEDRIVE` config tab — one row per `(dealer_key, group)`, cols A–L (12)
-`dealer_key, group, org_id, org_name, product_map` (JSON `{type:{product_id, variation_id?}}`)`, deal_title_template, pipeline_id, stage_id, currency, field_overrides` (JSON keyed by global rule `id` → `{off:true}` or a full replacement rule; **col J — was `field_map` in v1**)`, active, source_product_map` (JSON `{"<sourceGroup>":{type:{product_id, variation_id?}}}`; **col L**, `PDCFG.SOURCE_PRODUCT_MAP = 11`). A PRIMARY row + one row per `billing_split` group (how MBCC's **two orgs** are handled — each group row its own org + product map). Type Rules (col O) unchanged. Server: `getPipedriveDealerConfig_`, `getPipedriveDealerEditorData` (also returns `globalRules` + `sourceSplit`), `savePipedriveDealerConfig`, `getOrCreatePipedriveSheet_`.
+`dealer_key, group, org_id, org_name, product_map` (JSON `{type:{product_id, variation_id?, schema?, utm?}}` — `schema`/`utm` added in v2.12; see *Product map = the sole per-type config* below)`, deal_title_template, pipeline_id, stage_id, currency, field_overrides` (JSON keyed by global rule `id` → `{off:true}` or a full replacement rule; **col J — was `field_map` in v1**)`, active, source_product_map` (JSON `{"<sourceGroup>":{type:{product_id, variation_id?, schema?, utm?}}}`; **col L**, `PDCFG.SOURCE_PRODUCT_MAP = 11`). A PRIMARY row + one row per `billing_split` group (how MBCC's **two orgs** are handled — each group row its own org + product map). **Type Rules (col O) are now DORMANT** (v2.12 — the product map is the sole per-type config). Server: `getPipedriveDealerConfig_`, `getPipedriveDealerEditorData` (also returns `globalRules` + `sourceSplit`), `savePipedriveDealerConfig`, `getOrCreatePipedriveSheet_`.
 
-### Org→deal-field resolution (ships dark; no-op until configured)
+### Org→deal-field resolution (no-op until configured)
 **`pdResolveDealFields_(orgId, globalRules, overrides, currency, isNewDeal, existingDealFields)`** *(replaced `pdResolveFieldMap_`)*: (1) build the **effective** rule list (override `{off:true}` drops a rule, a replacement rule swaps it, else keep); (2) apply **constant** rules first **without** the org (`if_empty` semantics via `isNewDeal`/`existingDealFields`); (3) only if copy/conditional rules exist, read the referenced org keys and evaluate. Returns a **flat top-level** `{dealFieldKey: value}` map (+ `<key>_currency`) — **v1 deals take custom fields as top-level 40-char hash keys, NOT nested under `custom_fields` (that's v2-only)**. An org-fetch failure returns the constant results (not `{}`); copy/conditional output is byte-identical when no constant rule is present. Helpers `pdFieldEmpty_`, `pdHasIfEmptyConstant_`, `pdOptionId_` (id coercion). **No global rules / all overridden off = a no-op**, so the push works before any field mapping exists.
 
 ### Product variations (v2, lazy)
@@ -266,7 +266,7 @@ Pipedrive products are a **global catalog with no native product↔org link**, s
 ### Deactivated products — never mappable, never pushed
 `pdListProducts_` flags `inactive` from the v2 product's **`is_linkable === false`** (v1 fallback `selectable===false || active_flag===false`; **NOT `is_deleted`** — that's soft-delete and stays false for a merely-deactivated product). The picker hides inactive products from NEW mapping (an already-saved-then-deactivated one stays, flagged); `pushRunToPipedrive` **preempts before creating/linking** — a mapped, would-be-pushed (qty>0) inactive product returns `{ok:false, stage:'inactive_product', retryable:false}` naming the product(s). No orphaned deal. Skipped on a field-only retry.
 
-### Install cost + Design no-charge variation *(`feature/pipedrive-install-cost`)*
+### Install cost + Design no-charge variation *(v2.12)*
 `pdApplyInstallCost_` + `pdApplyDesignVariation_` run inside `pdApplyDealContents_` **after** products + fields, on **every** push, each gated by its own `state` flag. Config-driven via the `install_cost_config` row (`PD_INSTALL_COST_KEY`; `getInstallCostConfig_` / client `getPipedriveInstallCostConfig` / `saveInstallCostConfig`) — nothing dealer-/id-hardcoded; inert until set. Shape `{org_field_key, install_product_id, options:{<orgOptionId>:{variation_id|null, percent|null}}, design_product_id, design_no_charge_variation_id}`.
 - **Install line:** reads the org's "Program Install Cost" enum, looks up the option, **adds-or-updates** the Install product line (idempotent). Price = `percent × subtotal` (subtotal **excludes** the design + install products), rounded to the cent, else 0. (Included → No-Charge @0; 20% → Professional @ 20%; Custom Billed → no variation @0.)
 - **Design variation:** a PD automation adds the "Design" line a few seconds post-create, so this **polls** (~8×2s) and sets the No-Charge variation **only if the Design line's variation is empty** (`pdFieldEmpty_`) — never clobbers a template-request deal; `designPending` if the automation hasn't fired (a re-push sets it).
@@ -282,6 +282,17 @@ Every mapping keys on a **stable id/key, never a name** — `product_id`/`variat
 - **`ViewPipedriveSettings.html`** (global): connection setup (moved here from Dealer Rules), the `product_org_field` picker, the bulk dealer→org linker card, the **Install Cost** card, and the **global deal-field rules builder** (copy / conditional / **Set value** modes; the constant value picker reuses `psRenderValuePicker_` + an "only set if empty" checkbox).
 - **Dealer Rules → Pipedrive panel** (`ViewRules.html`, per-dealer): read-only connection state, per-group org picker, type→product grid (org-scoped + "Show all" + preserve-saved) with a variation selector, the secondary product grid for a `source_split` dealer, and per-field **overrides** (Use-global / Off / Override…). The inline override editor **reuses a shared, context-parameterized rule-card editor** — `psRenderRuleCard_`/`psSerializeOneRule_`/`psDeserializeOneRule_`/`psRegisterRuleCtx_` — one implementation shared with the global screen.
 - **Apostrophe-safe org pickers (both):** an org name interpolated into an inline `onclick` breaks on an apostrophe (Serra Honda O'Fallon) — fixed by stashing results in a JS array and passing only an **integer index** (`pdPickOrg(gid, j)` / `psLinkPickOrg(i, j)`), rendering names via `escHtml`.
+
+### Billing PDF attachment (v2.12)
+On **every** push the system auto-generates a **formatted PDF of the run's BILLING sheet and attaches it to the deal** (replacing the manual download-the-CSV step — a CSV loses formatting and PD's Drive viewer can't size columns). A `state.billingPdfDone` step in `pdApplyDealContents_` (after `designDone`), gated by the `runCtx` param threaded from both callers; **best-effort / non-fatal** (own try/catch, like the stats writes — a failure flags `billingPdfPending` and a re-push retries). **Idempotent** — `pdDealHasBillingPdf_` matches a **date-free** filename (`Billing - <dealer>.pdf` / `Billing - <dealer> (<GROUP>).pdf`) so it doesn't re-attach across days. Pipeline: `readBillingForPdf_` parses the rendered sheet (checks `DUPLICATES` before `BY TYPE` — the CPO/CPO-EL substring-trap class), `buildBillingPdfTab_` lays it out in a temp tab (produced-VINs grid via `billingVinGrid_` — ≥15/column before wrapping, capped 6 cols), `exportSheetPdf_` exports via the Sheets PDF URL (`Authorization: Bearer ScriptApp.getOAuthToken()`), `pdAttachFileToDeal_` uploads via `POST /api/v1/files` multipart (`{deal_id, file: blob}` — the **first file upload in the codebase**; raw `UrlFetchApp.fetch`, since `pdFetch_` is JSON-only). Orchestrated by `attachBillingPdfToDeal_`. The working BILLING sheet is never modified.
+
+### Product map = the sole per-type config (v2.12 — the big consolidation; retired `type_rules` from the run)
+The arc: it started with the CSV schema set on `type_rules` (col O) → then the schema derived from the Pipedrive **product** → the product carried schema **and** UTM → finally **the product map became the SOLE per-type config** and `type_rules` was eliminated from the run (left DORMANT). The principle: **the product is the real-world output unit (= a template); a CSV schema is not a template, so the product carries the template identity.**
+- **Shape:** each `product_map[type]` / `source_product_map[group][type]` entry is `{product_id, variation_id?, schema?, utm?}` — `schema` sets the CSV layout + grouping, `utm` the QR `utm_medium`. The same mapping the user already picks for billing now drives billing, CSV layout, grouping, and UTM.
+- **`runDealer` rework:** dropped the top-of-function `getTypeRules_`; after the ORDERMATCH match it reads the product maps (`getCsvProductMaps_`), **validates** via `validateProductMapForRun_(matchedTypes, mainMap)`, then **builds synthetic type rules from the product map** via `buildTypeRulesFromProductMap_` (one `{match, csv_schema: entry.schema, utm: entry.utm}` per mapped type, **ordered CPO-EL before CPO** — load-bearing, `matchRule_` is substring-based). Those synthetic rules feed `buildLinks_`/`buildUtmFormula_` (QR UTM) and `buildCSVSheet_`/`csvOutputGroups_`/`resolveRuleSchema_` (CSV schema/grouping) **UNCHANGED** — only the *source* of the type rules changed. **No run-time fallback to col O.**
+- **Blocks on missing config:** a matched type with no product or no schema → the run **THROWS** ("Cannot run `<dealer>` — no product/schema set for type(s): X. Set them in Dealer Rules → Pipedrive.") via the existing try/catch. So the run now **requires a complete product map for every dealer — even test runs**. **The `*` catch-all is gone** (an unmapped/normalization-missed type blocks instead of falling through).
+- **Migration:** `migrateTypeRulesIntoProductMap()` (run once from the editor) backfills each entry's `schema` + `utm` from the legacy col O via `matchRule_`, only where a product is mapped, never overwriting; idempotent. `getTypeRules_` is kept for the migration only; the **Type Rules editor tab is removed** from `ViewRules.html` (per-type schema + UTM are now columns on the product pickers; `availableSchemas` kept to feed the Schema column).
+- Plus the SCP_NEW→SCP redundant-schema consolidation (SCP_NEW is now identical to SCP — a cleanup candidate).
 
 ---
 
@@ -348,7 +359,8 @@ Every mapping keys on a **stable id/key, never a name** — `product_id`/`variat
 
 ## Dealer Config State (Key Dealers)
 
-### type_rules (post-normalization values)
+### type_rules (post-normalization values) — HISTORICAL (migrated into the product map in v2.12)
+> As of v2.12 the run no longer reads col O; `migrateTypeRulesIntoProductMap()` copied each dealer's per-type **schema** (and UTM) into its Pipedrive `product_map`. This table is the pre-migration per-type mapping, kept as a reference for what each dealer's product map should carry (and there is now **no `*` catch-all** at run time — a matched type must have a product + schema or the run blocks).
 
 | Dealer | type_rules summary |
 |---|---|
@@ -385,7 +397,7 @@ Every mapping keys on a **stable id/key, never a name** — `product_id`/`variat
 5. **Stale dealer notes** — Hyundai/Nissan of Jefferson City notes say "Scraper #N/A — inactive" but both are active with live feeds.
 6. **Trim cleanup (analyzed; deferred)** — trims overflow the print template. Full design (global `cleanTrim_` regex pass behind `ENABLE_TRIM_CLEANUP` + `dryRunCleanTrim_` preview, plus residual exact rules) is in the Bridge doc. Approach decision (A full / B phased / C exact-only) pending.
 7. **Dave Sinclair St. Peters targeting (blocked)** — wants CAO used ≥ $35k + New manual-only. Blocked: used cars have **no price** in the feed, so the price floor can't function until used prices are scraped. The `cao_exclude_types:["New"]` half works.
-8. **Pipedrive — deploy + live config pending.** Built on branch (Section 31); needs `clasp push` + ScriptProperties secrets + `PIPEDRIVE_SETTINGS` rules + `PIPEDRIVE` rows before it does anything.
+8. **Pipedrive — live-config rollout pending (code is DEPLOYED).** Shipped to `main` June 24, 2026 (v2.12, Section 31). The remaining work is the per-dealer activation: ScriptProperties secrets + `PIPEDRIVE_SETTINGS` rules + per-dealer `PIPEDRIVE` rows (incl. the product map — now the sole per-type config, so a dealer's run blocks until its product map is complete) + the end-to-end test pass.
 9. **Theming — deploy pending.** Built on `styling-updates`; in-app visual QA after it ships. The two import-health fixes on that branch are ready to push independently.
 
 ### Resolved since the last KB update
@@ -406,7 +418,7 @@ Every mapping keys on a **stable id/key, never a name** — `product_id`/`variat
 ## V2 Development Priority Order (Updated)
 
 1. ✅ CAO automation · 2. ✅ filtering_rules per dealer · 3. ✅ Run Dealer modal · 4. ✅ VIN log commit/rollback · 5. ✅ Dealer Rules Editor · 6. ✅ ScraperImport (now multi-file + Replace/Merge) · 7. ✅ Multi-user QR base path · 8. ✅ Health monitoring + DASHBOARD · 9. ✅ Glendale price+$2,000 · 10. ✅ Billing split (MBCC/Sprinter) · 11. ✅ Post-run finalization · 12. ✅ Targeting Rules engine (replaced `conditions`) · 13. ✅ Data Sources v2 + schema growth · 14. ✅ Source split (Frank Leta) · 15. ✅ The SilverFox App SPA + performance sweep
-16. **Pipedrive integration** — built (branch); **deploy + live config** next.
+16. ✅ **Pipedrive integration (v2.12, deployed June 24, 2026)** — per-dealer live-config rollout + end-to-end validation next.
 17. **Theming** — built (branch); deploy + visual QA.
 18. **Maintenance/Hybrid order types** — two-stream modal UI, merge logic, bucket review.
 19. **Stock→VIN fallback lookup** — planned.

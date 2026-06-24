@@ -22,7 +22,8 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
 - **Live system is the source of truth.** When docs and the live sheets/code
   disagree, trust the live system and fix the docs.
 - **Branch check before push.** Confirm the current branch before any push.
-  Single deployed branch is `main` (`feature/health-monitoring` merged June 2026).
+  Single deployed branch is `main` (`feature/health-monitoring` merged June 2026;
+  `pipedrive-integration` merged to `main` June 24, 2026 — v2.12).
 - **Deploy:** edit locally → commit/push to GitHub → `clasp push` to Apps Script.
   Rollback = checkout last good commit on `main` and `clasp push`.
 - **Sheets MCP:** never edit anything outside the "Claude Sandbox" Drive folder.
@@ -30,7 +31,8 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
 
 ## Repo / environment
 
-- Repo: `Silver-Fox-Marketing-STL/GAS-OPS-V2` — `Code.gs` (~3,400 lines, 30 sections)
+- Repo: `Silver-Fox-Marketing-STL/GAS-OPS-V2` — `Code.gs` (~3,400 lines, 31 sections;
+  §31 = Pipedrive integration)
   plus the **SilverFox App** (single-modal SPA, June 2026): `App.html` shell
   (sidebar nav + `<?!= include_() ?>` templating), view fragments `ViewRun`,
   `ViewImport`, `ViewVinLog`, `ViewTranscription` (live Found/Not-Found VIN
@@ -68,9 +70,9 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
 - ORDERMATCH cols A–I are the QUERY spill zone — never write there in the template.
   `FIELD_TO_COL` in Code.gs is the only runtime mapping; headers/FIELD_CODES tab
   are documentation. `buildCSVSheet_` reads 100 cols. `PRICE_TAGLINE` = col 21 (U).
-- The **Pipedrive product map is the SOLE per-type config** *(branch
-  `feature/product-driven-schema` — supersedes the earlier fallback model; the
-  fallback is gone)*: each `product_map[type]` (and `source_product_map[group][type]`)
+- The **Pipedrive product map is the SOLE per-type config** *(v2.12 — supersedes the
+  earlier fallback model; the fallback is gone)*: each `product_map[type]` (and
+  `source_product_map[group][type]`)
   entry is `{product_id, variation_id?, schema?, utm?}`, carrying both the CSV
   **schema** and the QR **UTM**. **`runDealer` no longer reads `type_rules` (col O)** —
   after matching it reads the product maps via **`getCsvProductMaps_`**, **validates**
@@ -128,17 +130,21 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
   UI stayed fine. Do **not** reintroduce volatile full-column formulas here.
 - Stats/dashboard writes (`writeImportStats_`, ORDER_STATS side-write,
   `refreshDashboard_`) are non-fatal try/catch — keep it that way.
-- Pipedrive *(branch `pipedrive-integration`, not deployed)*: the **`PIPEDRIVE`
-  tab** in SF_DEALER_CONFIG is **cols A–L (12)**, keyed **one row per
-  `(dealer_key, group)`** (PRIMARY + one per `billing_split` group, each with its
-  own org + per-type `product_map`, now `{type:{product_id, variation_id?}}`).
-  **Col J = `field_overrides`** (`PDCFG.FIELD_OVERRIDES`; was `field_map` in v1):
-  JSON keyed by global rule `id` → `{off:true}` or a full replacement rule.
-  **Col L = `source_product_map`** (`PDCFG.SOURCE_PRODUCT_MAP = 11`): JSON
-  `{ "<sourceGroupName>": {type:{product_id, variation_id?}} }` — per-type products
-  for a `source_split` dealer's secondary CSV output, pushed on the **same** deal;
-  `{}` for non-source-split dealers. Secrets (`PD_API_TOKEN` etc.) live in
-  **ScriptProperties only**, never in repo/sheet.
+- Pipedrive *(v2.12 — merged to `main` June 24, 2026; deployed, activates per dealer
+  once live config is filled in)*: the **`PIPEDRIVE` tab** in SF_DEALER_CONFIG is
+  **cols A–L (12)**, keyed **one row per `(dealer_key, group)`** (PRIMARY + one per
+  `billing_split` group, each with its own org + per-type `product_map`, now
+  `{type:{product_id, variation_id?, schema?, utm?}}` — the **product map is the SOLE
+  per-type config**: `schema`/`utm` per mapping drive CSV layout/grouping + QR UTM, so
+  `type_rules` (col O) is no longer read by the run; a matched type missing a
+  `product_id` or `schema` **blocks the run**). **Col J = `field_overrides`**
+  (`PDCFG.FIELD_OVERRIDES`; was `field_map` in v1): JSON keyed by global rule `id` →
+  `{off:true}` or a full replacement rule. **Col L = `source_product_map`**
+  (`PDCFG.SOURCE_PRODUCT_MAP = 11`): JSON
+  `{ "<sourceGroupName>": {type:{product_id, variation_id?, schema?, utm?}} }` —
+  per-type products for a `source_split` dealer's secondary CSV output, pushed on the
+  **same** deal; `{}` for non-source-split dealers. Secrets (`PD_API_TOKEN` etc.) live
+  in **ScriptProperties only**, never in repo/sheet.
 - Pipedrive deal-field mapping is **GLOBAL**, in the **`PIPEDRIVE_SETTINGS`** tab
   (key/value; row `deal_field_rules` = JSON array). Each rule is one of **three**
   modes: **copy** (`{id, deal_field, type, mode:"copy", org_field, option_map?}`),
@@ -196,7 +202,7 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
   instant the API returns it, and a **numeric col D = "deal already created"**
   (dup guard) — so a retry never makes a second deal. `pdFetch_` **never throws**
   (returns `{ok,…}`) so a Pipedrive failure can never fail a run. Keep both.
-- Run-Order finalize is **method-first** (branch `feature/pipedrive-finalize-flow`):
+- Run-Order finalize is **method-first** (v2.12):
   each post-run card picks **New Deal / Existing / Test** then Finalizes once
   (controls from `getRunPushModes(dealerKey, group)` → `{test,newDeal,existing,reason}`,
   carried as `pushModes` on each `pendingRuns` entry).
@@ -212,8 +218,8 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
   `pushRunToPipedrive` was split into `pdResolveRunContext_`/`pdResolveDealId_`/
   `pdCheckInactiveProducts_`/`pdApplyDealContents_` with **no** behavior/signature
   change — the ViewVinLog push + link/retry paths are unchanged.
-- Pipedrive install cost + Design no-charge variation *(branch
-  `feature/pipedrive-install-cost`)*: `pdApplyInstallCost_` + `pdApplyDesignVariation_`
+- Pipedrive install cost + Design no-charge variation *(v2.12)*:
+  `pdApplyInstallCost_` + `pdApplyDesignVariation_`
   run inside `pdApplyDealContents_` **after** products + fields, on **every** push
   (create + link), each gated by its own `state` flag (`installDone`/`designDone`,
   retry-safe). Config-driven via the **`install_cost_config`** `PIPEDRIVE_SETTINGS` row
@@ -227,7 +233,7 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
   sets it). `pdUpdateDealProduct_` = the only line-item UPDATE
   (`PUT /deals/{id}/products/{attachmentId}`, keyed on the attachment `id`, not
   `product_id`). `pushRunToPipedrive` signature/gates/returns unchanged.
-- Pipedrive billing-PDF attach *(branch `feature/pipedrive-billing-pdf`)*:
+- Pipedrive billing-PDF attach *(v2.12)*:
   `attachBillingPdfToDeal_` (via `state.billingPdfDone` in `pdApplyDealContents_`,
   after `designDone`, gated by the new `runCtx` 8th param) generates a formatted PDF
   of the run's BILLING sheet and attaches it to the deal on **every** push. It is
@@ -257,16 +263,11 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
 2. MBCC/Sprinter shared scraper location — billing split design decision pending.
 3. Stock→VIN fallback lookup (replaces unused `use_stock_not_vin` concept).
 4. Glendale `model_trim_split` key is inert in `data_transforms` — implement or remove.
-5. Pipedrive integration — **implemented on branch `pipedrive-integration`
-   (v2 model), pending deploy + live config** (`clasp push` + ScriptProperties
-   secrets + `PIPEDRIVE_SETTINGS` global deal-field rules + PIPEDRIVE config rows).
-   Pushes a finalized run to Pipedrive as a deal with per-type product line items
-   (with optional variations), as a separate explicit step after finalization;
-   deal fields come from **global rules** (copy + conditional) with per-dealer
-   `field_overrides`, resolved by `pdResolveDealFields_`; org conditions via the
-   fail-safe parallel engine; `pushRunToPipedrive`, never-throw `pdFetch_`.
-   System Settings nav group (Dealer Rules / Normalization / Data Sources /
-   Pipedrive Settings). See the Bridge doc "Pipedrive Integration" section.
+5. ✅ **DONE — Pipedrive integration (v2.12, merged to `main` June 24, 2026).** Code is
+   deployed; it **activates per dealer** once the live config is filled in: ScriptProperties
+   secrets + `PIPEDRIVE_SETTINGS` global rules + per-dealer `PIPEDRIVE` rows (incl. the
+   product map, now the sole per-type config). Remaining = that live-config rollout + the
+   end-to-end test pass. See the Bridge doc "Pipedrive Integration" section.
 6. Trim cleanup — trims overflow the print template; full analysis + validated
    auto-cleanup design (global `cleanTrim_` regex pass, feature-flag + dry-run
    gated, plus residual exact-match rules) captured in the Bridge doc

@@ -1,7 +1,9 @@
 # SilverFox Marketing — Production System Development Plan
-### Version 2 | Last Updated: June 23, 2026
+### Version 2 | Last Updated: June 24, 2026
 
-> **Revision note (June 23, 2026):** Brought current after a dense two weeks of V2 work. Newly reflected here: the **SilverFox App** single-modal SPA (the five modals are now `View*.html` fragments in `App.html`), the **Targeting Rules engine** (replaced the flat `conditions` array, June 17), **Data Sources v2 + append-only schema growth**, **billing split** (MBCC/Sprinter resolved) and **source split** (Frank Leta dual-site), **post-run finalization** (deferred deal IDs + abandonable runs), a backend **performance sweep**, and the **Pipedrive integration** + **Lot Sherpa theming** (both fully built but **branch-only — not yet `clasp push`ed**). Deploy status is now tracked by `clasp push`, not by branch — a feature can be merged to `main` and still be undeployed.
+> **Revision note (June 24, 2026):** The **Pipedrive integration (v2.12) was merged to `main` and deployed** — the whole arc (global deal-field rules in copy/conditional/constant modes + per-dealer overrides, org-scoped products, gross line items, idempotent create/link, method-first finalize, billing-PDF attach, install-cost + Design variation, and the **product-map-as-sole-per-type-config** consolidation that retired `type_rules` from the run). It activates per dealer once its live config is filled in. **Lot Sherpa theming** + the **Dealer Rules "Discard Changes"** button remain branch-only (not yet `clasp push`ed).
+>
+> **Earlier revision note (June 23, 2026):** Brought current after a dense two weeks of V2 work. Newly reflected here: the **SilverFox App** single-modal SPA (the five modals are now `View*.html` fragments in `App.html`), the **Targeting Rules engine** (replaced the flat `conditions` array, June 17), **Data Sources v2 + append-only schema growth**, **billing split** (MBCC/Sprinter resolved) and **source split** (Frank Leta dual-site), **post-run finalization** (deferred deal IDs + abandonable runs), and a backend **performance sweep**. Deploy status is tracked by `clasp push`, not by branch — a feature can be merged to `main` and still be undeployed.
 >
 > **Earlier revision note (June 2026):** Updated to reflect V2's near-production status, a V2 architecture-hardening track, and a firm V3 direction. The prior "Development Path Decision" (Flask vs. FastAPI + React) was replaced by a firm recommendation — see **V3 Direction (Firm Recommendation)** below, basis in **Appendix A**.
 
@@ -47,13 +49,13 @@ Functionally complete and in final testing. Core improvements over V1:
 - **Post-run finalization** — deal IDs deferred to a finalization step; abandonable runs; no log row without a deal id; the VIN log never written implicitly
 - Health monitoring + live DASHBOARD; in-app Transcription tab; per-user QR base path
 - A backend **performance sweep** — handle caches, early-exit recalc polling, parallel QR + batch Drive trashing, batched dashboard formatting
+- **Pipedrive integration (v2.12, deployed June 24, 2026)** — pushes a finalized run to Pipedrive as a deal with per-type product line items (global deal-field rules copy/conditional/constant + per-dealer overrides, org-scoped products, gross line items, idempotent create/link, method-first finalize, billing-PDF attach, install-cost + Design variation). The **Pipedrive product map is now the sole per-type output config** (CSV schema + UTM), which retired `type_rules` from the run. Activates per dealer once its live config is filled in (ScriptProperties secrets + `PIPEDRIVE_SETTINGS` rules + per-dealer `PIPEDRIVE` rows incl. the product map).
 
 **Built but not yet deployed (branch-only — no `clasp push`):**
-- **Pipedrive integration** (Code.gs Section 31) — pushes a finalized run to Pipedrive as a deal; pending deploy + ScriptProperties secrets + `PIPEDRIVE_SETTINGS` rules + `PIPEDRIVE` config rows
 - **Lot Sherpa theming** — CSS design tokens + light/dark; pending deploy + visual QA (two import-health fixes on the same branch are ready to push)
 - **Dealer Rules "Discard Changes"** button
 
-**What remains before V2 is production:** end-to-end testing across many real dealers; the two-stream order types (Maintenance, Hybrid) + the Auffenberg type-override; deploying the Pipedrive + theming branches; plus the architecture-hardening track (**Phase 1A**).
+**What remains before V2 is production:** end-to-end testing across many real dealers (now including the Pipedrive push + per-dealer live config rollout); the two-stream order types (Maintenance, Hybrid) + the Auffenberg type-override; deploying the theming branch; plus the architecture-hardening track (**Phase 1A**).
 
 ### V3 (Long-Term Replacement)
 A Flask + PostgreSQL app exists (two-phase wizard, CAO/LIST, QR, CSV, VIN-log via Postgres, WebSocket progress) at `http://127.0.0.1:5000`. A side-by-side review shows it has **diverged from V2's validated logic** (config schema, QR content, VIN-log table design, price formatting — Appendix A). Because the divergence is baked into the Flask business layer, the recommendation is **a clean rebuild using V2 as the canonical spec** — below.
@@ -76,7 +78,7 @@ A Flask + PostgreSQL app exists (two-phase wizard, CAO/LIST, QR, CSV, VIN-log vi
 The cost of the rebuild is the frontend + route layer. The value is escaping the divergence permanently and landing on the originally-intended stack (FastAPI + React), with async-native QR/IO and a component model suited to the config-management UI.
 
 ### What "use V2 as the canonical spec" means concretely
-- Domain model ported from V2 (not Flask): `type_rules`; `filtering_rules` (per-type `seasoning`, `require_stock/price/url`, `min/max_price`, `allowed_types`, `exclude_status`); the **`targeting_rules`** engine (IF nested AND/OR THEN `drop_on_import`/`exclude_cao`/`exclude_order`, fail-SAFE); `CSV_SCHEMAS` + a data-driven `FIELD_CODES` registry; `NORM_MAPS`; `USER_PROFILES`; the **billing-group / source-split** partition axes; the **finalization** invariants.
+- Domain model ported from V2 (not Flask): the **per-type output config** (now carried by the **Pipedrive product map** — `{product_id, variation_id?, schema?, utm?}` per type — which became the sole per-type config in v2.12 and retired `type_rules`; V3 should model the per-type CSV-schema + UTM as an attribute of the product/output unit, not a separate `type_rules` table, and **block a run on a missing product/schema** rather than fall through to a `*` catch-all); `filtering_rules` (per-type `seasoning`, `require_stock/price/url`, `min/max_price`, `allowed_types`, `exclude_status`); the **`targeting_rules`** engine (IF nested AND/OR THEN `drop_on_import`/`exclude_cao`/`exclude_order`, fail-SAFE); `CSV_SCHEMAS` + a data-driven `FIELD_CODES` registry; `NORM_MAPS`; `USER_PROFILES`; the **billing-group / source-split** partition axes; the **finalization** invariants.
 - **QR content matches V2:** encode the **UTM-tagged VDP URL**, not the bare VIN (item 2). Keep V3's local `qrcode` generation.
 - **Single `vin_logs` table** keyed by `dealer_key` (FK + indexes), no dynamic-table SQL.
 - **First-class billing-group / sub-dealer concept** for MBCC/Sprinter (V2 solved this with `billing_split`; V3 makes it native).
@@ -149,9 +151,9 @@ V2 is the active bridge and near-term production system. The goal is full reliab
 - [x] **Source split** — `source_split` (Frank Leta dual-site): one order → `CSV` + `CSV_<group>`, one deal, BY-SOURCE billing section, import-time waterfall dedup
 - [x] **The SilverFox App SPA** — `App.html` + `SharedUtils`/`Classic` + the migrated `View*` fragments + new Home/Transcription/Utilities/DataSources views
 - [x] **Performance sweep** — `getAppBootstrap`, `getMasterSS_`/`getVinLogsSS_` handle caches, `waitForRecalc_` early-exit polling, parallel QR uploads + `trashFilesParallel_` + QR-folder hygiene, batched DASHBOARD formatting, in-app Transcription + Home dashboard
+- [x] **Pipedrive integration (v2.12, deployed June 24, 2026)** — Code.gs Section 31 (+ `feature/pipedrive-finalize-flow`/`-install-cost`/`-followups`/`-billing-pdf`/`feature/product-driven-schema`), merged to `main`. Push a finalized run as a deal with per-type product line items; global deal-field rules (copy/conditional/constant) + per-dealer `field_overrides`; org-scoped products; gross line items; idempotent create/link; method-first finalize; billing-PDF attach; install-cost + Design variation; the **product map is now the sole per-type output config** (retired `type_rules` from the run). Remaining = the per-dealer live-config rollout (ScriptProperties secrets + `PIPEDRIVE_SETTINGS` rules + `PIPEDRIVE` rows) + end-to-end validation.
 
 #### Built — deploy pending
-- [ ] **Pipedrive integration** (branch `pipedrive-integration` + `finalize-flow`/`install-cost`/`followups`) — `clasp push` + ScriptProperties secrets + `PIPEDRIVE_SETTINGS` global rules + per-dealer `PIPEDRIVE` rows, then live-config validation
 - [ ] **Lot Sherpa theming** (branch `styling-updates`) — `clasp push` + in-app visual QA; the two import-health fixes on this branch can ship independently first
 - [ ] **Dealer Rules "Discard Changes"** button (branch `feature/dealer-rules-discard`)
 
@@ -180,7 +182,7 @@ V2 is the active bridge and near-term production system. The goal is full reliab
 - [x] Align the V2 doc status field to "near production" — done (Bridge doc)
 - [x] Resolve the `scraper_location_name` audit — done June 18 (BMW J6 was the only real drift; Serra/CDJR confirmed not drift)
 
-**Success criteria:** V2 runs a full order for any active dealer without errors; all four order types supported; BILLING totals accurate; CAO works; Pipedrive + theming deployed and validated.
+**Success criteria:** V2 runs a full order for any active dealer without errors; all four order types supported; BILLING totals accurate; CAO works; Pipedrive deployed (v2.12) with per-dealer live config in place and validated; theming deployed and validated.
 
 ---
 
@@ -225,7 +227,7 @@ V3 is a clean rebuild on FastAPI + React with the V2 config model as the canonic
 - A starting Postgres schema; the prepare → review → generate flow shapes
 
 #### Canonical domain model (ported from V2)
-- [ ] `type_rules` engine (first-match-wins, title-case incl. `CPO-EL` before `CPO`)
+- [ ] Per-type output config (first-match-wins, title-case incl. `CPO-EL` before `CPO`) — in V2 this now comes from the **Pipedrive product map** (each type → `{product_id, schema, utm}`), not a separate `type_rules` table; a missing product/schema **blocks the run** (no `*` catch-all)
 - [ ] `filtering_rules` engine (`allowed_types`, `exclude_status`, `require_stock/price/url`, `min/max_price`, per-type `seasoning`; enumerated rejection reasons)
 - [ ] **`targeting_rules` engine** — IF nested AND/OR THEN action (`drop_on_import`/`exclude_cao`/`exclude_order`), fail-SAFE, schema-driven fields, `gt`/`lt`/`in`/`contains`/…
 - [ ] **billing_split** (separate deals/orgs/product maps) and **source_split** (one deal, separate products/CSVs per source) — both driven generically off filtering_rules
@@ -286,7 +288,7 @@ Resolved via **`billing_split`** (Option B): a single run produces **BILLING** (
 `PRICE_PLUS_2000` field code live at ORDERMATCH col 20 (T) via a `*`-safe template ARRAYFORMULA; used by `GLENDALE_COMBINED`.
 
 ### Frank Leta Honda — Dual-site — RESOLVED (June 2026)
-**`source_split`** (main site + AUTOLOANPRO): one order, one deal, two CSV outputs by URL domain; BY-SOURCE billing section; import-time main-first waterfall dedup. Per-source Pipedrive products supported via the `PIPEDRIVE` tab col L `source_product_map` (branch-only until Pipedrive deploys).
+**`source_split`** (main site + AUTOLOANPRO): one order, one deal, two CSV outputs by URL domain; BY-SOURCE billing section; import-time main-first waterfall dedup. Per-source Pipedrive products supported via the `PIPEDRIVE` tab col L `source_product_map` (live with the v2.12 Pipedrive deploy; activates once configured).
 
 ### Auffenberg Hyundai — Hybrid Order Config (pending)
 Needs `type_override: "used"` on the manual stream (Courtesy Loaners appear New, must print/bill Used). V2: a manual-stream override surfaced in the (not-yet-built) two-stream modal + CSV builder. V3: a parameter on the Hybrid order request.
@@ -314,7 +316,7 @@ Needs `type_override: "used"` on the manual stream (Courtesy Loaners appear New,
 | **Database** | Google Sheets | PostgreSQL |
 | **Auth** | Google account (implicit) | Google OAuth 2.0 |
 | **QR Generation** | qrserver.com API (parallel), encodes UTM VDP URL | `qrcode` library (local), encodes UTM VDP URL |
-| **CRM push** | Pipedrive (Code.gs §31, built; not yet deployed) | Pipedrive (port the V2 spec) |
+| **CRM push** | Pipedrive (Code.gs §31, deployed v2.12) | Pipedrive (port the V2 spec) |
 | **Hosting** | Google (Sheets/Drive) | Railway or Render |
 | **Output delivery** | Google Drive download | ZIP download |
 | **Migrations** | None | Alembic |
@@ -352,13 +354,12 @@ These (June 2026 review) motivate rebuilding V3 from V2 rather than extending Fl
 
 Update at the start of each phase and on any significant architectural decision. Keep current: phase completion status; V2 production/deploy status; technology decisions; open questions; new dealer requirements; Appendix A as divergences are found/resolved.
 
-### Branch & Merge Strategy (as of June 23, 2026)
+### Branch & Merge Strategy (as of June 24, 2026)
 
 - **`main` is the single deployed/integration branch.** Deploy flow: edit locally → commit/push to GitHub → `clasp push`. Rollback = `git checkout <last good commit>` + `clasp push`. **A git merge to `main` ≠ a deploy** — deploying is the separate `clasp push`.
-- **What's on `main` and deployed:** everything through v2.11 (Data Sources + Targeting Rules, tag `stable-post-targeting-rules`), plus the App SPA, the performance sweep, and `source_split` (Frank Leta).
+- **What's on `main` and deployed:** everything through v2.11 (Data Sources + Targeting Rules, tag `stable-post-targeting-rules`), plus the App SPA, the performance sweep, `source_split` (Frank Leta), and — **as of June 24 (v2.12)** — the full **Pipedrive integration** (`pipedrive-integration` + its stacked sub-branches `feature/pipedrive-finalize-flow`, `feature/pipedrive-install-cost`, `feature/pipedrive-followups`, `feature/pipedrive-billing-pdf`, and `feature/product-driven-schema`).
 - **Live, undeployed branches (built, no `clasp push` yet):**
-  - `pipedrive-integration` — the base Pipedrive feature; with stacked sub-branches `feature/pipedrive-finalize-flow` (method-first finalize), `feature/pipedrive-install-cost`, and `feature/pipedrive-followups` (constant deal-field rule). The current working branch `feature/pipedrive-billing-pdf` continues this line.
   - `styling-updates` — Lot Sherpa theming (+ two ready-to-push import-health fixes).
   - `feature/dealer-rules-discard` — the Discard Changes button.
-- **Merge-conflict caution — `Code.gs` is one ~3,400-line file**, so any two branches that both touch it conflict on merge. This is acute right now with several stacked Pipedrive sub-branches. Prefer short-lived branches off the right base, land them in order, and avoid parallel long-lived branches that both edit `Code.gs`. (Doc-only branches like the one this plan is being edited on don't have that problem — these two planning docs are dormant on `main`, so they merge cleanly.)
+- **Merge-conflict caution — `Code.gs` is one ~3,400-line file**, so any two branches that both touch it conflict on merge. (This was acute during the stacked Pipedrive sub-branches, now landed.) Prefer short-lived branches off the right base, land them in order, and avoid parallel long-lived branches that both edit `Code.gs`. (Doc-only branches like the one this plan is being edited on don't have that problem — these two planning docs are dormant on `main`, so they merge cleanly.)
 - The merged `feature/health-monitoring` branch still exists but is fully integrated.

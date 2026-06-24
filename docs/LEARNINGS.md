@@ -351,24 +351,34 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
 - Explicit JSON config per dealer beats implicit defaults — every dealer's
   `type_rules`/`filtering_rules` is fully written out, so a blank cell is a bug,
   not a default.
-- **The PRODUCT is the output unit — derive the CSV schema/grouping from it, not
-  from a parallel setting.** A type's CSV **schema ≠ the print template**: the actual
-  Illustrator template identity lives with the Pipedrive **product** the user already
-  picks for billing, so a separate `csv_schema` on the type rule was a second source
-  of truth that could disagree (and an earlier `output`-label idea would have been a
-  *third*). Fix: derive the CSV schema **and** the sheet grouping from
-  `product_map[type].schema`, demote `type_rules.csv_schema` to a **fallback**
-  (`resolveRuleSchema_` → product schema else `csv_schema`; `csvOutputGroups_` groups
-  by the *resolved* schema). One mapping now drives billing, layout, and grouping.
-  Two load-bearing safeguards: (1) **safe-empty when the upstream config is absent** —
-  `getCsvProductMaps_` returns `{}` if Pipedrive is unconfigured, so every rule
-  cleanly falls back to `csv_schema` and a dealer with no product map still produces
-  output; (2) the new field is **optional + ignored where irrelevant** (`schema` on a
-  `product_map` entry is backward-compatible — `buildLineItems_` doesn't read it), so
-  adding it can't regress the billing push. Watch the blast radius: changing the
-  grouping *key* (type → resolved schema) silently **renames/merges output sheets**
-  even with no schemas set yet (4 multi-rule dealers' CSV sheets changed on deploy) —
-  a regrouping is a behavior change, not a no-op, so enumerate the affected dealers.
+- **The PRODUCT is the output unit — make it the SOLE per-type config, and BLOCK on a
+  gap rather than fall through to a catch-all.** A type's CSV **schema ≠ the print
+  template**: the actual Illustrator template identity lives with the Pipedrive
+  **product** the user already picks for billing, so a separate `csv_schema` on the
+  type rule was a second source of truth that could disagree (and an earlier
+  `output`-label idea would have been a *third*). The change landed in **two steps —
+  note the second**: first the schema/grouping were *derived* from
+  `product_map[type].schema` with `type_rules.csv_schema` kept as a **fallback**; then
+  (v2.12) the **fallback was removed** and the product map became the **sole** per-type
+  config — each `product_map[type]` carries `{product_id, variation_id?, schema?, utm?}`
+  (schema + UTM), `runDealer` builds *synthetic* type rules from it
+  (`buildTypeRulesFromProductMap_`, **CPO-EL before CPO** — substring trap), and a
+  matched type with **no product or no schema makes the run THROW**
+  (`validateProductMapForRun_` → a clear "set it in Dealer Rules → Pipedrive" error)
+  instead of silently using a `*` catch-all. `type_rules` (col O) is now **dormant**
+  (kept only for the one-time `migrateTypeRulesIntoProductMap()` backfill). The lesson:
+  once one mapping is authoritative, an unmapped case is a **configuration error to
+  surface loudly**, not a hole to paper over with a default — the loud failure is what
+  forces the product map to actually be complete. Two safeguards that carried over:
+  (1) `schema`/`utm` are **optional + ignored where irrelevant** (`buildLineItems_`
+  never reads them), so they can't regress the billing push; (2) the synthetic rules
+  feed `buildLinks_`/`buildUtmFormula_` (UTM) and `buildCSVSheet_`/`csvOutputGroups_`/
+  `resolveRuleSchema_` (schema/grouping) **unchanged** — only the *source* of the rules
+  changed. Watch the blast radius both times: the grouping *key* is the resolved schema
+  (renaming/merging output sheets is a behavior change, not a no-op — enumerate the
+  affected dealers), and removing the fallback means **every dealer now needs a
+  complete product map before it can run at all** (even test runs) — a prerequisite,
+  not a silent default.
 - **Billed quantity is GROSS — a VIN-log "duplicate" is still produced and billed.**
   A VIN already in the VIN log isn't dropped from a run; it's re-printed (the log
   only flags it). So the Pipedrive line-item quantity is the gross per-type count,
