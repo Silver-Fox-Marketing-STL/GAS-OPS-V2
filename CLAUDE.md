@@ -68,6 +68,15 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
 - ORDERMATCH cols A–I are the QUERY spill zone — never write there in the template.
   `FIELD_TO_COL` in Code.gs is the only runtime mapping; headers/FIELD_CODES tab
   are documentation. `buildCSVSheet_` reads 100 cols. `PRICE_TAGLINE` = col 21 (U).
+- CSV schema is **resolved per type rule by `resolveRuleSchema_`** *(branch
+  `feature/product-driven-schema`)*: `product_map[type].schema` if set (specific
+  type only — a `*` catch-all uses the fallback) **else `type_rules.csv_schema`**
+  (now a fallback). CSV sheets are **grouped by the RESOLVED schema** (`csvOutputGroups_`:
+  one schema → `CSV`, else `CSV_<SCHEMA>`); for a `source_split` dealer the main and
+  secondary outputs group by their own maps (`product_map` vs `source_product_map[group]`).
+  The run pipeline reads the product maps via **`getCsvProductMaps_`** — **safe-empty
+  `{}` when Pipedrive is unset**, so every rule falls back to `csv_schema` and a dealer
+  with no product map still produces output. `buildLineItems_` ignores the `schema` key.
 - `filtering_rules` `targeting_rules[]` (IF nested AND/OR `group` THEN `action`;
   actions `drop_on_import`/`exclude_cao`/`exclude_order`) + `cao_exclude_types`
   (replaced the old `conditions[]` June 17 2026): `applyFilteringRules_(…, phase)` —
@@ -254,8 +263,7 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
    (A full / B phased / C exact-only) pending.
 7. Housekeeping: README `#ERROR!` cells, delete `VINLogMigration.gs`/`FolderSetup.gs`
    from Apps Script, `git rm test-write-access.txt`, fix stale "Scraper #N/A" notes
-   on the active Jefferson City dealers, consider consolidating SCP_NEW (now
-   identical to SCP).
+   on the active Jefferson City dealers.
 8. Log capacity (watch, don't build yet): when any log tab passes ~25k rows or
    imports/dashboard slow down, build `archiveOldLogs()` per the "Capacity & Log
    Growth Plan" section in the Bridge doc (12-month hot window → SF_LOG_ARCHIVE;

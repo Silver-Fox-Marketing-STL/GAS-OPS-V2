@@ -351,6 +351,24 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
 - Explicit JSON config per dealer beats implicit defaults — every dealer's
   `type_rules`/`filtering_rules` is fully written out, so a blank cell is a bug,
   not a default.
+- **The PRODUCT is the output unit — derive the CSV schema/grouping from it, not
+  from a parallel setting.** A type's CSV **schema ≠ the print template**: the actual
+  Illustrator template identity lives with the Pipedrive **product** the user already
+  picks for billing, so a separate `csv_schema` on the type rule was a second source
+  of truth that could disagree (and an earlier `output`-label idea would have been a
+  *third*). Fix: derive the CSV schema **and** the sheet grouping from
+  `product_map[type].schema`, demote `type_rules.csv_schema` to a **fallback**
+  (`resolveRuleSchema_` → product schema else `csv_schema`; `csvOutputGroups_` groups
+  by the *resolved* schema). One mapping now drives billing, layout, and grouping.
+  Two load-bearing safeguards: (1) **safe-empty when the upstream config is absent** —
+  `getCsvProductMaps_` returns `{}` if Pipedrive is unconfigured, so every rule
+  cleanly falls back to `csv_schema` and a dealer with no product map still produces
+  output; (2) the new field is **optional + ignored where irrelevant** (`schema` on a
+  `product_map` entry is backward-compatible — `buildLineItems_` doesn't read it), so
+  adding it can't regress the billing push. Watch the blast radius: changing the
+  grouping *key* (type → resolved schema) silently **renames/merges output sheets**
+  even with no schemas set yet (4 multi-rule dealers' CSV sheets changed on deploy) —
+  a regrouping is a behavior change, not a no-op, so enumerate the affected dealers.
 - **Billed quantity is GROSS — a VIN-log "duplicate" is still produced and billed.**
   A VIN already in the VIN log isn't dropped from a run; it's re-printed (the log
   only flags it). So the Pipedrive line-item quantity is the gross per-type count,
