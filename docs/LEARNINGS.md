@@ -399,6 +399,34 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   single source of truth for condition fields; `getRulesEditorBootstrap` returns the
   schema fields + ops + actions so the Rules Editor dropdowns can't drift from the
   engine. Duplicating the list in HTML would be a latent divergence bug.
+- **To repoint a pipeline's CONFIG SOURCE without rewriting the pipeline, synthesize
+  its existing input shape.** The per-type output config moved from `type_rules`
+  (DEALERS col O) to the Pipedrive product map — but the whole run pipeline
+  (`buildLinks_`/`buildUtmFormula_` for QR UTM, `buildCSVSheet_`/`csvOutputGroups_`/
+  `resolveRuleSchema_` for CSV schema + grouping, `matchRule_` for per-vehicle type
+  matching) was built around a `typeRules` array of `{match, csv_schema, utm}`. Rather
+  than thread the product map through all of it, `buildTypeRulesFromProductMap_` emits
+  exactly that array **from** the product map (one synthetic rule per mapped type) and
+  hands it to the unchanged pipeline — so only the *source* of the rules changed, not
+  a single consumer. The synthetic rule's `csv_schema` IS the product's schema, which
+  is also why there's no longer any run-time "fallback to col O": the fallback field is
+  populated from the new source. **The substring-ordering safety is load-bearing in the
+  synthesis:** because `matchRule_` is a substring search (`"CPO"` ⊂ `"CPO-EL"`, `"PO"`
+  ⊂ `"CPO"`), the synthetic rules must be emitted **CPO-EL before CPO** (the builder
+  sorts to a fixed `['CPO-EL','CPO','New','PO']` order) — feed them in object-key order
+  and a CPO-EL vehicle would match the `CPO` rule first and get the wrong schema/UTM.
+  Same CPO/CPO-EL substring trap as the type-rule formulas and the billing-PDF parser.
+- **Removing a fallback turns "config is optional" into "config is REQUIRED" — gate it
+  with a clear, surfaced block, not a silent default.** When the product map became the
+  *sole* per-type source (no `type_rules` fallback, no `*` catch-all), a dealer with a
+  matched type that has no product/schema would otherwise silently produce wrong/empty
+  output. `validateProductMapForRun_` instead returns the offending types and
+  `runDealer` **throws** a specific message ("set them in Dealer Rules → Pipedrive")
+  that rides the existing run try/catch → `setProgressError_` → the run modal. Failing
+  loud at the gate (with the fix location named) beats a quiet fall-through once the
+  safety net is gone — and a one-time idempotent migration
+  (`migrateTypeRulesIntoProductMap`, never-overwrite) backfills the new source from the
+  old before the old one goes dormant, so existing dealers don't all start blocking.
 - **Never clear a sheet before the pipeline that refills it has finished.** The old
   `importScraperData` cleared SCRAPERDATA first, then normalized/wrote — any throw
   mid-pipeline left the sheet empty. Destructive writes belong at the END, after all

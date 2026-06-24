@@ -68,15 +68,26 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
 - ORDERMATCH cols A–I are the QUERY spill zone — never write there in the template.
   `FIELD_TO_COL` in Code.gs is the only runtime mapping; headers/FIELD_CODES tab
   are documentation. `buildCSVSheet_` reads 100 cols. `PRICE_TAGLINE` = col 21 (U).
-- CSV schema is **resolved per type rule by `resolveRuleSchema_`** *(branch
-  `feature/product-driven-schema`)*: `product_map[type].schema` if set (specific
-  type only — a `*` catch-all uses the fallback) **else `type_rules.csv_schema`**
-  (now a fallback). CSV sheets are **grouped by the RESOLVED schema** (`csvOutputGroups_`:
-  one schema → `CSV`, else `CSV_<SCHEMA>`); for a `source_split` dealer the main and
-  secondary outputs group by their own maps (`product_map` vs `source_product_map[group]`).
-  The run pipeline reads the product maps via **`getCsvProductMaps_`** — **safe-empty
-  `{}` when Pipedrive is unset**, so every rule falls back to `csv_schema` and a dealer
-  with no product map still produces output. `buildLineItems_` ignores the `schema` key.
+- The **Pipedrive product map is the SOLE per-type config** *(branch
+  `feature/product-driven-schema` — supersedes the earlier fallback model; the
+  fallback is gone)*: each `product_map[type]` (and `source_product_map[group][type]`)
+  entry is `{product_id, variation_id?, schema?, utm?}`, carrying both the CSV
+  **schema** and the QR **UTM**. **`runDealer` no longer reads `type_rules` (col O)** —
+  after matching it reads the product maps via **`getCsvProductMaps_`**, **validates**
+  via **`validateProductMapForRun_(matchedTypes, mainMap)`** (a matched type missing a
+  `product_id` OR a `schema` → **the run THROWS/BLOCKS** with "set them in Dealer Rules →
+  Pipedrive"; UTM is not required), then builds synthetic run rules via
+  **`buildTypeRulesFromProductMap_`** (one `{match, csv_schema: entry.schema, utm:
+  entry.utm}` per mapped type, **ordered CPO-EL before CPO** — load-bearing, substring
+  match). Those synthetic rules feed `buildLinks_`/`buildUtmFormula_` (QR UTM) and
+  `buildCSVSheet_`/`csvOutputGroups_`/`resolveRuleSchema_` (CSV schema/grouping)
+  **unchanged** — only the *source* of the rules changed. CSV sheets are **grouped by
+  the resolved schema** (one schema → `CSV`, else `CSV_<SCHEMA>`). **There is NO
+  run-time fallback to col O and NO `*` catch-all** — an unmapped/unexpected type blocks
+  the run. **col O `type_rules` is DORMANT** — only the migration source
+  (`migrateTypeRulesIntoProductMap`, run once from the editor) + a historical record;
+  `getTypeRules_` is kept for that migration only. The Type Rules editor tab is removed;
+  UTM is a product-picker column. `buildLineItems_` ignores `schema`/`utm`.
 - `filtering_rules` `targeting_rules[]` (IF nested AND/OR `group` THEN `action`;
   actions `drop_on_import`/`exclude_cao`/`exclude_order`) + `cao_exclude_types`
   (replaced the old `conditions[]` June 17 2026): `applyFilteringRules_(…, phase)` —
