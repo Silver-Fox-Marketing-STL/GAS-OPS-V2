@@ -1093,7 +1093,9 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     //     (source_split) additionally splits each CSV by URL domain
     //     (e.g. main vs AutoLoanPro) — one billing/deal, separate CSVs.
     setProgress_(runId, 'Building CSV output...', 88);
-    buildCSVSheet_(outputDoc, typeRules, getSourceSplit_(config));
+    var csvSourceSplit = getSourceSplit_(config);
+    var csvProductMaps = getCsvProductMaps_(config[CFG.KEY], csvSourceSplit);  // {} if Pipedrive unset → csv_schema fallback
+    buildCSVSheet_(outputDoc, typeRules, csvSourceSplit, csvProductMaps.main, csvProductMaps.secondary);
 
     // 14. Write BILLING sheet(s) from ORDERMATCH + LOG data. An optional
     //     billing_split in filtering_rules renders group vehicles (e.g. Sprinter
@@ -1807,29 +1809,60 @@ var FIELD_TO_COL = {
   'PRICE_TAGLINE':      21
 };
 
-function buildCSVSheet_(outputDoc, typeRules, sourceSplit) {
+/**
+ * Resolves the CSV schema for a type rule. The schema is DERIVED from the rule's product
+ * (`productMap[type].schema`) when present, else falls back to the rule's own `csv_schema`.
+ * A `*` catch-all rule has no single type → always the fallback. So the product the user
+ * picks for billing also determines the CSV layout, with `csv_schema` as the safety net.
+ */
+function resolveRuleSchema_(rule, productMap) {
+  var t = rule.match;
+  if (t && t !== '*' && productMap && productMap[t] &&
+      typeof productMap[t] === 'object' && productMap[t].schema) {
+    return String(productMap[t].schema);
+  }
+  return rule.csv_schema;
+}
+
+/**
+ * Groups a dealer's type rules into CSV OUTPUTS by their RESOLVED schema (product-derived,
+ * or the rule's `csv_schema` fallback). Rules whose types resolve to the same schema merge
+ * into one CSV. Sheet name is 'CSV' for a single schema, else 'CSV_<SCHEMA>'. Pure + testable.
+ *
+ * @param {Array}  typeRules  - [{match, csv_schema, utm, …}, …]
+ * @param {Object} productMap - {type: {product_id, variation_id?, schema?}} (may be {})
+ * @return {Object} { groups: [{key, schema, matches[], sheetBase}], matchToKey: {match→schema}, single: bool }
+ */
+function csvOutputGroups_(typeRules, productMap) {
+  var order = [], byKey = {}, matchToKey = {};
+  (typeRules || []).forEach(function(rule) {
+    var schema = resolveRuleSchema_(rule, productMap) || 'SCP';
+    if (!byKey[schema]) { byKey[schema] = { key: schema, schema: schema, matches: [] }; order.push(schema); }
+    byKey[schema].matches.push(rule.match);
+    matchToKey[rule.match] = schema;
+  });
+  var single = order.length === 1;
+  var groups = order.map(function(k) {
+    byKey[k].sheetBase = single ? 'CSV' : 'CSV_' + String(k).replace(/[^a-zA-Z0-9]/g, '_').toUpperCase();
+    return byKey[k];
+  });
+  return { groups: groups, matchToKey: matchToKey, single: single };
+}
+
+function buildCSVSheet_(outputDoc, typeRules, sourceSplit, mainProductMap, secondaryProductMap) {
+  mainProductMap      = mainProductMap || {};
+  secondaryProductMap = secondaryProductMap || {};
   var omSheet = outputDoc.getSheetByName('ORDERMATCH');
   var lastRow = omSheet.getLastRow();
   if (lastRow < 2) { Logger.log('No ORDERMATCH data for CSV.'); return; }
 
   var omData = omSheet.getRange(2, 1, lastRow - 1, 100).getValues()
     .filter(function(row) { return String(row[0]).trim() !== ''; });
-
-  var isSingleRule = typeRules.length === 1;
   var URL_COL = 8;  // ORDERMATCH Vehicle URL (col I)
 
-  var groups = {};
-  typeRules.forEach(function(rule) { groups[rule.match] = []; });
-
-  omData.forEach(function(row) {
-    var vehicleType = String(row[6]);
-    var rule = matchRule_(vehicleType, typeRules);
-    groups[rule.match].push(row);
-  });
-
-  // Renders one CSV sheet from a set of ORDERMATCH rows + a type rule's schema.
-  function writeGroup_(rule, rows, sheetName) {
-    var fieldCodes = getCsvSchema_(rule.csv_schema) || getCsvSchema_('SCP');
+  // Renders one CSV sheet from a set of ORDERMATCH rows + a SCHEMA key.
+  function writeGroup_(schemaKey, rows, sheetName) {
+    var fieldCodes = getCsvSchema_(schemaKey) || getCsvSchema_('SCP');
     var dataRows = rows.map(function(row) {
       return fieldCodes.map(function(code) {
         var col = FIELD_TO_COL[code];
@@ -1837,29 +1870,60 @@ function buildCSVSheet_(outputDoc, typeRules, sourceSplit) {
       });
     });
     writeCSVSheet_(outputDoc, sheetName, dedupFieldCodeHeaders_(fieldCodes), dataRows);
-    Logger.log('CSV sheet "' + sheetName + '" written: ' + dataRows.length + ' rows, schema: ' + rule.csv_schema);
+    Logger.log('CSV sheet "' + sheetName + '" written: ' + dataRows.length + ' rows, schema: ' + schemaKey);
   }
 
-  typeRules.forEach(function(rule) {
-    var rows     = groups[rule.match] || [];
-    var baseName = isSingleRule
-      ? 'CSV'
-      : 'CSV_' + String(rule.match).replace(/[^a-zA-Z0-9]/g, '_').toUpperCase();
-
-    if (!sourceSplit) { writeGroup_(rule, rows, baseName); return; }
-
-    // Dual-site source split: rows whose URL contains the marker go to a
-    // separate <base>_<group> CSV; the rest to the primary CSV. Same schema.
-    // Both sheets are always written (secondary may be empty) for a consistent
-    // output layout. Billing / deal / RUN_LOG are unaffected (one of each).
-    var primary = [], secondary = [];
-    rows.forEach(function(row) {
-      if (String(row[URL_COL]).toLowerCase().indexOf(sourceSplit.urlContains) !== -1) secondary.push(row);
-      else primary.push(row);
+  // Groups one source partition's vehicles by their RESOLVED schema (via productMap) and
+  // writes a CSV per schema. suffix '' for the main partition, '_<group>' for the secondary.
+  function writePartition_(vehicles, productMap, suffix) {
+    var og = csvOutputGroups_(typeRules, productMap);
+    var rowsByKey = {};
+    og.groups.forEach(function(g) { rowsByKey[g.key] = []; });
+    vehicles.forEach(function(row) {
+      var rule = matchRule_(String(row[6]), typeRules);
+      var key  = og.matchToKey[rule.match];
+      (rowsByKey[key] || (rowsByKey[key] = [])).push(row);
     });
-    writeGroup_(rule, primary,   baseName);
-    writeGroup_(rule, secondary, baseName + '_' + sourceSplit.groupName);
+    og.groups.forEach(function(g) {
+      writeGroup_(g.schema, rowsByKey[g.key] || [], g.sheetBase + suffix);
+    });
+  }
+
+  if (!sourceSplit) { writePartition_(omData, mainProductMap, ''); return; }
+
+  // Dual-site source split: partition by URL FIRST, then group each side by its own resolved
+  // schema. The main uses the dealer's product map; the secondary uses the source_product_map
+  // (so the subprime site can use a different template/layout for the same vehicle type).
+  // Both partitions are always written (secondary may be empty). Billing/deal/RUN_LOG unaffected.
+  var main = [], secondary = [];
+  omData.forEach(function(row) {
+    if (String(row[URL_COL]).toLowerCase().indexOf(sourceSplit.urlContains) !== -1) secondary.push(row);
+    else main.push(row);
   });
+  writePartition_(main,      mainProductMap,      '');
+  writePartition_(secondary, secondaryProductMap, '_' + sourceSplit.groupName);
+}
+
+/**
+ * Reads the dealer's Pipedrive product maps for CSV schema resolution. Safe + cheap —
+ * `getPipedriveDealerRows_` returns [] when Pipedrive isn't configured, so the caller simply
+ * falls back to `type_rules.csv_schema`. Returns `{main, secondary}`:
+ *   main      = merged product map across all billing groups (type → {…, schema?}; first wins)
+ *   secondary = the `source_product_map` for a `source_split`'s group (type → entry), or {}
+ */
+function getCsvProductMaps_(dealerKey, sourceSplit) {
+  var out = { main: {}, secondary: {} };
+  var rows;
+  try { rows = getPipedriveDealerRows_(dealerKey); } catch (e) { return out; }
+  (rows || []).forEach(function(r) {
+    var pm = r.productMap || {};
+    Object.keys(pm).forEach(function(t) { if (!out.main[t]) out.main[t] = pm[t]; });
+    if (sourceSplit && r.sourceProductMap && r.sourceProductMap[sourceSplit.groupName] &&
+        !Object.keys(out.secondary).length) {
+      out.secondary = r.sourceProductMap[sourceSplit.groupName];
+    }
+  });
+  return out;
 }
 
 /**
