@@ -528,3 +528,17 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   if a UI hides/filters editable items, **persist from the model, not the DOM**, and a
   hidden item round-trips untouched \u2014 same end as the "always keep the already-saved value
   selected" backstop, but achieved by where you read on save instead of a special case.
+- **Making a hardcoded set dynamic has a blast radius beyond the code — audit
+  TEMPLATE / SHEET formulas too.** The type registry made types dynamic in `Code.gs`, but the
+  printed field codes `TYPESTOCK` / `TYPEVIN` are **ARRAYFORMULAs baked into the template**
+  (SF_UNIVERSAL_TEMPLATE ORDERMATCH N2/R2), not script-written — a hardcoded
+  `IF(SEARCH("CPO-EL"…),…,"USED - ")` cascade that defaulted **every** unrecognized type to
+  "USED", so a new custom type printed as USED even though the code handled it everywhere else.
+  The fix lived in the sheet, not the repo: exact match (`UPPER(TRIM(G))="…"`) with an else of
+  `UPPER(TRIM(G))&" - "` (canonical `New`/`PO`→USED/`CPO`/`CPO-EL` unchanged; a custom type
+  prints its own name). Two bugs in one — the hardcoded set **and** substring `SEARCH`, which is
+  unsafe for arbitrary names ("Deposit" contains "po", "Renewal" contains "new"); exact match
+  kills both (same CPO/CPO-EL substring-trap family). So: grep the **template / spreadsheet
+  formulas** for the old hardcoded values, and prefer exact-match over substring once the
+  matched set is user-extensible. *(Sheets MCP: `update_cells` rejects a leading `=`;
+  `batch_update_cells` writes real formulas — probe a scratch cell to confirm, then clean it up.)*

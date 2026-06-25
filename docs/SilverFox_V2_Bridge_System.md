@@ -660,11 +660,11 @@ Copied at runtime for each dealer order. The copy becomes the output document.
 | K | 11 | YEARMAKE | `=ARRAYFORMULA(IF(ISBLANK(A2:A),"",UPPER(A2:A&" "&B2:B)))` |
 | L | 12 | YEARMODEL | `=ARRAYFORMULA(IF(ISBLANK(A2:A),"",UPPER(A2:A&" "&C2:C)))` |
 | M | 13 | MAKE_MODEL_COMBINED | `=ARRAYFORMULA(IF(ISBLANK(A2:A),"",UPPER(B2:B&" "&C2:C)))` |
-| N | 14 | TYPESTOCK *(the `QRSTOCK` field code maps here)* | `=ARRAYFORMULA(IF(ISBLANK(A2:A),"",IF(ISNUMBER(SEARCH("CPO-EL",G2:G)),"CPO-EL - ",IF(ISNUMBER(SEARCH("CPO",G2:G)),"CPO - ",IF(ISNUMBER(SEARCH("New",G2:G)),"NEW - ","USED - ")))&UPPER(F2:F)))` |
+| N | 14 | TYPESTOCK *(the `QRSTOCK` field code maps here)* | `=ARRAYFORMULA(IF(ISBLANK(A2:A),"",IF(UPPER(TRIM(G2:G))="CPO-EL","CPO-EL - ",IF(UPPER(TRIM(G2:G))="CPO","CPO - ",IF(UPPER(TRIM(G2:G))="NEW","NEW - ",IF(UPPER(TRIM(G2:G))="PO","USED - ",UPPER(TRIM(G2:G))&" - "))))&UPPER(F2:F)))` *(exact-match cascade: `New`→NEW, `PO`→USED, `CPO`/`CPO-EL` literal, **any other registered/custom type → its own uppercased name** (not USED). Updated June 2026 for the dynamic vehicle-type registry — behavior-identical for the canonical four; replaces the substring `SEARCH` cascade, which both defaulted custom types to USED and could misclassify a custom name containing `po`/`cpo`/`new`.)* |
 | O | 15 | MISC | `=ARRAYFORMULA(IF(ISBLANK(A2:A),"",A2:A&" "&C2:C&" - "&E2:E&" - "&F2:F))` |
 | P | 16 | PRICE_FMT | `=ARRAYFORMULA(IF(ISBLANK(A2:A),"",TEXT(H2:H,"#,##0")))` *(no dollar sign — updated June 2026)* |
 | Q | 17 | NEWYEARMAKE | `=ARRAYFORMULA(IF(ISBLANK(A2:A),"",IF(ISNUMBER(SEARCH("New",G2:G)),"NEW "&UPPER(A2:A&" "&B2:B),UPPER(A2:A&" "&B2:B))))` |
-| R | 18 | TYPEVIN | `=ARRAYFORMULA(IF(ISBLANK(A2:A),"",IF(ISNUMBER(SEARCH("CPO-EL",G2:G)),"CPO-EL - ",IF(ISNUMBER(SEARCH("CPO",G2:G)),"CPO - ",IF(ISNUMBER(SEARCH("New",G2:G)),"NEW - ","USED - ")))&UPPER(E2:E)))` |
+| R | 18 | TYPEVIN | `=ARRAYFORMULA(IF(ISBLANK(A2:A),"",IF(UPPER(TRIM(G2:G))="CPO-EL","CPO-EL - ",IF(UPPER(TRIM(G2:G))="CPO","CPO - ",IF(UPPER(TRIM(G2:G))="NEW","NEW - ",IF(UPPER(TRIM(G2:G))="PO","USED - ",UPPER(TRIM(G2:G))&" - "))))&UPPER(E2:E)))` *(same exact-match cascade as TYPESTOCK — custom types print their own uppercased name; updated June 2026 for the type registry.)* |
 | S | 19 | YEARMODELSTOCK | `=ARRAYFORMULA(IF(ISBLANK(A2:A),"",UPPER(A2:A&" "&C2:C&" - "&F2:F)))` |
 | T | 20 | PRICE_PLUS_2000 | `=ARRAYFORMULA(IF(ISBLANK(A2:A),"",IF(H2:H="*","*","$"&TEXT(H2:H+2000,"#,##0"))))` |
 | U | 21 | PRICE_TAGLINE | `=ARRAYFORMULA(IF(ISBLANK(A2:A),"",IFERROR(IF(VALUE(H2:H)>=15000,"as low as $300/mo",IF(VALUE(H2:H)>=10000,"Below $15,000","Below $10,000")),"")))` *(PRICE_RAW is stored as text — `VALUE()` coerces before comparison; `IFERROR` blanks non-numeric prices)* |

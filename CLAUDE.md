@@ -87,7 +87,12 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
   product maps). Per-type analytics go in a NEW long-format `ORDER_TYPE_STATS` tab + a
   dynamic dashboard; **the fixed log schemas (RUN_LOG/ORDER_STATS/IMPORT_STATS) are NOT
   widened**. When this deploys, anything enumerating types must read the registry, never
-  a literal four. See Bridge doc "Vehicle-Type Registry".
+  a literal four. See Bridge doc "Vehicle-Type Registry". **Template formulas already
+  updated LIVE (behavior-preserving):** `TYPESTOCK`/`TYPEVIN` (SF_UNIVERSAL_TEMPLATE
+  ORDERMATCH N2/R2) now use exact type-match with an `UPPER(TRIM(G))&" - "` else — a custom
+  type prints its own uppercased name instead of "USED" (canonical four unchanged, so it's
+  safe on `main` before the feature deploys). The old `SEARCH` cascade hardcoded the four
+  and defaulted the rest to USED.
 - ORDERMATCH cols A–I are the QUERY spill zone — never write there in the template.
   `FIELD_TO_COL` in Code.gs is the only runtime mapping; headers/FIELD_CODES tab
   are documentation. `buildCSVSheet_` reads 100 cols. `PRICE_TAGLINE` = col 21 (U).
