@@ -1430,18 +1430,21 @@ function computeImportReview_(rows) {
     if (!locationDetail[location]) {
       locationDetail[location] = {
         total: 0, new: 0, po: 0, cpo: 0, cpo_el: 0, other_types: 0,
+        byType: {},
         onlot: 0, offlot: 0, other_status: 0, no_price: 0, no_stock: 0
       };
     }
     var loc = locationDetail[location];
     loc.total++;
 
-    // Type buckets
+    // Type buckets — the canonical four feed the fixed IMPORT_STATS columns; the dynamic
+    // per-type tally (keyed by the actual type) feeds the live dashboard's per-type columns.
     if      (type === 'New')    loc.new++;
     else if (type === 'PO')     loc.po++;
     else if (type === 'CPO')    loc.cpo++;
     else if (type === 'CPO-EL') loc.cpo_el++;
     else                        loc.other_types++;
+    if (type !== '' && type !== '*') loc.byType[type] = (loc.byType[type] || 0) + 1;
 
     // Status buckets
     if      (status === 'ONLOT')  loc.onlot++;
@@ -2133,7 +2136,41 @@ function writeRunLog_(config, dealId, totalOrdered, totalMatched, billing, outpu
     Logger.log('writeRunLog_: ORDER_STATS append failed (non-fatal): ' + e.message);
   }
 
+  // Also append per-type rows to ORDER_TYPE_STATS — long-format, one row per type present
+  // in this run (gross or dupes > 0). Lets the dashboard + reports break a run down by ANY
+  // type (incl. user-added ones) without touching the fixed RUN_LOG / ORDER_STATS schemas.
+  try {
+    var byType = (billing && billing.byType) || {};
+    var typeRows = [];
+    Object.keys(byType).forEach(function(t) {
+      var gross = Number(byType[t].gross) || 0;
+      var dupes = Number(byType[t].dupes) || 0;
+      if (gross > 0 || dupes > 0) {
+        typeRows.push([timestamp, config[CFG.KEY], config[CFG.NAME], dealId || '', t, gross, dupes]);
+      }
+    });
+    if (typeRows.length) {
+      var otsSheet = ss.getSheetByName('ORDER_TYPE_STATS') || createOrderTypeStatsSheet_(ss);
+      if (otsSheet) otsSheet.getRange(otsSheet.getLastRow() + 1, 1, typeRows.length, 7).setValues(typeRows);
+    }
+  } catch (e) {
+    Logger.log('writeRunLog_: ORDER_TYPE_STATS append failed (non-fatal): ' + e.message);
+  }
+
   return sheet.getLastRow();
+}
+
+/** Creates the ORDER_TYPE_STATS tab (long-format per-type run history) with its header row. */
+function createOrderTypeStatsSheet_(ss) {
+  try {
+    var sh = ss.insertSheet('ORDER_TYPE_STATS');
+    sh.getRange(1, 1, 1, 7).setValues([['timestamp', 'dealer_key', 'dealer_name', 'order_id', 'type', 'produced', 'dupes']]);
+    sh.setFrozenRows(1);
+    return sh;
+  } catch (e) {
+    Logger.log('createOrderTypeStatsSheet_ failed (non-fatal): ' + e.message);
+    return ss.getSheetByName('ORDER_TYPE_STATS');   // a concurrent create may have won the race
+  }
 }
 
 
@@ -4754,6 +4791,12 @@ function refreshDashboard_(ss, importTimestamp, locationDetail) {
     var C_WHITE   = bg(255, 255, 255);
     var C_LGRAY   = bg(245, 245, 245);
 
+    // Registry-driven inventory columns (built-ins + user-added). INV_W = Location + one
+    // column per type + Other + Total + ONLOT + OFFLOT + No-Price/No-Stock.
+    var TYPES = getCanonicalVehicleTypes_();
+    var INV_W = TYPES.length + 6;
+    var BANNER_W = Math.max(INV_W, 10);   // full-width section bars
+
     // ── Row positions (1-indexed) ────────────────────────────────────────────
     var R_TITLE      = 1;
     var R_TIMESTAMP  = 2;
@@ -4773,40 +4816,51 @@ function refreshDashboard_(ss, importTimestamp, locationDetail) {
     var R_MR_HDR     = R_RL_HDR  + 4;
     var R_MR_COLS    = R_MR_HDR  + 1;
     var R_MR_DATA    = R_MR_HDR  + 2;
-    var R_RBD_HDR    = R_MR_HDR  + 4;
+    // RUNS BY TYPE — fixed height (one row per registered type) so RUNS BY DEALER (a
+    // spilling QUERY) can still sit last.
+    var R_RBT_HDR    = R_MR_HDR  + 4;
+    var R_RBT_COLS   = R_RBT_HDR + 1;
+    var R_RBT_DATA   = R_RBT_HDR + 2;
+    var R_RBD_HDR    = R_RBT_DATA + Math.max(TYPES.length, 1) + 1;
     var R_RBD_COLS   = R_RBD_HDR + 1;
     var R_RBD_DATA   = R_RBD_HDR + 2;
 
     // ── Clear everything from data start downward ────────────────────────────
-    var clearRows = DASHBOARD_MAX_LOCATIONS + 30;
-    dashboard.getRange(R_DATA_START, 1, clearRows, 10).clearContent();
-    dashboard.getRange(R_DATA_START, 1, clearRows, 10).clearFormat();
+    var clearRows = DASHBOARD_MAX_LOCATIONS + 50;   // headroom for the added RUNS BY TYPE block + the spilling RUNS BY DEALER query
+    var clearCols = 26;   // generous — covers the dynamic inventory width + any prior, wider layout
+    dashboard.getRange(R_DATA_START, 1, clearRows, clearCols).clearContent();
+    dashboard.getRange(R_DATA_START, 1, clearRows, clearCols).clearFormat();
 
     // ── Write timestamp ──────────────────────────────────────────────────────
     dashboard.getRange(R_TIMESTAMP, 2).setValue(importTimestamp);
 
-    // ── Write column headers ─────────────────────────────────────────────────
-    dashboard.getRange(R_COL_HDR, 1, 1, 10).setValues([[
-      'Location', 'New', 'PO', 'CPO', 'CPO-EL', 'Other', 'Total', 'ONLOT', 'OFFLOT', 'No Price / No Stock'
-    ]]);
+    // ── Write column headers (one column per registered type) ────────────────
+    var invHeader = ['Location'].concat(TYPES, ['Other', 'Total', 'ONLOT', 'OFFLOT', 'No Price / No Stock']);
+    dashboard.getRange(R_COL_HDR, 1, 1, INV_W).setValues([invHeader]);
 
     // ── Write location data rows ─────────────────────────────────────────────
+    // Per registered type from the dynamic byType tally; "Other" = vehicles whose type isn't registered.
     var dataRows = locations.map(function(loc) {
-      var d = locationDetail[loc];
-      return [loc, d.new, d.po, d.cpo, d.cpo_el, d.other_types, d.total, d.onlot, d.offlot, d.no_price + ' / ' + d.no_stock];
+      var d = locationDetail[loc], bt = d.byType || {}, typed = 0;
+      var row = [loc];
+      TYPES.forEach(function(t) { var c = bt[t] || 0; typed += c; row.push(c); });
+      row.push(Math.max(d.total - typed, 0), d.total, d.onlot, d.offlot, d.no_price + ' / ' + d.no_stock);
+      return row;
     });
-    if (n > 0) dashboard.getRange(R_DATA_START, 1, n, 10).setValues(dataRows);
+    if (n > 0) dashboard.getRange(R_DATA_START, 1, n, INV_W).setValues(dataRows);
 
     // ── Compute and write totals ─────────────────────────────────────────────
-    var tot = locations.reduce(function(acc, loc) {
-      var d = locationDetail[loc];
-      acc.new += d.new; acc.po += d.po; acc.cpo += d.cpo; acc.cpo_el += d.cpo_el;
-      acc.other += d.other_types; acc.total += d.total; acc.onlot += d.onlot; acc.offlot += d.offlot;
-      return acc;
-    }, { new:0, po:0, cpo:0, cpo_el:0, other:0, total:0, onlot:0, offlot:0 });
-    dashboard.getRange(R_TOTALS, 1, 1, 10).setValues([[
-      'TOTALS', tot.new, tot.po, tot.cpo, tot.cpo_el, tot.other, tot.total, tot.onlot, tot.offlot, ''
-    ]]);
+    var totByType = {}; TYPES.forEach(function(t) { totByType[t] = 0; });
+    var totOther = 0, totTotal = 0, totOnlot = 0, totOfflot = 0;
+    locations.forEach(function(loc) {
+      var d = locationDetail[loc], bt = d.byType || {}, typed = 0;
+      TYPES.forEach(function(t) { var c = bt[t] || 0; totByType[t] += c; typed += c; });
+      totOther += Math.max(d.total - typed, 0);
+      totTotal += d.total; totOnlot += d.onlot; totOfflot += d.offlot;
+    });
+    var totalsRow = ['TOTALS'].concat(TYPES.map(function(t) { return totByType[t]; }),
+                                      [totOther, totTotal, totOnlot, totOfflot, '']);
+    dashboard.getRange(R_TOTALS, 1, 1, INV_W).setValues([totalsRow]);
 
     // ── Write Run Log section content ────────────────────────────────────────
     dashboard.getRange(R_RL_HDR,  1).setValue('RUN LOG SUMMARY');
@@ -4836,6 +4890,23 @@ function refreshDashboard_(ss, importTimestamp, locationDetail) {
       '=IFERROR(IF(INDEX(RUN_LOG!W:W,COUNTA(RUN_LOG!A:A))="","Pending",INDEX(RUN_LOG!W:W,COUNTA(RUN_LOG!A:A))),"")'
     ]]);
 
+    // RUNS BY TYPE — one row per registered type, summed from ORDER_TYPE_STATS (IFERROR so a
+    // not-yet-created tab shows zeros). The criterion references the type cell (col A) so a
+    // label containing a quote can't break the formula.
+    dashboard.getRange(R_RBT_HDR, 1).setValue('RUNS BY TYPE');
+    dashboard.getRange(R_RBT_COLS, 1, 1, 4).setValues([['Type', 'Runs', 'VINs Produced', 'Dupes']]);
+    if (TYPES.length) {
+      dashboard.getRange(R_RBT_DATA, 1, TYPES.length, 1).setValues(TYPES.map(function(t) { return [t]; }));
+      dashboard.getRange(R_RBT_DATA, 2, TYPES.length, 3).setFormulas(TYPES.map(function(t, i) {
+        var r = R_RBT_DATA + i;
+        return [
+          '=IFERROR(COUNTIF(ORDER_TYPE_STATS!E:E,A' + r + '),0)',
+          '=IFERROR(SUMIF(ORDER_TYPE_STATS!E:E,A' + r + ',ORDER_TYPE_STATS!F:F),0)',
+          '=IFERROR(SUMIF(ORDER_TYPE_STATS!E:E,A' + r + ',ORDER_TYPE_STATS!G:G),0)'
+        ];
+      }));
+    }
+
     dashboard.getRange(R_RBD_HDR,  1).setValue('RUNS BY DEALER');
     dashboard.getRange(R_RBD_COLS, 1, 1, 9).setValues([[
       'Dealer', 'Runs', 'VINs Ordered', 'VINs Produced', 'New', 'PO', 'CPO', 'CPO-EL', 'Avg Match Rate'
@@ -4859,73 +4930,75 @@ function refreshDashboard_(ss, importTimestamp, locationDetail) {
     dashboard.getRange(R_TIMESTAMP, 2).setNumberFormat('@');  // plain text timestamp
 
     // Inventory section banner
-    var invHdrRange = dashboard.getRange(R_INV_HDR, 1, 1, 10);
+    var invHdrRange = dashboard.getRange(R_INV_HDR, 1, 1, BANNER_W);
     invHdrRange.setBackgroundObject(C_ORANGE).setFontColor('#ffffff').setFontWeight('bold').setFontSize(11);
 
     // Column headers
-    var colHdrRange = dashboard.getRange(R_COL_HDR, 1, 1, 10);
+    var colHdrRange = dashboard.getRange(R_COL_HDR, 1, 1, INV_W);
     colHdrRange.setBackgroundObject(C_ORANGE2).setFontColor('#ffffff').setFontWeight('bold').setFontSize(10)
                .setHorizontalAlignment('center');
     dashboard.getRange(R_COL_HDR, 1).setHorizontalAlignment('left');
 
-    // Data rows — alternating stripes, numbers centered, location left.
-    // Block-formatted: the old per-row loop issued ~12 range ops per location
-    // (~500 calls per refresh ≈ 1.5–2.5s); this does the same in 7 calls.
+    // Data rows — alternating stripes, numbers centered, location left (block-formatted).
     if (n > 0) {
       var bgMatrix = [];
       for (var i = 0; i < n; i++) {
         var rowBg = (i % 2 === 0) ? C_WHITE : C_STRIPE;
         var bgRow = [];
-        for (var bc = 0; bc < 10; bc++) bgRow.push(rowBg);
+        for (var bc = 0; bc < INV_W; bc++) bgRow.push(rowBg);
         bgMatrix.push(bgRow);
       }
-      dashboard.getRange(R_DATA_START, 1, n, 10)
+      dashboard.getRange(R_DATA_START, 1, n, INV_W)
         .setBackgroundObjects(bgMatrix).setFontSize(10)
         .setHorizontalAlignment('center').setNumberFormat('#,##0');
       dashboard.getRange(R_DATA_START, 1, n, 1)
         .setHorizontalAlignment('left').setNumberFormat('@');
-      dashboard.getRange(R_DATA_START, 10, n, 1)
+      dashboard.getRange(R_DATA_START, INV_W, n, 1)
         .setHorizontalAlignment('center').setNumberFormat('@');
     }
 
     // Totals row
-    var totRange = dashboard.getRange(R_TOTALS, 1, 1, 10);
+    var totRange = dashboard.getRange(R_TOTALS, 1, 1, INV_W);
     totRange.setBackgroundObject(C_DARK).setFontColor('#ffffff').setFontWeight('bold').setFontSize(10)
             .setHorizontalAlignment('center').setNumberFormat('#,##0');
     dashboard.getRange(R_TOTALS, 1).setHorizontalAlignment('left');
 
-    // Run Log section banners
-    dashboard.getRange(R_RL_HDR, 1, 1, 10).setBackgroundObject(C_DGRAY).setFontColor('#ffffff')
+    // Section banners (full table width) — Run Log Summary, Most Recent, Runs By Type, Runs By Dealer
+    dashboard.getRange(R_RL_HDR, 1, 1, BANNER_W).setBackgroundObject(C_DGRAY).setFontColor('#ffffff')
              .setFontWeight('bold').setFontSize(11);
-    dashboard.getRange(R_MR_HDR, 1, 1, 10).setBackgroundObject(C_DGRAY).setFontColor('#ffffff')
-             .setFontWeight('bold').setFontSize(10);
-    dashboard.getRange(R_RBD_HDR, 1, 1, 10).setBackgroundObject(C_DGRAY).setFontColor('#ffffff')
-             .setFontWeight('bold').setFontSize(10);
+    [R_MR_HDR, R_RBT_HDR, R_RBD_HDR].forEach(function(r) {
+      dashboard.getRange(r, 1, 1, BANNER_W).setBackgroundObject(C_DGRAY).setFontColor('#ffffff')
+               .setFontWeight('bold').setFontSize(10);
+    });
 
-    // Run Log column headers
-    [R_RL_COLS, R_MR_COLS, R_RBD_COLS].forEach(function(r) {
-      dashboard.getRange(r, 1, 1, 10).setBackgroundObject(C_ORANGE2).setFontColor('#ffffff')
+    // Section column headers
+    [R_RL_COLS, R_MR_COLS, R_RBT_COLS, R_RBD_COLS].forEach(function(r) {
+      dashboard.getRange(r, 1, 1, BANNER_W).setBackgroundObject(C_ORANGE2).setFontColor('#ffffff')
                .setFontWeight('bold').setFontSize(10).setHorizontalAlignment('center');
       dashboard.getRange(r, 1).setHorizontalAlignment('left');
     });
 
     // Run Log KPI data row
-    dashboard.getRange(R_RL_DATA, 1, 1, 10).setBackgroundObject(C_STRIPE).setFontWeight('bold')
+    dashboard.getRange(R_RL_DATA, 1, 1, BANNER_W).setBackgroundObject(C_STRIPE).setFontWeight('bold')
              .setFontSize(11).setHorizontalAlignment('center').setNumberFormat('#,##0.#');
 
     // Most Recent Run data row
-    dashboard.getRange(R_MR_DATA, 1, 1, 10).setBackgroundObject(C_STRIPE).setFontSize(10)
+    dashboard.getRange(R_MR_DATA, 1, 1, BANNER_W).setBackgroundObject(C_STRIPE).setFontSize(10)
              .setHorizontalAlignment('center');
     dashboard.getRange(R_MR_DATA, 1).setHorizontalAlignment('left');
 
-    // Column widths + frozen rows never change between refreshes — only set
-    // them when the sheet hasn't been laid out yet (8 ops saved per import).
+    // Runs By Type data rows — type left, the three formula columns centered
+    if (TYPES.length) {
+      dashboard.getRange(R_RBT_DATA, 1, TYPES.length, 4).setBackgroundObject(C_STRIPE)
+               .setFontSize(10).setHorizontalAlignment('center').setNumberFormat('#,##0');
+      dashboard.getRange(R_RBT_DATA, 1, TYPES.length, 1).setHorizontalAlignment('left').setNumberFormat('@');
+    }
+
+    // Column widths + frozen rows — only set on first layout (kept in sync with INV_W).
     if (dashboard.getFrozenRows() !== R_COL_HDR) {
       dashboard.setColumnWidth(1, 260);
-      for (var c = 2; c <= 7; c++) dashboard.setColumnWidth(c, 72);
-      dashboard.setColumnWidth(8, 80);
-      dashboard.setColumnWidth(9, 80);
-      dashboard.setColumnWidth(10, 130);
+      for (var c = 2; c < INV_W; c++) dashboard.setColumnWidth(c, 76);
+      dashboard.setColumnWidth(INV_W, 130);
       dashboard.setFrozenRows(R_COL_HDR);
     }
 
@@ -5574,6 +5647,9 @@ function getCanonicalVehicleTypes_() {
   _vehicleTypes_ = out;
   return out.slice();
 }
+
+/** Client-callable: the current vehicle-type list (built-ins + user-added). */
+function getVehicleTypes() { return getCanonicalVehicleTypes_(); }
 
 /** The user-added types only (everything past the protected built-ins). */
 function getExtraVehicleTypes_() {

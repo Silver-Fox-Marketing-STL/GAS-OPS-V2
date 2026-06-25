@@ -946,7 +946,7 @@
 
       // Types
       var typeKeys = Object.keys(r.typeCounts).sort();
-      var knownTypes = ['New', 'PO', 'CPO', 'CPO-EL'];
+      var knownTypes = window.importKnownTypes || ['New', 'PO', 'CPO', 'CPO-EL'];   // registry (built-ins + user-added)
       var typesEl  = document.getElementById('reviewTypes');
       typesEl.innerHTML = '';
       typeKeys.forEach(function(t) {
@@ -1126,6 +1126,14 @@
     // return (so a mapping just saved in Data Sources is picked up here).
     window.VIEW_INITS = window.VIEW_INITS || {};
     window.VIEW_SHOWN = window.VIEW_SHOWN || {};
-    VIEW_INITS['view-import'] = loadImportSchema_;
+    // Load the vehicle-type registry once so a user-added type isn't flagged "unexpected"
+    // in the import review (cosmetic — affects the badge color only).
+    function initImportView_() {
+      loadImportSchema_();
+      google.script.run.withSuccessHandler(function(types) {
+        if (types && types.length) window.importKnownTypes = types;
+      }).getVehicleTypes();
+    }
+    VIEW_INITS['view-import'] = initImportView_;
     VIEW_SHOWN['view-import'] = loadImportSchema_;
 </script>
