@@ -1937,19 +1937,17 @@ function getCsvProductMaps_(dealerKey, sourceSplit) {
 }
 
 /**
- * Builds the run's type rules from the Pipedrive product map — the product map is now the SOLE
+ * Builds the run's type rules from the Pipedrive product map — the product map is the SOLE
  * per-type config. One synthetic rule per mapped type: `{match, csv_schema: entry.schema, utm:
- * entry.utm}`. Ordered so **CPO-EL precedes CPO** because `matchRule_` is substring-based ("CPO"
- * is a substring of "CPO-EL"). Pure + testable.
+ * entry.utm}`. Ordered **longest match first** so a substring type never shadows a longer one:
+ * `matchRule_` is substring-based ("CPO" is a substring of "CPO-EL"), so "CPO-EL" must precede
+ * "CPO". This is generic — any user-added type orders safely with no hardcoded list. Pure + testable.
  */
 function buildTypeRulesFromProductMap_(productMap) {
-  var ORDER = ['CPO-EL', 'CPO', 'New', 'PO'];
   var keys = Object.keys(productMap || {});
   keys.sort(function(a, b) {
-    var ia = ORDER.indexOf(a), ib = ORDER.indexOf(b);
-    if (ia === -1) ia = ORDER.length;
-    if (ib === -1) ib = ORDER.length;
-    return ia - ib;
+    if (b.length !== a.length) return b.length - a.length;   // longest first (substring safety)
+    return a < b ? -1 : (a > b ? 1 : 0);                     // stable tie-break
   });
   return keys.map(function(t) {
     var e = productMap[t] || {};
@@ -2309,7 +2307,9 @@ function writeBillingSheet_(outputDoc, billingSplit, sourceSplit) {
  */
 function renderBillingSheet_(sheet, omRows, totalOrdered, notFoundList, logMap, sourceSplit) {
   // ── Classify vehicles and find duplicates ────────────────────────────────
-  var TYPE_ORDER   = ['New', 'PO', 'CPO', 'CPO-EL'];
+  // Registry-driven: every registered type (built-ins + user-added) gets a fixed row;
+  // a type in the data but NOT registered still surfaces via the "unexpected type" path.
+  var TYPE_ORDER   = getCanonicalVehicleTypes_();
   var typeGroups   = {};
   var dupeDetails  = [];
 
@@ -2480,40 +2480,57 @@ function renderBillingSheet_(sheet, omRows, totalOrdered, notFoundList, logMap, 
  */
 function readBillingTotals_(outputDoc, sheetName) {
   var sheet = outputDoc.getSheetByName(sheetName || 'BILLING');
-  var defaults = { totalOrdered: 0, totalMatched: 0,
+  var types = getCanonicalVehicleTypes_();
+  var defaults = { totalOrdered: 0, totalMatched: 0, totalDupes: 0,
                    totalNew: 0, totalPO: 0, totalCPO: 0, totalCPOEL: 0,
-                   newDupes: 0, poDupes: 0, cpoDupes: 0, cpoElDupes: 0,
-                   totalDupes: 0 };
-  if (!sheet) return defaults;
+                   newDupes: 0, poDupes: 0, cpoDupes: 0, cpoElDupes: 0 };
+  function emptyByType() {
+    var bt = {};
+    types.forEach(function(t) { bt[t] = { gross: 0, dupes: 0 }; });
+    return bt;
+  }
+  function withDefaults(extra) {
+    var r = {};
+    Object.keys(defaults).forEach(function(k) { r[k] = defaults[k]; });
+    r.byType = extra || emptyByType();
+    return r;
+  }
+  if (!sheet) return withDefaults();
   try {
     var data = sheet.getDataRange().getValues();
-    var result = {};
-    var labelMap = {
+    var summaryMap = {
       'Total Ordered':            'totalOrdered',
       'Total Matched in Scraper': 'totalMatched',
-      'New':                      'totalNew',
-      'PO':                       'totalPO',
-      'CPO':                      'totalCPO',
-      'CPO-EL':                   'totalCPOEL',
-      'New Dupes':                'newDupes',
-      'PO Dupes':                 'poDupes',
-      'CPO Dupes':                'cpoDupes',
-      'CPO-EL Dupes':             'cpoElDupes',
       'Total Duplicates':         'totalDupes'
     };
+    // Per-type gross + dupes labels, built from the registry (a registered type renders a
+    // clean "<type>" / "<type> Dupes" row; an unregistered one carries the "⚠" suffix and
+    // is intentionally not read back here).
+    var grossLabel = {}, dupesLabel = {};
+    types.forEach(function(t) { grossLabel[t] = true; dupesLabel[t + ' Dupes'] = t; });
+
+    var result = {}, byType = emptyByType();
     data.forEach(function(row) {
       var label = String(row[1] || '').trim();
-      if (labelMap[label] !== undefined) {
-        result[labelMap[label]] = Number(row[2]) || 0;
-      }
+      var val   = Number(row[2]) || 0;
+      if (summaryMap[label] !== undefined)      result[summaryMap[label]] = val;
+      else if (grossLabel[label])               byType[label].gross = val;
+      else if (dupesLabel[label] !== undefined) byType[dupesLabel[label]].dupes = val;
     });
-    Object.keys(defaults).forEach(function(k) {
-      if (result[k] === undefined) result[k] = defaults[k];
+
+    // Derive the legacy canonical-type fields from byType so RUN_LOG (G–N) + ORDER_STATS
+    // stay byte-identical; `byType` is the dynamic interface used by buildLineItems_.
+    CANONICAL_TYPES.forEach(function(t) {
+      var f = CANONICAL_BILLING_FIELDS[t];
+      result[f.gross] = byType[t] ? byType[t].gross : 0;
+      result[f.dupes] = byType[t] ? byType[t].dupes : 0;
     });
+    Object.keys(defaults).forEach(function(k) { if (result[k] === undefined) result[k] = defaults[k]; });
+    result.byType = byType;
     return result;
   } catch(e) {
     Logger.log('readBillingTotals_ error: ' + e.message);
-    return defaults;
+    return withDefaults();
   }
 }
 
@@ -3925,6 +3942,7 @@ function getRulesEditorBootstrap() {
   return {
     dealers: dealers,
     schemas: schemas,
+    vehicleTypes:        getCanonicalVehicleTypes_(),   // built-ins + user-added — drives the type pills + seasoning
     filterFields:        getDataSchema_().map(function(c) { return { key: c.key, label: c.label }; }),
     filterOps:           FILTER_OPS,
     filterActions:       TARGETING_ACTIONS,
@@ -4959,14 +4977,23 @@ var PIPEDRIVE_SETTINGS_TAB = 'PIPEDRIVE_SETTINGS';
 var PD_RULES_KEY = 'deal_field_rules';
 var PD_PRODUCT_ORG_FIELD_KEY = 'product_org_field';   // product custom-field KEY linking a product to its org
 var PD_INSTALL_COST_KEY = 'install_cost_config';      // install line item + design no-charge variation config
+var PD_VEHICLE_TYPES_KEY = 'vehicle_types';           // JSON array of user-added vehicle types (extends the built-ins)
 
-// Canonical billing types → billing-totals keys (gross + dupes).
-var PD_TYPE_KEYS = [
-  { type: 'New',    gross: 'totalNew',   dupes: 'newDupes'   },
-  { type: 'PO',     gross: 'totalPO',    dupes: 'poDupes'    },
-  { type: 'CPO',    gross: 'totalCPO',   dupes: 'cpoDupes'   },
-  { type: 'CPO-EL', gross: 'totalCPOEL', dupes: 'cpoElDupes' }
-];
+// The four built-in vehicle types — always present, protected (non-removable), and the
+// basis for the legacy per-type RUN_LOG / ORDER_STATS billing columns. User-added types
+// extend this list via the registry (getCanonicalVehicleTypes_), so adding one propagates
+// everywhere that enumerates types (pills, product picker, billing, line items, dashboard).
+var CANONICAL_TYPES = ['New', 'PO', 'CPO', 'CPO-EL'];
+
+// Canonical type → legacy billing-totals field names (gross + dupes). Kept so RUN_LOG
+// cols G–N and ORDER_STATS stay byte-identical, while readBillingTotals_ also exposes a
+// dynamic `byType` map covering EVERY registered type (incl. user-added ones).
+var CANONICAL_BILLING_FIELDS = {
+  'New':    { gross: 'totalNew',   dupes: 'newDupes'   },
+  'PO':     { gross: 'totalPO',    dupes: 'poDupes'    },
+  'CPO':    { gross: 'totalCPO',   dupes: 'cpoDupes'   },
+  'CPO-EL': { gross: 'totalCPOEL', dupes: 'cpoElDupes' }
+};
 
 // ── Secrets / connection ──────────────────────────────────────────────────
 
@@ -5317,7 +5344,7 @@ function getPipedriveDealerEditorData(dealerKey) {
     dealerKey:  dealerKey,
     dealerName: config[CFG.NAME],
     groups:     groups,
-    types:      PD_TYPE_KEYS.map(function(t) { return t.type; }),
+    types:      getCanonicalVehicleTypes_(),   // built-ins + user-added (the picker is filtered to allowed_types client-side)
     saved:      saved,
     sourceSplit: getSourceSplit_(config),     // {groupName,...}|null — drives the per-source product grid
     globalRules: getPipedriveGlobalRules_()   // so the panel can list overridable rules
@@ -5515,6 +5542,150 @@ function setPipedriveSettingValue_(key, value) {
   sh.getRange(sh.getLastRow() + 1, 1, 1, 2).setValues([[key, value]]);
 }
 
+// ── Vehicle-type registry ──────────────────────────────────────────────────
+// Single source of truth for the canonical vehicle types (built-ins + user-added).
+// Stored as a JSON array in the PIPEDRIVE_SETTINGS 'vehicle_types' row. Every place that
+// enumerates types reads getCanonicalVehicleTypes_(), so adding a type propagates to the
+// Rules-editor pills, the Pipedrive product picker, the billing sheet, line items, and the
+// dashboard. A new type is INERT until vehicles normalize to it (a NORM_MAPS rule, or the
+// feed already uses the label) — that assignment stays in Manage Normalization.
+
+var _vehicleTypes_ = null;   // per-execution cache
+
+/**
+ * The full canonical type list: built-in CANONICAL_TYPES (first, in order) unioned with any
+ * user-added extras from the registry, de-duplicated case-insensitively. The built-ins are
+ * always present even if the stored value is missing/malformed — a fail-safe for the
+ * billing/normalization assumptions. Cached per execution.
+ */
+function getCanonicalVehicleTypes_() {
+  if (_vehicleTypes_) return _vehicleTypes_.slice();
+  var extras = pdParseJson_(getPipedriveSettingValue_(PD_VEHICLE_TYPES_KEY), []);
+  if (!Array.isArray(extras)) extras = [];
+  var seen = {}, out = [];
+  CANONICAL_TYPES.concat(extras).forEach(function(t) {
+    var label = String(t == null ? '' : t).trim();
+    if (label === '') return;
+    var k = label.toLowerCase();
+    if (seen[k]) return;
+    seen[k] = true;
+    out.push(label);
+  });
+  _vehicleTypes_ = out;
+  return out.slice();
+}
+
+/** The user-added types only (everything past the protected built-ins). */
+function getExtraVehicleTypes_() {
+  return getCanonicalVehicleTypes_().filter(function(t) { return !isCanonicalType_(t); });
+}
+
+/** True if `label` (case-insensitive) is a built-in type that can never be removed. */
+function isCanonicalType_(label) {
+  var k = String(label || '').trim().toLowerCase();
+  return CANONICAL_TYPES.some(function(t) { return t.toLowerCase() === k; });
+}
+
+/**
+ * Client-callable. Registers a new vehicle type. Validates (non-blank; ≤40 chars; not a
+ * case-insensitive duplicate of an existing type), appends to the extras, busts the cache,
+ * and returns the full updated type list. Throws on invalid input.
+ */
+function addVehicleType(label) {
+  var clean = String(label == null ? '' : label).trim();
+  if (clean === '') throw new Error('Type label cannot be blank.');
+  if (clean.length > 40) throw new Error('Type label is too long (40 characters max).');
+  var dup = getCanonicalVehicleTypes_().some(function(t) { return t.toLowerCase() === clean.toLowerCase(); });
+  if (dup) throw new Error('Type "' + clean + '" already exists.');
+  var extras = getExtraVehicleTypes_();
+  extras.push(clean);
+  setPipedriveSettingValue_(PD_VEHICLE_TYPES_KEY, JSON.stringify(extras));
+  _vehicleTypes_ = null;
+  return getCanonicalVehicleTypes_();
+}
+
+/**
+ * Client-callable. Removes a user-added vehicle type. Refuses a built-in, and refuses a
+ * type still referenced by any dealer (allowed_types / cao_exclude_types / seasoning /
+ * product_map / source_product_map) — returning the blocking dealer names so the UI can
+ * explain. On success busts the cache and returns the updated list.
+ * @return {{ok:boolean, types?:string[], blockedBy?:string[], message?:string}}
+ */
+function removeVehicleType(label) {
+  var clean = String(label == null ? '' : label).trim();
+  if (clean === '') return { ok: false, message: 'No type specified.' };
+  if (isCanonicalType_(clean)) {
+    return { ok: false, message: '"' + clean + '" is a built-in type and cannot be removed.' };
+  }
+  var blockedBy = dealersUsingType_(clean);
+  if (blockedBy.length) {
+    return { ok: false, blockedBy: blockedBy,
+             message: '"' + clean + '" is still used by: ' + blockedBy.join(', ') +
+                      '. Remove it from those dealers (Allowed Types / product map) first.' };
+  }
+  var extras = getExtraVehicleTypes_().filter(function(t) { return t.toLowerCase() !== clean.toLowerCase(); });
+  setPipedriveSettingValue_(PD_VEHICLE_TYPES_KEY, JSON.stringify(extras));
+  _vehicleTypes_ = null;
+  return { ok: true, types: getCanonicalVehicleTypes_() };
+}
+
+/**
+ * Read-only. Names of dealers that still reference `type` anywhere in their config —
+ * filtering_rules (allowed_types / cao_exclude_types / seasoning[].type) or a PIPEDRIVE row
+ * (product_map / source_product_map). Case-insensitive. Backs the remove guard.
+ */
+function dealersUsingType_(type) {
+  var target = String(type || '').trim().toLowerCase();
+  if (target === '') return [];
+  var configSS = getConfigSS_();
+  var out = [], nameByKey = {};
+
+  var dealerData = configSS.getSheetByName('DEALERS').getDataRange().getValues();
+  for (var i = 1; i < dealerData.length; i++) {
+    var key = String(dealerData[i][CFG.KEY] || '');
+    if (!key) continue;
+    nameByKey[key] = String(dealerData[i][CFG.NAME] || key);
+    var fr = pdParseJson_(dealerData[i][CFG.FILTER_RULES], null);
+    if (fr && filterRulesUseType_(fr, target)) out.push(nameByKey[key]);
+  }
+
+  var sh = getPipedriveSheet_();
+  if (sh) {
+    var pd = sh.getDataRange().getValues();
+    for (var j = 1; j < pd.length; j++) {
+      var dk = String(pd[j][PDCFG.DEALER_KEY] || '');
+      if (!dk) continue;
+      var name = nameByKey[dk] || dk;
+      if (out.indexOf(name) !== -1) continue;
+      if (pdRowUsesType_(pd[j], target)) out.push(name);
+    }
+  }
+  return out;
+}
+
+/** True if a parsed filtering_rules object references `targetLower` in any type field. */
+function filterRulesUseType_(fr, targetLower) {
+  function hasIn(arr) {
+    return Array.isArray(arr) && arr.some(function(v) { return String(v).trim().toLowerCase() === targetLower; });
+  }
+  if (hasIn(fr.allowed_types) || hasIn(fr.cao_exclude_types)) return true;
+  return Array.isArray(fr.seasoning) && fr.seasoning.some(function(s) {
+    return s && String(s.type).trim().toLowerCase() === targetLower;
+  });
+}
+
+/** True if a raw PIPEDRIVE row's product_map / source_product_map keys include `targetLower`. */
+function pdRowUsesType_(row, targetLower) {
+  function mapHasType(map) {
+    return map && typeof map === 'object' &&
+      Object.keys(map).some(function(t) { return String(t).trim().toLowerCase() === targetLower; });
+  }
+  if (mapHasType(pdParseJson_(row[PDCFG.PRODUCT_MAP], {}))) return true;
+  var spm = pdParseJson_(row[PDCFG.SOURCE_PRODUCT_MAP], {});
+  return spm && typeof spm === 'object' &&
+    Object.keys(spm).some(function(g) { return mapHasType(spm[g]); });
+}
+
 /** The EXPLICITLY chosen product→org field key ('' if unset). */
 function getPipedriveProductOrgField_() {
   return getPipedriveSettingValue_(PD_PRODUCT_ORG_FIELD_KEY);
@@ -5637,11 +5808,13 @@ function getProductVariations(productId) {
 // ── Line items from billing totals × the group's product map ───────────────
 
 /**
- * Builds PD deal line items. Quantity per type = gross − dupes (net billable).
+ * Builds PD deal line items. Quantity per type = GROSS (VIN-log dupes included — a
+ * re-printed VIN is still produced & billed). Iterates the product map's mapped types
+ * (incl. user-added ones), reading each gross count from billing.byType[type].
  * Same product+variation across types are summed; different variations stay
  * distinct lines. Returns [{product_id, quantity, item_price, name,
  * product_variation_id?}].
- * @param {Object} billing             readBillingTotals_ result
+ * @param {Object} billing             readBillingTotals_ result (uses .byType)
  * @param {Object} productMap          {type: {product_id, variation_id?}} (a bare id is tolerated)
  * @param {Array}  products            pdListProducts_ result (price + name lookup)
  * @param {string} currency            target currency for item_price
@@ -5668,14 +5841,15 @@ function buildLineItems_(billing, productMap, products, currency, variationsByPr
   }
 
   var agg = {};
-  PD_TYPE_KEYS.forEach(function(t) {
-    var entry = productMap[t.type];
+  var byType = (billing && billing.byType) || {};
+  Object.keys(productMap || {}).forEach(function(type) {
+    var entry = productMap[type];
     if (entry === undefined || entry === null || entry === '') return;
     var pid, vid = null;
     if (typeof entry === 'object') { pid = entry.product_id; vid = entry.variation_id || null; }
     else { pid = entry; }   // bare id (tolerated)
     if (pid === undefined || pid === null || pid === '') return;
-    var qty = (Number(billing[t.gross]) || 0);   // GROSS — VIN-log dupes are still produced & billed
+    var qty = byType[type] ? (Number(byType[type].gross) || 0) : 0;   // GROSS — VIN-log dupes are still produced & billed
     if (qty <= 0) return;
 
     var key = String(pid) + '|' + (vid || '');
@@ -5699,12 +5873,14 @@ function buildLineItems_(billing, productMap, products, currency, variationsByPr
   return Object.keys(agg).map(function(k) { return agg[k]; });
 }
 
-/** Converts a per-source {type: qty} map into the gross billing-totals shape buildLineItems_ reads. */
+/** Converts a per-source {type: qty} map into the byType billing shape buildLineItems_ reads. */
 function bySourceToBilling_(typeCounts) {
   typeCounts = typeCounts || {};
-  var b = {};
-  PD_TYPE_KEYS.forEach(function(t) { b[t.gross] = Number(typeCounts[t.type]) || 0; });
-  return b;
+  var byType = {};
+  Object.keys(typeCounts).forEach(function(type) {
+    byType[type] = { gross: Number(typeCounts[type]) || 0, dupes: 0 };
+  });
+  return { byType: byType };
 }
 
 /**
@@ -6268,8 +6444,8 @@ function pdResolveRunContext_(dealerKey, group, outputDocId) {
   var variationsByProduct = {};
   [pdCfg.productMap, (useSourceSplit ? secMap : null)].forEach(function(map) {
     if (!map) return;
-    PD_TYPE_KEYS.forEach(function(t) {
-      var e = map[t.type];
+    Object.keys(map).forEach(function(type) {
+      var e = map[type];
       if (e && typeof e === 'object' && e.product_id && e.variation_id && !variationsByProduct[String(e.product_id)]) {
         variationsByProduct[String(e.product_id)] = pdListProductVariations_(e.product_id);
       }
