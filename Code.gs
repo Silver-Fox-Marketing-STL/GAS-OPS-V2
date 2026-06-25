@@ -5671,6 +5671,12 @@ function addVehicleType(label) {
   var clean = String(label == null ? '' : label).trim();
   if (clean === '') throw new Error('Type label cannot be blank.');
   if (clean.length > 40) throw new Error('Type label is too long (40 characters max).');
+  // Reserved billing-sheet labels — a type named one of these (or ending in " Dupes")
+  // would collide with readBillingTotals_'s row parsing.
+  var reserved = ['total ordered', 'total matched in scraper', 'total matched (check)', 'total duplicates'];
+  if (reserved.indexOf(clean.toLowerCase()) !== -1 || /\sdupes$/i.test(clean)) {
+    throw new Error('"' + clean + '" is a reserved label — choose a different type name.');
+  }
   var dup = getCanonicalVehicleTypes_().some(function(t) { return t.toLowerCase() === clean.toLowerCase(); });
   if (dup) throw new Error('Type "' + clean + '" already exists.');
   var extras = getExtraVehicleTypes_();
@@ -5739,14 +5745,30 @@ function dealersUsingType_(type) {
   return out;
 }
 
-/** True if a parsed filtering_rules object references `targetLower` in any type field. */
+/** True if a parsed filtering_rules object references `targetLower` in any type field —
+ *  allowed_types / cao_exclude_types / seasoning[].type / billing_split(field:type) /
+ *  targeting_rules conditions (recursing nested AND/OR groups for a {field:"type"} leaf). */
 function filterRulesUseType_(fr, targetLower) {
   function hasIn(arr) {
     return Array.isArray(arr) && arr.some(function(v) { return String(v).trim().toLowerCase() === targetLower; });
   }
   if (hasIn(fr.allowed_types) || hasIn(fr.cao_exclude_types)) return true;
-  return Array.isArray(fr.seasoning) && fr.seasoning.some(function(s) {
+  if (Array.isArray(fr.seasoning) && fr.seasoning.some(function(s) {
     return s && String(s.type).trim().toLowerCase() === targetLower;
+  })) return true;
+  // billing_split with field "type"
+  var bs = fr.billing_split;
+  if (bs && String(bs.field).trim().toLowerCase() === 'type' && hasIn(bs.values)) return true;
+  // targeting_rules — recurse the AND/OR groups for a {field:"type"} leaf referencing the type
+  function groupUsesType(group) {
+    if (!group || !Array.isArray(group.children)) return false;
+    return group.children.some(function(child) {
+      if (child && Array.isArray(child.children)) return groupUsesType(child);                     // nested group
+      return child && String(child.field).trim().toLowerCase() === 'type' && hasIn(child.values);  // leaf condition
+    });
+  }
+  return Array.isArray(fr.targeting_rules) && fr.targeting_rules.some(function(rule) {
+    return rule && groupUsesType(rule.group);
   });
 }
 
