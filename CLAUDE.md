@@ -23,7 +23,8 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
   disagree, trust the live system and fix the docs.
 - **Branch check before push.** Confirm the current branch before any push.
   Single deployed branch is `main` (`feature/health-monitoring` merged June 2026;
-  `pipedrive-integration` merged to `main` June 24, 2026 — v2.12).
+  `pipedrive-integration` merged to `main` June 24, 2026 — v2.12;
+  `feature/dynamic-vehicle-types` merged to `main` June 25, 2026 — v2.13).
 - **Deploy:** edit locally → commit/push to GitHub → `clasp push` to Apps Script.
   Rollback = checkout last good commit on `main` and `clasp push`.
 - **Sheets MCP:** never edit anything outside the "Claude Sandbox" Drive folder.
@@ -67,9 +68,8 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
   `getRunsForDealer` reads all 23 — keep any new reads in sync.
 - Post-normalization types are `New`, `PO`, `CPO`; `CPO-EL` passes through raw
   (MBCC only). **Always check `CPO-EL` before `CPO`** — substring match.
-- Vehicle type is a **dynamic registry** *(`feature/dynamic-vehicle-types` — branch-only;
-  NOT merged to `main`, NOT deployed; **inert on the live system** — no `vehicle_types` row
-  yet)*: `CANONICAL_TYPES = ['New','PO','CPO','CPO-EL']` (protected built-ins) +
+- Vehicle type is a **dynamic registry** *(v2.13 — merged to `main` June 25, 2026; deployed;
+  active)*: `CANONICAL_TYPES = ['New','PO','CPO','CPO-EL']` (protected built-ins) +
   user-added extras stored in `PIPEDRIVE_SETTINGS` key `vehicle_types`.
   **`getCanonicalVehicleTypes_()`** = the de-duped union (built-ins **always first**),
   cached per execution, **fail-safe** (built-ins present even if the stored value is
@@ -86,13 +86,12 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
   `{field:"type"}` nested groups + `billing_split(field:"type")` — and PIPEDRIVE
   product maps). Per-type analytics go in a NEW long-format `ORDER_TYPE_STATS` tab + a
   dynamic dashboard; **the fixed log schemas (RUN_LOG/ORDER_STATS/IMPORT_STATS) are NOT
-  widened**. When this deploys, anything enumerating types must read the registry, never
-  a literal four. See Bridge doc "Vehicle-Type Registry". **Template formulas already
-  updated LIVE (behavior-preserving):** `TYPESTOCK`/`TYPEVIN` (SF_UNIVERSAL_TEMPLATE
-  ORDERMATCH N2/R2) now use exact type-match with an `UPPER(TRIM(G))&" - "` else — a custom
-  type prints its own uppercased name instead of "USED" (canonical four unchanged, so it's
-  safe on `main` before the feature deploys). The old `SEARCH` cascade hardcoded the four
-  and defaulted the rest to USED.
+  widened**. Anything enumerating types **must** read the registry, never a literal four.
+  See Bridge doc "Vehicle-Type Registry". **Template formulas updated LIVE
+  (behavior-preserving):** `TYPESTOCK`/`TYPEVIN` (SF_UNIVERSAL_TEMPLATE
+  ORDERMATCH N2/R2) use exact type-match with an `UPPER(TRIM(G))&" - "` else — a custom
+  type prints its own uppercased name instead of "USED" (canonical four unchanged); this is
+  the live behavior. The old `SEARCH` cascade hardcoded the four and defaulted the rest to USED.
 - ORDERMATCH cols A–I are the QUERY spill zone — never write there in the template.
   `FIELD_TO_COL` in Code.gs is the only runtime mapping; headers/FIELD_CODES tab
   are documentation. `buildCSVSheet_` reads 100 cols. `PRICE_TAGLINE` = col 21 (U).

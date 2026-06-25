@@ -473,8 +473,8 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   present no matter what the stored value is, and a stored value can only *append* a type \u2014
   never delete or reorder a protected one. That fail-safe is also what makes the whole
   feature **inert until used**: with no `vehicle_types` row the union is exactly the
-  canonical four, so behavior is byte-identical to before. (`feature/dynamic-vehicle-types`,
-  branch-only.) Same shape as the "config is required, gate it loudly" lesson inverted:
+  canonical four, so behavior is byte-identical to before. Same shape as the "config is
+  required, gate it loudly" lesson inverted:
   here the safe default is a *guaranteed floor*, not a loud failure, because a missing
   type list must degrade to the old behavior, not block.
 - **Per-type (or per-anything-unbounded) analytics belong in LONG-FORMAT rows, not WIDE
