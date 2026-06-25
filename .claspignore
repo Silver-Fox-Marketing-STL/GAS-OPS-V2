@@ -1,0 +1,14 @@
+# Files that must NOT be pushed to Apps Script. clasp ignores these like .gitignore
+# (clasp does NOT read .gitignore). The Apps Script project is Code.gs + the *.html
+# views + appsscript.json at the repo root; everything below is local-only tooling/docs.
+
+# Local doc-PDF builder — Node.js (ES modules). Pushing its .js as .gs breaks `clasp push`
+# with "Cannot use import statement outside a module" (e.g. scripts/node_modules/marked).
+scripts/**
+**/node_modules/**
+node_modules/**
+
+# Docs + repo meta (never Apps Script source)
+docs/**
+**/*.md
+.git/**
