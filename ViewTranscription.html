@@ -112,22 +112,28 @@
 
     var lines = document.getElementById('trInput').value.split(/\r?\n/);
     var CAP = 500;
-    var found = 0, notFound = 0, total = 0, shown = 0, html = '';
+    var found = 0, notFound = 0, total = 0, html = '';
 
+    // Collect every non-empty line (counting found/not-found across ALL of them)…
+    var entries = [];
     for (var i = 0; i < lines.length; i++) {
       var t = lines[i].trim();
       if (!t) continue;
       total++;
       var ok = trVinIndex[t.toUpperCase()] === 1;
       if (ok) found++; else notFound++;
-      if (shown < CAP) {
-        html += '<div class="tr-row ' + (ok ? 'ok' : 'no') + '">' +
-                '<span class="tr-vin">' + escHtml(t) + '</span>' +
-                '<span class="tr-badge">' + (ok ? 'Found' : 'Not Found') + '</span></div>';
-        shown++;
-      }
+      entries.push({ t: t, ok: ok });
     }
-    if (total > CAP) html += '<div class="tr-note">Showing the first ' + CAP + ' of ' + total + ' lines.</div>';
+
+    // …then render NEWEST-FIRST (the most recently entered VIN stays at the top,
+    // visible without scrolling), capped to the most recent CAP lines.
+    var renderFrom = Math.max(0, entries.length - CAP);
+    for (var j = entries.length - 1; j >= renderFrom; j--) {
+      html += '<div class="tr-row ' + (entries[j].ok ? 'ok' : 'no') + '">' +
+              '<span class="tr-vin">' + escHtml(entries[j].t) + '</span>' +
+              '<span class="tr-badge">' + (entries[j].ok ? 'Found' : 'Not Found') + '</span></div>';
+    }
+    if (total > CAP) html += '<div class="tr-note">Showing the most recent ' + CAP + ' of ' + total + ' lines.</div>';
 
     resultsEl.innerHTML = total ? html
       : '<div class="tr-empty">Start typing on the left — each VIN shows <b>Found</b> or <b>Not Found</b> here in real time.</div>';

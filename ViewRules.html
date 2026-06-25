@@ -11,9 +11,25 @@
     </select>
   </div>
 
-  <!-- Filtering Rules over Pipedrive (full-width); each saves independently.
-       (Type Rules panel removed June 2026 — the Pipedrive product map is now the
-       sole per-type config; Schema + UTM live on each product cell.) -->
+  <!-- Tabs: Filtering Rules / Pipedrive — only one panel is shown at a time so a
+       new user isn't faced with both full configs at once. Each tab keeps its own
+       DOM + JS state (switching never discards edits) and shows an unsaved dot. -->
+  <div class="rules-tabs" role="tablist">
+    <button type="button" class="rules-tab active" id="rulesTabBtnFilter"
+            role="tab" aria-selected="true" aria-controls="panel-filter"
+            onclick="rulesTab('filter')">
+      Filtering Rules <span class="rules-tab-dot" id="rulesTabDotFilter" hidden></span>
+    </button>
+    <button type="button" class="rules-tab" id="rulesTabBtnPipedrive"
+            role="tab" aria-selected="false" aria-controls="panel-pipedrive"
+            onclick="rulesTab('pipedrive')">
+      Pipedrive <span class="rules-tab-dot" id="rulesTabDotPipedrive" hidden></span>
+    </button>
+  </div>
+
+  <!-- Filtering Rules and Pipedrive panels (full-width, tab-switched); each saves
+       independently. (Type Rules panel removed June 2026 — the Pipedrive product
+       map is now the sole per-type config; Schema + UTM live on each product cell.) -->
   <div class="panels-row">
 
   <!-- ════════════════════════════════════════════════════════════════════════════
@@ -57,7 +73,10 @@
 
         <!-- Allowed types -->
         <div class="filter-card">
-          <div class="section-label">Allowed Types</div>
+          <div class="section-head">
+            <span class="section-label">Allowed Types</span>
+            <button type="button" class="rules-help-btn" aria-controls="hintAllowedTypes" aria-expanded="false" aria-label="More info" title="More info" onclick="rulesHelp(this)">&#9432;</button>
+          </div>
           <div class="pill-group" id="allowedTypes">
             <div class="pill type-new"  data-type="New"    onclick="togglePill(this)">New</div>
             <div class="pill type-po"   data-type="PO"     onclick="togglePill(this)">PO</div>
@@ -69,29 +88,35 @@
                    onkeydown="if(event.key==='Enter'){event.preventDefault();addNewType();}" />
             <button type="button" id="addTypeBtn" class="btn-add-type" onclick="addNewType()">+ Add type</button>
           </div>
-          <div class="pill-hint">All selected = all types allowed; deselect all to allow everything. <strong>+ Add type</strong> registers a new type system-wide; the <strong>×</strong> on a custom type removes it (only if no dealer uses it). A new type catches vehicles once you map a raw value to it in <strong>Normalization</strong>.</div>
+          <div class="pill-hint" id="hintAllowedTypes" hidden>All selected = all types allowed; deselect all to allow everything. <strong>+ Add type</strong> registers a new type system-wide; the <strong>×</strong> on a custom type removes it (only if no dealer uses it). A new type catches vehicles once you map a raw value to it in <strong>Normalization</strong>.</div>
         </div>
 
         <!-- Exclude from CAO auto-fill -->
         <div class="filter-card">
-          <div class="section-label">Exclude from CAO Auto-Fill</div>
+          <div class="section-head">
+            <span class="section-label">Exclude from CAO Auto-Fill</span>
+            <button type="button" class="rules-help-btn" aria-controls="hintCaoExclude" aria-expanded="false" aria-label="More info" title="More info" onclick="rulesHelp(this)">&#9432;</button>
+          </div>
           <div class="pill-group" id="caoExcludeTypes">
             <div class="pill type-new"  data-type="New"    onclick="togglePill(this)">New</div>
             <div class="pill type-po"   data-type="PO"     onclick="togglePill(this)">PO</div>
             <div class="pill type-cpo"  data-type="CPO"    onclick="togglePill(this)">CPO</div>
             <div class="pill type-cpoel" data-type="CPO-EL" onclick="togglePill(this)">CPO-EL</div>
           </div>
-          <div class="pill-hint">These types are skipped during CAO auto-fill but still print when entered manually. Keep them in <strong>Allowed Types</strong> so manual runs aren't blocked.</div>
+          <div class="pill-hint" id="hintCaoExclude" hidden>These types are skipped during CAO auto-fill but still print when entered manually. Keep them in <strong>Allowed Types</strong> so manual runs aren't blocked.</div>
         </div>
 
         <!-- Excluded statuses -->
         <div class="filter-card">
-          <div class="section-label">Exclude Status</div>
+          <div class="section-head">
+            <span class="section-label">Exclude Status</span>
+            <button type="button" class="rules-help-btn" aria-controls="hintExcludeStatus" aria-expanded="false" aria-label="More info" title="More info" onclick="rulesHelp(this)">&#9432;</button>
+          </div>
           <div class="pill-group" id="excludeStatus">
             <div class="pill" data-status="ONLOT"  onclick="toggleStatusPill(this)">ONLOT</div>
             <div class="pill" data-status="OFFLOT" onclick="toggleStatusPill(this)">OFFLOT</div>
           </div>
-          <div class="pill-hint">Selected statuses will be excluded. Typically only OFFLOT is excluded.</div>
+          <div class="pill-hint" id="hintExcludeStatus" hidden>Selected statuses will be excluded. Typically only OFFLOT is excluded.</div>
         </div>
 
       </div><!-- /.filter-grid -->
@@ -136,34 +161,39 @@
 
       <!-- Targeting Rules -->
       <div class="filter-card filter-card--full">
-        <div class="section-label">Targeting Rules</div>
-        <div class="pill-hint"><strong>IF</strong> a vehicle matches the conditions (combined with nested AND/OR), <strong>THEN</strong> take the action. Actions: <em>Drop on import</em> (never enters SCRAPERDATA), <em>Exclude from CAO</em> (skipped in auto-fill only), <em>Exclude from orders</em> (skipped in CAO <em>and</em> runs; the Bypass checkbox overrides per run). Make/Model are raw text — list keyword variants like <code>F-250</code> and <code>F250</code>. A rule with no conditions does nothing.</div>
+        <div class="section-head">
+          <span class="section-label">Targeting Rules</span>
+          <button type="button" class="rules-help-btn" aria-controls="hintTargeting" aria-expanded="false" aria-label="More info" title="More info" onclick="rulesHelp(this)">&#9432;</button>
+        </div>
+        <div class="pill-hint" id="hintTargeting" hidden><strong>IF</strong> a vehicle matches the conditions (combined with nested AND/OR), <strong>THEN</strong> take the action. Actions: <em>Drop on import</em> (never enters SCRAPERDATA), <em>Exclude from CAO</em> (skipped in auto-fill only), <em>Exclude from orders</em> (skipped in CAO <em>and</em> runs; the Bypass checkbox overrides per run). Make/Model are raw text — list keyword variants like <code>F-250</code> and <code>F250</code>. A rule with no conditions does nothing.</div>
         <div id="targetingRulesWrap" class="tr-wrap"></div>
         <button class="btn-add-season" onclick="addTargetingRule()">+ Add Rule</button>
       </div>
 
-      <!-- Dual-site source split -->
+      <!-- Dual-site source split — advanced; collapsed unless this dealer has one -->
       <div class="filter-card filter-card--full">
-        <div class="section-label">Dual-Site Source Split</div>
-        <div class="toggle-row">
-          <label class="toggle-switch">
-            <input type="checkbox" id="sourceSplitEnable" onchange="markFilterDirty()">
-            <span class="toggle-slider"></span>
-          </label>
-          <span class="toggle-label">Split output by website</span>
-          <span class="toggle-desc">For a dealer whose inventory spans two sites (e.g. a subprime site)</span>
-        </div>
-        <div class="price-row">
-          <div class="price-field">
-            <label for="sourceSplitGroupName">Secondary group name</label>
-            <input type="text" id="sourceSplitGroupName" placeholder="AUTOLOANPRO" oninput="markFilterDirty()" />
+        <details class="rules-adv" id="sourceSplitDetails">
+          <summary class="rules-adv-summary"><span class="section-label">Dual-Site Source Split</span></summary>
+          <div class="toggle-row">
+            <label class="toggle-switch">
+              <input type="checkbox" id="sourceSplitEnable" onchange="markFilterDirty()">
+              <span class="toggle-slider"></span>
+            </label>
+            <span class="toggle-label">Split output by website</span>
+            <span class="toggle-desc">For a dealer whose inventory spans two sites (e.g. a subprime site)</span>
           </div>
-          <div class="price-field">
-            <label for="sourceSplitUrlContains">Secondary URL contains</label>
-            <input type="text" id="sourceSplitUrlContains" placeholder="autoloanpro" oninput="markFilterDirty()" />
+          <div class="price-row">
+            <div class="price-field">
+              <label for="sourceSplitGroupName">Secondary group name</label>
+              <input type="text" id="sourceSplitGroupName" placeholder="AUTOLOANPRO" oninput="markFilterDirty()" />
+            </div>
+            <div class="price-field">
+              <label for="sourceSplitUrlContains">Secondary URL contains</label>
+              <input type="text" id="sourceSplitUrlContains" placeholder="autoloanpro" oninput="markFilterDirty()" />
+            </div>
           </div>
-        </div>
-        <div class="pill-hint">Matched cars whose Vehicle URL contains the marker go to a separate <strong>CSV_&lt;group&gt;</strong> (and a BY-SOURCE billing breakdown) — still <strong>one billing sheet and one Pipedrive deal</strong>. Overlapping VINs across the two sites auto-resolve to the main site at import. Leave the toggle off (or either field blank) to disable.</div>
+          <div class="pill-hint">Matched cars whose Vehicle URL contains the marker go to a separate <strong>CSV_&lt;group&gt;</strong> (and a BY-SOURCE billing breakdown) — still <strong>one billing sheet and one Pipedrive deal</strong>. Overlapping VINs across the two sites auto-resolve to the main site at import. Leave the toggle off (or either field blank) to disable.</div>
+        </details>
       </div>
 
     </div>
@@ -204,8 +234,11 @@
 
       <!-- ── Per-dealer configuration ─────────────────────────────────────────── -->
       <div class="filter-card filter-card--full">
-        <div class="section-label">Dealer Deal Configuration</div>
-        <div class="pill-hint">Map each vehicle type to a Pipedrive product (and optional variation) per billing group, and choose the organization the deal is created under. Billing-split dealers (e.g. shared Sprinter feeds) show a second group with its own product mapping. Global deal-field rules are configured in System Settings → Pipedrive Settings; you can override them per dealer below.</div>
+        <div class="section-head">
+          <span class="section-label">Dealer Deal Configuration</span>
+          <button type="button" class="rules-help-btn" aria-controls="hintPdConfig" aria-expanded="false" aria-label="More info" title="More info" onclick="rulesHelp(this)">&#9432;</button>
+        </div>
+        <div class="pill-hint" id="hintPdConfig" hidden>Map each vehicle type to a Pipedrive product (and optional variation) per billing group, and choose the organization the deal is created under. Billing-split dealers (e.g. shared Sprinter feeds) show a second group with its own product mapping. Global deal-field rules are configured in System Settings → Pipedrive Settings; you can override them per dealer below.</div>
         <div id="pdDealerBody" class="pd-dealer-body">
           <div class="placeholder">Select a dealer to configure Pipedrive.</div>
         </div>
@@ -321,7 +354,78 @@
       overflow-x: hidden;
     }
     #view-rules .tab-panel { display: block; min-width: 0; }
-    #view-rules #panel-filter { border-bottom: 1px solid var(--border); }
+    /* Only the active tab's panel shows — must beat .tab-panel{display:block}. */
+    #view-rules .tab-panel[hidden] { display: none; }
+
+    /* ── Panel tabs (Filtering Rules / Pipedrive) ────────────────────────────── */
+    #view-rules .rules-tabs {
+      display: flex;
+      gap: 4px;
+      padding: 8px 16px 0;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    #view-rules .rules-tab {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 8px 18px;
+      border: 1px solid var(--border);
+      border-bottom: none;
+      border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+      background: var(--bg);
+      color: var(--text-2);
+      font-family: var(--font-body);
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      margin-bottom: -1px;
+    }
+    #view-rules .rules-tab:hover { color: var(--text); background: var(--surface); }
+    #view-rules .rules-tab.active {
+      background: var(--surface);
+      color: var(--accent);
+      border-bottom: 2px solid var(--accent);
+    }
+    #view-rules .rules-tab:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+    #view-rules .rules-tab-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--warning); flex-shrink: 0;
+    }
+    #view-rules .rules-tab-dot[hidden] { display: none; }
+
+    /* ── Section header: label + ⓘ help toggle ───────────────────────────────── */
+    #view-rules .section-head {
+      display: flex; align-items: center; gap: 6px;
+      margin-top: 18px; margin-bottom: 8px;
+    }
+    #view-rules .section-head:first-child { margin-top: 0; }
+    #view-rules .section-head .section-label { margin: 0; }
+    #view-rules .rules-help-btn {
+      border: none; background: none; cursor: pointer; padding: 0;
+      color: var(--text-3); font-size: 13px; line-height: 1; border-radius: 50%;
+    }
+    #view-rules .rules-help-btn:hover,
+    #view-rules .rules-help-btn.open { color: var(--accent); }
+    #view-rules .rules-help-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+    #view-rules .pill-hint[hidden] { display: none; }
+
+    /* ── Advanced collapsible sections (Source Split, Pipedrive overrides) ───── */
+    #view-rules details.rules-adv { margin-top: 4px; }
+    #view-rules details.rules-adv > summary {
+      list-style: none; cursor: pointer; user-select: none;
+      display: flex; align-items: center; gap: 6px;
+    }
+    #view-rules details.rules-adv > summary::-webkit-details-marker { display: none; }
+    #view-rules details.rules-adv > summary::before {
+      content: "\25B8"; color: var(--text-3); font-size: 11px; transition: transform .12s;
+    }
+    #view-rules details.rules-adv[open] > summary::before { transform: rotate(90deg); }
+    #view-rules details.rules-adv > summary .section-label,
+    #view-rules details.rules-adv > summary .pd-sub-label { margin: 0; }
+    #view-rules details.rules-adv > summary:focus-visible {
+      outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-sm);
+    }
     #view-rules .panel-title-bar {
       position: sticky;     /* keep the section header in view while scrolling */
       top: 0;
@@ -652,6 +756,11 @@
       letter-spacing: 0.3px; color: var(--text-3); margin: 14px 0 6px;
     }
     #view-rules .pd-sub-label:first-child { margin-top: 0; }
+    /* Sub-headings inside the unified "Per Dealer Overrides" disclosure. */
+    #view-rules .pd-ovr-subhead {
+      font-size: 11px; font-weight: bold; text-transform: uppercase;
+      letter-spacing: 0.3px; color: var(--text-2); margin: 8px 0 6px;
+    }
 
     /* Org picker */
     #view-rules .pd-org-search { position: relative; }
@@ -913,6 +1022,8 @@
 
       // Pipedrive connection state is dealer-independent — probe it on view init.
       pdLoadStatus();
+
+      rulesTab('filter');   // open on Filtering Rules; Pipedrive panel starts hidden
     }
 
     window.VIEW_INITS = window.VIEW_INITS || {};
@@ -925,7 +1036,33 @@
       });
     }
 
-    // (Tabs removed June 2026 — both panels are shown side by side in the wide modal.)
+    // ── Panel tabs (Filtering Rules / Pipedrive) ───────────────────────────────
+    // Show one panel at a time via the [hidden] attribute (the app's hidden-views
+    // pattern — the inactive panel keeps its DOM + JS state, so switching never
+    // discards edits). Each panel's .save-row is a child of the panel, so hiding
+    // the panel hides its save-row too.
+    function rulesTab(name) {
+      var isFilter = (name !== 'pipedrive');
+      document.getElementById('panel-filter').hidden    = !isFilter;
+      document.getElementById('panel-pipedrive').hidden = isFilter;
+      var bF = document.getElementById('rulesTabBtnFilter');
+      var bP = document.getElementById('rulesTabBtnPipedrive');
+      bF.classList.toggle('active', isFilter);
+      bP.classList.toggle('active', !isFilter);
+      bF.setAttribute('aria-selected', isFilter ? 'true' : 'false');
+      bP.setAttribute('aria-selected', isFilter ? 'false' : 'true');
+    }
+
+    // Toggle a section's help paragraph (the ⓘ next to a section label). The
+    // button points at its hint via aria-controls; the hint carries [hidden].
+    function rulesHelp(btn) {
+      var body = document.getElementById(btn.getAttribute('aria-controls'));
+      if (!body) return;
+      var willShow = body.hidden;     // currently hidden → about to show
+      body.hidden = !willShow;
+      btn.setAttribute('aria-expanded', willShow ? 'true' : 'false');
+      btn.classList.toggle('open', willShow);
+    }
 
     // ── Dealer dropdown ────────────────────────────────────────────────────────
     function populateDealerDropdown(dealers) {
@@ -1047,6 +1184,9 @@
       document.getElementById('sourceSplitEnable').checked  = !!(ssName && ssUrl);
       document.getElementById('sourceSplitGroupName').value = ssName;
       document.getElementById('sourceSplitUrlContains').value = ssUrl;
+      // Auto-expand the (otherwise-collapsed) advanced section when this dealer
+      // actually has a source split configured, so an active config is never hidden.
+      document.getElementById('sourceSplitDetails').open = !!(ssName && ssUrl);
 
       // Allowed Types just set here scope the Pipedrive product picker — re-render it if
       // the Pipedrive panel is already loaded (handles the load-order race on dealer change).
@@ -1484,6 +1624,7 @@
 
     function updateFilterDirty() {
       document.getElementById('filterUnsaved').style.display = filterDirty ? 'block' : 'none';
+      document.getElementById('rulesTabDotFilter').hidden = !filterDirty;
       // Nothing to discard unless this panel is dirty.
       document.getElementById('discardFilterBtn').disabled = !filterDirty;
     }
@@ -1768,6 +1909,15 @@
       var sel = pdSelections[group] || { group: group, productMap: {}, active: true };
       var gid = pdGroupDomId_(group);
 
+      // Per-dealer overrides (deal-field overrides + optional deal defaults) are an
+      // edge-case tweak — collapse them by default and auto-expand only when this
+      // group actually has one set. Derived from the model each render (pdDealerBody
+      // is rebuilt on every edit), so the collapse state is never "lost".
+      var fo_ = sel.fieldOverrides || {};
+      var hasFieldOvr     = Object.keys(fo_).some(function(rid) { return pdOverrideState_(fo_[rid]) !== 'global'; });
+      var hasDealDefaults = !!(sel.titleTemplate || sel.pipelineId || sel.stageId || sel.currency);
+      var ovrOpen = hasFieldOvr || hasDealDefaults;
+
       // Organization picker — chosen state vs search input.
       var orgBlock;
       if (sel.orgId) {
@@ -1831,37 +1981,42 @@
             '<tbody>' + rows + '</tbody></table>' +
           sourceGrid +
 
-          '<div class="pd-sub-label">Deal-Field Overrides</div>' +
-          '<div class="pill-hint" style="margin-bottom:8px;">Global deal-field rules apply to every deal. Per dealer you can keep the global default, turn a rule off, or replace it with a dealer-specific version.</div>' +
-          '<div class="pd-overrides" id="pdOverrides_' + gid + '">' + renderFieldOverrides_(group) + '</div>' +
+          '<details class="rules-adv"' + (ovrOpen ? ' open' : '') + '>' +
+            '<summary class="rules-adv-summary"><span class="pd-sub-label">Per Dealer Overrides</span></summary>' +
 
-          '<div class="pd-sub-label">Overrides (optional)</div>' +
-          '<div class="pd-overrides-grid">' +
-            '<div class="pd-field pd-field--wide">' +
-              '<label>Deal title template</label>' +
-              '<input type="text" id="pdTitle_' + gid + '" value="' + escAttr_(sel.titleTemplate) + '" ' +
-                'placeholder="{dealer_name} {date} {group} {count}" ' +
-                'oninput="pdSetField(\'' + group + '\', \'titleTemplate\', this.value)" />' +
+            '<div class="pd-ovr-subhead">Deal fields</div>' +
+            '<div class="pill-hint" style="margin-bottom:8px;">Global deal-field rules apply to every deal. Per dealer you can keep the global default, turn a rule off, or replace it with a dealer-specific version.</div>' +
+            '<div class="pd-overrides" id="pdOverrides_' + gid + '">' + renderFieldOverrides_(group) + '</div>' +
+
+            '<div class="pd-ovr-subhead" style="margin-top:14px;">Deal defaults</div>' +
+            '<div class="pill-hint" style="margin-bottom:8px;">Leave blank to use the global defaults. Only set these to override the pipeline, stage, currency, or deal title for this group.</div>' +
+            '<div class="pd-overrides-grid">' +
+              '<div class="pd-field pd-field--wide">' +
+                '<label>Deal title template</label>' +
+                '<input type="text" id="pdTitle_' + gid + '" value="' + escAttr_(sel.titleTemplate) + '" ' +
+                  'placeholder="{dealer_name} {date} {group} {count}" ' +
+                  'oninput="pdSetField(\'' + group + '\', \'titleTemplate\', this.value)" />' +
+              '</div>' +
+              '<div class="pd-field">' +
+                '<label>Pipeline ID</label>' +
+                '<input type="number" id="pdPipe_' + gid + '" value="' + escAttr_(sel.pipelineId) + '" ' +
+                  'placeholder="' + escAttr_(dp.pipelineId != null ? dp.pipelineId : 'default') + '" min="0" ' +
+                  'oninput="pdSetField(\'' + group + '\', \'pipelineId\', this.value)" />' +
+              '</div>' +
+              '<div class="pd-field">' +
+                '<label>Stage ID</label>' +
+                '<input type="number" id="pdStage_' + gid + '" value="' + escAttr_(sel.stageId) + '" ' +
+                  'placeholder="' + escAttr_(dp.stageId != null ? dp.stageId : 'default') + '" min="0" ' +
+                  'oninput="pdSetField(\'' + group + '\', \'stageId\', this.value)" />' +
+              '</div>' +
+              '<div class="pd-field">' +
+                '<label>Currency</label>' +
+                '<input type="text" id="pdCur_' + gid + '" value="' + escAttr_(sel.currency) + '" ' +
+                  'placeholder="' + escAttr_(dp.currency || 'default') + '" maxlength="3" ' +
+                  'oninput="pdSetField(\'' + group + '\', \'currency\', this.value)" />' +
+              '</div>' +
             '</div>' +
-            '<div class="pd-field">' +
-              '<label>Pipeline ID</label>' +
-              '<input type="number" id="pdPipe_' + gid + '" value="' + escAttr_(sel.pipelineId) + '" ' +
-                'placeholder="' + escAttr_(dp.pipelineId != null ? dp.pipelineId : 'default') + '" min="0" ' +
-                'oninput="pdSetField(\'' + group + '\', \'pipelineId\', this.value)" />' +
-            '</div>' +
-            '<div class="pd-field">' +
-              '<label>Stage ID</label>' +
-              '<input type="number" id="pdStage_' + gid + '" value="' + escAttr_(sel.stageId) + '" ' +
-                'placeholder="' + escAttr_(dp.stageId != null ? dp.stageId : 'default') + '" min="0" ' +
-                'oninput="pdSetField(\'' + group + '\', \'stageId\', this.value)" />' +
-            '</div>' +
-            '<div class="pd-field">' +
-              '<label>Currency</label>' +
-              '<input type="text" id="pdCur_' + gid + '" value="' + escAttr_(sel.currency) + '" ' +
-                'placeholder="' + escAttr_(dp.currency || 'default') + '" maxlength="3" ' +
-                'oninput="pdSetField(\'' + group + '\', \'currency\', this.value)" />' +
-            '</div>' +
-          '</div>' +
+          '</details>' +
 
           '<div class="toggle-row pd-active-row">' +
             '<label class="toggle-switch">' +
@@ -2499,6 +2654,7 @@
 
     function updatePipedriveDirty() {
       document.getElementById('pipedriveUnsaved').style.display = pipedriveDirty ? 'block' : 'none';
+      document.getElementById('rulesTabDotPipedrive').hidden = !pipedriveDirty;
       document.getElementById('discardPipedriveBtn').disabled = !pipedriveDirty;
       // Save is enabled only when there's a connected, loaded dealer.
       document.getElementById('savePipedriveBtn').disabled =
@@ -2514,8 +2670,7 @@
       pipedriveDirty = false;
       document.getElementById('pdDealerBody').innerHTML =
         '<div class="placeholder">Select a dealer to configure Pipedrive.</div>';
-      document.getElementById('pipedriveUnsaved').style.display = 'none';
-      document.getElementById('discardPipedriveBtn').disabled = true;
-      document.getElementById('savePipedriveBtn').disabled = true;
+      // Sync the unsaved indicator + dot + buttons to the now-clean state.
+      updatePipedriveDirty();
     }
 </script>
