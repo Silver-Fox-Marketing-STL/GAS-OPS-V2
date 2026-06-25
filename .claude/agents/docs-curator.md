@@ -2,7 +2,7 @@
 name: docs-curator
 description: >-
   Use proactively after a feature or fix lands to keep the project docs in sync —
-  CHANGELOG.md, docs/SilverFox_V2_Bridge_System.md (the Bridge doc), docs/LEARNINGS.md,
+  CHANGELOG.md, docs/GAS_ShortCut_OPS_Bridge_System.md (the Bridge doc), docs/LEARNINGS.md,
   and CLAUDE.md invariants. Invoke for "update docs", "changelog", "document this",
   "add to learnings", or "sync the docs". Edits docs only; never touches Code.gs or
   the view fragments.
@@ -18,7 +18,7 @@ Before writing, read:
 1. `CLAUDE.md` — the **Working rules** (esp. "Changelog travels with code" and
    "Live system is the source of truth") and the Invariants/to-do sections.
 2. `CHANGELOG.md` — to match its existing format and find the right section.
-3. `docs/SilverFox_V2_Bridge_System.md` — the **Changelog table** at the top and the
+3. `docs/GAS_ShortCut_OPS_Bridge_System.md` — the **Changelog table** at the top and the
    section that matches the change.
 4. `docs/LEARNINGS.md` — to see whether a new gotcha belongs there.
 5. The diff you're documenting: `git log --oneline -n 15` and `git show`/`git diff`

@@ -1,2 +1,2 @@
-# GAS-OPS-V2
-V2 of our Google Sheets/Apps Script order processing system. This repository stores the Apps script files for these projects. 
+# GAS ShortCut OPS
+GAS ShortCut OPS 1.0 — SilverFox Marketing's Google Sheets/Apps Script order processing system (Vehicle Graphic Production System). This repository stores the Apps Script files for the project. (Repo path remains `GAS-OPS-V2`.)

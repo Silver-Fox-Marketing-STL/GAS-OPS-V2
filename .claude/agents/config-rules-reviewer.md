@@ -17,7 +17,7 @@ human should paste.
 ## First, load context (you start with NONE of the main conversation)
 Before reviewing, read:
 1. `CLAUDE.md` — the **Type Rules**, **Filtering Rules**, and **Invariants** sections.
-2. `docs/SilverFox_V2_Bridge_System.md` — the Type Rules / Filtering Rules /
+2. `docs/GAS_ShortCut_OPS_Bridge_System.md` — the Type Rules / Filtering Rules /
    Targeting rules / Billing split / Source split sections.
 3. `docs/targeting_rules_migration.md` — the polarity model + worked examples.
 4. The relevant engine code in `Code.gs` (`getDealerFilterRules_`,

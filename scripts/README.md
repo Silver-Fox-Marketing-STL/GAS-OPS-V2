@@ -15,8 +15,8 @@ This project's full set:
 ```sh
 node scripts/build-docs-pdf.js --out docs/pdf \
   CLAUDE.md README.md CHANGELOG.md \
-  docs/LEARNINGS.md docs/SilverFox_Development_Plan_V2.md \
-  docs/SilverFox_Project_Knowledge_Base.md docs/SilverFox_V2_Bridge_System.md \
+  docs/LEARNINGS.md docs/GAS_ShortCut_OPS_Development_Plan.md \
+  docs/GAS_ShortCut_OPS_Project_Knowledge_Base.md docs/GAS_ShortCut_OPS_Bridge_System.md \
   docs/targeting_rules_migration.md
 ```
 (On Windows PowerShell, put it on one line or use backtick line-continuations.)

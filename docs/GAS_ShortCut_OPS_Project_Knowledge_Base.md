@@ -1,9 +1,9 @@
-# SilverFox Marketing — Project Knowledge Base
-### Compressed Reference | Last verified against live system: June 24, 2026
+# SilverFox Marketing — GAS ShortCut OPS Project Knowledge Base
+### Compressed Reference | Last verified against live system: June 25, 2026
 
 This document distills all critical decisions, architecture, bugs, and context from the full project history. It is the primary memory document for continuing development.
 
-> **Deploy status is tracked by `clasp push`, not by branch.** "Live" = pushed to the bound Apps Script project (deploy = the separate `clasp push` step, not a git merge to `main`). "Branch-only" = committed but **not** yet `clasp push`ed. The **Pipedrive integration** (Code.gs Section 31) was **merged to `main` and deployed June 24, 2026 (v2.12)** — it's now LIVE (activates per dealer once its live config is filled in). The remaining branch-only body of work is the **Lot Sherpa theming** redesign. See **Deploy State Snapshot** below.
+> **Deploy status is tracked by `clasp push`, not by branch.** "Live" = pushed to the bound Apps Script project (deploy = the separate `clasp push` step, not a git merge to `main`). The system formerly versioned **SilverFox V2 (1.0–2.13)** is now released as **GAS ShortCut OPS 1.0** (June 25, 2026), with `main` as the deployed production baseline. The **Pipedrive integration** (Code.gs Section 31, v2.12), the **Lot Sherpa theming**/dark-mode redesign, the **Dealer Rules "Discard Changes"** button, the **tabbed Dealer Rules editor + newest-first Transcription**, and the **import-health fixes** are all on `main` and deployed. See **Deploy State Snapshot** below.
 
 ---
 
@@ -11,15 +11,15 @@ This document distills all critical decisions, architecture, bugs, and context f
 
 | System | Status | Platform |
 |---|---|---|
-| **V1** | Active production | Google Sheets + Apps Script (~42 per-dealer functions) |
-| **V2** | Near production (final bug-hunt) | Google Sheets + Apps Script (config-driven, universal; the **SilverFox App** single-modal SPA) |
-| **V3** | Long-term, paused | **FastAPI + React + PostgreSQL** (decision made — see V3 Direction) |
+| **Legacy V1** | Legacy predecessor — superseded | Google Sheets + Apps Script (~42 per-dealer functions) |
+| **GAS ShortCut OPS 1.0** | **Production (released June 25, 2026)** | Google Sheets + Apps Script (config-driven, universal; the **SilverFox App** single-modal SPA) |
+| **V3 (future)** | Long-term, paused | **FastAPI + React + PostgreSQL** (decision made — see V3 Direction) |
 
-V2 is the only system being actively developed. V3 development is paused until V2 is stable; when it resumes it is a **greenfield FastAPI + React build with the V2 config model as the canonical spec** — *not* an extension of the old Flask prototype (see **V3 Direction (Decided)** at the bottom).
+GAS ShortCut OPS 1.0 (formerly SilverFox V2, 1.0–2.13) is the deployed production system, superseding legacy V1. V3 development is paused until later; when it resumes it is a **greenfield FastAPI + React build with the GAS ShortCut OPS config model as the canonical spec** — *not* an extension of the old Flask prototype (see **V3 Direction (Decided)** at the bottom).
 
 ---
 
-## Deploy State Snapshot (June 24, 2026)
+## Deploy State Snapshot (June 25, 2026)
 
 **Live (deployed to the bound Apps Script via `clasp push`, on `main`):**
 - Universal script + template; config-driven dealers; master VIN log; parallel QR generation
@@ -33,10 +33,10 @@ V2 is the only system being actively developed. V3 development is paused until V
 - Health monitoring + live DASHBOARD; in-app Transcription tab; Home dashboard render
 - Performance sweep — `getAppBootstrap`, `getMasterSS_`/`getVinLogsSS_` handle caches, `waitForRecalc_` polling, parallel QR uploads + `trashFilesParallel_`, batched DASHBOARD formatting
 - **Pipedrive integration (v2.12, merged to `main` June 24)** — Code.gs **Section 31** (+ the stacked sub-branches `feature/pipedrive-finalize-flow`, `feature/pipedrive-install-cost`, `feature/pipedrive-followups`, `feature/pipedrive-billing-pdf`, `feature/product-driven-schema`). Push a finalized run as a deal with per-type product line items. The code is deployed; it **activates per dealer** once its live config is filled in (ScriptProperties secrets + `PIPEDRIVE_SETTINGS` rules + per-dealer `PIPEDRIVE` rows, incl. the product map — now the **sole per-type config**, which retired `type_rules` from the run).
-
-**Branch-only (committed, NOT `clasp push`ed — inert in production):**
-- **Lot Sherpa theming** — branch `styling-updates`: CSS design-token system + light/dark theme. Two import-health fixes ride the same branch (deterministic baseline flush + smarter "missing location" check) and are ready to push.
-- **Dealer Rules "Discard Changes"** — branch `feature/dealer-rules-discard`.
+- **Dynamic vehicle-type registry (v2.13, merged to `main` June 25)** — built-ins + user-added types, dynamic billing/analytics; fail-safe to the canonical four.
+- **Lot Sherpa theming** — CSS design-token system + light/dark theme, plus two import-health fixes (deterministic baseline flush + smarter "missing location" check).
+- **Dealer Rules "Discard Changes"** button.
+- **Tabbed Dealer Rules editor + newest-first Transcription** (commit `2cfedc1`).
 
 ---
 
@@ -51,7 +51,7 @@ V2 is the only system being actively developed. V3 development is paused until V
 | Global Output Folder | `1iRDDlqgQPn9R67AEIUJcF8JmyiOyn8DI` |
 | V2 Project Folder | `1fL4btBpCVao9gxp2P-RnxiuAi4OXj38_` |
 
-Code lives in GitHub: `Silver-Fox-Marketing-STL/GAS-OPS-V2`. `Code.gs` (~3,400 lines, 31 sections) + the App HTML files (below). clasp script ID: `1E5aTcofzWzJZssOikaf6lFytS92vRHmj-k1NDV0C_Xu7NoJk7VUEjtNO`. `main` is the single deployed/integration branch (`feature/health-monitoring` merged June 2026).
+Code lives in GitHub: `Silver-Fox-Marketing-STL/GAS-OPS-V2`. `Code.gs` (~7,160 lines; Section 31 = Pipedrive integration) + the App HTML files (below). clasp script ID: `1E5aTcofzWzJZssOikaf6lFytS92vRHmj-k1NDV0C_Xu7NoJk7VUEjtNO`. `main` is the single deployed/integration branch (`feature/health-monitoring` merged June 2026).
 
 ---
 
@@ -468,7 +468,7 @@ Features now built in V2 that the V3 rebuild must reproduce (V2 is the canonical
 
 > Supersedes the earlier "Flask vs FastAPI + React (unresolved)" framing. The decision is **made**: when V3 resumes it is a **greenfield FastAPI + React + PostgreSQL build that treats the V2 config model as the canonical domain spec**, not an extension of the old Flask prototype.
 
-- The Flask codebase is a **reference only** (local `qrcode` generation, the two-phase review UX, a starting Postgres schema), not a base to extend — its business logic encodes pre-hardening rules that have **diverged** from V2 (config schema; QR encoding the bare VIN instead of the UTM VDP URL; no PO/CPO/CPO-EL taxonomy; 36+ per-dealer `*_vin_log` tables via dynamic SQL; `$`-prefixed PRICE_FMT). Porting that forward would port the drift. (Full list: Appendix A of `SilverFox_Development_Plan_V2.md`.)
+- The Flask codebase is a **reference only** (local `qrcode` generation, the two-phase review UX, a starting Postgres schema), not a base to extend — its business logic encodes pre-hardening rules that have **diverged** from V2 (config schema; QR encoding the bare VIN instead of the UTM VDP URL; no PO/CPO/CPO-EL taxonomy; 36+ per-dealer `*_vin_log` tables via dynamic SQL; `$`-prefixed PRICE_FMT). Porting that forward would port the drift. (Full list: Appendix A of `GAS_ShortCut_OPS_Development_Plan.md`.)
 - **Concretely:** port `type_rules` / `filtering_rules` / `targeting_rules` / `CSV_SCHEMAS` + a data-driven field-code registry / `NORM_MAPS` / `USER_PROFILES` from V2 field-for-field; QR encodes the **UTM VDP URL**; a **single `vin_logs` table keyed by `dealer_key`** (FK + indexes, no per-dealer tables); first-class **billing-group / source-split** concepts; the analytics tables map 1:1.
 - Greenfield work doesn't start in earnest until V2 is in production and stable; until then V3 effort is limited to finalizing the canonical spec + the framework-agnostic data/migration design (and the Python translation layer that can also feed V2's importer).
 

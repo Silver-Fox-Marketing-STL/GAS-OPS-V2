@@ -1,10 +1,11 @@
-# GAS-OPS-V2 — SilverFox Vehicle Graphic Production System
+# GAS ShortCut OPS — SilverFox Vehicle Graphic Production System
 
+GAS ShortCut OPS 1.0 (production; formerly versioned SilverFox V2, 1.0–2.13).
 Config-driven Google Apps Script that produces vehicle window banner graphics
 (Shortcuts / Shortcut Packs) for automotive dealers: imports scraper inventory,
 matches ordered VINs, generates QR codes, and builds CSVs for Adobe Illustrator
 variable data printing. One universal script + one universal template replaces
-V1's ~42 per-dealer functions. **43 configured dealers, 29 active** (June 2026).
+the legacy V1 system's ~42 per-dealer functions. **43 configured dealers, 29 active** (June 25, 2026).
 
 Nick is the primary developer and is using this project to learn Git/programming —
 explain reasoning and use beginner-friendly guidance, but stay efficient.
@@ -32,12 +33,16 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
 
 ## Repo / environment
 
-- Repo: `Silver-Fox-Marketing-STL/GAS-OPS-V2` — `Code.gs` (~3,400 lines, 31 sections;
-  §31 = Pipedrive integration)
+- Repo: `Silver-Fox-Marketing-STL/GAS-OPS-V2` — `Code.gs` (~7,160 lines;
+  Section 31 = Pipedrive integration)
   plus the **SilverFox App** (single-modal SPA, June 2026): `App.html` shell
   (sidebar nav + `<?!= include_() ?>` templating), view fragments `ViewRun`,
   `ViewImport`, `ViewVinLog`, `ViewTranscription` (live Found/Not-Found VIN
-  check via `getTranscriptionVins`), `ViewRules`, `ViewNorm`, `ViewUtilities`,
+  check via `getTranscriptionVins`; results render **newest-first**, 500-line cap
+  keeps the most-recent 500), `ViewRules` (a sidebar view, not a modal — two
+  top-level tabs `Filtering Rules | Pipedrive` with per-tab unsaved dots, a
+  collapsible `<details>` Dual-Site Source Split, a unified "Per Dealer Overrides"
+  collapsible, and ⓘ info-toggles; Type Rules panel removed), `ViewNorm`, `ViewUtilities`,
   `ViewHome` (workflow cards + a live DASHBOARD render via `getDashboardView`,
   refreshed on every Home visit), plus
   `SharedUtils.html` (escHtml/toast/AppGuards/AppBusy — include FIRST) and
@@ -48,7 +53,8 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
   fails via `google.script.run` — use the `*Core_`/`app*` wrapper split.
 - Local project: `C:\Users\Nick_Workstation\Documents\SilverFox-V2`
 - clasp script ID: `1E5aTcofzWzJZssOikaf6lFytS92vRHmj-k1NDV0C_Xu7NoJk7VUEjtNO`
-- Script is bound to SF_SYSTEM_MASTER; menu: **SilverFox V2**.
+- Script is bound to SF_SYSTEM_MASTER; menu: **SilverFox V2** (the literal in-code
+  Apps Script menu label — unchanged; the system is now called **GAS ShortCut OPS**).
 
 ## Core spreadsheets
 
@@ -308,11 +314,11 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
 
 ## Reference docs
 
-@docs/SilverFox_V2_Bridge_System.md
+@docs/GAS_ShortCut_OPS_Bridge_System.md
 @docs/LEARNINGS.md
 
 Also in `docs/` (read on demand, not auto-loaded):
-`SilverFox_Project_Knowledge_Base.md` (compressed decision history),
-`SilverFox_Development_Plan_V2.md` (roadmap incl. V3 direction).
-V3 (FastAPI + React + PostgreSQL) is paused; the V2 config model is its
+`GAS_ShortCut_OPS_Project_Knowledge_Base.md` (compressed decision history),
+`GAS_ShortCut_OPS_Development_Plan.md` (roadmap incl. V3 direction).
+V3 (FastAPI + React + PostgreSQL) is paused; the GAS ShortCut OPS config model is its
 canonical spec — don't extend the old Flask prototype.

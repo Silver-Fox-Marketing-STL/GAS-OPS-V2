@@ -1,5 +1,5 @@
-# SilverFox Marketing — Production System Development Plan
-### Version 2 | Last Updated: June 24, 2026
+# SilverFox Marketing — GAS ShortCut OPS Development Plan
+### GAS ShortCut OPS 1.0 | Last Updated: June 25, 2026
 
 > **Revision note (June 24, 2026):** The **Pipedrive integration (v2.12) was merged to `main` and deployed** — the whole arc (global deal-field rules in copy/conditional/constant modes + per-dealer overrides, org-scoped products, gross line items, idempotent create/link, method-first finalize, billing-PDF attach, install-cost + Design variation, and the **product-map-as-sole-per-type-config** consolidation that retired `type_rules` from the run). It activates per dealer once its live config is filled in. **Lot Sherpa theming** + the **Dealer Rules "Discard Changes"** button remain branch-only (not yet `clasp push`ed).
 >
@@ -15,13 +15,13 @@ Before reading the development phases, understand the relationship between the t
 
 | System | Document | Status | Platform |
 |---|---|---|---|
-| **V1** | `SilverFox_V1_Production_System.md` | **Active production** | Google Sheets + Apps Script |
-| **V2** | `SilverFox_V2_Bridge_System.md` | **Active development — near production (final bug-hunt)** | Google Sheets + Apps Script (config-driven; the SilverFox App SPA) |
-| **V3** | `SilverFox_V3_Flask_System.md` | Long-term, paused — rebuild as FastAPI + React | Python (FastAPI) + React + PostgreSQL |
+| **Legacy V1** | `SilverFox_V1_Production_System.md` | Legacy predecessor — superseded | Google Sheets + Apps Script |
+| **GAS ShortCut OPS 1.0** | `GAS_ShortCut_OPS_Bridge_System.md` | **Production (released June 25, 2026)** | Google Sheets + Apps Script (config-driven; the SilverFox App SPA) |
+| **V3 (future)** | `SilverFox_V3_Flask_System.md` | Long-term, paused — rebuild as FastAPI + React | Python (FastAPI) + React + PostgreSQL |
 
-V1 runs every order today. V2 is functionally complete and in final bug-hunt before it takes over production — config-driven, universal template, parallel QR, now wrapped in a single-modal SPA, all still on Google Sheets. V3 is the long-term Python replacement (greenfield FastAPI + React, V2 as the canonical spec). Priorities flow accordingly: finish hardening + deploying V2, then build V3.
+GAS ShortCut OPS 1.0 (the system formerly versioned SilverFox V2, 1.0–2.13) is the deployed production system, superseding legacy V1 — config-driven, universal template, parallel QR, wrapped in a single-modal SPA, all on Google Sheets. V3 is the long-term Python replacement (greenfield FastAPI + React, GAS ShortCut OPS as the canonical spec). Priorities flow accordingly: maintain the deployed GAS ShortCut OPS production system, then build V3.
 
-> **V2 status field:** the Bridge doc now labels V2 "Near Production (Final Bug-Hunt Testing)" — aligned with this plan. (The earlier "active production" overstatement has been corrected.)
+> **Status field:** the Bridge doc now labels the system "Production (GAS ShortCut OPS 1.0)" — aligned with this plan.
 
 ---
 
@@ -38,8 +38,8 @@ Replace the Google Sheets / Apps Script production system with a self-contained,
 ### V1 (Production)
 Operational, handles all current orders. Limitations: ~42 near-identical per-dealer functions; sequential QR generation (`sleep(2000)`/vehicle); 6-minute execution limit; no real debugging; no version control; ~42 template spreadsheets + ~42 VIN-log spreadsheets.
 
-### V2 (Bridge — Near Production)
-Functionally complete and in final testing. Core improvements over V1:
+### GAS ShortCut OPS 1.0 (Production)
+The deployed production system (formerly SilverFox V2). Core improvements over legacy V1:
 - Single universal script + universal template; config-driven dealers (`SF_DEALER_CONFIG`); master VIN log (`SF_VIN_LOGS`)
 - Parallel QR generation via `UrlFetchApp.fetchAll()` (~3–5s for 50 vehicles vs 100+s)
 - **The SilverFox App** — a single-modal SPA (`App.html` shell + `View*.html` fragments via HtmlService templating) that replaced the five standalone modals; instant client-side nav with hidden views retaining state; `AppBusy` mutual exclusion; a Classic fallback menu during validation
