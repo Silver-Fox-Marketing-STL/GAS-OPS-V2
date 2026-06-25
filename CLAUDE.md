@@ -67,6 +67,32 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
   `getRunsForDealer` reads all 23 — keep any new reads in sync.
 - Post-normalization types are `New`, `PO`, `CPO`; `CPO-EL` passes through raw
   (MBCC only). **Always check `CPO-EL` before `CPO`** — substring match.
+- Vehicle type is a **dynamic registry** *(`feature/dynamic-vehicle-types` — branch-only;
+  NOT merged to `main`, NOT deployed; **inert on the live system** — no `vehicle_types` row
+  yet)*: `CANONICAL_TYPES = ['New','PO','CPO','CPO-EL']` (protected built-ins) +
+  user-added extras stored in `PIPEDRIVE_SETTINGS` key `vehicle_types`.
+  **`getCanonicalVehicleTypes_()`** = the de-duped union (built-ins **always first**),
+  cached per execution, **fail-safe** (built-ins present even if the stored value is
+  missing/malformed → with no row it's exactly the canonical four, byte-identical to before).
+  `PD_TYPE_KEYS` was **removed** → `CANONICAL_TYPES` + `CANONICAL_BILLING_FIELDS`
+  (canonical type → legacy billing-field names). `readBillingTotals_` now also returns a
+  **`byType:{type:{gross,dupes}}`** map but **keeps the legacy `totalNew/…/cpoElDupes`
+  fields** (derived via `CANONICAL_BILLING_FIELDS`) so **RUN_LOG cols G–N + ORDER_STATS
+  stay byte-identical**; `buildLineItems_`/`bySourceToBilling_` read `byType` (qty still
+  GROSS). `buildTypeRulesFromProductMap_` now **sorts longest-match-first** (generic
+  substring safety for `matchRule_`, replaced the hardcoded `CPO-EL>CPO` list). New types
+  are **register-only** (inert until vehicles normalize to them); `removeVehicleType` is
+  guarded by `dealersUsingType_` (scans `filtering_rules` — incl. `targeting_rules`
+  `{field:"type"}` nested groups + `billing_split(field:"type")` — and PIPEDRIVE
+  product maps). Per-type analytics go in a NEW long-format `ORDER_TYPE_STATS` tab + a
+  dynamic dashboard; **the fixed log schemas (RUN_LOG/ORDER_STATS/IMPORT_STATS) are NOT
+  widened**. When this deploys, anything enumerating types must read the registry, never
+  a literal four. See Bridge doc "Vehicle-Type Registry". **Template formulas already
+  updated LIVE (behavior-preserving):** `TYPESTOCK`/`TYPEVIN` (SF_UNIVERSAL_TEMPLATE
+  ORDERMATCH N2/R2) now use exact type-match with an `UPPER(TRIM(G))&" - "` else — a custom
+  type prints its own uppercased name instead of "USED" (canonical four unchanged, so it's
+  safe on `main` before the feature deploys). The old `SEARCH` cascade hardcoded the four
+  and defaulted the rest to USED.
 - ORDERMATCH cols A–I are the QUERY spill zone — never write there in the template.
   `FIELD_TO_COL` in Code.gs is the only runtime mapping; headers/FIELD_CODES tab
   are documentation. `buildCSVSheet_` reads 100 cols. `PRICE_TAGLINE` = col 21 (U).

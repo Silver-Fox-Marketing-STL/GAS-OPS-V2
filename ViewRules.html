@@ -64,7 +64,12 @@
             <div class="pill type-cpo"  data-type="CPO"    onclick="togglePill(this)">CPO</div>
             <div class="pill type-cpoel" data-type="CPO-EL" onclick="togglePill(this)">CPO-EL</div>
           </div>
-          <div class="pill-hint">All selected = all types allowed. Deselect all to allow everything (no restriction).</div>
+          <div class="add-type-row">
+            <input type="text" id="newTypeInput" maxlength="40" placeholder="New type label (e.g. Loaner)"
+                   onkeydown="if(event.key==='Enter'){event.preventDefault();addNewType();}" />
+            <button type="button" id="addTypeBtn" class="btn-add-type" onclick="addNewType()">+ Add type</button>
+          </div>
+          <div class="pill-hint">All selected = all types allowed; deselect all to allow everything. <strong>+ Add type</strong> registers a new type system-wide; the <strong>×</strong> on a custom type removes it (only if no dealer uses it). A new type catches vehicles once you map a raw value to it in <strong>Normalization</strong>.</div>
         </div>
 
         <!-- Exclude from CAO auto-fill -->
@@ -582,6 +587,26 @@
     }
     #view-rules .btn-add-season:hover { background: var(--accent-weak); }
 
+    /* ── Add / remove vehicle types ──────────────────────────────────────────── */
+    #view-rules .add-type-row { display: flex; gap: 6px; margin-top: 8px; }
+    #view-rules .add-type-row input {
+      flex: 1; min-width: 0; padding: 5px 9px; font-size: 12px;
+      border: 1px solid var(--border-2); border-radius: 4px;
+      background: var(--bg); color: var(--text);
+    }
+    #view-rules .btn-add-type {
+      padding: 5px 12px; background: var(--bg); border: 1px solid var(--accent);
+      border-radius: 4px; font-size: 12px; color: var(--accent); cursor: pointer;
+      font-weight: bold; white-space: nowrap;
+    }
+    #view-rules .btn-add-type:hover { background: var(--accent-weak); }
+    #view-rules .btn-add-type:disabled { opacity: 0.55; cursor: default; }
+    #view-rules .pill .pill-x {
+      margin-left: 6px; font-weight: bold; opacity: 0.6; cursor: pointer;
+      padding: 0 2px; border-radius: 3px;
+    }
+    #view-rules .pill .pill-x:hover { opacity: 1; background: rgba(0,0,0,0.18); }
+
     /* ════════════════════════════════════════════════════════════════════════════
        PIPEDRIVE PANEL
     ════════════════════════════════════════════════════════════════════════════ */
@@ -854,6 +879,8 @@
 <script>
     var currentDealerKey = null;
     var availableSchemas = [];
+    var availableTypes = ['New', 'PO', 'CPO', 'CPO-EL'];   // vehicle-type registry (built-ins + user-added), from bootstrap
+    var BUILTIN_TYPES  = ['New', 'PO', 'CPO', 'CPO-EL'];   // protected — never get a remove (×) control
     var availableFilterFields  = [];
     var availableFilterOps     = [];
     var availableFilterActions = [];
@@ -870,11 +897,13 @@
           // (pdProductSchemaSelect_) — keep it loaded even though the Type Rules
           // editor that formerly also consumed it is gone.
           availableSchemas       = data.schemas;
+          availableTypes         = (data.vehicleTypes && data.vehicleTypes.length) ? data.vehicleTypes : availableTypes;
           availableFilterFields  = data.filterFields || [];
           availableFilterOps     = data.filterOps || [];
           availableFilterActions = data.filterActions || ['drop_on_import', 'exclude_cao', 'exclude_order'];
           filterNumericFields    = data.filterNumericFields || [];
           populateDealerDropdown(data.dealers);
+          renderTypePills();   // render Allowed Types + CAO pills from the registry
           document.getElementById('loadingOverlay').classList.add('hidden');
         })
         .withFailureHandler(function(e) {
@@ -1018,6 +1047,10 @@
       document.getElementById('sourceSplitEnable').checked  = !!(ssName && ssUrl);
       document.getElementById('sourceSplitGroupName').value = ssName;
       document.getElementById('sourceSplitUrlContains').value = ssUrl;
+
+      // Allowed Types just set here scope the Pipedrive product picker — re-render it if
+      // the Pipedrive panel is already loaded (handles the load-order race on dealer change).
+      if (pdDealerLoaded) renderPipedriveDealer();
     }
 
     function collectFilteringRules() {
@@ -1082,11 +1115,95 @@
     function togglePill(pill) {
       pill.classList.toggle('active');
       markFilterDirty();
+      // Allowed-Types selection drives which types the Pipedrive product picker shows.
+      if (pill.parentNode && pill.parentNode.id === 'allowedTypes' && pdDealerLoaded) renderPipedriveDealer();
     }
 
     function toggleStatusPill(pill) {
       pill.classList.toggle('active');
       markFilterDirty();
+    }
+
+    // ── Vehicle-type registry (Allowed Types + CAO pills, Add/Remove controls) ──────
+    // Both pill groups render from `availableTypes` (built-ins + user-added) so a new type
+    // appears everywhere at once. Current selection (.active) is preserved across a
+    // re-render. User-added types get a remove (×); built-ins don't.
+    function renderTypePills() {
+      ['allowedTypes', 'caoExcludeTypes'].forEach(function(groupId) {
+        var group = document.getElementById(groupId);
+        if (!group) return;
+        var active = {};
+        group.querySelectorAll('.pill.active').forEach(function(p) { active[p.dataset.type] = true; });
+        var manage = (groupId === 'allowedTypes');   // the × lives only in the Allowed Types group
+        group.innerHTML = availableTypes.map(function(t) {
+          var rm = (manage && BUILTIN_TYPES.indexOf(t) === -1)
+            ? '<span class="pill-x" title="Remove this type system-wide" onclick="removeTypeFromPill(event)">×</span>' : '';
+          return '<div class="pill ' + pdTypeClass_(t) + (active[t] ? ' active' : '') + '" data-type="' +
+            escAttr_(t) + '" onclick="togglePill(this)">' + escHtml(t) + rm + '</div>';
+        }).join('');
+      });
+    }
+
+    // Register a new type system-wide, then select it for THIS dealer (Allowed Types) so a
+    // product can be mapped to it. Assignment to vehicles is a separate NORM_MAPS step.
+    function addNewType() {
+      var input = document.getElementById('newTypeInput');
+      var label = (input.value || '').trim();
+      if (!label) { input.focus(); return; }
+      var btn = document.getElementById('addTypeBtn');
+      btn.disabled = true;
+      google.script.run
+        .withSuccessHandler(function(types) {
+          availableTypes = types || availableTypes;
+          input.value = '';
+          btn.disabled = false;
+          renderTypePills();
+          // Auto-select the new type for the current dealer (only if one is selected).
+          if (currentDealerKey) {
+            Array.prototype.forEach.call(document.querySelectorAll('#allowedTypes .pill'), function(p) {
+              if (p.dataset.type === label) p.classList.add('active');
+            });
+            markFilterDirty();
+            if (pdDealerLoaded) renderPipedriveDealer();   // the new type's product row appears
+          }
+          toast('Added type "' + label + '". Map raw values to it in Normalization to catch vehicles.', 'success');
+        })
+        .withFailureHandler(function(e) {
+          btn.disabled = false;
+          toast((e && e.message) ? e.message : 'Could not add type.', 'error');
+        })
+        .addVehicleType(label);
+    }
+
+    // Remove a user-added type system-wide (guarded server-side: refused for a built-in or a
+    // type still used by any dealer). The type is read from the pill's data-type — never
+    // interpolated into the handler (apostrophe-safe).
+    function removeTypeFromPill(ev) {
+      ev.stopPropagation();   // don't also toggle the pill
+      var pill = ev.target && ev.target.closest ? ev.target.closest('.pill') : null;
+      if (!pill) return;
+      var type = pill.dataset.type;
+      if (!type) return;
+      if (!confirm('Remove the type "' + type + '" from the system? This affects all dealers.')) return;
+      google.script.run
+        .withSuccessHandler(function(res) {
+          if (!res || !res.ok) { toast((res && res.message) || 'Could not remove type.', 'error'); return; }
+          availableTypes = res.types || availableTypes;
+          renderTypePills();
+          if (pdDealerLoaded) renderPipedriveDealer();
+          toast('Removed type "' + type + '".', 'success');
+        })
+        .withFailureHandler(function(e) { toast((e && e.message) ? e.message : 'Could not remove type.', 'error'); })
+        .removeVehicleType(type);
+    }
+
+    // Types the Pipedrive product picker shows for the current dealer: the Allowed Types
+    // selection (registry order preserved). None selected = "all types pass" → show all.
+    function pdEffectiveTypes() {
+      var active = {};
+      document.querySelectorAll('#allowedTypes .pill.active').forEach(function(p) { active[p.dataset.type] = true; });
+      var list = availableTypes.filter(function(t) { return active[t]; });
+      return list.length ? list : availableTypes.slice();
     }
 
     var seasonRowCounter = 0;
@@ -1099,8 +1216,12 @@
       var tr = document.createElement('tr');
       tr.setAttribute('data-season-row', id);
 
-      var typeOptions = ['New', 'PO', 'CPO', 'CPO-EL'].map(function(t) {
-        return '<option value="' + t + '"' + (t === type ? ' selected' : '') + '>' + t + '</option>';
+      // Type options come from the registry; preserve a saved type even if it's no longer
+      // registered (defensive — removal is guarded, but never silently lose an existing rule).
+      var typeList = availableTypes.slice();
+      if (type && typeList.indexOf(type) === -1) typeList.unshift(type);
+      var typeOptions = typeList.map(function(t) {
+        return '<option value="' + escAttr_(t) + '"' + (t === type ? ' selected' : '') + '>' + escHtml(t) + '</option>';
       }).join('');
 
       tr.innerHTML =
@@ -1781,7 +1902,9 @@
     // the main grid (mapKey '') and the secondary-source grid (mapKey = group name).
     function pdRenderProductRows_(group, map, mapKey) {
       map = map || {};
-      return pdTypes.map(function(t) {
+      // Only the dealer's allowed types are shown; a hidden type's mapping stays in the
+      // model (pdSelections[...].productMap) and round-trips on save via buildProductMap_.
+      return pdEffectiveTypes().map(function(t) {
         var cell = map[t] || {};
         return '<tr>' +
           '<td><span class="pd-type-badge ' + pdTypeClass_(t) + '">' + escHtml(t) + '</span></td>' +
