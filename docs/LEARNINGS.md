@@ -464,3 +464,67 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   hides options (e.g. org-scoping/deactivation) must **always keep the already-saved
   value selected** (render it as "\u2026 (saved)" if it's filtered out), or a save will
   silently drop a mapping the user never intended to change.
+- **A SINGLE-SOURCE-OF-TRUTH list with a guaranteed floor: union the protected defaults
+  FIRST, so a malformed stored value can only ADD, never drop/reorder them.** The vehicle
+  type was a hardcoded four in ~14 places; making it user-extensible meant a stored list
+  could be missing, partial, or garbage \u2014 and the billing/normalization code assumes the
+  four built-ins exist. `getCanonicalVehicleTypes_()` returns the de-duped union of
+  `CANONICAL_TYPES` (always first, in order) **+** the stored extras, so the built-ins are
+  present no matter what the stored value is, and a stored value can only *append* a type \u2014
+  never delete or reorder a protected one. That fail-safe is also what makes the whole
+  feature **inert until used**: with no `vehicle_types` row the union is exactly the
+  canonical four, so behavior is byte-identical to before. (`feature/dynamic-vehicle-types`,
+  branch-only.) Same shape as the "config is required, gate it loudly" lesson inverted:
+  here the safe default is a *guaranteed floor*, not a loud failure, because a missing
+  type list must degrade to the old behavior, not block.
+- **Per-type (or per-anything-unbounded) analytics belong in LONG-FORMAT rows, not WIDE
+  per-type columns \u2014 and only a regenerated-each-time view can safely go fully dynamic.**
+  Once vehicle types became user-extensible, the instinct is to add a column per type to
+  the existing stats tabs \u2014 but RUN_LOG / ORDER_STATS / IMPORT_STATS have **fixed,
+  documented, code-read schemas** (the RUN_LOG 19\u219223 widening already taught how that
+  silently breaks readers), and a wide table can't grow with an unbounded set anyway. So
+  per-type history went into a **new long-format `ORDER_TYPE_STATS` tab** (one row per
+  `(run, type)` \u2014 `\u2026|type|produced|dupes`), which scales to any type and ports 1:1 to a
+  Postgres table; the fixed tabs kept their canonical-four columns (a new type folds into
+  "Other"/existing totals there). The DASHBOARD, by contrast, **could** go fully dynamic
+  (a column per registered type + a RUNS-BY-TYPE section) precisely because it is
+  **rewritten from scratch every import \u2014 no readers, no history, no schema contract**.
+  The rule: an append-only log table with code/formula readers can't change shape lightly;
+  a throwaway rendered view can. (When a dashboard formula's criterion is a user-entered
+  label, reference the cell holding it \u2014 `COUNTIF(\u2026,A7)` not `COUNTIF(\u2026,"CPO-EL")` \u2014 so a
+  quote/comma in the label can't break the formula.)
+- **Generic substring-safety = sort LONGEST-MATCH-FIRST, not a hardcoded order array.**
+  `matchRule_` is `indexOf`-based, so `"CPO"` \u2282 `"CPO-EL"` and a `CPO` rule placed first
+  shadows every CPO-EL vehicle (the recurring CPO/CPO-EL trap). The fixed
+  `['CPO-EL','CPO','New','PO']` order in `buildTypeRulesFromProductMap_` encoded that by
+  hand \u2014 fine for exactly four known types, useless the moment types are user-added. Sorting
+  the mapped types **by length descending** (stable tie-break) is the *generic* form: it
+  yields the same order for the canonical four AND orders any new type safely, with no list
+  to maintain. Whenever a hardcoded ordering array exists only to keep a longer string
+  ahead of a substring of it, a longest-first sort is the drop-in that survives new values.
+  (Generalizes the existing "synthesize the pipeline's input shape" + CPO-EL-before-CPO
+  lessons; same trap as the type-rule formulas and the billing-PDF section parser.)
+- **A remove/delete guard must enumerate EVERY place the thing can be referenced \u2014 list
+  them exhaustively, because the easy-to-forget sites are exactly the live ones.** A
+  vehicle type can be referenced in **7** spots: `filtering_rules`
+  (`allowed_types`, `cao_exclude_types`, `seasoning[].type`, `billing_split(field:"type")`,
+  and `targeting_rules` `{field:"type"}` conditions \u2014 **incl. nested AND/OR groups**) plus a
+  PIPEDRIVE row's `product_map` + `source_product_map` keys. The first cut of
+  `dealersUsingType_` checked only the obvious three (`allowed_types`/`cao_exclude_types`/
+  `seasoning`) and **missed `targeting_rules` and `billing_split`** \u2014 and those are the ones
+  live dealers (Bommarito / Pundmann / Dave Sinclair St. Peters) actually use, so an in-use
+  type could have been deleted, leaving a dangling `{field:"type"}` condition. A config
+  review caught it. When you write a usage/remove guard, **list every config site the value
+  can live in** (grep the schema), and recurse nested structures \u2014 a guard that scans 5 of
+  7 places is a guard that fails on the 2 that matter. Mirror of the inert-config-key
+  landmine lesson: there it was an *unread* key, here it's an *unscanned* reference.
+- **A filtered re-render preserves hidden entries for FREE when serialization reads the
+  MODEL, not the DOM.** The Pipedrive product picker filters its rows to the dealer's
+  Allowed Types (`pdEffectiveTypes()`), so a type that's currently excluded isn't rendered \u2014
+  but its product mapping must not be lost on save. It isn't, with zero extra bookkeeping,
+  because `buildProductMap_` serializes the in-memory model (`pdSelections[group].productMap`)
+  rather than scraping the rendered `<tr>`s; filtering only changes what
+  `pdRenderProductRows_` draws, never the source of truth that gets saved. The general rule:
+  if a UI hides/filters editable items, **persist from the model, not the DOM**, and a
+  hidden item round-trips untouched \u2014 same end as the "always keep the already-saved value
+  selected" backstop, but achieved by where you read on save instead of a special case.
