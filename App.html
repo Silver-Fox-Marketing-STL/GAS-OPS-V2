@@ -399,7 +399,7 @@
        "modal, stretched" look:
          form       → 880px  (narrow single-column: Utilities)
          form-wide  → 1280px (split / dense config: Run, Rules, Import, Pipedrive,
-                              Data Sources, Transcription)
+                              Data Sources)
          data       → 1680px (tables: Home, VIN Logs, Normalization)
        Gated by viewport WIDTH, intentionally NOT by [data-mode]: the modal is
        locked at 1400 so it sits under the 1500px gate and is untouched, while
@@ -436,10 +436,7 @@
       <div class="nav-item" id="nav-view-run" onclick="navTo('view-run')">
         <span class="icon">&#9654;</span> Run Order
       </div>
-      <div class="nav-item" id="nav-view-transcription" onclick="navTo('view-transcription')">
-        <span class="icon">&#128269;</span> Transcription
-      </div>
-      <div class="nav-item" id="nav-view-import" onclick="navTo('view-import')">
+<div class="nav-item" id="nav-view-import" onclick="navTo('view-import')">
         <span class="icon">&#11014;</span> Import Data
       </div>
       <div class="nav-item" id="nav-view-vinlog" onclick="navTo('view-vinlog')">
@@ -497,8 +494,7 @@
         <?!= include_('ViewImport') ?>
         <?!= include_('ViewDataSources') ?>
         <?!= include_('ViewVinLog') ?>
-        <?!= include_('ViewTranscription') ?>
-        <?!= include_('ViewRules') ?>
+<?!= include_('ViewRules') ?>
         <?!= include_('ViewNorm') ?>
         <?!= include_('ViewUtilities') ?>
         <?!= include_('ViewPipedriveSettings') ?>
@@ -513,8 +509,7 @@
     var NAV_TITLES = {
       'view-home':   'Home',
       'view-run':    'Run Order',
-      'view-transcription': 'Transcription',
-      'view-import': 'Import Data',
+'view-import': 'Import Data',
       'view-datasources': 'Data Sources',
       'view-vinlog': 'VIN Logs',
       'view-rules':  'Dealer Rules',
@@ -569,7 +564,7 @@
 
     // Mark not-yet-migrated sections in the sidebar
     function markPendingViews() {
-      var ids = ['view-run', 'view-import', 'view-datasources', 'view-vinlog', 'view-transcription', 'view-rules', 'view-norm', 'view-utilities', 'view-pipedrive-settings', 'view-fieldcodes'];
+      var ids = ['view-run', 'view-import', 'view-datasources', 'view-vinlog', 'view-rules', 'view-norm', 'view-utilities', 'view-pipedrive-settings', 'view-fieldcodes'];
       ids.forEach(function(id) {
         if (!document.getElementById(id)) {
           var item = document.getElementById('nav-' + id);
