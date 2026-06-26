@@ -479,6 +479,17 @@
 
     /* themed root (overrides the interim .view light guard) */
     #view-run { background: var(--bg); color: var(--text); }
+
+    /* ── Type pills in the VIN data table (tokens from SharedUtils) ──────── */
+    #view-run .pill {
+      display: inline-block; padding: 2px 8px; font-size: 11px; font-weight: 600;
+      border-radius: 10px; border: 1.5px solid var(--border-2);
+      background: var(--surface-2); color: var(--text-2); line-height: 1.5;
+    }
+    #view-run .pill.type-new.active   { background: var(--type-new);   border-color: var(--type-new);   color: var(--on-type); }
+    #view-run .pill.type-po.active    { background: var(--type-po);    border-color: var(--type-po);    color: var(--on-type); }
+    #view-run .pill.type-cpo.active   { background: var(--type-cpo);   border-color: var(--type-cpo);   color: var(--on-type); }
+    #view-run .pill.type-cpoel.active { background: var(--type-cpoel); border-color: var(--type-cpoel); color: var(--on-type); }
 </style>
 
 <script>
@@ -551,6 +562,10 @@
     document.getElementById('vinInput').addEventListener('input', function() {
       updateRunVinCount(); updateButtons(); hideCaoSummary();
     });
+    document.getElementById('vinInput').addEventListener('input', function() {
+      if (rvDebounce) clearTimeout(rvDebounce);
+      rvDebounce = setTimeout(rvRenderTable, 250);
+    });
     document.getElementById('runDealerSelect').addEventListener('change', function() {
       // Switching dealers discards any un-finalized run results — confirm first.
       if (!discardPendingGuard()) {
@@ -564,6 +579,8 @@
       document.getElementById('vinInput').value = '';
       updateRunVinCount();
       hidePostRunActions();
+
+      rvLoadDealerData(key);
 
       if (!key) {
         document.getElementById('vinLogStatusRow').style.display = 'none';
@@ -1296,5 +1313,78 @@
     function setRunStatus(msg, type) {
       var el = document.getElementById('runStatus');
       el.textContent = msg; el.className = type || 'empty';
+    }
+
+    // ── Run Order live VIN table ──────────────────────────────────────────────
+    var rvVinData = { dealerKey: '', map: {} };
+    var rvDebounce = null;
+
+    function rvLoadDealerData(dealerKey) {
+      rvVinData = { dealerKey: dealerKey, map: {} };   // clear immediately
+      rvRenderTable();
+      if (!dealerKey) return;
+      google.script.run
+        .withSuccessHandler(function(map) {
+          // ignore a stale response if the dealer changed again
+          if (document.getElementById('runDealerSelect').value !== dealerKey) return;
+          rvVinData = { dealerKey: dealerKey, map: map || {} };
+          rvRenderTable();
+        })
+        .withFailureHandler(function() { /* fail-safe: leave empty → all not-found */ })
+        .getDealerVinData(dealerKey);
+    }
+
+    function rvRenderTable() {
+      var body = document.getElementById('vinDataBody');
+      var countEl = document.getElementById('vinMatchCount');
+      if (!body) return;
+      var raw = (document.getElementById('vinInput').value || '').split(/\r?\n/);
+      var lines = [];
+      for (var i = 0; i < raw.length; i++) { var v = raw[i].trim(); if (v) lines.push(v); }
+
+      if (!lines.length) {
+        body.innerHTML = '<tr class="rv-empty-row"><td colspan="7">' +
+          (rvVinData.dealerKey ? 'Enter VINs to check them against this dealer.' : 'Select a dealer, then enter VINs to check them.') +
+          '</td></tr>';
+        if (countEl) countEl.textContent = '';
+        return;
+      }
+
+      var html = '', found = 0;
+      for (var j = 0; j < lines.length; j++) {
+        var key = lines[j].toUpperCase();
+        var d = rvVinData.map[key];
+        if (d) {
+          found++;
+          html += '<tr>' +
+            '<td>' + escHtml(d.year)  + '</td>' +
+            '<td>' + escHtml(d.make)  + '</td>' +
+            '<td>' + escHtml(d.model) + '</td>' +
+            '<td>' + rvTypePill(d.type) + '</td>' +
+            '<td>' + escHtml(d.stock) + '</td>' +
+            '<td class="rv-vin">' + escHtml(lines[j]) + '</td>' +
+            '<td>' + escHtml(d.status) + '</td>' +
+          '</tr>';
+        } else {
+          html += '<tr class="rv-notfound">' +
+            '<td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>' +
+            '<td class="rv-vin">' + escHtml(lines[j]) + '</td>' +
+            '<td>⚠ not in this dealer</td>' +
+          '</tr>';
+        }
+      }
+      body.innerHTML = html;
+      if (countEl) countEl.textContent = lines.length + ' VINs · ' + found + ' found · ' + (lines.length - found) + ' not found';
+    }
+
+    // Reuse the themed type-pill classes (.pill + .type-*) so it themes everywhere.
+    function rvTypePill(type) {
+      var t = String(type || '').trim();
+      var cls = t.toUpperCase() === 'NEW' ? 'type-new'
+              : t.toUpperCase() === 'PO'  ? 'type-po'
+              : t.toUpperCase() === 'CPO' ? 'type-cpo'
+              : t.toUpperCase() === 'CPO-EL' ? 'type-cpoel' : '';
+      if (!t) return '';
+      return '<span class="pill ' + cls + ' active" style="cursor:default">' + escHtml(t) + '</span>';
     }
 </script>
