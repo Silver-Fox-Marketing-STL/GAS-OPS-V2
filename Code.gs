@@ -1328,6 +1328,47 @@ function getDealerScraperData_(scraperLocationName) {
   });
 }
 
+/**
+ * Pure: projects SCRAPERDATA rows → a VIN-keyed map of the 7 display fields.
+ * Skips rows with a blank/`*` VIN. Keys are upper-cased + trimmed VINs.
+ */
+function buildVinDataMap_(rows) {
+  var map = {};
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    var vin = String(r[0] == null ? '' : r[0]).trim();
+    if (vin === '' || vin === '*') continue;
+    map[vin.toUpperCase()] = {
+      year:   String(r[3] == null ? '' : r[3]).trim(),
+      make:   String(r[4] == null ? '' : r[4]).trim(),
+      model:  String(r[5] == null ? '' : r[5]).trim(),
+      type:   String(r[2] == null ? '' : r[2]).trim(),
+      stock:  String(r[1] == null ? '' : r[1]).trim(),
+      status: String(r[8] == null ? '' : r[8]).trim()
+    };
+  }
+  return map;
+}
+
+/**
+ * Client-callable. Returns the selected dealer's inventory as a VIN→data map
+ * for the Run Order live table. Fail-safe: returns {} on any error / unknown
+ * dealer (the table then shows entered VINs as "not found" rather than break).
+ */
+function getDealerVinData(dealerKey) {
+  try {
+    var config = getDealerConfig_(dealerKey);
+    if (!config) return {};
+    var loc = config[CFG.SCRAPER_LOCATION];
+    if (!loc) return {};
+    var rows = getDealerScraperData_(loc) || [];
+    return buildVinDataMap_(rows);
+  } catch (e) {
+    Logger.log('getDealerVinData failed for ' + dealerKey + ': ' + e.message);
+    return {};
+  }
+}
+
 function pasteOrderVINs_(outputDoc, vins) {
   var sheet = outputDoc.getSheetByName('ORDER');
   if (sheet.getLastRow() > 1) sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).clearContent();
