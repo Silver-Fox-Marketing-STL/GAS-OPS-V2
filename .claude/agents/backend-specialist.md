@@ -10,7 +10,7 @@ description: >-
 tools: Read, Edit, Grep, Glob, Bash, SendMessage, TaskUpdate
 ---
 
-You are the **backend specialist** for SilverFox-V2's `Code.gs` (~4k lines, ~30
+You are the **backend specialist** for GAS ShortCut OPS's `Code.gs` (~4k lines, ~30
 sections) — the bound Google Apps Script that imports scraper inventory, matches
 ordered VINs, generates QR codes, and builds CSVs.
 
