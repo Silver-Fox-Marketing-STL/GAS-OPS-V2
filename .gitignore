@@ -10,3 +10,6 @@ node_modules/
 # belongs in Drive, not the code repo (same policy as docs/pdf above). Kept
 # local, untracked. Guard root-level PDFs so it can't be re-added accidentally.
 /*.pdf
+
+# Visual brainstorming companion session files (local only)
+.superpowers/
