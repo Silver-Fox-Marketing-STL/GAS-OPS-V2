@@ -281,6 +281,10 @@ function getConfigSS_() {
 // see LEARNINGS on openById vs getActiveSpreadsheet write+read consistency.)
 var _masterSS_  = null;
 var _vinLogsSS_ = null;
+// Per-execution cache for the resolved field-code → ORDERMATCH-column map
+// (constant FIELD_TO_COL overlaid with the FIELD_CODES `ordermatch_col` config).
+// Reset to null by the field-code CRUD writers so a save is reflected immediately.
+var _fieldToCol_ = null;
 
 function getMasterSS_() {
   if (!_masterSS_) _masterSS_ = SpreadsheetApp.openById(MASTER_SHEET_ID);
@@ -392,10 +396,29 @@ function include_(name) {
 function openApp() {
   var t = HtmlService.createTemplateFromFile('App');
   t.initialTheme = getThemePreference();   // '' when unset → head script follows the OS
+  t.appMode = 'modal';                     // vs 'webapp' (doGet); App.html hides the Close item in webapp
   var html = t.evaluate()
     .setWidth(MODAL_WIDTH)
     .setHeight(MODAL_HEIGHT);
   SpreadsheetApp.getUi().showModalDialog(html, 'SilverFox');
+}
+
+/**
+ * Web App entry — serves the SilverFox App full-screen in a browser tab at the
+ * deployment's /exec URL (no modal, full viewport). Mirrors openApp's template
+ * setup, so it reuses App.html + every view + google.script.run UNCHANGED.
+ * Additive: the menu/modal (openApp) still works. Deployed as a Web App,
+ * "execute as user accessing" — see appsscript.json "webapp". Each user runs as
+ * themselves, so getUserProperties (theme, last-user) and getActiveSpreadsheet
+ * (the bound SF_SYSTEM_MASTER) resolve per-person, as in the modal.
+ */
+function doGet(e) {
+  var t = HtmlService.createTemplateFromFile('App');
+  t.initialTheme = getThemePreference();
+  t.appMode = 'webapp';
+  return t.evaluate()
+    .setTitle('SilverFox')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
 /**
@@ -1822,6 +1845,116 @@ var FIELD_TO_COL = {
   'PRICE_TAGLINE':      21
 };
 
+// Name of the optional config column (in the FIELD_CODES tab of SF_DEALER_CONFIG)
+// that maps a field code to its 1-based ORDERMATCH column. Matched case-insensitively.
+var FIELD_CODES_TAB        = 'FIELD_CODES';
+var FIELD_CODE_COL_HEADER  = 'ordermatch_col';
+
+/**
+ * Parses a value that may be a 1-based column NUMBER (e.g. 22) or an A1 column
+ * LETTER string (e.g. "V" / "v") into a 1-based integer in 1..100. Returns null for
+ * anything blank, non-numeric/non-letter, or out of range. Pure helper — reused by
+ * getFieldToCol_() (reading the config) and saveFieldCodeMapping (validating input).
+ */
+function normalizeOrderMatchCol_(input) {
+  if (input === null || input === undefined) return null;
+  var s = String(input).trim();
+  if (s === '') return null;
+
+  // All-letters → base-26 A1 column (A=1, Z=26, AA=27, …).
+  if (/^[A-Za-z]+$/.test(s)) {
+    var up = s.toUpperCase(), n = 0;
+    for (var i = 0; i < up.length; i++) {
+      n = n * 26 + (up.charCodeAt(i) - 64);  // 'A'.charCodeAt = 65
+    }
+    return (n >= 1 && n <= 100) ? n : null;
+  }
+
+  // Otherwise treat as a number (rejecting non-integers like "3.5" or "1a").
+  if (!/^[0-9]+$/.test(s)) return null;
+  var num = parseInt(s, 10);
+  if (isNaN(num) || num < 1 || num > 100) return null;
+  return num;
+}
+
+/**
+ * Resolves the effective field-code → ORDERMATCH-column map: the hard-coded
+ * FIELD_TO_COL constant (the protected fallback FLOOR) overlaid with any
+ * `ordermatch_col` overrides/additions from the FIELD_CODES config tab.
+ *
+ * This is the config-driven replacement for reading FIELD_TO_COL directly (mirrors
+ * how getFilterFieldIndex_ replaced the static FILTER_FIELD_INDEX). It is FAIL-SAFE:
+ * the whole config read is wrapped so it can NEVER throw into a run — on any error it
+ * returns the constant clone. With no FIELD_CODES tab, no `ordermatch_col` header, or
+ * an empty column, the result equals FIELD_TO_COL EXACTLY (byte-identical behavior).
+ * Cached per execution; reset by the field-code CRUD writers.
+ */
+function getFieldToCol_() {
+  if (_fieldToCol_) return _fieldToCol_;
+
+  // Clone the constant — the guaranteed floor.
+  var map = {};
+  for (var k in FIELD_TO_COL) {
+    if (FIELD_TO_COL.hasOwnProperty(k)) map[k] = FIELD_TO_COL[k];
+  }
+
+  try {
+    var sheet = getConfigSS_().getSheetByName(FIELD_CODES_TAB);
+    if (sheet && sheet.getLastRow() >= 2) {
+      var data = sheet.getDataRange().getValues();
+      var header = data[0] || [];
+
+      // Find the ordermatch_col header (case-insensitive, trimmed).
+      var colIdx = -1;
+      for (var h = 0; h < header.length; h++) {
+        if (String(header[h]).trim().toLowerCase() === FIELD_CODE_COL_HEADER) { colIdx = h; break; }
+      }
+
+      // No such header → leave the constant untouched (inert config).
+      if (colIdx !== -1) {
+        for (var r = 1; r < data.length; r++) {
+          var fieldCode = String(data[r][0]).trim();   // col A = field_code
+          if (!fieldCode) continue;
+          var num = normalizeOrderMatchCol_(data[r][colIdx]);
+          if (num !== null) map[fieldCode] = num;       // overlay (override or add)
+          // blank/invalid ordermatch_col cells are ignored — existing doc rows stay inert
+        }
+      }
+    }
+  } catch (e) {
+    Logger.log('getFieldToCol_ config read failed (using FIELD_TO_COL constant): ' + e.message);
+  }
+
+  _fieldToCol_ = map;
+  return map;
+}
+
+/**
+ * Ensures the FIELD_CODES tab has an `ordermatch_col` header, appending it as a new
+ * header in the next empty cell of row 1 if missing. Returns its 1-based column index.
+ * Used by the field-code save/delete writers.
+ */
+function ensureFieldCodesOrderMatchColumn_() {
+  var ss    = getConfigSS_();
+  var sheet = ss.getSheetByName(FIELD_CODES_TAB);
+  if (!sheet) {
+    // The tab already exists in production, but create-if-missing keeps the CRUD safe.
+    sheet = ss.insertSheet(FIELD_CODES_TAB);
+    sheet.getRange(1, 1, 1, 1).setValues([['field_code']]);
+    sheet.setFrozenRows(1);
+  }
+
+  var lastCol = sheet.getLastColumn();
+  var header  = lastCol >= 1 ? sheet.getRange(1, 1, 1, lastCol).getValues()[0] : [];
+  for (var i = 0; i < header.length; i++) {
+    if (String(header[i]).trim().toLowerCase() === FIELD_CODE_COL_HEADER) return i + 1;
+  }
+
+  var newCol = lastCol + 1;
+  sheet.getRange(1, newCol).setValue(FIELD_CODE_COL_HEADER);
+  return newCol;
+}
+
 /**
  * Resolves the CSV schema for a type rule. The schema is DERIVED from the rule's product
  * (`productMap[type].schema`) when present, else falls back to the rule's own `csv_schema`.
@@ -1872,13 +2005,14 @@ function buildCSVSheet_(outputDoc, typeRules, sourceSplit, mainProductMap, secon
   var omData = omSheet.getRange(2, 1, lastRow - 1, 100).getValues()
     .filter(function(row) { return String(row[0]).trim() !== ''; });
   var URL_COL = 8;  // ORDERMATCH Vehicle URL (col I)
+  var fieldToCol = getFieldToCol_();  // FIELD_TO_COL constant overlaid with FIELD_CODES config
 
   // Renders one CSV sheet from a set of ORDERMATCH rows + a SCHEMA key.
   function writeGroup_(schemaKey, rows, sheetName) {
     var fieldCodes = getCsvSchema_(schemaKey) || getCsvSchema_('SCP');
     var dataRows = rows.map(function(row) {
       return fieldCodes.map(function(code) {
-        var col = FIELD_TO_COL[code];
+        var col = fieldToCol[code];
         return col ? row[col - 1] : '';
       });
     });
@@ -3035,6 +3169,187 @@ function moveNormEntry(sheetRow, direction) {
   sheet.getRange(targetRow, 2, 1, 2).setValues(thisVals);
 
   return getNormEntries(mapName);
+}
+
+
+// ============================================================================
+// SECTION 20b: FIELD CODE → ORDERMATCH COLUMN MANAGER
+// ============================================================================
+//
+// Config-driven CRUD over the field-code → ORDERMATCH-column mapping. The hard-coded
+// FIELD_TO_COL constant is the protected floor; the FIELD_CODES tab's `ordermatch_col`
+// column overlays it (override an existing code's column, or add a brand-new code).
+// getFieldToCol_() resolves the effective map (fail-safe); these functions edit the
+// config and reset the cache. A frontend "Field Codes" view calls these by these
+// exact names — do not rename them or change their return shapes.
+
+// Classic fallback: serves the converted App fragment standalone.
+function openFieldCodes() {
+  openViewStandalone_('ViewFieldCodes', 'Field Codes');
+}
+
+// Converts a 1-based column number to its A1 letter (1 -> 'A', 27 -> 'AA').
+function colNumberToLetter_(num) {
+  var n = num, s = '';
+  while (n > 0) {
+    var rem = (n - 1) % 26;
+    s = String.fromCharCode(65 + rem) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+}
+
+/**
+ * Reads the FIELD_CODES tab into {byCode, descByCode} where byCode maps a trimmed
+ * field_code (col A) to its parsed ordermatch_col (or null) and descByCode to its
+ * description (col B). Returns nulls/empties safely if the tab/column is absent.
+ */
+function readFieldCodesConfig_() {
+  var out = { byCode: {}, descByCode: {} };
+  var sheet = getConfigSS_().getSheetByName(FIELD_CODES_TAB);
+  if (!sheet || sheet.getLastRow() < 2) return out;
+
+  var data   = sheet.getDataRange().getValues();
+  var header = data[0] || [];
+  var colIdx = -1;
+  for (var h = 0; h < header.length; h++) {
+    if (String(header[h]).trim().toLowerCase() === FIELD_CODE_COL_HEADER) { colIdx = h; break; }
+  }
+  for (var r = 1; r < data.length; r++) {
+    var code = String(data[r][0]).trim();
+    if (!code) continue;
+    out.descByCode[code] = String(data[r][1] || '').trim();
+    out.byCode[code]     = (colIdx !== -1) ? normalizeOrderMatchCol_(data[r][colIdx]) : null;
+  }
+  return out;
+}
+
+/**
+ * Returns the EFFECTIVE merged field-code mapping list for the Field Codes screen.
+ *   { rows: [{fieldCode, col, colLetter, description, source}], builtinCount }
+ * source ∈ 'builtin' (constant only), 'override' (constant + config column),
+ * 'config' (config only — not in the constant). Sorted by col asc, then fieldCode.
+ */
+function getFieldCodeMappings() {
+  var cfg     = readFieldCodesConfig_();
+  var effective = getFieldToCol_();   // constant overlaid with config (fail-safe)
+
+  var rows = [];
+  for (var code in effective) {
+    if (!effective.hasOwnProperty(code)) continue;
+    var isBuiltin   = FIELD_TO_COL.hasOwnProperty(code);
+    var hasConfigCol = (cfg.byCode[code] !== undefined && cfg.byCode[code] !== null);
+    var source = isBuiltin ? (hasConfigCol ? 'override' : 'builtin') : 'config';
+    var col = effective[code];
+    rows.push({
+      fieldCode:   code,
+      col:         col,
+      colLetter:   colNumberToLetter_(col),
+      description: cfg.descByCode[code] || '',
+      source:      source
+    });
+  }
+
+  rows.sort(function(a, b) {
+    if (a.col !== b.col) return a.col - b.col;
+    return a.fieldCode < b.fieldCode ? -1 : (a.fieldCode > b.fieldCode ? 1 : 0);
+  });
+
+  var builtinCount = 0;
+  for (var k in FIELD_TO_COL) { if (FIELD_TO_COL.hasOwnProperty(k)) builtinCount++; }
+
+  return { rows: rows, builtinCount: builtinCount };
+}
+
+/**
+ * Upserts a field-code → ORDERMATCH-column mapping into the FIELD_CODES config tab.
+ * Validates the code (@/letters/digits/underscore) and the column (1..100, number or
+ * A1 letter). Writes the column (and an optional description) into the row matching
+ * field_code in col A — creating the row if absent. Resets the cache and returns the
+ * refreshed mapping list. Throws a clear Error on invalid input.
+ */
+function saveFieldCodeMapping(fieldCode, colInput, description) {
+  fieldCode = String(fieldCode == null ? '' : fieldCode).trim();
+  if (!fieldCode) throw new Error('Field code is required.');
+  if (!/^[@A-Za-z0-9_]+$/.test(fieldCode)) {
+    throw new Error('Field code "' + fieldCode + '" is invalid — use only @, letters, digits, and underscores.');
+  }
+
+  var col = normalizeOrderMatchCol_(colInput);
+  if (col === null) {
+    throw new Error('ORDERMATCH column "' + colInput + '" is invalid — enter a number 1–100 or a column letter (A–CV).');
+  }
+
+  description = String(description == null ? '' : description).trim();
+
+  var colNum = ensureFieldCodesOrderMatchColumn_();
+  var sheet  = getConfigSS_().getSheetByName(FIELD_CODES_TAB);
+  var data   = sheet.getDataRange().getValues();
+
+  // Find an existing row by exact field_code match (col A).
+  var foundRow = -1;
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]).trim() === fieldCode) { foundRow = i + 1; break; }
+  }
+
+  if (foundRow !== -1) {
+    sheet.getRange(foundRow, colNum).setValue(col);
+    if (description) sheet.getRange(foundRow, 2).setValue(description);  // col B = description
+  } else {
+    var newRow = sheet.getLastRow() + 1;
+    sheet.getRange(newRow, 1).setValue(fieldCode);              // col A
+    if (description) sheet.getRange(newRow, 2).setValue(description);  // col B
+    sheet.getRange(newRow, colNum).setValue(col);              // ordermatch_col
+  }
+
+  _fieldToCol_ = null;  // invalidate cache so the next resolve reflects the save
+  return getFieldCodeMappings();
+}
+
+/**
+ * "Deletes" a field-code mapping. For a constant builtin this only clears the config
+ * override (the code reverts to its FIELD_TO_COL value — a builtin can never be removed
+ * from the resolved map). For a config-only code, clears the ordermatch_col cell and
+ * removes the whole row if it carries no other meaningful data. Resets the cache and
+ * returns the refreshed mapping list.
+ */
+function deleteFieldCodeMapping(fieldCode) {
+  fieldCode = String(fieldCode == null ? '' : fieldCode).trim();
+  if (!fieldCode) throw new Error('Field code is required.');
+
+  var sheet = getConfigSS_().getSheetByName(FIELD_CODES_TAB);
+  if (sheet && sheet.getLastRow() >= 2) {
+    var data   = sheet.getDataRange().getValues();
+    var header = data[0] || [];
+    var colIdx = -1;
+    for (var h = 0; h < header.length; h++) {
+      if (String(header[h]).trim().toLowerCase() === FIELD_CODE_COL_HEADER) { colIdx = h; break; }
+    }
+
+    for (var r = 1; r < data.length; r++) {
+      if (String(data[r][0]).trim() !== fieldCode) continue;
+
+      var isBuiltin = FIELD_TO_COL.hasOwnProperty(fieldCode);
+
+      // Determine whether the row has any meaningful data OTHER than the field_code
+      // (col A) and the ordermatch_col cell — if not, a config-only row can be removed.
+      var hasOther = false;
+      for (var c = 1; c < data[r].length; c++) {      // skip col A
+        if (c === colIdx) continue;                   // skip ordermatch_col
+        if (String(data[r][c]).trim() !== '') { hasOther = true; break; }
+      }
+
+      if (colIdx !== -1) sheet.getRange(r + 1, colIdx + 1).clearContent();
+
+      if (!isBuiltin && !hasOther) {
+        sheet.deleteRow(r + 1);  // config-only row with nothing else → drop it
+      }
+      break;
+    }
+  }
+
+  _fieldToCol_ = null;  // invalidate cache
+  return getFieldCodeMappings();
 }
 
 
@@ -4413,21 +4728,32 @@ function saveLastSelectedUser(userKey) {
 }
 
 /**
- * Returns the saved app theme for this Google account: 'light' | 'dark' | ''
+ * Theme slug shape — the trust boundary for what we persist. The client registry
+ * (SharedUtils `Theme.themes`) is the real source of valid ids; a well-formed but
+ * unregistered id is harmless (the client falls back to Light at apply time).
+ * @param {*} t
+ * @returns {boolean}
+ */
+function isThemeSlug_(t) {
+  return typeof t === 'string' && /^[a-z][a-z0-9-]{0,31}$/.test(t);
+}
+
+/**
+ * Returns the saved app theme id for this Google account, or '' if unset
  * ('' = no explicit choice yet → the client's head script follows the OS).
  * @returns {string}
  */
 function getThemePreference() {
   var t = PropertiesService.getUserProperties().getProperty('app_theme');
-  return (t === 'light' || t === 'dark') ? t : '';
+  return isThemeSlug_(t) ? t : '';
 }
 
 /**
- * Persists the app theme choice. Ignores anything but 'light'/'dark' (fail-safe).
+ * Persists the app theme choice. Accepts any well-formed theme slug (fail-safe).
  * @param {string} theme
  */
 function saveThemePreference(theme) {
-  if (theme === 'light' || theme === 'dark') {
+  if (isThemeSlug_(theme)) {
     PropertiesService.getUserProperties().setProperty('app_theme', theme);
   }
 }

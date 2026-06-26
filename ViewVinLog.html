@@ -1,7 +1,7 @@
-<div class="view" id="view-vinlog" hidden>
+<div class="view" id="view-vinlog" data-layout="data" hidden>
 
 
-  <div class="layout">
+  <div class="layout app-measure">
 
     <!-- ── Left column: dealer + runs list ──────────────────────────────── -->
     <div class="col-main">
@@ -103,7 +103,7 @@
       overflow: hidden;
     }
     #view-vinlog .col-side {
-      width: 440px;
+      width: var(--col-form-side);   /* tracks proportionally instead of an isolated far-right slab */
       flex-shrink: 0;
       padding: 20px;
       overflow-y: auto;
@@ -192,6 +192,16 @@
       width: 100%;
       border-collapse: collapse;
       font-size: 12px;
+      table-layout: fixed;   /* fixed columns (Timestamp/Deal ID/VINs/Status) — no jitter as the band widens */
+      font-variant-numeric: tabular-nums;   /* Deal ID / VIN counts align — no digit-width shift */
+    }
+    /* Static column widths — these 4 columns are constant for this table */
+    #view-vinlog #runsTable th:nth-child(1), #view-vinlog #runsTable td:nth-child(1) { width: 40%; }
+    #view-vinlog #runsTable th:nth-child(2), #view-vinlog #runsTable td:nth-child(2) { width: 26%; }
+    #view-vinlog #runsTable th:nth-child(3), #view-vinlog #runsTable td:nth-child(3) { width: 14%; }
+    #view-vinlog #runsTable th:nth-child(4), #view-vinlog #runsTable td:nth-child(4) { width: 20%; }
+    #view-vinlog #runsTable td {
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
     #view-vinlog #runsTable th {
       text-align: left;

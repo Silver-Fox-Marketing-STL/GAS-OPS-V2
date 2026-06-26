@@ -1,0 +1,441 @@
+<!-- ════════════════════════════════════════════════════════════════════════════
+     FIELD CODES VIEW — manages the field-code → ORDERMATCH-column mapping that
+     was previously the hardcoded FIELD_TO_COL map in Code.gs. Modeled on the
+     Normalization view (ViewNorm.html): top-bar / add-bar / status / scrollable
+     table / footer, with the table height sized against the VIEW container.
+     All CSS is scoped under #view-fieldcodes; all top-level JS is prefixed `fc`.
+════════════════════════════════════════════════════════════════════════════ -->
+<div class="view" id="view-fieldcodes" data-layout="data" hidden>
+
+  <div class="top-bar app-measure">
+    <span class="title">Field Codes</span>
+    <span id="fcCount"></span>
+    <span class="intro">Map each CSV field code to the ORDERMATCH column it reads from. Built-in codes can be re-pointed (revert restores the default); custom codes can be removed.</span>
+  </div>
+
+  <div class="add-bar app-measure">
+    <div class="add-field add-field-code">
+      <label>Field code</label>
+      <input type="text" id="fcAddCode" placeholder="e.g.  YEARMODELSTOCK" />
+    </div>
+    <div class="add-field add-field-col">
+      <label>ORDERMATCH column</label>
+      <input type="text" id="fcAddCol" placeholder="V or 22" />
+    </div>
+    <div class="add-field add-field-desc">
+      <label>Description <span class="opt">(optional)</span></label>
+      <input type="text" id="fcAddDesc" placeholder="e.g.  Year + model + stock" />
+    </div>
+    <div class="add-buttons">
+      <button class="btn-secondary" onclick="fcClearAddForm()">Clear</button>
+      <button class="btn-primary"   onclick="fcAdd()" id="fcAddBtn">+ Add</button>
+    </div>
+  </div>
+
+  <div id="fcStatus" class="empty app-measure"></div>
+
+  <div class="table-wrap app-measure" id="fcTableWrap">
+    <table>
+      <thead>
+        <tr>
+          <th class="col-code">Field Code</th>
+          <th class="col-col">ORDERMATCH Column</th>
+          <th class="col-desc">Description</th>
+          <th class="col-source">Source</th>
+          <th class="col-actions">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="fcBody">
+        <tr class="state-row"><td colspan="5">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="footer app-measure" id="fcFooter">
+    <span class="footer-note">Changes apply on the next run — they re-point how each field code's value is read from ORDERMATCH.</span>
+    <button class="btn-secondary" onclick="exitApp()">Close SilverFox</button>
+  </div>
+
+</div>
+
+<style>
+  #view-fieldcodes * { box-sizing: border-box; margin: 0; padding: 0; }
+  #view-fieldcodes {
+    font-family: var(--font-body);
+    font-size: 13px;
+    color: var(--text);
+    background: var(--bg);
+  }
+
+  /* ── Top bar ───────────────────────────────────────────────────────────── */
+  #view-fieldcodes .top-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  #view-fieldcodes .top-bar .title { font-weight: bold; white-space: nowrap; }
+  #view-fieldcodes #fcCount { font-size: 12px; color: var(--text-3); white-space: nowrap; }
+  #view-fieldcodes .top-bar .intro {
+    font-size: 11px; color: var(--text-3); margin-left: auto;
+    font-style: italic; text-align: right;
+  }
+
+  /* ── Add entry bar ─────────────────────────────────────────────────────── */
+  #view-fieldcodes .add-bar {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  #view-fieldcodes .add-field { display: flex; flex-direction: column; gap: 3px; }
+  #view-fieldcodes .add-field-code { flex: 1.4; }
+  #view-fieldcodes .add-field-col  { flex: 0 0 130px; }
+  #view-fieldcodes .add-field-desc { flex: 2; }
+  #view-fieldcodes .add-field label { font-size: 11px; font-weight: bold; color: var(--text-2); white-space: nowrap; }
+  #view-fieldcodes .add-field label .opt { font-weight: normal; color: var(--text-3); }
+  #view-fieldcodes .add-field input[type="text"] {
+    padding: 6px 8px;
+    font-size: 12px;
+    font-family: monospace;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border-2);
+    border-radius: 4px;
+    width: 100%;
+  }
+  #view-fieldcodes .add-field input[type="text"]:focus { outline: none; border-color: var(--accent); }
+  #view-fieldcodes .add-buttons { display: flex; gap: 6px; flex-shrink: 0; padding-bottom: 1px; }
+
+  /* ── Status bar ────────────────────────────────────────────────────────── */
+  #view-fieldcodes #fcStatus {
+    font-size: 12px;
+    padding: 5px 16px;
+    height: 28px;
+    line-height: 18px;
+  }
+  #view-fieldcodes #fcStatus.empty   { background: none; }
+  #view-fieldcodes #fcStatus.info    { background: var(--accent-weak); color: var(--accent); }
+  #view-fieldcodes #fcStatus.success { background: var(--success-weak); color: var(--success); }
+  #view-fieldcodes #fcStatus.error   { background: var(--danger-weak); color: var(--danger); }
+
+  /* ── Table ─────────────────────────────────────────────────────────────── */
+  /* Height is set by JS — overflow-y: auto enables scroll once height is fixed */
+  #view-fieldcodes .table-wrap { overflow-y: auto; }
+
+  #view-fieldcodes table { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
+  #view-fieldcodes thead th {
+    background: var(--surface-2);
+    padding: 7px 12px;
+    text-align: left;
+    font-size: 11px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    color: var(--text-2);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+  #view-fieldcodes thead th.col-code    { width: 22%; }
+  #view-fieldcodes thead th.col-col     { width: 20%; }
+  #view-fieldcodes thead th.col-desc    { width: 30%; }
+  #view-fieldcodes thead th.col-source  { width: 12%; }
+  #view-fieldcodes thead th.col-actions { text-align: center; width: 16%; white-space: nowrap; }
+
+  #view-fieldcodes tbody tr { border-bottom: 1px solid var(--border); }
+  #view-fieldcodes tbody tr:last-child  { border-bottom: none; }
+  #view-fieldcodes tbody tr:hover { background: var(--bg); }
+  #view-fieldcodes td { padding: 5px 12px; vertical-align: middle; word-break: break-word; }
+  #view-fieldcodes td.col-code   { font-family: monospace; font-weight: bold; color: var(--text); }
+  #view-fieldcodes td.col-col    { font-family: monospace; color: var(--accent); font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+  #view-fieldcodes td.col-desc   { color: var(--text-2); }
+  #view-fieldcodes td.col-desc.muted { color: var(--text-muted); font-style: italic; }
+  #view-fieldcodes td.col-source { white-space: nowrap; }
+  #view-fieldcodes td.col-actions { text-align: center; white-space: nowrap; }
+
+  /* Source badge */
+  #view-fieldcodes .badge {
+    display: inline-block;
+    padding: 2px 7px;
+    font-size: 10px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: .3px;
+    border-radius: 10px;
+    border: 1px solid var(--border-2);
+    color: var(--text-3);
+    background: var(--surface-2);
+  }
+  #view-fieldcodes .badge.builtin    { color: var(--text-3); background: var(--surface-2); border-color: var(--border-2); }
+  #view-fieldcodes .badge.custom     { color: var(--accent); background: var(--accent-weak); border-color: var(--accent); }
+  #view-fieldcodes .badge.overridden { color: var(--warning-strong); background: var(--warning-weak); border-color: var(--warning); }
+
+  /* Inline edit row */
+  #view-fieldcodes tr.editing td { background: var(--accent-weak); padding: 5px 8px; }
+  #view-fieldcodes .edit-input {
+    width: 100%;
+    padding: 4px 6px;
+    font-size: 12px;
+    font-family: monospace;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--accent);
+    border-radius: 3px;
+  }
+  #view-fieldcodes .edit-input:focus { outline: none; }
+
+  /* Empty / loading states */
+  #view-fieldcodes .state-row td { text-align: center; padding: 28px; color: var(--text-muted); font-size: 12px; }
+
+  /* ── Footer ────────────────────────────────────────────────────────────── */
+  #view-fieldcodes .footer {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    justify-content: flex-end;
+    padding: 10px 16px;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+  }
+  #view-fieldcodes .footer .footer-note { font-size: 11px; color: var(--text-3); margin-right: auto; font-style: italic; }
+
+  /* ── Buttons ───────────────────────────────────────────────────────────── */
+  #view-fieldcodes button {
+    padding: 6px 13px;
+    font-size: 12px;
+    font-weight: bold;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  #view-fieldcodes .btn-primary         { background: var(--accent); color: var(--on-accent); }
+  #view-fieldcodes .btn-primary:hover   { background: var(--accent-hover); }
+  #view-fieldcodes .btn-secondary       { background: var(--bg); color: var(--text); border: 1px solid var(--border-2); }
+  #view-fieldcodes .btn-secondary:hover { background: var(--surface-2); }
+  #view-fieldcodes .btn-icon            { padding: 3px 8px; font-size: 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 3px; color: var(--text-2); margin: 0 1px; }
+  #view-fieldcodes .btn-icon:hover      { background: var(--border); }
+  #view-fieldcodes .btn-icon.del        { background: var(--danger-weak); color: var(--danger); border-color: var(--danger); }
+  #view-fieldcodes .btn-icon.del:hover  { background: var(--danger); color: var(--on-danger); }
+  #view-fieldcodes .btn-icon.revert     { background: var(--warning-weak); color: var(--warning-strong); border-color: var(--warning); }
+  #view-fieldcodes .btn-icon.revert:hover { background: var(--warning); color: var(--bg); }
+  #view-fieldcodes .btn-icon.save       { background: var(--success-weak); color: var(--success); border-color: var(--success); }
+  #view-fieldcodes .btn-icon.save:hover { background: var(--success); color: var(--on-success); }
+  #view-fieldcodes button:disabled      { opacity: 0.4; cursor: default; }
+
+  /* themed root (overrides the interim .view light guard) */
+  #view-fieldcodes { background: var(--bg); color: var(--text); }
+</style>
+
+<script>
+  // currentData layout: array of { fieldCode, col, colLetter, description, source }
+  // source ∈ 'builtin' | 'override' | 'config'
+  var fcData       = [];
+  var fcEditingCode = null;   // fieldCode currently in inline-edit mode (or null)
+
+  // ── Height calculation ────────────────────────────────────────────────────
+  // Sizes the table scroll area against the VIEW container (not the window —
+  // the app shell's header/sidebar make window.innerHeight wrong here), with
+  // all element queries scoped to this view (a global '.top-bar' query would
+  // also match other views in the shared App DOM).
+  function fcSizeTable() {
+    var view = document.getElementById('view-fieldcodes');
+    if (!view || view.hidden) return;  // hidden views measure 0 — skip
+
+    var used = 0;
+    ['.top-bar', '.add-bar', '.footer'].forEach(function(sel) {
+      var el = view.querySelector(sel);
+      if (el) used += el.getBoundingClientRect().height;
+    });
+    var st = document.getElementById('fcStatus');
+    if (st) used += st.getBoundingClientRect().height;
+
+    var available = view.getBoundingClientRect().height - used - 2;
+    document.getElementById('fcTableWrap').style.height = Math.max(available, 120) + 'px';
+  }
+
+  window.addEventListener('resize', fcSizeTable);
+
+  // ── Init (lazy — first nav into the view) ────────────────────────────────
+  function fcInitView() {
+    fcSizeTable();
+    fcLoad();
+  }
+
+  window.VIEW_INITS = window.VIEW_INITS || {};
+  window.VIEW_SHOWN = window.VIEW_SHOWN || {};
+  VIEW_INITS['view-fieldcodes'] = fcInitView;
+  VIEW_SHOWN['view-fieldcodes'] = fcSizeTable;
+
+  // ── Load ──────────────────────────────────────────────────────────────────
+  function fcLoad() {
+    fcSetTbody('<tr class="state-row"><td colspan="5">Loading…</td></tr>');
+    document.getElementById('fcCount').textContent = '';
+    google.script.run
+      .withSuccessHandler(fcRender)
+      .withFailureHandler(function(e) { fcSetStatus(e.message, 'error'); })
+      .getFieldCodeMappings();
+  }
+
+  // result = { rows: [...], builtinCount }
+  function fcRender(result) {
+    var rows = (result && result.rows) ? result.rows : [];
+    fcData = rows;
+    var count = rows.length;
+    document.getElementById('fcCount').textContent =
+      count + (count === 1 ? ' field code' : ' field codes');
+
+    if (count === 0) {
+      fcSetTbody('<tr class="state-row"><td colspan="5">No field codes mapped yet.</td></tr>');
+      return;
+    }
+
+    var html = '';
+    rows.forEach(function(entry, idx) {
+      html += (fcEditingCode === entry.fieldCode)
+        ? fcBuildEditRow(entry, idx)
+        : fcBuildViewRow(entry, idx);
+    });
+    fcSetTbody(html);
+  }
+
+  // ── Row builders ──────────────────────────────────────────────────────────
+  function fcBuildViewRow(entry, idx) {
+    var colDisplay = escHtml(String(entry.colLetter || '')) + ' (' + escHtml(String(entry.col)) + ')';
+    var isCustom   = (entry.source === 'config');
+    var descCls    = entry.description ? 'col-desc' : 'col-desc muted';
+    var descText   = entry.description ? escHtml(entry.description) : '—';
+
+    var actions = '';
+    actions += fcMkBtn('✏', 'fcStartEdit(' + idx + ')', 'btn-icon', false, 'Edit');
+    if (isCustom) {
+      actions += fcMkBtn('✕ Delete', 'fcConfirmDelete(' + idx + ')', 'btn-icon del', false, 'Delete this custom field code');
+    } else {
+      // builtin or override → revert to the built-in column
+      var canRevert = (entry.source === 'override');
+      actions += fcMkBtn('↺ Revert', 'fcConfirmDelete(' + idx + ')', 'btn-icon revert', !canRevert,
+        canRevert ? 'Revert to the built-in column' : 'Already at the built-in column');
+    }
+
+    return '<tr id="fc-row-' + idx + '">' +
+      '<td class="col-code" title="' + escHtml(entry.fieldCode) + '">' + escHtml(entry.fieldCode) + '</td>' +
+      '<td class="col-col">' + colDisplay + '</td>' +
+      '<td class="' + descCls + '" title="' + descText + '">' + descText + '</td>' +
+      '<td class="col-source">' + fcSourceBadge(entry.source) + '</td>' +
+      '<td class="col-actions">' + actions + '</td>' +
+      '</tr>';
+  }
+
+  function fcBuildEditRow(entry, idx) {
+    return '<tr class="editing" id="fc-row-' + idx + '">' +
+      '<td class="col-code" title="' + escHtml(entry.fieldCode) + '">' + escHtml(entry.fieldCode) + '</td>' +
+      '<td><input class="edit-input" id="fcEditCol-' + idx + '" value="' +
+        escHtml(String(entry.colLetter || entry.col || '')) + '" placeholder="V or 22" /></td>' +
+      '<td><input class="edit-input" id="fcEditDesc-' + idx + '" value="' +
+        escHtml(entry.description || '') + '" placeholder="(optional)" /></td>' +
+      '<td class="col-source">' + fcSourceBadge(entry.source) + '</td>' +
+      '<td class="col-actions">' +
+        fcMkBtn('✓ Save', 'fcSaveEdit(' + idx + ')', 'btn-icon save', false, 'Save') +
+        fcMkBtn('Cancel', 'fcCancelEdit()',          'btn-icon',      false, 'Cancel') +
+      '</td></tr>';
+  }
+
+  function fcSourceBadge(source) {
+    if (source === 'config')   return '<span class="badge custom">custom</span>';
+    if (source === 'override') return '<span class="badge overridden">overridden</span>';
+    return '<span class="badge builtin">built-in</span>';
+  }
+
+  function fcMkBtn(label, onclick, cls, disabled, title) {
+    return '<button class="' + cls + '" onclick="' + onclick + '"' +
+      (disabled ? ' disabled' : '') + ' title="' + (title || '') + '">' + label + '</button>';
+  }
+
+  // ── Edit ────────────────────────────────────────────────────────────────
+  function fcStartEdit(idx) {
+    var entry = fcData[idx];
+    if (!entry) return;
+    fcEditingCode = entry.fieldCode;
+    fcRender({ rows: fcData });
+    var el = document.getElementById('fcEditCol-' + idx);
+    if (el) { el.focus(); el.select(); }
+  }
+
+  function fcCancelEdit() { fcEditingCode = null; fcRender({ rows: fcData }); }
+
+  function fcSaveEdit(idx) {
+    var entry = fcData[idx];
+    if (!entry) return;
+    var colInput = document.getElementById('fcEditCol-' + idx).value.trim();
+    var desc     = document.getElementById('fcEditDesc-' + idx).value.trim();
+    if (!colInput) { fcSetStatus('An ORDERMATCH column is required.', 'error'); return; }
+    fcSetStatus('Saving…', 'info');
+    google.script.run
+      .withSuccessHandler(function(result) {
+        fcEditingCode = null;
+        fcRender(result);
+        fcSetStatus('“' + entry.fieldCode + '” updated.', 'success');
+      })
+      .withFailureHandler(function(e) { fcSetStatus(e.message, 'error'); })
+      .saveFieldCodeMapping(entry.fieldCode, colInput, desc);
+  }
+
+  // ── Add ─────────────────────────────────────────────────────────────────
+  function fcAdd() {
+    var code = document.getElementById('fcAddCode').value.trim();
+    var col  = document.getElementById('fcAddCol').value.trim();
+    var desc = document.getElementById('fcAddDesc').value.trim();
+    if (!code) { fcSetStatus('A field code is required.', 'error'); return; }
+    if (!col)  { fcSetStatus('An ORDERMATCH column is required.', 'error'); return; }
+    fcSetStatus('Saving…', 'info');
+    google.script.run
+      .withSuccessHandler(function(result) {
+        fcClearAddForm();
+        fcEditingCode = null;
+        fcRender(result);
+        fcSetStatus('“' + code + '” saved.', 'success');
+      })
+      .withFailureHandler(function(e) { fcSetStatus(e.message, 'error'); })
+      .saveFieldCodeMapping(code, col, desc);
+  }
+
+  // ── Delete / Revert ───────────────────────────────────────────────────────
+  function fcConfirmDelete(idx) {
+    var entry = fcData[idx];
+    if (!entry) return;
+    var isCustom = (entry.source === 'config');
+    var prompt = isCustom
+      ? 'Delete the custom field code “' + entry.fieldCode + '”?\n\nIt will no longer be available to CSV schemas.'
+      : 'Revert “' + entry.fieldCode + '” to its built-in ORDERMATCH column?';
+    if (!confirm(prompt)) return;
+    fcSetStatus(isCustom ? 'Deleting…' : 'Reverting…', 'info');
+    google.script.run
+      .withSuccessHandler(function(result) {
+        fcEditingCode = null;
+        fcRender(result);
+        fcSetStatus(isCustom ? '“' + entry.fieldCode + '” deleted.' : '“' + entry.fieldCode + '” reverted.', 'success');
+      })
+      .withFailureHandler(function(e) { fcSetStatus(e.message, 'error'); })
+      .deleteFieldCodeMapping(entry.fieldCode);
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function fcClearAddForm() {
+    document.getElementById('fcAddCode').value = '';
+    document.getElementById('fcAddCol').value  = '';
+    document.getElementById('fcAddDesc').value = '';
+  }
+
+  function fcSetTbody(html) { document.getElementById('fcBody').innerHTML = html; }
+
+  function fcSetStatus(msg, type) {
+    var el = document.getElementById('fcStatus');
+    el.textContent = msg || '';
+    el.className   = type || 'empty';
+  }
+</script>

@@ -6,11 +6,10 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=Poppins:wght@700;800&display=swap" rel="stylesheet">
   <script>
-    // Theme bootstrap (mirrors App.html) — keep injected pref, else follow OS.
+    // Theme bootstrap (mirrors App.html) — keep any injected pref, else follow OS.
     (function() {
       var root = document.documentElement;
-      var dt = root.getAttribute('data-theme');
-      if (dt !== 'dark' && dt !== 'light') {
+      if (!root.getAttribute('data-theme')) {
         var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
         root.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
       }

@@ -1,10 +1,10 @@
-<div class="view" id="view-rules" hidden>
+<div class="view" id="view-rules" data-layout="form-wide" hidden>
 
 
   <div id="loadingOverlay">Loading dealer data…</div>
 
   <!-- ── Dealer selector ────────────────────────────────────────────────────── -->
-  <div class="top-bar">
+  <div class="top-bar app-measure">
     <label for="rulesDealerSelect">Dealer</label>
     <select id="rulesDealerSelect" onchange="onDealerChange()">
       <option value="">-- Select a dealer --</option>
@@ -14,7 +14,7 @@
   <!-- Tabs: Filtering Rules / Pipedrive — only one panel is shown at a time so a
        new user isn't faced with both full configs at once. Each tab keeps its own
        DOM + JS state (switching never discards edits) and shows an unsaved dot. -->
-  <div class="rules-tabs" role="tablist">
+  <div class="rules-tabs app-measure" role="tablist">
     <button type="button" class="rules-tab active" id="rulesTabBtnFilter"
             role="tab" aria-selected="true" aria-controls="panel-filter"
             onclick="rulesTab('filter')">
@@ -30,7 +30,7 @@
   <!-- Filtering Rules and Pipedrive panels (full-width, tab-switched); each saves
        independently. (Type Rules panel removed June 2026 — the Pipedrive product
        map is now the sole per-type config; Schema + UTM live on each product cell.) -->
-  <div class="panels-row">
+  <div class="panels-row app-measure">
 
   <!-- ════════════════════════════════════════════════════════════════════════════
        FILTERING RULES PANEL
@@ -255,7 +255,7 @@
   </div><!-- /.panels-row -->
 
   <!-- ── Status bar ─────────────────────────────────────────────────────────── -->
-  <div id="rulesStatus" class="empty"></div>
+  <div id="rulesStatus" class="empty app-measure"></div>
 </div>
 
 <style>

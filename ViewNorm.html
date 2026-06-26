@@ -3,9 +3,9 @@
      view fragment. All CSS is scoped under #view-norm; table height is sized
      against the view container (not the window) so it works inside the shell.
 ════════════════════════════════════════════════════════════════════════════ -->
-<div class="view" id="view-norm" hidden>
+<div class="view" id="view-norm" data-layout="data" hidden>
 
-  <div class="top-bar">
+  <div class="top-bar app-measure">
     <label for="mapSelect">Map:</label>
     <select id="mapSelect" onchange="onMapChange()">
       <option value="type">Type — vehicle condition</option>
@@ -18,7 +18,7 @@
     <span class="order-note">Rules match top-to-bottom — first match wins. Use ▲ ▼ to reorder.</span>
   </div>
 
-  <div class="add-bar">
+  <div class="add-bar app-measure">
     <div class="add-field">
       <label>Raw value (from scraper)</label>
       <input type="text" id="addRaw" placeholder="e.g.  Certified Pre-Owned" />
@@ -34,9 +34,9 @@
     </div>
   </div>
 
-  <div id="normStatus" class="empty"></div>
+  <div id="normStatus" class="empty app-measure"></div>
 
-  <div class="table-wrap" id="tableWrap">
+  <div class="table-wrap app-measure" id="tableWrap">
     <table>
       <thead>
         <tr>
@@ -52,7 +52,7 @@
     </table>
   </div>
 
-  <div class="footer" id="normFooter">
+  <div class="footer app-measure" id="normFooter">
     <button class="btn-secondary" onclick="exitApp()">Close SilverFox</button>
   </div>
 

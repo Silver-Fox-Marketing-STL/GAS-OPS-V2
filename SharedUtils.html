@@ -12,6 +12,13 @@
      :root = Light (default); :root[data-theme="dark"] = brand-warm Dark.
      ════════════════════════════════════════════════════════════════════════ */
   :root {
+    /* Tells the browser to render native controls (the <select> popup,
+       scrollbars, etc.) in the light scheme. Dark theme blocks override to
+       `dark`. Without this the scheme is non-deterministic — it differed
+       between the modal dialog and the full-page web app, which made the
+       OS-native <select> popup render light (ignoring author option colors)
+       in the web app even in dark themes. */
+    color-scheme: light;
     /* surfaces (bright white fields) */
     --bg: #ffffff;
     --surface: #f7f5f2;
@@ -63,9 +70,21 @@
     /* spacing scale */
     --space-1: 4px; --space-2: 8px; --space-3: 12px;
     --space-4: 16px; --space-5: 20px; --space-6: 28px;
+
+    /* responsive layout measures — base :root ONLY (never per-theme; a theme
+       must not change page measure). Consumed by App.html's width-gated rules
+       so the app reads as designed at full-screen width without disturbing the
+       locked 1400-wide modal. See the data-layout block in App.html. */
+    --measure-form:      880px;                    /* narrow single-column form cap (Utilities, single-column config) */
+    --measure-form-wide: 1280px;                   /* split / dense config cap (Run Order, Rules, Import, Pipedrive…) */
+    --measure-data:      1680px;                   /* data/table working-area cap */
+    --gutter-wide:       48px;                      /* ultra-wide (>=2100px) side breathing room */
+    --col-form-side:     clamp(360px, 32vw, 440px); /* replaces the hardcoded 440px split column; resolves to 440 at 1400 */
   }
 
-  :root[data-theme="dark"] {
+  :root[data-theme="dark"],
+  :root[data-theme="top-rail-dark"] {   /* top-rail-dark reuses the Dark palette; its top-bar structure lives in App.html */
+    color-scheme: dark;   /* native popup/scrollbar render dark — readable in modal AND web app */
     /* neutral black/grey base — warm oranges reserved for accents/highlights */
     --bg: #121214;
     --surface: #1c1c1f;
@@ -91,6 +110,117 @@
     --shadow: 0 2px 12px rgba(0,0,0,.45);
     --shadow-lg: 0 8px 28px rgba(0,0,0,.55);
     --focus-ring: 0 0 0 3px rgba(253,65,13,.45);
+  }
+
+  /* ── "Dark — Dense" — sample structural theme ──────────────────────────────
+     Template for new themes. Colour/type/density are pure token overrides here;
+     the *structural* part (sidebar moves to a right-hand rail) lives in App.html
+     as shell-scoped rules keyed off this same data-theme. Copy this block + add
+     { id, label } to Theme.themes in the script below to make a new theme.     */
+  :root[data-theme="dark-dense"] {
+    color-scheme: dark;
+    --bg: #0d1117; --surface: #161b22; --surface-2: #1c232c; --surface-3: #222b35;
+    --text: #e6edf3; --text-2: #b6c2cf; --text-3: #8b98a5; --text-muted: #6b7785;
+    --border: #353f4b; --border-2: #45515f;
+    --accent: #2f9bff; --accent-hover: #5fb0ff; --accent-active: #1f6fd0;
+    --accent-weak: rgba(47,155,255,.12); --accent-weak-2: rgba(47,155,255,.22); --on-accent: #04101f;
+    --success: #3fb950; --success-weak: rgba(63,185,80,.15); --on-success: #04130a;
+    --danger:  #f85149; --danger-weak:  rgba(248,81,73,.15);  --on-danger:  #1a0605;
+    --warning: #d29922; --warning-weak: rgba(210,153,34,.15); --warning-strong: #e3b341;
+    --info:    #58a6ff; --info-weak:    rgba(88,166,255,.15);
+    --shadow: 0 1px 6px rgba(0,0,0,.5); --shadow-lg: 0 6px 22px rgba(0,0,0,.6);
+    --focus-ring: 0 0 0 2px rgba(47,155,255,.5);
+    /* denser + squarer — reusing the existing density tokens, no new vars */
+    --radius-sm: 2px; --radius: 3px; --radius-lg: 5px;
+    --fs-h1: 20px; --fs-h2: 16px; --fs-h3: 14px; --fs-body: 12px; --fs-sm: 11px;
+    --space-1: 3px; --space-2: 6px; --space-3: 9px; --space-4: 12px; --space-5: 15px; --space-6: 20px;
+  }
+
+  /* ── "Midnight HC" — high-contrast near-black palette ──────────────────────
+     Pure token overrides (no structural change). Built for max legibility on
+     dim screens / night shifts: near-black surfaces, white text, deliberately
+     VISIBLE borders (high contrast needs them), a punchy accent. Logo lightens
+     via the shared dark-logo selector in App.html.                            */
+  :root[data-theme="midnight"] {
+    color-scheme: dark;
+    --bg: #000000; --surface: #0a0a0a; --surface-2: #141414; --surface-3: #1c1c1c;
+    --text: #ffffff; --text-2: #dcdcdc; --text-3: #b0b0b0; --text-muted: #8a8a8a;
+    --border: #5e5e5e; --border-2: #6a6a6a;   /* HC: ≥3:1 on near-black surfaces */
+    --accent: #ff5a2c; --accent-hover: #ff8a64; --accent-active: #d8350a;
+    --accent-weak: rgba(255,90,44,.18); --accent-weak-2: rgba(255,90,44,.30); --on-accent: #000000;
+    --success: #34d058; --success-weak: rgba(52,208,88,.18);  --on-success: #00130a;
+    --danger:  #ff6b63; --danger-weak:  rgba(255,107,99,.18); --on-danger:  #130303;
+    --warning: #ffc233; --warning-weak: rgba(255,194,51,.18); --warning-strong: #ffd766;
+    --info:    #6cb6ff; --info-weak:    rgba(108,182,255,.18);
+    --shadow: 0 2px 12px rgba(0,0,0,.7); --shadow-lg: 0 8px 30px rgba(0,0,0,.8);
+    --focus-ring: 0 0 0 3px rgba(255,90,44,.6);
+  }
+
+  /* ── "Cyberpunk" — neon-HUD reinvention ────────────────────────────────────
+     Deep blue-black + neon cyan/magenta, sharp corners, glow "shadows", Rajdhani
+     HUD type. Tokens live here; the shell reflow (HUD nav/header, scanline
+     canvas, neon borders) is the data-theme block in App.html, which also loads
+     the Rajdhani / Share Tech Mono webfonts. A11y: TEXT stays bright (#e6f7ff) —
+     neon is reserved for accents/headings/borders/active, never body copy.      */
+  :root[data-theme="cyberpunk"] {
+    color-scheme: dark;
+    --bg: #05070d; --surface: #0b0f1a; --surface-2: #121826; --surface-3: #1a2233;
+    --text: #e6f7ff; --text-2: #9fb6cc; --text-3: #6f8499; --text-muted: #6e8298;
+    --border: #4a7c95; --border-2: #5a96b2;   /* neon-tube edges; ≥3:1 on all dark surfaces */
+    --accent: #00eaff; --accent-hover: #5cf2ff; --accent-active: #00b8cc;
+    --accent-weak: rgba(0,234,255,.12); --accent-weak-2: rgba(0,234,255,.22); --on-accent: #03121a;
+    --success: #39ff14; --success-weak: rgba(57,255,20,.14);  --on-success: #021200;
+    --danger:  #ff3355; --danger-weak:  rgba(255,51,85,.16);  --on-danger:  #18020a;  /* redder than the magenta accent so errors still read "stop" */
+    --warning: #fde047; --warning-weak: rgba(253,224,71,.14); --warning-strong: #fff08a;
+    --info:    #b14dff; --info-weak:    rgba(177,77,255,.16);
+    /* type pills — neon variants; dark text reads better on bright neon fills */
+    --type-new: #39ff14; --type-po: #fde047; --type-cpo: #b14dff; --type-cpoel: #00eaff; --on-type: #03121a;
+    /* sharp corners + cyan glow instead of soft drop-shadow */
+    --radius-sm: 0; --radius: 2px; --radius-lg: 2px;
+    --shadow: 0 0 12px rgba(0,234,255,.15); --shadow-lg: 0 0 26px rgba(0,234,255,.25);
+    --focus-ring: 0 0 0 2px rgba(0,234,255,.65), 0 0 12px rgba(0,234,255,.4);
+    /* HUD type (webfonts loaded in App.html <head>) */
+    --font-head: 'Rajdhani', 'Montserrat', sans-serif;
+    --font-body: 'Rajdhani', 'Montserrat', sans-serif;
+  }
+
+  /* ── "Encarta" — Windows 95/98 + 90s multimedia (a full reinvention) ──────────
+     3D beveled "silver" chrome (raised buttons / sunken fields), SHARP corners,
+     navy title bars + navy Explorer-style selection, Tahoma (the system stand-in
+     for MS Sans Serif) with a pixel-font wordmark, chunky beveled scrollbars,
+     dotted focus rectangles, and NO motion. Tokens here; the window-frame reflow
+     (title-bar header, gray sidebar chrome, sunken client area, beveled controls,
+     scrollbars) is the data-theme block in App.html (which loads Pixelify Sans).
+     Light scheme — black on silver gray, white "article" client area.            */
+  :root[data-theme="encarta"] {
+    color-scheme: light;
+    --bg: #ffffff;                 /* white client / "article" area */
+    --surface: #c0c0c0;            /* Win95 face gray — window chrome */
+    --surface-2: #d6d2ca;          /* warm raised face */
+    --surface-3: #ebe9e3;
+    --text: #000000; --text-2: #1d1d1d; --text-3: #3f3f3f; --text-muted: #5e5e5e;
+    --border: #808080;             /* shadow-gray bevel edge */
+    --border-2: #404040;           /* dark-shadow edge */
+    --accent: #000080;             /* navy — title bar + selection */
+    --accent-hover: #1084d0;       /* active-title gradient blue */
+    --accent-active: #00006a;
+    --accent-weak: #cdd9ee;        /* light selection tint */
+    --accent-weak-2: #aac1e3;
+    --on-accent: #ffffff;
+    --success: #007a1f; --success-weak: #cfe7cf; --on-success: #ffffff;
+    --danger:  #a40000; --danger-weak:  #efcfcf; --on-danger:  #ffffff;
+    --warning: #7a5c00; --warning-weak: #efe4bc; --warning-strong: #4f3c00;
+    --info:    #000080; --info-weak:    #d2dbef;
+    /* type tags — flat 90s system colors, white text, sharp corners */
+    --type-new: #007a1f; --type-po: #7a5c00; --type-cpo: #000080; --type-cpoel: #008080; --on-type: #ffffff;
+    /* SHARP corners; the "shadow" tokens carry the raised 3D bevel so any
+       var(--shadow) panel/menu becomes a Win95 raised box automatically. */
+    --radius-sm: 0; --radius: 0; --radius-lg: 0;
+    --shadow: inset -1px -1px #404040, inset 1px 1px #ffffff, inset -2px -2px #808080, inset 2px 2px #dfdfdf;
+    --shadow-lg: inset -1px -1px #404040, inset 1px 1px #ffffff, inset -2px -2px #808080, inset 2px 2px #dfdfdf;
+    --focus-ring: 0 0 0 1px #000080;
+    --font-head: Tahoma, 'MS Sans Serif', Geneva, Verdana, sans-serif;
+    --font-body: Tahoma, 'MS Sans Serif', Geneva, Verdana, sans-serif;
   }
 
   /* Base typography — the body font applies app-wide; per-view font-family
@@ -131,6 +261,53 @@
   #appToast.info    { background: var(--info-weak);    color: var(--info);    border: 1px solid var(--info); }
   #appToast.success { background: var(--success-weak); color: var(--success); border: 1px solid var(--success); }
   #appToast.error   { background: var(--danger-weak);  color: var(--danger);  border: 1px solid var(--danger); }
+
+  /* ════════════════════════════════════════════════════════════════════════
+     CUSTOM SELECT — progressive enhancement of native <select> into a themed
+     dropdown (the generalized, reusable form of the theme picker's .theme-*).
+     WHY: the Apps Script web-app sandbox can't theme a native <select>'s OPEN
+     option list (it's OS-rendered, light-on-light in dark themes) — so we
+     overlay a button + <ul role="listbox"> that themes everywhere (and reads
+     as a Win95 control under "encarta", where button/--shadow auto-bevel).
+     The native <select> stays in the DOM as the value holder + event source.
+     All tokens below resolve in SharedUtils :root, so it themes app-wide.
+     ════════════════════════════════════════════════════════════════════════ */
+  .cs-field { position: relative; }
+  /* A real <button> so Encarta's `button` bevel rule catches it automatically. */
+  .cs-btn {
+    width: 100%;
+    box-sizing: border-box;
+    display: flex; align-items: center; gap: 6px;
+    background: var(--surface); color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    font-family: var(--font-body); font-size: 13px; font-weight: 600;
+    padding: 8px; cursor: pointer; text-align: left;
+  }
+  .cs-btn:hover { border-color: var(--border-2); }
+  .cs-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+  .cs-btn[aria-disabled="true"] { opacity: .55; cursor: default; }
+  .cs-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cs-caret { font-size: 9px; color: var(--text-3); flex-shrink: 0; }
+
+  /* position:fixed so the open list escapes any overflow:auto panel clipping
+     (several selects live inside scrollable columns); JS sets left/top/width. */
+  .cs-menu {
+    position: fixed; z-index: 70; margin: 0; padding: 4px; list-style: none;
+    background: var(--surface); border: 1px solid var(--border-2);
+    border-radius: var(--radius); box-shadow: var(--shadow-lg);
+    max-height: 280px; overflow-y: auto;
+  }
+  .cs-menu[hidden] { display: none; }
+  .cs-menu li {
+    padding: 6px 9px; border-radius: var(--radius-sm); cursor: pointer;
+    font-family: var(--font-body); font-size: 13px; font-weight: 600;
+    color: var(--text); white-space: nowrap;
+  }
+  .cs-menu li:hover,
+  .cs-menu li:focus { outline: none; background: var(--accent-weak); }
+  .cs-menu li[aria-selected="true"] { background: var(--accent); color: var(--on-accent); }
+  .cs-menu li[aria-disabled="true"] { opacity: .5; cursor: default; }
+  .cs-menu li[aria-disabled="true"]:hover { background: none; }
 </style>
 <script>
   // ── HTML escaping (single shared copy) ─────────────────────────────────────
@@ -216,34 +393,527 @@
     }
   };
 
-  // ── Theme (light/dark) ─────────────────────────────────────────────────────
-  // Theme = a data-theme attribute on <html>. The initial value is injected
-  // server-side (saved pref) or set from the OS by a tiny head script before
-  // first paint (see App.html / Classic.html). toggle() persists via
-  // saveThemePreference (fire-and-forget, mirrors saveLastSelectedUser).
+  // ── Theme registry + switcher ───────────────────────────────────────────────
+  // A theme = a `data-theme` attribute on <html>; each id has a matching
+  // `:root[data-theme="<id>"]` token block (in this file) and, for layout
+  // changes, shell-scoped rules in App.html. Pure presentation — the backend
+  // google.script.run calls live in view JS that never reads CSS, so a theme
+  // cannot break a backend link. Add a theme in ONE place: push to `themes`
+  // here + add its CSS block(s). The picker + per-user persistence pick it up.
+  // Initial value is injected server-side (saved pref) or set from the OS by a
+  // head script before first paint (App.html / Classic.html).
   var Theme = {
+    themes: [
+      { id: 'light',         label: 'Light' },
+      { id: 'dark',          label: 'Dark' },
+      { id: 'dark-dense',    label: 'Dark — Dense' },   // structural: dense, right-hand rail
+      { id: 'top-rail',      label: 'Top Rail' },       // structural: nav as a top bar (light palette)
+      { id: 'top-rail-dark', label: 'Top Rail — Dark' }, // composed: top-bar structure (App.html) + Dark palette
+      { id: 'midnight',      label: 'Midnight HC' },     // high-contrast near-black palette
+      { id: 'cyberpunk',     label: 'Cyberpunk' },       // neon-HUD: full token + shell reinvention (App.html)
+      { id: 'encarta',       label: 'Encarta' }          // Win95/98 + 90s multimedia: 3D beveled chrome (App.html)
+    ],
+    has: function(id) {
+      for (var i = 0; i < this.themes.length; i++) { if (this.themes[i].id === id) return true; }
+      return false;
+    },
     current: function() {
-      return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+      var t = document.documentElement.getAttribute('data-theme');
+      return this.has(t) ? t : 'light';   // unknown/empty → safe default
     },
-    apply: function(name, persist) {
-      var t = (name === 'dark') ? 'dark' : 'light';
+    apply: function(id, persist) {
+      var t = this.has(id) ? id : 'light';
       document.documentElement.setAttribute('data-theme', t);
-      var btn = document.getElementById('themeToggle');
-      if (btn) {
-        // Show the action (what tapping it switches TO).
-        var ic = btn.querySelector('.icon');
-        var lb = btn.querySelector('.label');
-        if (ic) ic.innerHTML = (t === 'dark') ? '&#9728;&#65039;' : '&#9790;';  // sun (→light) / moon (→dark)
-        if (lb) lb.textContent = (t === 'dark') ? 'Light mode' : 'Dark mode';
-      }
-      if (persist) {
-        try { google.script.run.saveThemePreference(t); } catch (e) {}
-      }
+      this.syncPicker(t);
+      if (persist) { try { google.script.run.saveThemePreference(t); } catch (e) {} }
     },
-    toggle: function() {
-      this.apply(this.current() === 'dark' ? 'light' : 'dark', true);
+    set: function(id) { this.apply(id, true); },
+    // Custom dropdown (button + <ul>) rather than a native <select>: the native
+    // open option list can't be themed in the web-app sandbox (light-on-light in
+    // dark themes). The Classic wrapper has no picker — guarded, themes still render.
+    initPicker: function() {
+      var btn  = document.getElementById('themeBtn');
+      var menu = document.getElementById('themeMenu');
+      if (!btn || !menu) return;
+      var self = this;
+      menu.innerHTML = this.themes.map(function(t) {
+        return '<li role="option" tabindex="-1" data-theme-id="' + escHtml(t.id) + '">' +
+               escHtml(t.label) + '</li>';
+      }).join('');
+
+      btn.addEventListener('click', function(e) { e.stopPropagation(); self._toggleMenu(); });
+      btn.addEventListener('keydown', function(e) {
+        if (e.key === 'ArrowDown') { e.preventDefault(); self._openMenu(); self._focusItem(0, true); }
+      });
+      menu.addEventListener('click', function(e) {
+        var li = e.target.closest && e.target.closest('li[data-theme-id]');
+        if (!li) return;
+        self.set(li.getAttribute('data-theme-id'));   // apply + persist + syncPicker
+        self._closeMenu(); btn.focus();
+      });
+      menu.addEventListener('keydown', function(e) {
+        var items = menu.querySelectorAll('li[data-theme-id]');
+        var idx = Array.prototype.indexOf.call(items, document.activeElement);
+        if (e.key === 'ArrowDown')    { e.preventDefault(); self._focusItem(idx + 1); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); self._focusItem(idx - 1); }
+        else if (e.key === 'Home')    { e.preventDefault(); self._focusItem(0); }
+        else if (e.key === 'End')     { e.preventDefault(); self._focusItem(items.length - 1); }
+        else if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          var cur = document.activeElement;
+          if (cur && cur.getAttribute('data-theme-id')) {
+            self.set(cur.getAttribute('data-theme-id')); self._closeMenu(); btn.focus();
+          }
+        }
+        else if (e.key === 'Escape') { self._closeMenu(); btn.focus(); }
+        else if (e.key === 'Tab')    { self._closeMenu(); }
+      });
+      document.addEventListener('click', function() { self._closeMenu(); });   // outside click closes
+
+      this.syncPicker(this.current());
+    },
+    _menuOpen: function() {
+      var m = document.getElementById('themeMenu');
+      return !!m && !m.hasAttribute('hidden');
+    },
+    _toggleMenu: function() {
+      if (this._menuOpen()) this._closeMenu();
+      else { this._openMenu(); this._focusItem(0, true); }
+    },
+    _openMenu: function() {
+      var m = document.getElementById('themeMenu'), b = document.getElementById('themeBtn');
+      if (m) m.removeAttribute('hidden');
+      if (b) b.setAttribute('aria-expanded', 'true');
+    },
+    _closeMenu: function() {
+      var m = document.getElementById('themeMenu'), b = document.getElementById('themeBtn');
+      if (m) m.setAttribute('hidden', '');
+      if (b) b.setAttribute('aria-expanded', 'false');
+    },
+    _focusItem: function(idx, preferSelected) {
+      var m = document.getElementById('themeMenu');
+      if (!m) return;
+      var items = m.querySelectorAll('li[data-theme-id]');
+      if (!items.length) return;
+      if (preferSelected) {
+        for (var i = 0; i < items.length; i++) {
+          if (items[i].getAttribute('aria-selected') === 'true') { idx = i; break; }
+        }
+      }
+      if (idx < 0) idx = items.length - 1;
+      if (idx >= items.length) idx = 0;
+      items[idx].focus();
+    },
+    syncPicker: function(t) {
+      var label = document.getElementById('themeBtnLabel');
+      var menu  = document.getElementById('themeMenu');
+      if (!menu) return;
+      var items = menu.querySelectorAll('li[data-theme-id]');
+      var text = t;
+      for (var i = 0; i < items.length; i++) {
+        var match = items[i].getAttribute('data-theme-id') === t;
+        items[i].setAttribute('aria-selected', match ? 'true' : 'false');
+        if (match) text = items[i].textContent;
+      }
+      if (label) label.textContent = text;
     }
   };
+
+  // ── Custom select enhancer ──────────────────────────────────────────────────
+  // Progressively enhances native <select>s into themed dropdowns matching the
+  // theme picker — so their OPEN list is themeable in the Apps Script web-app
+  // sandbox (a native popup is OS-rendered and CANNOT be themed there). The
+  // native <select> stays the source of truth: every pick writes select.value +
+  // dispatches a bubbling 'change', so all existing onchange handlers fire. Each
+  // enhance() runs in its own try/catch and reverts to fully-native on ANY error
+  // (graceful degradation is the prime directive). All top-level symbols are
+  // namespaced under this single object (the SPA shares ONE global JS scope).
+  var CustomSelect = {
+    _open: null,        // the currently-open { select, wrapper, btn, menu } or null
+    _observer: null,    // MutationObserver on #appContent
+    _moTimer: null,     // debounce timer for the observer callback
+    _docWired: false,   // document-level listeners installed once
+
+    // Public: call once at app init.
+    start: function() {
+      if (window.CS_DISABLED) return;   // global kill-switch
+      var self = this;
+      try { this.enhanceAll(document); } catch (e) { try { console.warn('CustomSelect.start enhanceAll failed', e); } catch (e2) {} }
+
+      // Watch for views/fragments that inject new <select>s (lazy-rendered rows,
+      // re-rendered pickers, etc.). Debounced; only acts on added <select> nodes.
+      try {
+        var host = document.getElementById('appContent') || document.body;
+        if (host && window.MutationObserver) {
+          this._observer = new MutationObserver(function(muts) {
+            var hasSelect = false;
+            for (var i = 0; i < muts.length && !hasSelect; i++) {
+              var added = muts[i].addedNodes;
+              for (var j = 0; j < added.length; j++) {
+                var n = added[j];
+                if (n.nodeType !== 1) continue;   // elements only
+                if (n.tagName === 'SELECT' ||
+                    (n.querySelector && n.querySelector('select'))) { hasSelect = true; break; }
+              }
+            }
+            if (!hasSelect) return;   // ignore everything that isn't/doesn't contain a select
+            if (self._moTimer) clearTimeout(self._moTimer);
+            self._moTimer = setTimeout(function() {
+              try { self.enhanceAll(host); } catch (e) { try { console.warn('CustomSelect observer enhance failed', e); } catch (e2) {} }
+            }, 80);
+          });
+          this._observer.observe(host, { subtree: true, childList: true });
+        }
+      } catch (e) { try { console.warn('CustomSelect observer setup failed', e); } catch (e2) {} }
+
+      this._wireDocument();
+    },
+
+    // Public: enhance every eligible <select> under root. Idempotent.
+    enhanceAll: function(root) {
+      if (window.CS_DISABLED || !root) return;
+      var nodes = root.querySelectorAll ? root.querySelectorAll('select') : [];
+      for (var i = 0; i < nodes.length; i++) this.enhance(nodes[i]);
+      // querySelectorAll('select') on a node excludes the node itself if it IS a select.
+      if (root.tagName === 'SELECT') this.enhance(root);
+    },
+
+    _eligible: function(select) {
+      if (window.CS_DISABLED) return false;
+      if (!select || select.tagName !== 'SELECT') return false;
+      if (select.multiple) return false;
+      if (select.hasAttribute('data-no-cs')) return false;
+      if (select.dataset.cs === '1') return false;   // already enhanced
+      return true;
+    },
+
+    // Public: the per-select try/catch unit. On ANY failure, fully revert to
+    // native so a select can NEVER end up non-functional.
+    enhance: function(select) {
+      if (!this._eligible(select)) return;
+      var self = this;
+      var wrapper = null;
+      try {
+        select.dataset.cs = '1';
+
+        // 1. Preserve the layout slot: wrap the select where it sits, copying the
+        //    select's layout role onto the wrapper so it occupies the same space.
+        var cs = window.getComputedStyle(select);
+        wrapper = document.createElement('span');
+        wrapper.className = 'cs-field';
+        wrapper.style.position = 'relative';
+
+        // Make the wrapper occupy the select's slot. This must be robust against a
+        // select enhanced while its view is HIDDEN (measured width = 0) — the prior
+        // inline-block shrink-to-fit then collapsed the flex label and truncated the
+        // button. So: fill the container like a width:100% form control (the common
+        // case for this app); only a select with an explicit flex-basis
+        // (e.g. flex:0 0 220px — Norm's map picker) keeps that fixed size.
+        wrapper.style.display = 'block';
+        var fb = cs.flexBasis;
+        if (fb && fb !== 'auto' && fb !== '0px' && /(px|%)$/.test(fb)) {
+          wrapper.style.flex = '0 0 ' + fb;
+        } else {
+          wrapper.style.width = '100%';
+        }
+        var parent = select.parentNode;
+
+        parent.insertBefore(wrapper, select);
+        wrapper.appendChild(select);
+
+        // 2. Hide native select but keep it functional + form/value-active (NOT
+        //    display:none) — it remains the value holder with its listeners.
+        select.style.position = 'absolute';
+        select.style.width = '1px';
+        select.style.height = '1px';
+        select.style.opacity = '0';
+        select.style.pointerEvents = 'none';
+        select.style.margin = '-1px';
+        select.style.overflow = 'hidden';
+
+        // 3. Build the button + listbox.
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'cs-btn';
+        btn.setAttribute('aria-haspopup', 'listbox');
+        btn.setAttribute('aria-expanded', 'false');
+        var labelSpan = document.createElement('span');
+        labelSpan.className = 'cs-label';
+        var caret = document.createElement('span');
+        caret.className = 'cs-caret';
+        caret.setAttribute('aria-hidden', 'true');
+        caret.innerHTML = '&#9662;';
+        btn.appendChild(labelSpan);
+        btn.appendChild(caret);
+
+        var menu = document.createElement('ul');
+        menu.className = 'cs-menu';
+        menu.setAttribute('role', 'listbox');
+        menu.setAttribute('hidden', '');
+
+        // Accessible name: aria-label → associated <label> text → name attr.
+        var accName = self._accessibleName(select);
+        if (accName) {
+          btn.setAttribute('aria-label', accName);
+          menu.setAttribute('aria-label', accName);
+        }
+        if (select.disabled) btn.setAttribute('aria-disabled', 'true');
+
+        wrapper.appendChild(btn);
+        wrapper.appendChild(menu);
+
+        // Stash references for refresh()/positioning.
+        select._csWidget = { wrapper: wrapper, btn: btn, menu: menu, labelSpan: labelSpan };
+
+        // 4. Populate + label.
+        self._rebuild(select);
+
+        // 5. Wire interactions.
+        btn.addEventListener('click', function(e) {
+          e.preventDefault(); e.stopPropagation();
+          if (select.disabled) return;
+          if (self._isOpenFor(select)) self._closeMenu();
+          else self._openMenu(select);
+        });
+        btn.addEventListener('keydown', function(e) {
+          if (select.disabled) return;
+          if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault(); self._openMenu(select); self._focusItem(menu, 'selected');
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault(); self._openMenu(select); self._focusItem(menu, 'last');
+          }
+        });
+        menu.addEventListener('click', function(e) {
+          var li = e.target.closest && e.target.closest('li[role="option"]');
+          if (!li || li.getAttribute('aria-disabled') === 'true') return;
+          self._pick(select, li);
+        });
+        menu.addEventListener('keydown', function(e) {
+          var items = self._enabledItems(menu);
+          var cur = document.activeElement;
+          var idx = Array.prototype.indexOf.call(items, cur);
+          if (e.key === 'ArrowDown')      { e.preventDefault(); self._moveFocus(items, idx, 1); }
+          else if (e.key === 'ArrowUp')   { e.preventDefault(); self._moveFocus(items, idx, -1); }
+          else if (e.key === 'Home')      { e.preventDefault(); if (items[0]) items[0].focus(); }
+          else if (e.key === 'End')       { e.preventDefault(); if (items.length) items[items.length - 1].focus(); }
+          else if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            if (cur && cur.getAttribute && cur.getAttribute('role') === 'option') self._pick(select, cur);
+          }
+          else if (e.key === 'Escape')    { e.preventDefault(); self._closeMenu(); btn.focus(); }
+          else if (e.key === 'Tab')       { self._closeMenu(); }
+        });
+
+        // 8. Dynamic sync: option changes → refresh; (programmatic value sets that
+        //    fire no event are also caught by re-reading the label on open).
+        try {
+          if (window.MutationObserver) {
+            var mo = new MutationObserver(function() {
+              if (self._csSyncing) return;   // ignore our own writes
+              self.refresh(select);
+            });
+            mo.observe(select, { childList: true, subtree: true });
+            select._csOptObserver = mo;
+          }
+        } catch (e) {}
+
+      } catch (err) {
+        try { console.warn('CustomSelect.enhance failed — reverting to native', select, err); } catch (e2) {}
+        self._revert(select, wrapper);
+      }
+    },
+
+    // Public: re-read options + value and rebuild label + list. For code that
+    // programmatically repopulates/sets a select.
+    refresh: function(select) {
+      if (!select || !select._csWidget) return;
+      try { this._rebuild(select); }
+      catch (e) { try { console.warn('CustomSelect.refresh failed', e); } catch (e2) {} }
+    },
+
+    // ── internals ──────────────────────────────────────────────────────────
+    _accessibleName: function(select) {
+      var n = select.getAttribute('aria-label');
+      if (n) return n;
+      if (select.id) {
+        var lab = document.querySelector('label[for="' + (window.CSS && CSS.escape ? CSS.escape(select.id) : select.id) + '"]');
+        if (lab && lab.textContent) return lab.textContent.replace(/\s+/g, ' ').trim();
+      }
+      var closestLabel = select.closest && select.closest('label');
+      if (closestLabel && closestLabel.textContent) return closestLabel.textContent.replace(/\s+/g, ' ').trim();
+      return select.getAttribute('name') || '';
+    },
+
+    _rebuild: function(select) {
+      var w = select._csWidget;
+      if (!w) return;
+      var opts = select.options;
+      var html = '';
+      for (var i = 0; i < opts.length; i++) {
+        var o = opts[i];
+        var sel = (i === select.selectedIndex);
+        html += '<li role="option" data-i="' + i + '"' +
+                (sel ? ' aria-selected="true"' : ' aria-selected="false"') +
+                (o.disabled ? ' aria-disabled="true"' : ' tabindex="-1"') +
+                '>' + escHtml(o.text) + '</li>';
+      }
+      w.menu.innerHTML = html;
+      // Button label = selected option's text (or first option's text as fallback).
+      var cur = select.options[select.selectedIndex];
+      w.labelSpan.textContent = cur ? cur.text : (opts.length ? opts[0].text : '');
+      if (select.disabled) { w.btn.setAttribute('aria-disabled', 'true'); }
+      else { w.btn.removeAttribute('aria-disabled'); }
+    },
+
+    _enabledItems: function(menu) {
+      return menu.querySelectorAll('li[role="option"]:not([aria-disabled="true"])');
+    },
+
+    _moveFocus: function(items, idx, delta) {
+      if (!items.length) return;
+      var next = idx + delta;
+      if (next < 0) next = items.length - 1;
+      if (next >= items.length) next = 0;
+      items[next].focus();
+    },
+
+    _focusItem: function(menu, which) {
+      var items = this._enabledItems(menu);
+      if (!items.length) return;
+      var target = items[0];
+      if (which === 'last') target = items[items.length - 1];
+      else if (which === 'selected') {
+        for (var i = 0; i < items.length; i++) {
+          if (items[i].getAttribute('aria-selected') === 'true') { target = items[i]; break; }
+        }
+      }
+      target.focus();
+    },
+
+    _pick: function(select, li) {
+      var i = parseInt(li.getAttribute('data-i'), 10);   // index, never the value — apostrophe-safe
+      if (isNaN(i) || !select.options[i]) { this._closeMenu(); return; }
+      var w = select._csWidget;
+      // Update native select (the source of truth) then notify all listeners.
+      select.selectedIndex = i;
+      var chosen = select.options[i];
+      // Reflect selection in the widget without retriggering our option-observer.
+      this._csSyncing = true;
+      try {
+        var items = w.menu.querySelectorAll('li[role="option"]');
+        for (var k = 0; k < items.length; k++) {
+          items[k].setAttribute('aria-selected', items[k] === li ? 'true' : 'false');
+        }
+        w.labelSpan.textContent = chosen ? chosen.text : '';
+      } finally { this._csSyncing = false; }
+      this._closeMenu();
+      w.btn.focus();
+      // Dispatch AFTER closing/focus so handlers (which may re-render) run last.
+      try { select.dispatchEvent(new Event('change', { bubbles: true })); }
+      catch (e) {
+        // Legacy event fallback (very old engines) — unlikely in GAS, but safe.
+        try { var ev = document.createEvent('HTMLEvents'); ev.initEvent('change', true, false); select.dispatchEvent(ev); } catch (e2) {}
+      }
+    },
+
+    _isOpenFor: function(select) {
+      return this._open && this._open.select === select;
+    },
+
+    _openMenu: function(select) {
+      if (this._open && this._open.select !== select) this._closeMenu();
+      var w = select._csWidget;
+      if (!w) return;
+      // Re-read the selected label every open (catches a programmatic value set
+      // that fired no event).
+      this._rebuild(select);
+      w.menu.removeAttribute('hidden');
+      w.btn.setAttribute('aria-expanded', 'true');
+      this._open = { select: select, wrapper: w.wrapper, btn: w.btn, menu: w.menu };
+      this._position(w.btn, w.menu);
+    },
+
+    _closeMenu: function() {
+      if (!this._open) return;
+      var m = this._open.menu, b = this._open.btn;
+      if (m) m.setAttribute('hidden', '');
+      if (b) b.setAttribute('aria-expanded', 'false');
+      this._open = null;
+    },
+
+    // position:fixed coordinates from the button rect; flip above if not enough
+    // room below in the viewport. Required so the menu isn't clipped by an
+    // overflow:auto panel.
+    _position: function(btn, menu) {
+      var rect = btn.getBoundingClientRect();
+      menu.style.left = rect.left + 'px';
+      // At least as wide as the button, but GROW to fit the longest option (the
+      // li's are nowrap) so option text is never cut off; capped to the viewport
+      // so a long option can't overflow off-screen.
+      var vw = window.innerWidth || document.documentElement.clientWidth;
+      menu.style.minWidth = rect.width + 'px';
+      menu.style.width = 'auto';
+      menu.style.maxWidth = Math.max(rect.width, vw - rect.left - 8) + 'px';
+      // Measure menu height (it's now visible).
+      var menuH = menu.offsetHeight;
+      var vh = window.innerHeight || document.documentElement.clientHeight;
+      var below = vh - rect.bottom;
+      var above = rect.top;
+      if (below < menuH + 6 && above > below) {
+        // Flip above the button.
+        var top = rect.top - menuH - 2;
+        if (top < 4) top = 4;
+        menu.style.top = top + 'px';
+      } else {
+        menu.style.top = rect.bottom + 'px';
+      }
+    },
+
+    _wireDocument: function() {
+      if (this._docWired) return;
+      this._docWired = true;
+      var self = this;
+      // Outside click closes (a click inside the open wrapper is handled by its
+      // own listeners and shouldn't close before they run).
+      document.addEventListener('click', function(e) {
+        if (!self._open) return;
+        var w = self._open.wrapper;
+        if (w && w.contains && w.contains(e.target)) return;
+        self._closeMenu();
+      });
+      // Scroll/resize → close (native selects do too; also keeps the fixed menu
+      // from detaching from a button that moved).
+      window.addEventListener('scroll', function(e) {
+        if (!self._open) return;
+        var m = self._open.menu;
+        if (m && e.target && m.contains && m.contains(e.target)) return;   // the menu's OWN internal scroll — keep it open
+        self._closeMenu();
+      }, true);
+      window.addEventListener('resize', function() { if (self._open) self._closeMenu(); });
+    },
+
+    // Revert a (partially) enhanced select to fully native.
+    _revert: function(select, wrapper) {
+      try {
+        if (select) {
+          delete select.dataset.cs;
+          select._csWidget = null;
+          if (select._csOptObserver) { try { select._csOptObserver.disconnect(); } catch (e) {} select._csOptObserver = null; }
+          // Restore native visibility.
+          var s = select.style;
+          s.position = ''; s.width = ''; s.height = ''; s.opacity = '';
+          s.pointerEvents = ''; s.margin = ''; s.overflow = '';
+        }
+        if (wrapper && wrapper.parentNode) {
+          if (select && wrapper.contains(select)) {
+            wrapper.parentNode.insertBefore(select, wrapper);   // move select back out
+          }
+          wrapper.parentNode.removeChild(wrapper);              // drop the partial widget
+        }
+      } catch (e) { try { console.warn('CustomSelect revert failed', e); } catch (e2) {} }
+    }
+  };
+  window.CustomSelect = CustomSelect;
 
   // ── View registries (populated by each view fragment) ─────────────────────
   window.VIEW_INITS = window.VIEW_INITS || {};  // viewId -> init fn (run once, first nav)

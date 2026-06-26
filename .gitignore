@@ -5,3 +5,8 @@ docs/pdf/
 # Node deps for the local doc-PDF builder (scripts/). Run `cd scripts && npm install`.
 scripts/node_modules/
 node_modules/
+
+# Brand/design asset swept in by a catch-all "sync" commit — a 53MB binary that
+# belongs in Drive, not the code repo (same policy as docs/pdf above). Kept
+# local, untracked. Guard root-level PDFs so it can't be re-added accidentally.
+/*.pdf

@@ -1,17 +1,16 @@
 <!DOCTYPE html>
-<html data-theme="<?= initialTheme ?>">
+<html data-theme="<?= initialTheme ?>" data-mode="<?= appMode ?>">
 <head>
   <base target="_top">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=Poppins:wght@700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=Pixelify+Sans:wght@400..700&family=Poppins:wght@700;800&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script>
-    // Theme bootstrap — runs before first paint to avoid a flash. If the server
-    // injected a saved preference, keep it; otherwise follow the OS setting.
+    // Theme bootstrap — runs before first paint to avoid a flash. Keep any saved
+    // preference the server injected (any theme id); only follow the OS when none.
     (function() {
       var root = document.documentElement;
-      var dt = root.getAttribute('data-theme');
-      if (dt !== 'dark' && dt !== 'light') {
+      if (!root.getAttribute('data-theme')) {
         var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
         root.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
       }
@@ -64,7 +63,248 @@
       -webkit-mask: url("data:image/png;base64,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") center / contain no-repeat;
               mask: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAKAAAABBCAYAAABW168KAAANQklEQVR4nO1dC4xcZRX+Zma7fVB2t+URSqnb0mrEqqjVUmPFWEQUtSjYEsW3giQajVi1AcQoEIkQsEaDbxBsohVRRBARX6DBV7WiRYmlFSu2WrAP+9ruzlxzku8jh5s7M3dm7n93Znu/ZLKzs3fn/vec757/vP7/AvmhD8BqAEvdZ2UApRzHUODJKFEHwlLqyHSVC/pyusgIwAwAJwN4AYAXA7gFwN94TJnH2KtAPjqxV40yfyqA1wN4PoBD1NUOp7sJQcC5AKYA2AvgFADPA/BzAN8GsM0R0YRSIBwkY9PJLADnAHgJgEkA/gdgOnU1oQhomA+gwvd7+fnpJOMPAXwPwB7+vSBi9pBM7TUAYDmAM/je9DHC4yrU1W/zcI/yIKAsml1UNeZ37OEYVgI4FcBtAO4GMBqbJgq0D7k3NVq5lwM4C8BxAPZRBxUna9PRifzfWq8TUCZ8MoATHLGECv++G8AggHcDOA3ArQB+wb8V/mF7iN/ASzndmiE4QJlX3Kyk/zEdzaHORkJPw3kR8HgAMxMIKJgQxiiUpwBYxen5WwD+zGMKIrYXYDwTwAoGgJJxOUY8/7+j1JXpbMtEIKBhHgMQmft6x1Z41x0E8CwACwHcz4j5ER5XEDEd8YYZ2b6QMpPfXU/+Qo26mucIGAx55XvM7LcqyP38aSmbRQB+DOC7AB7ncUWgkhzZHgXgtXRlptHPkyvTqs5+gsAITUD5H/No/lu5mySwvXxvjvOLANwB4E76MTrucA1Uyi6ynQrgTACvAnA05SbZtSL3EnVlOkNo2YYkoHyHQeab6vl/aYm4m3f0WwG8lIHKTymgwy1iLrvI1q57GYDX0X/e7wKMVq2e9wNnUXe7Q/qBeRBwDnNNBzv0JypMEZhAjgXwfqYULFBZn0HE3GxsrY692RiiFr8PCTfaIgYYJ9F3bhRgtHKOKnU2p9cJKF9iEu/MSgbfWeEdOsIS0iVMmsZLe/FxCFGTn/UQKhIs1fmZdF5fOlvB0lnE4K5T4nkoZzifWYhggUhIAkpw891UkRVERPmBiwE8h6U9m5q3t/h9yof1JbyXYpWsVSI9iSgiSEQrUnXJ3TH3mX8fuf9vBksen83SWT8DDI0/S8jKKnjsyTRMjd8/3IH/1wyydPv4/gymHb7PO/cI1jb1cxqd9alMNUzmaxJfnoAinydcPWuVZE09IUVCT8BRZ8mVejrA134XROzjy/J5r+bUqM/a8fFa8QOHKRMbb08RUD6D+WrHBCSg4Et7RqQ3UNHlBGslcsQtlvcdk96ntVT+XCJvhRbLE7eUYFE9yXUuRbkVklS51FDk0/hGGU2bDv8Vyg8MTcBhWh2lA0JDgYqSrkkBSfxGqHdjtPp5Pej89SL0qMnvImWUMpGcFWqcNYZ7lYCGBS4yzQtJU2U3oFNCl5AvlFVYwGpUkPOHskq6W9tJQBfoDviEdLA0TAgCVpzPMicH/69AGPjOGK/TriWgnOkq65EfZCa9sIC9bQEHqcuZLrDLzKBk9UW+Hmv12rczgrJUQWH9ehsR01iPAbgBwC+zrMF3Sg5fGjoSwNvYhTHCxS15RWwFwqLKNNJkdiXdyPUjHbfGdULAcqwm+U4AszmweD6rQO8j4ssMzaMAvsIafEfWsNRhvs2qCW9iG9AYLV9h9SY2qrSEfWyL+zoT5OJEUAJ6plu38vlcwGLZ+cLqHX7WcADAZgBfArCxHWvYCgHFcGP+uey6LbF2WVi9wxNV1tUjdqt/kzNhamuYhoC+4L6AVu8k+nrttHoXmFiokSPmG/6F1nBTQqNGWwQUk0vsuF2ZYW9fgYmFKuv+lrxeB+A7JF9Da9isPqmO5vPZb7eXjC+sXoEkiBvWxLCB1nBrI2uYREDvRL4SwHludVVh9QqkQZXJa5sp1wL4Qb0ApVQnqWw9YO8CsITEUwmmQIG0UO3YiPgrAF8G8J948rqUwExbcfYWbtGlbHeRVC7QDtRQawHKTgA3cSXjE5xTA4EdNATgHVxvcIDOZB5Tbrzj2CPeQVwgPZp1cSd1YIdClcHrVK7b+SqAXcY9ndw2jbyAU29epTRZXK3JKMd6CfVe6yfG3N8KdyAZNSejPrfOxcuz5I7VmhTkIFNfyrOp+Iu2mrHECPcsEk9JxNCoMbAB64oPs+17tyt8D3A9ySyuBhuiMCW0zFuDenyaq7ibeYwWZjs3/9zBapUaRAa5+dB81u/BgCGPG1vFDCPibfbmPgBP40sbRIaC7kAL0//gVq/pLqyHIa5NWMjVYXMpxFHWIQ/HhHiNspxC0lmK7CHKcyM3czISNsJkt9ruuSSht5KhMI1J6/tK7oP3sZdPK+GzHoQurJ/OqO2IKtSzZLq745jDRdlLeBf30W8dm+BWMXLLXafyeh9mlPk75tziSCvb5Qw+DwUioabgQfYUfsYI74MQw5u5pdf+AKkXTbuf5a5L+u40hWvvMPusuv3+DO6NspjTdp4BVJ6oOkfeZqrfUI4PxoIMbfqZtk/P68Hk+N4A07FchGncweJmnTtpgfUy7lRayrC9SnuN3M58UKeLnX37v3Ac94pZxhRSiJtoPFBzyttJ0t0d2/1BazY6WTgknVj+9zVN9nJsp33LxvYFjv8JvsXNrOp21mxwkdvmq5OBRLw4u6APuO0kslplFbekR9OnOZ1JUK0R7rVpOeJrOmX2I/rM1hqPFmeQNJB8TGbX0WB0up6nyvHbmK+l3/ek2nDSl+uAY0jChW67r3YHMchWnbXtNi6mgK/kgHtSn0u/ttZjbWNVTrVl+ksmu3/msEOsdHMeZZeF3jeSfDuSdF+P3fILLWC4EMDLmKZp9D/1ENF3We22fA25j1+ciIvo257YAy1kNdfatJm+0vociIfYOUxWn2xzSa3GZ9dwD4DPM7BJbFRt9OV+MfI5vCsOuUgz7WD6mYu6KOQmN02IOIWtZMs5JrWQdxOqHGeJGYJ1HOd47IndR6s1izpPS0JF6P2c7ewhRGi0sL3R1hwKxUv8IksUv4dCSjudyfptdcTNaxdTKa1MRd7E3OMF3ElUe+qNt28YuYfH/IMVgj+N4/bDZepqK+WkRzWkdRtM1mu4nUfTm6fcQpbdvvCjjL6OTOnHiQCK2ErjOK1VqNjVjMQGcnAH0o5tgGNazTH6B8fkDeno3y3s61MlJ7aTI/enjczTTqVVfqH5cBcD+D2rE36DxUZolpEPDW0YWWZEuYYpAU0XIYKiZqjy3H0cyxq3519auYaEpXzSynWInLiYHEkdaLbijEuBNnVdQT9lMMWdGrmdTMcbsjhlLin8OK/niJxJqIbNPRzDnc4d6JaN1g80uQkky0E+Yu0K59aklmWr0aBOGrHd+nq3u2ijk46HhUnjVmzkXbuJ02Ae41RSfhPPvTGjRHLWaKZP6f16Fheidm6gcofOvbVaX8mqQyMr0m0Rp7fo1hp0GeupcitCnnOI57rMdQh30w3aTGe+3f5KcqDtSL2TfJisyAbuVL+ljhVRx0Y3L6KxyO0qAHcFJKHIdxfPdbDLH7KjlFCS9d5CnW9w1rstlDOyIpaiuZRPuBxKmE5s0N0Kv4P/57jL/mDGxKjxO2/lOdBl/l4SBhLcliHq+FLqvGPr3ZehFTGn9WoObAV/VzQ3w11IN8J3Wt/ACsBK51R3AuX41nEflW5/2GLEnzNi7pbl+L7BBDOyst5Z7RHtH5e1ll3OF7IL4hBb/dHFQvdjK5MoUUb10CGnuG4nH9zYjqXu1MnyaQA/iz0mrKs2KZdgKxzoNna/zKYS+l1Zp1sVoHFVSJg+9kfuaoOEIt8trgmj2yLdOKSbfo59Co3Jdey2zryRJERRXknrh+ioPsCNrm2L16ygykaIyorubpPN1/h0zlYDE5HvDn6Hf5xq1igFkMVM6uwB6jAI+UKXxiT0PjYirOfumllHfqEsi29m+BCfW5xmOlYb0r0Argk47ZYCpHCkm9PYRXRt6Bp+6Nqsn26Pz+CBJ/rf2RTQva7Mp1b0WgD5WML1Y2z/b9SgqwbMB1nhsGAGGZOvHFuaYJb2VN7gj2YkX+nKfxYEeawFlRJ1QVEG4/0IO3Tu4RRxgnswYJaPsdL4zXf9FP3aqXVIrodGb+OxWfu7ZWftq7zmSygDk8WH3XHtQmPNhXzIqTEzCmBtR2n5zFdZRSVczhVyImJWkD+4m8QaoVsRJSw7GOExem5v1uOo8hov5zWvogx2ZdxrmWpvvyxP1CuQUk9mRWGUU+IU5toeY2F/HVeNZel7yQlfwrYp//w7PVftKpbZsnTYS3wtZm7yTK572cNqynS6CK8A8Mcur65MCEjpZ7NtfRfXG2xnC9EYE+Ihnigp3++NXOF3M1+38zN/DDKeeq/mte3kte7gtW+mLHRsT6HXLKCgu3wu83RPp5IeYXH814HOK2sUsZng2fzc0hWfcH8LNXWdwj0bh2lh/8o8498Ly5c/yuN0Y+m7j+IDW250Oc48zpuEnrN8eTwxPTQUHPi2cVmgkO1Nqo0+zpKd4b85WKDIJZz99eqB1j2J/wMRT+/OjFErJQAAAABJRU5ErkJggg==") center / contain no-repeat;
     }
-    :root[data-theme="dark"] .app-brand .logo { background-color: #d2d2d6; }
+    :root[data-theme="dark"] .app-brand .logo,
+    :root[data-theme="dark-dense"] .app-brand .logo,
+    :root[data-theme="midnight"] .app-brand .logo,
+    :root[data-theme="top-rail-dark"] .app-brand .logo,
+    :root[data-theme="cyberpunk"] .app-brand .logo,
+    :root[data-theme="encarta"] .app-brand .logo { background-color: #d2d2d6; }   /* light logo on the navy title strip */
+
+    /* Theme picker (sidebar) — a CUSTOM dropdown, NOT a native <select>. The
+       native open option list is OS-rendered, and the Apps Script web-app
+       sandbox iframe doesn't propagate color-scheme to it — so a native <select>
+       rendered light-on-light in dark themes IN THE WEB APP (it worked in the
+       modal, where the scheme is honored, but not the full-page web app). A
+       button + a themed <ul> renders identically and readably in the modal AND
+       the web app, in every theme. (The color-scheme tokens still help other
+       native controls — scrollbars, checkboxes — render dark in dark themes.) */
+    .nav-theme { position: relative; }
+    .theme-btn {
+      flex: 1; min-width: 0;
+      display: flex; align-items: center; gap: 6px;
+      background: var(--surface); color: var(--text-2);
+      border: 1px solid var(--border); border-radius: var(--radius-sm);
+      font-family: var(--font-body); font-size: 12.5px; font-weight: 600;
+      padding: 4px 8px; cursor: pointer; text-align: left;
+    }
+    .theme-btn:hover { color: var(--text); border-color: var(--border-2); }
+    .theme-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+    #themeBtnLabel { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .theme-caret { font-size: 9px; color: var(--text-3); flex-shrink: 0; }
+
+    .theme-menu {
+      position: absolute; z-index: 60; left: 0; right: 0;
+      bottom: calc(100% + 4px);            /* opens UPWARD — the picker sits near the sidebar bottom */
+      margin: 0; padding: 4px; list-style: none;
+      background: var(--surface); border: 1px solid var(--border-2);
+      border-radius: var(--radius); box-shadow: var(--shadow-lg);
+      max-height: 60vh; overflow-y: auto;
+    }
+    .theme-menu[hidden] { display: none; }
+    .theme-menu li {
+      padding: 6px 9px; border-radius: var(--radius-sm); cursor: pointer;
+      font-size: 12.5px; font-weight: 600; color: var(--text); white-space: nowrap;
+    }
+    .theme-menu li:hover,
+    .theme-menu li:focus { outline: none; background: var(--accent-weak); }
+    .theme-menu li[aria-selected="true"] { background: var(--accent); color: var(--on-accent); }
+    /* Top Rail layouts put the picker in a horizontal TOP bar — open DOWNWARD. */
+    :root[data-theme^="top-rail"] .theme-menu { bottom: auto; top: calc(100% + 4px); }
+
+    /* Dark — Dense: STRUCTURAL part of the theme — the sidebar becomes a
+       right-hand rail. Pure CSS keyed off data-theme; markup + nav onclick wiring
+       (and thus the backend calls) are untouched. Colour/density live in
+       SharedUtils. The active-nav accent flips to the rail's inner (right) edge
+       so the selection cue keeps pointing at the content it selects. */
+    :root[data-theme="dark-dense"] #appRoot { flex-direction: row-reverse; }
+    :root[data-theme="dark-dense"] #sidebar { width: 188px; border-right: none; border-left: 1px solid var(--border); }
+    :root[data-theme="dark-dense"] .nav-item,
+    :root[data-theme="dark-dense"] .nav-group-header { border-left-width: 0; border-right: 3px solid transparent; }
+    :root[data-theme="dark-dense"] .nav-item.active { border-right-color: var(--accent); }
+
+    /* Top Rail: STRUCTURAL — the side rail becomes a horizontal TOP bar. The
+       prefix selector [data-theme^="top-rail"] applies this to BOTH "top-rail"
+       (Light palette) and "top-rail-dark" (which pulls the Dark palette tokens
+       in SharedUtils) — structure × palette composed with no duplicated rules.
+       Pure CSS keyed off data-theme; markup + nav onclick wiring (and thus the
+       backend calls) untouched. The active marker moves from the left edge to a
+       bottom underline (tab metaphor), and the System Settings group becomes a
+       hover flyout since it can't stack inline. */
+    :root[data-theme^="top-rail"] #appRoot { flex-direction: column; }
+    :root[data-theme^="top-rail"] #sidebar {
+      width: 100%; flex-direction: row; align-items: center; padding-top: 0;
+      border-right: none; border-bottom: 1px solid var(--border);
+    }
+    /* Column layout needs min-height:0 on the main pane so #appContent can take
+       the leftover height and scroll. Without it the pane grows to content height
+       and body{overflow:hidden} clips it — the "can't scroll any page" bug. The
+       base #appMain only sets min-width:0 (what the default ROW layout needs). */
+    :root[data-theme^="top-rail"] #appMain { min-height: 0; }
+    :root[data-theme^="top-rail"] .app-brand { border-bottom: none; border-right: 1px solid var(--border); margin-bottom: 0; }
+    :root[data-theme^="top-rail"] .nav-item,
+    :root[data-theme^="top-rail"] .nav-group-header { border-left-width: 0; border-bottom: 3px solid transparent; }
+    :root[data-theme^="top-rail"] .nav-item.active { border-bottom-color: var(--accent); }
+    :root[data-theme^="top-rail"] .nav-footer { display: none; }
+    /* System Settings → flyout dropdown. Mouse: hover reveals. The :focus-within
+       path is kept so the flyout becomes keyboard-reachable FOR FREE the moment
+       the nav's div[onclick] items get tabindex — but that's a pre-existing,
+       app-wide gap (every theme's nav is mouse-only today), NOT this theme's to
+       fix. ponytail: hover/mouse flyout; keyboard nav-activation is app-wide debt.
+       The data-theme attr out-specifies .nav-group.collapsed, so the JS collapse
+       toggle is inert here — hover/focus drives visibility. */
+    :root[data-theme^="top-rail"] .nav-group { position: relative; }
+    :root[data-theme^="top-rail"] .nav-group-items {
+      position: absolute; top: 100%; left: 0; min-width: 190px;
+      background: var(--surface); border: 1px solid var(--border);
+      box-shadow: var(--shadow-lg); z-index: 50; display: none;
+    }
+    :root[data-theme^="top-rail"] .nav-group:hover .nav-group-items,
+    :root[data-theme^="top-rail"] .nav-group:focus-within .nav-group-items { display: block; }
+    :root[data-theme^="top-rail"] .nav-group-items .nav-sub { padding-left: 16px; }
+
+    /* ── "Cyberpunk" — neon-HUD shell reflow ──────────────────────────────────
+       Restyles the EXISTING shell into a console/HUD: uppercase letter-spaced
+       labels, neon-cyan glow on brand/active/header/borders, a faint scanline
+       canvas overlay. Palette + Rajdhani fonts come from the SharedUtils token
+       block; markup + nav onclick wiring untouched. A11y: glow stays subtle and
+       OFF body copy (body uses the bright --text token); scanline opacity is
+       minimal so legibility holds, and the overlay is pointer-events:none. */
+    :root[data-theme="cyberpunk"] #sidebar {
+      border-right: 1px solid var(--accent);
+      box-shadow: 2px 0 18px rgba(0,234,255,.08);
+    }
+    :root[data-theme="cyberpunk"] .app-brand {
+      font-family: var(--font-head);
+      text-transform: uppercase; letter-spacing: .18em;
+      color: var(--accent); text-shadow: 0 0 8px rgba(0,234,255,.55);
+    }
+    :root[data-theme="cyberpunk"] .nav-item,
+    :root[data-theme="cyberpunk"] .nav-group-header { text-transform: uppercase; letter-spacing: .05em; }
+    :root[data-theme="cyberpunk"] .nav-item:hover { color: var(--accent); text-shadow: 0 0 6px rgba(0,234,255,.5); }
+    :root[data-theme="cyberpunk"] .nav-item.active {
+      box-shadow: inset 3px 0 0 var(--accent), inset 0 0 20px rgba(0,234,255,.14);
+      text-shadow: 0 0 6px rgba(0,234,255,.5);
+    }
+    :root[data-theme="cyberpunk"] #appHeader {
+      border-bottom: 1px solid var(--accent);
+      box-shadow: 0 1px 14px rgba(0,234,255,.18);
+    }
+    :root[data-theme="cyberpunk"] #appHeaderTitle {
+      text-transform: uppercase; letter-spacing: .14em;
+      color: var(--accent); text-shadow: 0 0 8px rgba(0,234,255,.4);
+    }
+    /* faint CRT scanline over the (dark) content — texture only, never clicks.
+       Views render dark here (each #view-xxx root = var(--bg)), so the cyan lines
+       read as a subtle screen texture, not a film over white. */
+    :root[data-theme="cyberpunk"] #appContent::after {
+      content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 2;
+      background-image: repeating-linear-gradient(0deg, rgba(0,234,255,.028) 0 1px, transparent 1px 3px);
+    }
+
+    /* ── "Encarta" — Win95/98 window-frame reskin ────────────────────────────────
+       Reframes the app as a Win95 application window over the existing markup:
+       navy title-bar header, raised gray sidebar chrome, sunken white client
+       area, 3D beveled controls, Explorer-style navy selection, chunky 3D
+       scrollbars, dotted focus, and NO motion. Pure CSS; fully reversible.
+       (Per-view "primary" buttons that hard-set their own background keep their
+       colour — a theme can't out-specify an id-scoped rule — but go sharp +
+       beveled like the rest; everything token-driven reskins automatically.)   */
+    :root[data-theme="encarta"] #appRoot { background: #008080; }   /* classic teal "desktop" peeks at any seam */
+
+    /* Title bar = the header: active-title navy→blue gradient, white bold caption */
+    :root[data-theme="encarta"] #appHeader {
+      background: linear-gradient(90deg, #000080 0%, #1084d0 100%);
+      border-bottom: 2px solid #404040;
+      box-shadow: inset 1px 1px #3a93e0;
+    }
+    :root[data-theme="encarta"] #appHeaderTitle { color: #ffffff; font-weight: 700; letter-spacing: .01em; }
+    :root[data-theme="encarta"] #appHeaderRight { color: #d2e2f6; }
+
+    /* Sidebar = raised window chrome; brand = a navy title strip + pixel wordmark */
+    :root[data-theme="encarta"] #sidebar {
+      border-right: 2px solid #404040;
+      box-shadow: inset -1px 0 #808080, inset 1px 1px #ffffff;
+    }
+    :root[data-theme="encarta"] .app-brand {
+      background: linear-gradient(90deg, #000080 0%, #1084d0 100%);
+      color: #ffffff; border-bottom: 2px solid #404040; margin-bottom: 0;
+      font-family: 'Pixelify Sans', Tahoma, sans-serif; font-weight: 700; letter-spacing: .02em;
+    }
+
+    /* Nav = Explorer list: flat rows, light hover, full navy selection bar */
+    :root[data-theme="encarta"] .nav-item,
+    :root[data-theme="encarta"] .nav-group-header { border-left: none; border-radius: 0; color: #000; }
+    :root[data-theme="encarta"] .nav-item:hover { background: var(--accent-weak); color: #000; }
+    :root[data-theme="encarta"] .nav-item.active,
+    :root[data-theme="encarta"] .nav-item.active:hover { background: var(--accent); color: #fff; box-shadow: none; }
+    :root[data-theme="encarta"] .nav-item.active .icon { color: #fff; }
+
+    /* Client area = sunken white work zone */
+    :root[data-theme="encarta"] #appContent {
+      background: #ffffff;
+      box-shadow: inset 1px 1px #404040, inset 2px 2px #808080;
+    }
+
+    /* Buttons = raised 3D; pressed = sunken (no scale); dotted focus rectangle */
+    :root[data-theme="encarta"] button {
+      border: 2px outset #dfdfdf; border-radius: 0; box-shadow: none;
+      font-family: var(--font-body);
+    }
+    :root[data-theme="encarta"] button:active { border-style: inset; transform: none; }
+    :root[data-theme="encarta"] button:focus-visible { outline: 1px dotted #000; outline-offset: -4px; box-shadow: none; }
+
+    /* Fields = sunken inset, white, sharp (checkboxes/radios left native) */
+    :root[data-theme="encarta"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+    :root[data-theme="encarta"] select,
+    :root[data-theme="encarta"] textarea {
+      background: #ffffff; color: #000; border: 2px inset #dfdfdf; border-radius: 0; box-shadow: none;
+    }
+
+    /* Footer = sunken status bar */
+    :root[data-theme="encarta"] .nav-footer {
+      background: var(--surface); color: #1d1d1d;
+      box-shadow: inset 1px 1px #808080, inset -1px -1px #ffffff;
+    }
+
+    /* Chunky 3D scrollbars (webkit) */
+    :root[data-theme="encarta"] ::-webkit-scrollbar { width: 17px; height: 17px; }
+    :root[data-theme="encarta"] ::-webkit-scrollbar-track { background: #d8d4cc; }
+    :root[data-theme="encarta"] ::-webkit-scrollbar-thumb { background: var(--surface); border: 2px outset #dfdfdf; }
+    :root[data-theme="encarta"] ::-webkit-scrollbar-corner { background: #d8d4cc; }
+
+    /* Retro = instant, no motion + SHARP corners everywhere (no rounded pills,
+       cards, toggles, or dots — the whole point of the theme). */
+    :root[data-theme="encarta"] * { border-radius: 0 !important; transition: none !important; animation: none !important; }
+
+    /* ── Encarta component overrides — kill the pills & cards, add Win95 bevels ──
+       These use !important on purpose: the targets are id-scoped per-view rules
+       (#view-… .filter-card / .pill / .toggle-slider) that a theme can't out-rank
+       otherwise — a theme is the legitimate top layer of intent here. */
+    /* Cards / panels → raised gray 3D group-boxes (no soft shadow). */
+    :root[data-theme="encarta"] .filter-card,
+    :root[data-theme="encarta"] .home-card,
+    :root[data-theme="encarta"] .ps-card,
+    :root[data-theme="encarta"] .ps-group,
+    :root[data-theme="encarta"] .ps-rule {
+      background: var(--surface) !important;
+      border: 2px outset #dfdfdf !important;
+      box-shadow: none !important;
+    }
+    /* Home status strip → a sunken readout panel (not a pill). */
+    :root[data-theme="encarta"] .home-status {
+      background: var(--surface) !important; border: 2px inset #dfdfdf !important; box-shadow: none !important;
+    }
+    /* Pills → flat beveled toggle-tags: raised when off, pressed-IN when active.
+       Per-type colour coding is preserved — only the shape + bevel change. */
+    :root[data-theme="encarta"] .pill { border: 2px outset #dfdfdf !important; }
+    :root[data-theme="encarta"] .pill.active { border-style: inset !important; }
+    /* Every button gets the 3D bevel regardless of per-view styling. */
+    :root[data-theme="encarta"] button { border: 2px outset #dfdfdf !important; box-shadow: none !important; }
+    :root[data-theme="encarta"] button:active { border-style: inset !important; transform: none !important; }
+    /* Toggle switches → squared, beveled Win95 sliders. */
+    :root[data-theme="encarta"] .toggle-slider { border: 2px inset #dfdfdf !important; }
+    :root[data-theme="encarta"] .toggle-slider:before { border: 2px outset #dfdfdf !important; background: var(--surface) !important; }
+
     .nav-item {
       display: flex;
       align-items: center;
@@ -143,6 +383,36 @@
     /* Author display rules on view roots (flex etc.) would defeat the UA's
        [hidden] rule — force it. */
     .view[hidden] { display: none !important; }
+
+    /* Web App mode (doGet, full-screen browser tab): there's no host dialog to
+       close, so hide the Close item — the user just closes the tab. */
+    :root[data-mode="webapp"] #navClose { display: none; }
+
+    /* ── Wide-screen responsive frame ───────────────────────────────────────
+       Each view root declares a data-layout tier; its content wrapper(s) carry
+       the .app-measure marker. At width the wrapper caps to a comfortable
+       measure and centers, so extra space becomes calm gutters instead of the
+       "modal, stretched" look:
+         form       → 880px  (narrow single-column: Utilities)
+         form-wide  → 1280px (split / dense config: Run, Rules, Import, Pipedrive,
+                              Data Sources, Transcription)
+         data       → 1680px (tables: Home, VIN Logs, Normalization)
+       Gated by viewport WIDTH, intentionally NOT by [data-mode]: the modal is
+       locked at 1400 so it sits under the 1500px gate and is untouched, while
+       the full-screen browser tab AND the installed standalone window (both
+       webapp mode) get the treatment. Do not add a [data-mode] qualifier here.
+       The selector requires [data-layout] (only ever on a view root) AND the
+       .app-measure marker on a direct child, so it can't leak across the shared
+       CSS scope. A flat multi-child view (Rules, Norm) tags each content row
+       with .app-measure — same measure + auto margins keep them column-aligned. */
+    @media (min-width: 1500px) {
+      .view[data-layout="form"]      > .app-measure { max-width: var(--measure-form);      margin-inline: auto; }
+      .view[data-layout="form-wide"] > .app-measure { max-width: var(--measure-form-wide); margin-inline: auto; }
+      .view[data-layout="data"]      > .app-measure { max-width: var(--measure-data);      margin-inline: auto; }
+    }
+    @media (min-width: 2100px) {
+      .view[data-layout] > .app-measure { padding-inline: var(--gutter-wide); }
+    }
   </style>
 </head>
 <body>
@@ -191,13 +461,22 @@
           <div class="nav-item nav-sub" id="nav-view-pipedrive-settings" onclick="navTo('view-pipedrive-settings')">
             <span class="icon">&#128279;</span> Pipedrive Settings
           </div>
+          <div class="nav-item nav-sub" id="nav-view-fieldcodes" onclick="navTo('view-fieldcodes')">
+            <span class="icon">&#35;</span> Field Codes
+          </div>
         </div>
       </div>
       <div class="nav-spacer"></div>
-      <div class="nav-item" id="themeToggle" onclick="Theme.toggle()" title="Switch light / dark mode">
-        <span class="icon">&#9790;</span> <span class="label">Dark mode</span>
+      <div class="nav-item nav-theme" title="Switch theme">
+        <span class="icon" aria-hidden="true">&#127912;</span>
+        <button type="button" id="themeBtn" class="theme-btn"
+                aria-haspopup="listbox" aria-expanded="false" aria-label="Theme">
+          <span id="themeBtnLabel">Theme</span>
+          <span class="theme-caret" aria-hidden="true">&#9662;</span>
+        </button>
+        <ul id="themeMenu" class="theme-menu" role="listbox" aria-label="Theme" hidden></ul>
       </div>
-      <div class="nav-item" onclick="exitApp()">
+      <div class="nav-item" id="navClose" onclick="exitApp()">
         <span class="icon">&#10005;</span> Close SilverFox
       </div>
       <div class="nav-footer">SilverFox V2 &middot; GAS-OPS</div>
@@ -219,6 +498,7 @@
         <?!= include_('ViewNorm') ?>
         <?!= include_('ViewUtilities') ?>
         <?!= include_('ViewPipedriveSettings') ?>
+        <?!= include_('ViewFieldCodes') ?>
       </div>
     </div>
 
@@ -236,7 +516,8 @@
       'view-rules':  'Dealer Rules',
       'view-norm':   'Normalization',
       'view-utilities': 'Utilities',
-      'view-pipedrive-settings': 'Pipedrive Settings'
+      'view-pipedrive-settings': 'Pipedrive Settings',
+      'view-fieldcodes': 'Field Codes'
     };
     var _viewInited = {};
 
@@ -259,7 +540,7 @@
         items[j].classList.toggle('active', items[j].id === 'nav-' + viewId);
       }
       // Keep the System Settings group open when navigating to one of its children.
-      if (['view-rules', 'view-norm', 'view-datasources', 'view-pipedrive-settings'].indexOf(viewId) !== -1) {
+      if (['view-rules', 'view-norm', 'view-datasources', 'view-pipedrive-settings', 'view-fieldcodes'].indexOf(viewId) !== -1) {
         var sg = document.getElementById('nav-group-settings');
         if (sg) sg.classList.remove('collapsed');
       }
@@ -284,7 +565,7 @@
 
     // Mark not-yet-migrated sections in the sidebar
     function markPendingViews() {
-      var ids = ['view-run', 'view-import', 'view-datasources', 'view-vinlog', 'view-transcription', 'view-rules', 'view-norm', 'view-utilities', 'view-pipedrive-settings'];
+      var ids = ['view-run', 'view-import', 'view-datasources', 'view-vinlog', 'view-transcription', 'view-rules', 'view-norm', 'view-utilities', 'view-pipedrive-settings', 'view-fieldcodes'];
       ids.forEach(function(id) {
         if (!document.getElementById(id)) {
           var item = document.getElementById('nav-' + id);
@@ -300,12 +581,20 @@
       var msgs = AppGuards.run();
       if (msgs.length === 0 ||
           confirm('Before you close:\n\n' + msgs.join('\n') + '\n\nClose anyway?')) {
-        google.script.host.close();
+        // In a browser tab (web app) there's no host dialog to close — the Close
+        // item is hidden, but guard the path anyway.
+        if (document.documentElement.getAttribute('data-mode') === 'webapp') {
+          toast('Close the browser tab to exit.', 'info');
+        } else {
+          google.script.host.close();
+        }
       }
     }
 
     markPendingViews();
-    Theme.apply(Theme.current(), false);   // sync the toggle label to the applied theme
+    Theme.initPicker();                    // build the picker options from the registry
+    CustomSelect.start();                  // enhance native <select>s into themed dropdowns (web-app-themeable)
+    Theme.apply(Theme.current(), false);   // pin the attribute + sync the picker
     navTo('view-home');
     // Prefetch shared bootstrap data (dealers + users) while the user is on
     // Home — Run Order / VIN Logs then populate instantly on first visit.

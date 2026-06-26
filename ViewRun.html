@@ -1,7 +1,7 @@
-<div class="view" id="view-run" hidden>
+<div class="view" id="view-run" data-layout="form-wide" hidden>
 
 
-  <div class="layout">
+  <div class="layout app-measure">
 
     <!-- ── Left column: form controls + actions ─────────────────────────── -->
     <div class="col-left">
@@ -117,7 +117,7 @@
     /* ── Two-column layout (wide modal) ──────────────────────────────────── */
     #view-run .layout { display: flex; height: 100%; }
     #view-run .col-left {
-      width: 440px;
+      width: var(--col-form-side);   /* ~440 at the modal; clamps 360–440 at other widths */
       flex-shrink: 0;
       padding: 20px;
       overflow-y: auto;
@@ -133,6 +133,9 @@
       flex-direction: column;
       background: var(--bg);
     }
+    /* Keep the VIN workspace a comfortable measure on ultra-wide screens —
+       a single monospace VIN column shouldn't stretch to a 1400px slab. */
+    #view-run .col-right textarea { max-width: 1100px; }
     /* Pin actions/progress/status to the bottom of the left column */
     #view-run .actions-block { margin-top: auto; padding-top: 16px; }
 
