@@ -12,3 +12,6 @@ node_modules/**
 docs/**
 **/*.md
 .git/**
+
+# Visual-brainstorming companion scratch (local-only mockups; never Apps Script source)
+.superpowers/**
