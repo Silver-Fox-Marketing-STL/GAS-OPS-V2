@@ -36,10 +36,11 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
 - Repo: `Silver-Fox-Marketing-STL/GAS-OPS-V2` — `Code.gs` (~7,160 lines;
   Section 31 = Pipedrive integration)
   plus the **SilverFox App** (single-modal SPA, June 2026): `App.html` shell
-  (sidebar nav + `<?!= include_() ?>` templating), view fragments `ViewRun`,
-  `ViewImport`, `ViewVinLog`, `ViewTranscription` (live Found/Not-Found VIN
-  check via `getTranscriptionVins`; results render **newest-first**, 500-line cap
-  keeps the most-recent 500), `ViewRules` (a sidebar view, not a modal — two
+  (sidebar nav + `<?!= include_() ?>` templating), view fragments `ViewRun`
+  (Option-B layout — top control bar + narrow VIN box + a **live dealer-scoped
+  inventory table** populated as VINs are typed via `getDealerVinData`/`buildVinDataMap_`,
+  miss → "not in this dealer"; the old Transcription page was retired into this
+  June 26 2026), `ViewImport`, `ViewVinLog`, `ViewRules` (a sidebar view, not a modal — two
   top-level tabs `Filtering Rules | Pipedrive` with per-tab unsaved dots, a
   collapsible `<details>` Dual-Site Source Split, a unified "Per Dealer Overrides"
   collapsible, and ⓘ info-toggles; Type Rules panel removed), `ViewNorm`, `ViewUtilities`,

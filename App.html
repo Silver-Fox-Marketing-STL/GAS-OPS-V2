@@ -304,6 +304,10 @@
     /* Toggle switches → squared, beveled Win95 sliders. */
     :root[data-theme="encarta"] .toggle-slider { border: 2px inset #dfdfdf !important; }
     :root[data-theme="encarta"] .toggle-slider:before { border: 2px outset #dfdfdf !important; background: var(--surface) !important; }
+    /* Encarta — Run Order table + rail as Win95 panels */
+    :root[data-theme="encarta"] #view-run .rv-table-scroll { border: 2px inset #dfdfdf !important; }
+    :root[data-theme="encarta"] #view-run #vinDataTable th { background: var(--surface) !important; }
+    :root[data-theme="encarta"] #view-run .rv-rail { border-left: 2px inset #dfdfdf !important; }
 
     .nav-item {
       display: flex;
@@ -395,7 +399,7 @@
        "modal, stretched" look:
          form       → 880px  (narrow single-column: Utilities)
          form-wide  → 1280px (split / dense config: Run, Rules, Import, Pipedrive,
-                              Data Sources, Transcription)
+                              Data Sources)
          data       → 1680px (tables: Home, VIN Logs, Normalization)
        Gated by viewport WIDTH, intentionally NOT by [data-mode]: the modal is
        locked at 1400 so it sits under the 1500px gate and is untouched, while
@@ -431,9 +435,6 @@
       </div>
       <div class="nav-item" id="nav-view-run" onclick="navTo('view-run')">
         <span class="icon">&#9654;</span> Run Order
-      </div>
-      <div class="nav-item" id="nav-view-transcription" onclick="navTo('view-transcription')">
-        <span class="icon">&#128269;</span> Transcription
       </div>
       <div class="nav-item" id="nav-view-import" onclick="navTo('view-import')">
         <span class="icon">&#11014;</span> Import Data
@@ -493,7 +494,6 @@
         <?!= include_('ViewImport') ?>
         <?!= include_('ViewDataSources') ?>
         <?!= include_('ViewVinLog') ?>
-        <?!= include_('ViewTranscription') ?>
         <?!= include_('ViewRules') ?>
         <?!= include_('ViewNorm') ?>
         <?!= include_('ViewUtilities') ?>
@@ -509,7 +509,6 @@
     var NAV_TITLES = {
       'view-home':   'Home',
       'view-run':    'Run Order',
-      'view-transcription': 'Transcription',
       'view-import': 'Import Data',
       'view-datasources': 'Data Sources',
       'view-vinlog': 'VIN Logs',
@@ -565,7 +564,7 @@
 
     // Mark not-yet-migrated sections in the sidebar
     function markPendingViews() {
-      var ids = ['view-run', 'view-import', 'view-datasources', 'view-vinlog', 'view-transcription', 'view-rules', 'view-norm', 'view-utilities', 'view-pipedrive-settings', 'view-fieldcodes'];
+      var ids = ['view-run', 'view-import', 'view-datasources', 'view-vinlog', 'view-rules', 'view-norm', 'view-utilities', 'view-pipedrive-settings', 'view-fieldcodes'];
       ids.forEach(function(id) {
         if (!document.getElementById(id)) {
           var item = document.getElementById('nav-' + id);

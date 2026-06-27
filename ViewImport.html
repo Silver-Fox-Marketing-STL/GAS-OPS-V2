@@ -44,7 +44,50 @@
 
     <div class="modal-footer">
       <div id="importStatus" class="status-bar empty">&nbsp;</div>
+      <button class="btn-secondary" onclick="showCurrentData()">Browse Current Data</button>
       <button class="btn-primary" id="importBtn" onclick="runImport()" disabled>Import Data</button>
+    </div>
+
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════════════════════
+       CURRENT DATA PANEL
+  ════════════════════════════════════════════════════════════════════════════ -->
+  <div id="currentDataPanel" style="display:none;flex-direction:column;height:100%;">
+
+    <div class="modal-header">
+      <h3>Current Inventory Data</h3>
+      <div class="subtitle">Current SCRAPERDATA snapshot — up to 500 rows per filter selection.</div>
+    </div>
+
+    <div class="cd-filters">
+      <select id="cdLocFilter" onchange="loadCurrentData()">
+        <option value="">All Locations</option>
+      </select>
+      <select id="cdTypeFilter" onchange="loadCurrentData()">
+        <option value="">All Types</option>
+      </select>
+      <span class="cd-count" id="cdCount"></span>
+    </div>
+
+    <div class="cd-table-wrap">
+      <table id="cdTable">
+        <thead>
+          <tr>
+            <th>VIN</th><th>Stock</th><th>Type</th><th>Year</th>
+            <th>Make</th><th>Model</th><th>Trim</th><th>Status</th>
+            <th>Price</th><th>Location</th><th>Link</th>
+          </tr>
+        </thead>
+        <tbody id="cdBody">
+          <tr><td colspan="11" class="cd-loading">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="modal-footer">
+      <div class="status-bar empty">&nbsp;</div>
+      <button class="btn-secondary" onclick="hideCurrentData()">&#8592; Back to Import</button>
     </div>
 
   </div>
@@ -406,6 +449,76 @@
        REVIEW PANEL
     ════════════════════════════════════════════════════════════════════════════ */
     #view-import #reviewPanel { display: none; }
+    #view-import #currentDataPanel { display: none; }
+
+    /* ── Current Data panel ──────────────────────────────────────────────────── */
+    #view-import .cd-filters {
+      padding: 8px 18px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      background: var(--surface);
+    }
+    #view-import .cd-filters select {
+      padding: 5px 8px;
+      font-size: 12px;
+      border: 1px solid var(--border-2);
+      border-radius: 4px;
+      background: var(--bg);
+      color: var(--text);
+      max-width: 280px;
+    }
+    #view-import .cd-count {
+      font-size: 11px;
+      color: var(--text-3);
+      margin-left: auto;
+    }
+    #view-import .cd-table-wrap {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+    }
+    #view-import #cdTable {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+    #view-import #cdTable th {
+      position: sticky;
+      top: 0;
+      background: var(--surface-2);
+      color: var(--text-2);
+      text-align: left;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .03em;
+      padding: 5px 8px;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    #view-import #cdTable td {
+      padding: 4px 8px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 150px;
+    }
+    #view-import #cdTable td.cd-mono { font-family: monospace; font-size: 11px; color: var(--text-2); }
+    #view-import #cdTable td.cd-trim { max-width: 120px; }
+    #view-import #cdTable td a { color: var(--accent); text-decoration: none; }
+    #view-import #cdTable td a:hover { text-decoration: underline; }
+    #view-import #cdTable tr:hover td { background: var(--surface); }
+    #view-import #cdTable .cd-loading {
+      text-align: center;
+      color: var(--text-muted);
+      padding: 28px;
+      font-style: italic;
+    }
 
     #view-import .review-hero {
       display: flex;
@@ -1136,4 +1249,90 @@
     }
     VIEW_INITS['view-import'] = initImportView_;
     VIEW_SHOWN['view-import'] = loadImportSchema_;
+
+    /* ── Current Data panel ─────────────────────────────────────────────────── */
+    var _cdFirstLoad = true;
+
+    function showCurrentData() {
+      document.getElementById('importForm').style.display    = 'none';
+      document.getElementById('conflictPanel').style.display = 'none';
+      document.getElementById('reviewPanel').style.display   = 'none';
+      document.getElementById('currentDataPanel').style.display = 'flex';
+      if (_cdFirstLoad) { _cdFirstLoad = false; loadCurrentData(); }
+    }
+
+    function hideCurrentData() {
+      document.getElementById('currentDataPanel').style.display = 'none';
+      document.getElementById('importForm').style.display       = 'flex';
+    }
+
+    function loadCurrentData() {
+      var loc  = document.getElementById('cdLocFilter').value  || null;
+      var type = document.getElementById('cdTypeFilter').value || null;
+      document.getElementById('cdBody').innerHTML =
+        '<tr><td colspan="11" class="cd-loading">Loading…</td></tr>';
+      document.getElementById('cdCount').textContent = '';
+      google.script.run
+        .withSuccessHandler(renderCurrentData)
+        .withFailureHandler(function(e) {
+          document.getElementById('cdBody').innerHTML =
+            '<tr><td colspan="11" class="cd-loading">Failed to load: ' +
+            escHtml(e.message || String(e)) + '</td></tr>';
+        })
+        .getScraperDataPreview(loc, type);
+    }
+
+    function renderCurrentData(result) {
+      var rows     = result.rows     || [];
+      var locs     = result.locations || [];
+      var types    = result.types    || [];
+      var total    = result.totalCount || 0;
+      var cap      = result.cappedAt   || 3000;
+
+      // Rebuild filter options while preserving the current selection
+      var locSel  = document.getElementById('cdLocFilter');
+      var typeSel = document.getElementById('cdTypeFilter');
+      var curLoc  = locSel.value;
+      var curType = typeSel.value;
+
+      locSel.innerHTML = '<option value="">All Locations</option>' +
+        locs.map(function(l) {
+          return '<option value="' + escHtml(l) + '"' + (l === curLoc ? ' selected' : '') + '>' + escHtml(l) + '</option>';
+        }).join('');
+      typeSel.innerHTML = '<option value="">All Types</option>' +
+        types.map(function(t) {
+          return '<option value="' + escHtml(t) + '"' + (t === curType ? ' selected' : '') + '>' + escHtml(t) + '</option>';
+        }).join('');
+
+      document.getElementById('cdCount').textContent =
+        total > cap ? ('Showing first ' + cap + ' of ' + total + ' vehicles') : (total + ' vehicles');
+
+      if (!rows.length) {
+        document.getElementById('cdBody').innerHTML =
+          '<tr><td colspan="11" class="cd-loading">No vehicles match the selected filters.</td></tr>';
+        return;
+      }
+
+      var html = '';
+      for (var i = 0; i < rows.length; i++) {
+        var r = rows[i];
+        var urlCell = (r.url && r.url !== '*')
+          ? '<a href="' + escHtml(r.url) + '" target="_blank" rel="noopener">URL</a>'
+          : '—';
+        html += '<tr>' +
+          '<td class="cd-mono">' + escHtml(r.vin)      + '</td>' +
+          '<td>'                 + escHtml(r.stock)     + '</td>' +
+          '<td>'                 + escHtml(r.type)      + '</td>' +
+          '<td>'                 + escHtml(r.year)      + '</td>' +
+          '<td>'                 + escHtml(r.make)      + '</td>' +
+          '<td>'                 + escHtml(r.model)     + '</td>' +
+          '<td class="cd-trim">' + escHtml(r.trim)      + '</td>' +
+          '<td>'                 + escHtml(r.status)    + '</td>' +
+          '<td>'                 + escHtml(r.price)     + '</td>' +
+          '<td>'                 + escHtml(r.location)  + '</td>' +
+          '<td>'                 + urlCell               + '</td>' +
+        '</tr>';
+      }
+      document.getElementById('cdBody').innerHTML = html;
+    }
 </script>

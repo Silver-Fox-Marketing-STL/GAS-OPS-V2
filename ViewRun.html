@@ -1,60 +1,99 @@
-<div class="view" id="view-run" data-layout="form-wide" hidden>
+<div class="view" id="view-run" data-layout="data" hidden>
 
+  <div class="rv-wrap app-measure">
 
-  <div class="layout app-measure">
+    <!-- TOP BAR: setup controls (primary row) + secondary row -->
+    <div class="rv-topbar">
+      <div class="rv-topbar-main">
 
-    <!-- ── Left column: form controls + actions ─────────────────────────── -->
-    <div class="col-left">
+        <div class="rv-topbar-inputs">
+          <div class="user-select-wrap">
+            <label for="userSelect">Running as</label>
+            <select id="userSelect">
+              <option value="">-- Loading... --</option>
+            </select>
+          </div>
 
-      <div class="user-select-wrap">
-        <label for="userSelect">Running as</label>
-        <select id="userSelect">
-          <option value="">-- Loading... --</option>
-        </select>
-      </div>
+          <div>
+            <label for="runDealerSelect">Dealer</label>
+            <select id="runDealerSelect">
+              <option value="">-- Loading dealers... --</option>
+            </select>
+          </div>
 
-      <label for="runDealerSelect">Dealer</label>
-      <select id="runDealerSelect">
-        <option value="">-- Loading dealers... --</option>
-      </select>
+          <div>
+            <label for="dealId">Pipedrive Deal ID</label>
+            <input type="text" id="dealId" placeholder="e.g. 44021" />
+            <div class="field-hint">Optional. Pre-fills the finalization step shown after the run.</div>
+          </div>
 
-      <!-- VIN log status row (shown after dealer selected) -->
-      <div id="vinLogStatusRow">
-        <span class="log-label">Most recent order in log: <span id="vinLogOrderSpan">—</span></span>
-        <button id="openVinLogBtn" onclick="openVinLogUpdater()">&#x1F4CB; Update VIN Log</button>
-      </div>
+          <!-- Second deal ID — shown only for dealers with a billing_split configured -->
+          <div id="splitDealRow" style="display:none;">
+            <label for="splitDealId" id="splitDealLabel">Second Deal ID</label>
+            <input type="text" id="splitDealId" placeholder="e.g. 44022" />
+            <div class="field-hint" id="splitDealHint">Optional. This dealer bills these units to a separate Pipedrive deal — entered or confirmed after the run.</div>
+          </div>
+        </div>
 
-      <label for="dealId">Pipedrive Deal ID</label>
-      <input type="text" id="dealId" placeholder="e.g. 44021" />
-      <div class="field-hint">Optional. Pre-fills the finalization step shown after the run.</div>
-
-      <!-- Second deal ID — shown only for dealers with a billing_split configured -->
-      <div id="splitDealRow" style="display:none;">
-        <label for="splitDealId" id="splitDealLabel">Second Deal ID</label>
-        <input type="text" id="splitDealId" placeholder="e.g. 44022" />
-        <div class="field-hint" id="splitDealHint">Optional. This dealer bills these units to a separate Pipedrive deal — entered or confirmed after the run.</div>
-      </div>
-
-      <label class="bypass-label">
-        <input type="checkbox" id="bypassFilters" />
-        Bypass filtering rules
-        <span class="bypass-hint">Use if a vehicle is being incorrectly filtered out</span>
-      </label>
-
-      <div id="caoSummary">
-        <div class="summary-row"><span>Total inventory</span><span id="sTotal">—</span></div>
-        <div class="summary-row"><span>After filters</span><span id="sFiltered">—</span></div>
-        <div id="rejectionRows"></div>
-        <hr class="summary-divider">
-        <div class="summary-row"><span>Already printed</span><span id="sPrinted">—</span></div>
-        <hr class="summary-divider">
-        <div class="summary-row summary-net"><span><b>Net new (pre-filled)</b></span><span id="sNetNew">—</span></div>
-      </div>
-
-      <div class="actions-block">
-        <div class="btn-row">
+        <div class="rv-topbar-actions">
+          <button id="caoBtn" onclick="prefillFromCAO()" disabled>&#x21BA; Pre-fill from CAO</button>
           <button class="btn-primary" id="runBtn" onclick="runSelected()" disabled>Run Dealer</button>
           <button class="btn-secondary" id="cancelBtn" onclick="closeModal()">Cancel</button>
+        </div>
+
+      </div>
+      <div class="rv-topbar-sub">
+        <!-- VIN log status row (shown after dealer selected) -->
+        <div id="vinLogStatusRow">
+          <span class="log-label">Most recent order in log: <span id="vinLogOrderSpan">—</span></span>
+          <button id="openVinLogBtn" onclick="openVinLogUpdater()">&#x1F4CB; Update VIN Log</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- BODY: VIN box | data table | reserved rail -->
+    <div class="rv-body">
+
+      <div class="rv-vinzone">
+        <label for="vinInput">VINs / Stock Numbers</label>
+        <textarea id="vinInput" placeholder="Paste VINs here, one per line..."></textarea>
+        <label class="bypass-label">
+          <input type="checkbox" id="bypassFilters" />
+          Bypass filtering rules
+          <span class="bypass-hint">Use if a vehicle is being incorrectly filtered out</span>
+        </label>
+        <div class="vin-count" id="runVinCount"></div>
+        <div class="rv-matchcount" id="vinMatchCount"></div>
+      </div>
+
+      <div class="rv-tablezone">
+        <div class="rv-zone-label">Inventory match</div>
+        <div class="rv-table-scroll">
+          <table id="vinDataTable">
+            <thead>
+              <tr>
+                <th>Year</th><th>Make</th><th>Model</th><th>Type</th>
+                <th>Stock</th><th>VIN</th><th>Status</th><th>Link</th>
+              </tr>
+            </thead>
+            <tbody id="vinDataBody">
+              <tr class="rv-empty-row"><td colspan="8">Select a dealer, then enter VINs to check them.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="rv-rail">
+        <!-- CAO summary, progress, post-run actions, and run status stack here;
+             existing JS toggles their display. -->
+        <div id="caoSummary">
+          <div class="summary-row"><span>Total inventory</span><span id="sTotal">—</span></div>
+          <div class="summary-row"><span>After filters</span><span id="sFiltered">—</span></div>
+          <div id="rejectionRows"></div>
+          <hr class="summary-divider">
+          <div class="summary-row"><span>Already printed</span><span id="sPrinted">—</span></div>
+          <hr class="summary-divider">
+          <div class="summary-row summary-net"><span><b>Net new (pre-filled)</b></span><span id="sNetNew">—</span></div>
         </div>
 
         <!-- Progress bar — shown during run -->
@@ -83,22 +122,11 @@
         </div>
 
         <div id="runStatus" class="empty"></div>
+
+        <div class="rv-rail-hint" id="rvRailHint">Pre-fill from CAO or paste VINs, then Run.</div>
       </div>
 
     </div>
-
-    <!-- ── Right column: full-height VIN workspace ──────────────────────── -->
-    <div class="col-right">
-      <div class="cao-row" style="margin-top: 0;">
-        <label for="vinInput">VINs / Stock Numbers</label>
-        <button id="fillTrBtn" onclick="fillFromTranscription()">&#128269; Fill from Transcription</button>
-        <button id="caoBtn" onclick="prefillFromCAO()" disabled>&#x21BA; Pre-fill from CAO</button>
-      </div>
-
-      <textarea id="vinInput" placeholder="Paste VINs here, one per line..."></textarea>
-      <div class="vin-count" id="runVinCount"></div>
-    </div>
-
   </div>
 </div>
 
@@ -114,30 +142,36 @@
       overflow: hidden;
     }
 
-    /* ── Two-column layout (wide modal) ──────────────────────────────────── */
-    #view-run .layout { display: flex; height: 100%; }
-    #view-run .col-left {
-      width: var(--col-form-side);   /* ~440 at the modal; clamps 360–440 at other widths */
-      flex-shrink: 0;
-      padding: 20px;
-      overflow-y: auto;
-      border-right: 1px solid var(--border);
-      display: flex;
-      flex-direction: column;
-    }
-    #view-run .col-right {
-      flex: 1;
-      min-width: 0;
-      padding: 20px;
-      display: flex;
-      flex-direction: column;
-      background: var(--bg);
-    }
-    /* Keep the VIN workspace a comfortable measure on ultra-wide screens —
-       a single monospace VIN column shouldn't stretch to a 1400px slab. */
-    #view-run .col-right textarea { max-width: 1100px; }
-    /* Pin actions/progress/status to the bottom of the left column */
-    #view-run .actions-block { margin-top: auto; padding-top: 16px; }
+    /* ── Option B layout: top bar + 3-zone body ─────────────────────────── */
+    #view-run .rv-wrap { display: flex; flex-direction: column; height: 100%; min-height: 0; gap: var(--space-3); padding: var(--space-3); }
+    #view-run .rv-topbar { display: flex; flex-direction: column; gap: var(--space-2); }
+    #view-run .rv-topbar-main { display: flex; align-items: flex-start; gap: var(--space-3); }
+    #view-run .rv-topbar-inputs { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-3); }
+    #view-run .rv-topbar-actions { flex-shrink: 0; display: flex; flex-direction: column; gap: var(--space-2); padding-top: 18px; }
+    #view-run .rv-topbar-actions button { width: 100%; white-space: nowrap; }
+    #view-run .rv-topbar-sub  { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); font-size: var(--fs-sm); color: var(--text-2); }
+    #view-run .rv-body { display: flex; gap: var(--space-3); flex: 1; min-height: 0; }
+    #view-run .rv-vinzone { flex: 0 0 250px; display: flex; flex-direction: column; min-height: 0; }
+    #view-run .rv-tablezone { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+    #view-run .rv-rail { flex: 0 0 280px; display: flex; flex-direction: column; min-height: 0; overflow-y: auto;
+                         border-left: 1px solid var(--border); padding-left: var(--space-3); }
+    #view-run .rv-zone-label { font-size: var(--fs-overline); text-transform: uppercase; letter-spacing: .04em; color: var(--text-3); margin-bottom: var(--space-2); }
+    #view-run .rv-matchcount { font-size: var(--fs-sm); color: var(--text-2); margin-top: var(--space-2); }
+    #view-run .rv-rail-hint { font-size: var(--fs-sm); color: var(--text-muted); padding: var(--space-2) 0; }
+
+    /* Data table — token-bound, tabular figures, like the dash/runs tables */
+    #view-run .rv-table-scroll { flex: 1; min-height: 0; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+    #view-run #vinDataTable { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+    #view-run #vinDataTable th { position: sticky; top: 0; background: var(--surface-2); color: var(--text-2);
+                                 text-align: left; font-size: var(--fs-overline); text-transform: uppercase; letter-spacing: .03em;
+                                 padding: 6px 8px; border-bottom: 1px solid var(--border); }
+    #view-run #vinDataTable td { padding: 5px 8px; border-bottom: 1px solid var(--border); color: var(--text); white-space: nowrap; }
+    #view-run #vinDataTable td.rv-vin { font-family: monospace; color: var(--text-2); }
+    #view-run #vinDataTable tr.rv-notfound td { color: var(--danger); background: var(--danger-weak); }
+    #view-run #vinDataTable tr.rv-empty-row td { color: var(--text-muted); text-align: center; padding: var(--space-4); }
+    #view-run #vinDataTable td.rv-link { white-space: nowrap; }
+    #view-run #vinDataTable td.rv-link a { color: var(--accent); text-decoration: none; font-size: var(--fs-sm); }
+    #view-run #vinDataTable td.rv-link a:hover { text-decoration: underline; }
 
     #view-run label {
       display: block;
@@ -166,13 +200,14 @@
     }
     #view-run textarea {
       flex: 1;
-      min-height: 150px;
+      min-height: 0;
       resize: none;
       font-family: monospace;
       font-size: 12px;
       line-height: 1.6;
       background: var(--bg);
       color: var(--text);
+      width: 100%;
     }
     #view-run .vin-count { font-size: 11px; color: var(--text-3); margin-top: 4px; min-height: 16px; }
     #view-run .field-hint { font-size: 11px; color: var(--text-3); margin-top: 3px; }
@@ -205,7 +240,6 @@
       display: none;
       align-items: center;
       gap: 8px;
-      margin-top: 7px;
       font-size: 11px;
       color: var(--text-2);
     }
@@ -233,20 +267,18 @@
     }
     #view-run #openVinLogBtn:hover { background: var(--accent-weak); }
 
-    /* ── CAO row ─────────────────────────────────────────────────────────── */
-    #view-run .cao-row { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
-    #view-run .cao-row label { margin: 0; flex: 1; }
-    #view-run #caoBtn, #view-run #fillTrBtn {
+    /* ── CAO button ──────────────────────────────────────────────────────── */
+    #view-run #caoBtn {
       padding: 6px 12px; font-size: 12px; font-weight: bold;
       background: var(--bg); color: var(--accent); border: 1.5px solid var(--accent);
       border-radius: 4px; cursor: pointer; white-space: nowrap; width: auto; margin: 0;
     }
-    #view-run #caoBtn:hover, #view-run #fillTrBtn:hover { background: var(--accent-weak); }
-    #view-run #caoBtn:disabled, #view-run #fillTrBtn:disabled { background: var(--surface); color: var(--text-muted); border-color: var(--border-2); cursor: default; }
+    #view-run #caoBtn:hover { background: var(--accent-weak); }
+    #view-run #caoBtn:disabled { background: var(--surface); color: var(--text-muted); border-color: var(--border-2); cursor: default; }
 
     /* ── CAO summary ─────────────────────────────────────────────────────── */
     #view-run #caoSummary {
-      display: none; margin-top: 8px; padding: 8px 10px;
+      display: none; margin-bottom: var(--space-3); padding: 8px 10px;
       background: var(--surface); border: 1px solid var(--border); border-radius: 4px;
       font-size: 11px; line-height: 1.7;
     }
@@ -257,9 +289,8 @@
     #view-run #caoSummary .rejection-detail { color: var(--text-3); font-size: 10.5px; margin-top: 2px; }
 
     /* ── Run / Cancel buttons ────────────────────────────────────────────── */
-    #view-run .btn-row { display: flex; gap: 10px; margin-top: 16px; }
     #view-run .btn-primary {
-      flex: 1; padding: 10px; background: var(--accent); color: var(--on-accent);
+      padding: 10px 18px; background: var(--accent); color: var(--on-accent);
       border: none; font-size: 14px; font-weight: bold; cursor: pointer; border-radius: 4px;
     }
     #view-run .btn-primary:hover { background: var(--accent-hover); }
@@ -272,7 +303,7 @@
 
     /* ── Progress section ────────────────────────────────────────────────── */
     #view-run #progressSection {
-      display: none; margin-top: 16px; padding: 12px;
+      display: none; margin-bottom: var(--space-3); padding: 12px;
       background: var(--surface); border: 1px solid var(--border); border-radius: 4px;
     }
     #view-run #progressStep {
@@ -297,7 +328,7 @@
     /* ── Post-run actions ────────────────────────────────────────────────── */
     #view-run #postRunActions {
       display: none;
-      margin-top: 12px;
+      margin-bottom: var(--space-3);
     }
     #view-run .post-run-row {
       display: flex;
@@ -447,7 +478,7 @@
 
     /* ── Status bar ──────────────────────────────────────────────────────── */
     #view-run #runStatus {
-      margin-top: 12px; font-size: 12px; min-height: 18px;
+      font-size: 12px; min-height: 18px;
       padding: 6px 8px; border-radius: 4px;
     }
     #view-run #runStatus.error { background: var(--danger-weak); color: var(--danger); }
@@ -457,6 +488,17 @@
 
     /* themed root (overrides the interim .view light guard) */
     #view-run { background: var(--bg); color: var(--text); }
+
+    /* ── Type pills in the VIN data table (tokens from SharedUtils) ──────── */
+    #view-run .pill {
+      display: inline-block; padding: 2px 8px; font-size: 11px; font-weight: 600;
+      border-radius: 10px; border: 1.5px solid var(--border-2);
+      background: var(--surface-2); color: var(--text-2); line-height: 1.5;
+    }
+    #view-run .pill.type-new.active   { background: var(--type-new);   border-color: var(--type-new);   color: var(--on-type); }
+    #view-run .pill.type-po.active    { background: var(--type-po);    border-color: var(--type-po);    color: var(--on-type); }
+    #view-run .pill.type-cpo.active   { background: var(--type-cpo);   border-color: var(--type-cpo);   color: var(--on-type); }
+    #view-run .pill.type-cpoel.active { background: var(--type-cpoel); border-color: var(--type-cpoel); color: var(--on-type); }
 </style>
 
 <script>
@@ -529,6 +571,10 @@
     document.getElementById('vinInput').addEventListener('input', function() {
       updateRunVinCount(); updateButtons(); hideCaoSummary();
     });
+    document.getElementById('vinInput').addEventListener('input', function() {
+      if (rvDebounce) clearTimeout(rvDebounce);
+      rvDebounce = setTimeout(rvRenderTable, 250);
+    });
     document.getElementById('runDealerSelect').addEventListener('change', function() {
       // Switching dealers discards any un-finalized run results — confirm first.
       if (!discardPendingGuard()) {
@@ -542,6 +588,8 @@
       document.getElementById('vinInput').value = '';
       updateRunVinCount();
       hidePostRunActions();
+
+      rvLoadDealerData(key);
 
       if (!key) {
         document.getElementById('vinLogStatusRow').style.display = 'none';
@@ -580,13 +628,14 @@
     }
 
     // Appends VINs to the textarea WITHOUT clearing what's there, so CAO and
-    // Transcription fills stack into one combined list. (Dedup happens at submit.)
+    // manual fills stack into one combined list. (Dedup happens at submit.)
     function appendVins(list) {
       if (!list || !list.length) return;
       var ta  = document.getElementById('vinInput');
       var cur = ta.value.replace(/\s+$/, '');
       ta.value = (cur === '' ? '' : cur + '\n') + list.join('\n');
       updateRunVinCount(); updateButtons();
+      rvRenderTable();   // a programmatic .value set does NOT fire the input event, so render the table explicitly (CAO pre-fill)
     }
 
     // Case-insensitive, order-preserving de-dup of a VIN list.
@@ -598,21 +647,6 @@
         seen[k] = 1; out.push(list[i]);
       }
       return out;
-    }
-
-    // Pull the VINs the user typed/verified in the Transcription view (hidden
-    // views keep their state) and append them to the order list.
-    function fillFromTranscription() {
-      var src  = document.getElementById('trInput');
-      var list = !src ? [] : src.value.split(/\r?\n/)
-        .map(function(v) { return v.trim(); }).filter(function(v) { return v !== ''; });
-      if (!list.length) {
-        setRunStatus('No VINs in the Transcription tab yet — open Transcription and enter some first.', 'info');
-        return;
-      }
-      appendVins(list);
-      setRunStatus('Added ' + list.length + ' VIN' + (list.length === 1 ? '' : 's') +
-                   ' from Transcription.', 'success');
     }
 
     function updateRunVinCount() {
@@ -1289,5 +1323,91 @@
     function setRunStatus(msg, type) {
       var el = document.getElementById('runStatus');
       el.textContent = msg; el.className = type || 'empty';
+    }
+
+    // ── Run Order live VIN table ──────────────────────────────────────────────
+    var rvVinData = { dealerKey: '', map: {} };
+    var rvDebounce = null;
+
+    function rvLoadDealerData(dealerKey) {
+      rvVinData = { dealerKey: dealerKey, map: {} };   // clear immediately
+      rvRenderTable();
+      if (!dealerKey) return;
+      google.script.run
+        .withSuccessHandler(function(map) {
+          // ignore a stale response if a newer load superseded this one (compare
+          // internal state, NOT the DOM — the native select is hidden behind the
+          // CustomSelect enhancer, so reading its .value here is unreliable)
+          if (rvVinData.dealerKey !== dealerKey) return;
+          rvVinData = { dealerKey: dealerKey, map: map || {} };
+          rvRenderTable();
+        })
+        .withFailureHandler(function() {})
+        .getDealerVinData(dealerKey);
+    }
+
+    function rvRenderTable() {
+      var body = document.getElementById('vinDataBody');
+      var countEl = document.getElementById('vinMatchCount');
+      if (!body) return;
+      // Safety net: if the loaded data doesn't match the currently-selected dealer
+      // (a missed change event, a pre-selected dealer, or a CAO-before-load race),
+      // (re)load it — rvLoadDealerData re-renders on success.
+      var sel = document.getElementById('runDealerSelect');
+      var curDealer = sel ? sel.value : '';
+      if (curDealer && rvVinData.dealerKey !== curDealer) { rvLoadDealerData(curDealer); return; }
+      var raw = (document.getElementById('vinInput').value || '').split(/\r?\n/);
+      var lines = [];
+      for (var i = 0; i < raw.length; i++) { var v = raw[i].trim(); if (v) lines.push(v); }
+
+      if (!lines.length) {
+        body.innerHTML = '<tr class="rv-empty-row"><td colspan="8">' +
+          (rvVinData.dealerKey ? 'Enter VINs to check them against this dealer.' : 'Select a dealer, then enter VINs to check them.') +
+          '</td></tr>';
+        if (countEl) countEl.textContent = '';
+        return;
+      }
+
+      var html = '', found = 0;
+      for (var j = 0; j < lines.length; j++) {
+        var key = lines[j].toUpperCase();
+        var d = rvVinData.map[key];
+        if (d) {
+          found++;
+          var urlCell = (d.url && d.url !== '*')
+            ? '<a href="' + escHtml(d.url) + '" target="_blank" rel="noopener">Vehicle URL</a>'
+            : '—';
+          html += '<tr>' +
+            '<td>' + escHtml(d.year)  + '</td>' +
+            '<td>' + escHtml(d.make)  + '</td>' +
+            '<td>' + escHtml(d.model) + '</td>' +
+            '<td>' + rvTypePill(d.type) + '</td>' +
+            '<td>' + escHtml(d.stock) + '</td>' +
+            '<td class="rv-vin">' + escHtml(lines[j]) + '</td>' +
+            '<td>' + escHtml(d.status) + '</td>' +
+            '<td class="rv-link">' + urlCell + '</td>' +
+          '</tr>';
+        } else {
+          html += '<tr class="rv-notfound">' +
+            '<td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>' +
+            '<td class="rv-vin">' + escHtml(lines[j]) + '</td>' +
+            '<td>⚠ not in this dealer</td>' +
+            '<td>—</td>' +
+          '</tr>';
+        }
+      }
+      body.innerHTML = html;
+      if (countEl) countEl.textContent = lines.length + ' VINs · ' + found + ' found · ' + (lines.length - found) + ' not found';
+    }
+
+    // Reuse the themed type-pill classes (.pill + .type-*) so it themes everywhere.
+    function rvTypePill(type) {
+      var t = String(type || '').trim();
+      var cls = t.toUpperCase() === 'NEW' ? 'type-new'
+              : t.toUpperCase() === 'PO'  ? 'type-po'
+              : t.toUpperCase() === 'CPO' ? 'type-cpo'
+              : t.toUpperCase() === 'CPO-EL' ? 'type-cpoel' : '';
+      if (!t) return '';
+      return '<span class="pill ' + cls + ' active" style="cursor:default">' + escHtml(t) + '</span>';
     }
 </script>

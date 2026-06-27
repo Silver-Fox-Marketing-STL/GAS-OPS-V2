@@ -77,6 +77,19 @@
     </div>
 
   </div>
+
+  <!-- VIN list popup — fixed overlay, shown by showVinPopup(idx) -->
+  <div id="vlVinPopup" onclick="if(event.target===this)closeVinPopup()">
+    <div class="vl-popup-card">
+      <p class="vl-popup-title" id="vlVinPopupTitle">VINs</p>
+      <textarea id="vlVinPopupText" readonly></textarea>
+      <div class="vl-popup-actions">
+        <button id="vlVinCopyBtn" onclick="vlCopyVins()">Copy</button>
+        <button class="btn-secondary" onclick="closeVinPopup()">Close</button>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <style>
@@ -230,6 +243,37 @@
     #view-vinlog .status-pending { background: var(--warning-weak); color: var(--warning-strong); }
     #view-vinlog .status-committed { background: var(--success-weak); color: var(--success); }
     #view-vinlog .status-rolled_back { background: var(--danger-weak); color: var(--danger); }
+
+    /* ── Show VINs button (inside runs table VIN count cell) ──────────────── */
+    #view-vinlog .vl-show-vins-btn {
+      font-size: 10px; padding: 2px 6px; margin-left: 5px; vertical-align: middle;
+      border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text-2);
+      border-radius: 3px; cursor: pointer; line-height: 1.4;
+    }
+    #view-vinlog .vl-show-vins-btn:hover { background: var(--bg); color: var(--text); }
+
+    /* ── VIN popup overlay ────────────────────────────────────────────────── */
+    #vlVinPopup {
+      display: none; position: fixed; inset: 0; z-index: 1000;
+      background: rgba(0,0,0,0.45); align-items: center; justify-content: center;
+    }
+    #vlVinPopup .vl-popup-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius, 6px); padding: 20px;
+      width: 360px; max-height: 68vh;
+      display: flex; flex-direction: column; gap: 12px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.28);
+    }
+    #vlVinPopup .vl-popup-title {
+      margin: 0; font-size: 13px; font-weight: bold; color: var(--text);
+    }
+    #vlVinPopup #vlVinPopupText {
+      flex: 1; min-height: 120px; resize: none;
+      font-family: monospace; font-size: 12px; line-height: 1.7;
+      border: 1px solid var(--border-2); border-radius: 4px;
+      background: var(--bg); color: var(--text); padding: 8px;
+    }
+    #vlVinPopup .vl-popup-actions { display: flex; gap: 8px; justify-content: flex-end; }
 
     /* ── Action panel ──────────────────────────────────────────────────────── */
     #view-vinlog #actionPanel {
@@ -538,10 +582,14 @@
         var noteBadge = (run.note && run.note.indexOf('SPLIT:') === 0)
           ? ' <span style="font-size:10px;background:var(--info-weak);color:var(--info);border-radius:3px;padding:1px 5px;white-space:nowrap;">' + run.note + '</span>'
           : '';
+        var vinCell = run.vinCount +
+          (run.producedVins && run.producedVins.length
+            ? ' <button class="vl-show-vins-btn" onclick="event.stopPropagation();showVinPopup(' + idx + ')">Show VINs</button>'
+            : '');
         html += '<tr data-idx="' + idx + '" onclick="selectRun(' + idx + ', this)">' +
           '<td>' + run.timestamp + noteBadge + '</td>' +
           '<td>' + (run.dealId || '<em style="color:var(--text-muted)">—</em>') + '</td>' +
-          '<td>' + run.vinCount + '</td>' +
+          '<td>' + vinCell + '</td>' +
           '<td><span class="status-badge ' + statusClass + '">' + statusLabel + '</span></td>' +
           '</tr>';
       });
@@ -831,5 +879,29 @@
     function setVinlogStatus(msg, type) {
       var el = document.getElementById('vinlogStatus');
       el.textContent = msg; el.className = type || 'empty';
+    }
+
+    function showVinPopup(idx) {
+      var runs = document.getElementById('runsContainer')._runs;
+      var run = runs[idx];
+      var vins = run.producedVins || [];
+      document.getElementById('vlVinPopupTitle').textContent =
+        'VINs – Deal ' + (run.dealId || '—') + ' (' + vins.length + ')';
+      document.getElementById('vlVinPopupText').value = vins.join('\n');
+      document.getElementById('vlVinCopyBtn').textContent = 'Copy';
+      document.getElementById('vlVinPopup').style.display = 'flex';
+    }
+
+    function closeVinPopup() {
+      document.getElementById('vlVinPopup').style.display = 'none';
+    }
+
+    function vlCopyVins() {
+      var ta = document.getElementById('vlVinPopupText');
+      ta.select();
+      try { document.execCommand('copy'); } catch (_e) {}
+      var btn = document.getElementById('vlVinCopyBtn');
+      btn.textContent = '✓ Copied';
+      setTimeout(function() { btn.textContent = 'Copy'; }, 1600);
     }
 </script>
