@@ -626,6 +626,7 @@
       var cur = ta.value.replace(/\s+$/, '');
       ta.value = (cur === '' ? '' : cur + '\n') + list.join('\n');
       updateRunVinCount(); updateButtons();
+      rvRenderTable();   // a programmatic .value set does NOT fire the input event, so render the table explicitly (CAO pre-fill)
     }
 
     // Case-insensitive, order-preserving de-dup of a VIN list.
