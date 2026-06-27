@@ -1356,12 +1356,16 @@ function getDealerVinData(dealerKey) {
  * present in the data (unfiltered) for populating the filter dropdowns.
  */
 function getScraperDataPreview(locationFilter, typeFilter) {
+  // Max rows returned to the client. SCRAPERDATA is the COMBINED all-dealer feed
+  // (10k+ rows), so this caps the unfiltered "All Locations" view for payload/render
+  // safety; a single dealer (≤ ~1000 vehicles) is never truncated by it.
+  var CAP = 3000;
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sheet = ss.getSheetByName('SCRAPERDATA');
-    if (!sheet) return { rows: [], totalCount: 0, cappedAt: 500, locations: [], types: [] };
+    if (!sheet) return { rows: [], totalCount: 0, cappedAt: CAP, locations: [], types: [] };
     var lastRow = sheet.getLastRow();
-    if (lastRow < 2) return { rows: [], totalCount: 0, cappedAt: 500, locations: [], types: [] };
+    if (lastRow < 2) return { rows: [], totalCount: 0, cappedAt: CAP, locations: [], types: [] };
     var data = sheet.getRange(2, 1, lastRow - 1, 21).getValues();
     var locSet = {}, typeSet = {}, filtered = [];
     for (var i = 0; i < data.length; i++) {
@@ -1374,7 +1378,6 @@ function getScraperDataPreview(locationFilter, typeFilter) {
       if (typeFilter     && type !== typeFilter)     continue;
       filtered.push(r);
     }
-    var CAP = 500;
     return {
       rows: filtered.slice(0, CAP).map(function(r) {
         return {
@@ -1398,7 +1401,7 @@ function getScraperDataPreview(locationFilter, typeFilter) {
     };
   } catch (e) {
     Logger.log('getScraperDataPreview failed: ' + e.message);
-    return { rows: [], totalCount: 0, cappedAt: 500, locations: [], types: [] };
+    return { rows: [], totalCount: 0, cappedAt: CAP, locations: [], types: [] };
   }
 }
 
