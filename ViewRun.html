@@ -1326,12 +1326,15 @@
       if (!dealerKey) return;
       google.script.run
         .withSuccessHandler(function(map) {
-          // ignore a stale response if the dealer changed again
-          if (document.getElementById('runDealerSelect').value !== dealerKey) return;
+          // ignore a stale response if a newer load superseded this one (compare
+          // internal state, NOT the DOM — the native select is hidden behind the
+          // CustomSelect enhancer, so reading its .value here is unreliable)
+          if (rvVinData.dealerKey !== dealerKey) return;
           rvVinData = { dealerKey: dealerKey, map: map || {} };
+          try { console.log('[rvLoad] loaded dealer=' + dealerKey + ' map=' + Object.keys(rvVinData.map).length); } catch (_e) {}
           rvRenderTable();
         })
-        .withFailureHandler(function() { /* fail-safe: leave empty → all not-found */ })
+        .withFailureHandler(function(e) { try { console.log('[rvLoad] getDealerVinData FAILED for ' + dealerKey + ': ' + (e && e.message)); } catch (_e) {} })
         .getDealerVinData(dealerKey);
     }
 
@@ -1339,9 +1342,16 @@
       var body = document.getElementById('vinDataBody');
       var countEl = document.getElementById('vinMatchCount');
       if (!body) return;
+      // Safety net: if the loaded data doesn't match the currently-selected dealer
+      // (a missed change event, a pre-selected dealer, or a CAO-before-load race),
+      // (re)load it — rvLoadDealerData re-renders on success.
+      var sel = document.getElementById('runDealerSelect');
+      var curDealer = sel ? sel.value : '';
+      if (curDealer && rvVinData.dealerKey !== curDealer) { rvLoadDealerData(curDealer); return; }
       var raw = (document.getElementById('vinInput').value || '').split(/\r?\n/);
       var lines = [];
       for (var i = 0; i < raw.length; i++) { var v = raw[i].trim(); if (v) lines.push(v); }
+      try { console.log('[rvTable] dealer=' + rvVinData.dealerKey + ' map=' + Object.keys(rvVinData.map).length + ' lines=' + lines.length); } catch (_e) {}
 
       if (!lines.length) {
         body.innerHTML = '<tr class="rv-empty-row"><td colspan="7">' +
