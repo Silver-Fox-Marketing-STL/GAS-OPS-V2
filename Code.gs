@@ -1318,12 +1318,13 @@ function buildVinDataMap_(rows) {
     var vin = String(r[0] == null ? '' : r[0]).trim();
     if (vin === '' || vin === '*') continue;
     map[vin.toUpperCase()] = {
-      year:   String(r[3] == null ? '' : r[3]).trim(),
-      make:   String(r[4] == null ? '' : r[4]).trim(),
-      model:  String(r[5] == null ? '' : r[5]).trim(),
-      type:   String(r[2] == null ? '' : r[2]).trim(),
-      stock:  String(r[1] == null ? '' : r[1]).trim(),
-      status: String(r[8] == null ? '' : r[8]).trim()
+      year:   String(r[3]  == null ? '' : r[3]).trim(),
+      make:   String(r[4]  == null ? '' : r[4]).trim(),
+      model:  String(r[5]  == null ? '' : r[5]).trim(),
+      type:   String(r[2]  == null ? '' : r[2]).trim(),
+      stock:  String(r[1]  == null ? '' : r[1]).trim(),
+      status: String(r[8]  == null ? '' : r[8]).trim(),
+      url:    String(r[20] == null ? '' : r[20]).trim()
     };
   }
   return map;
@@ -1345,6 +1346,59 @@ function getDealerVinData(dealerKey) {
   } catch (e) {
     Logger.log('getDealerVinData failed for ' + dealerKey + ': ' + e.message);
     return {};
+  }
+}
+
+/**
+ * Client-callable. Returns a preview of SCRAPERDATA for the Import screen's
+ * "Current Data" table — filtered by optional locationFilter and typeFilter,
+ * capped at 500 rows. Also returns the full sorted list of locations and types
+ * present in the data (unfiltered) for populating the filter dropdowns.
+ */
+function getScraperDataPreview(locationFilter, typeFilter) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName('SCRAPERDATA');
+    if (!sheet) return { rows: [], totalCount: 0, cappedAt: 500, locations: [], types: [] };
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return { rows: [], totalCount: 0, cappedAt: 500, locations: [], types: [] };
+    var data = sheet.getRange(2, 1, lastRow - 1, 21).getValues();
+    var locSet = {}, typeSet = {}, filtered = [];
+    for (var i = 0; i < data.length; i++) {
+      var r = data[i];
+      var loc  = String(r[19] == null ? '' : r[19]).trim();
+      var type = String(r[2]  == null ? '' : r[2]).trim();
+      if (loc  && loc  !== '*') locSet[loc]   = true;
+      if (type && type !== '*') typeSet[type]  = true;
+      if (locationFilter && loc  !== locationFilter) continue;
+      if (typeFilter     && type !== typeFilter)     continue;
+      filtered.push(r);
+    }
+    var CAP = 500;
+    return {
+      rows: filtered.slice(0, CAP).map(function(r) {
+        return {
+          vin:      String(r[0]  == null ? '' : r[0]).trim(),
+          stock:    String(r[1]  == null ? '' : r[1]).trim(),
+          type:     String(r[2]  == null ? '' : r[2]).trim(),
+          year:     String(r[3]  == null ? '' : r[3]).trim(),
+          make:     String(r[4]  == null ? '' : r[4]).trim(),
+          model:    String(r[5]  == null ? '' : r[5]).trim(),
+          trim:     String(r[6]  == null ? '' : r[6]).trim(),
+          status:   String(r[8]  == null ? '' : r[8]).trim(),
+          price:    String(r[9]  == null ? '' : r[9]).trim(),
+          location: String(r[19] == null ? '' : r[19]).trim(),
+          url:      String(r[20] == null ? '' : r[20]).trim()
+        };
+      }),
+      totalCount: filtered.length,
+      cappedAt:   CAP,
+      locations:  Object.keys(locSet).sort(),
+      types:      Object.keys(typeSet).sort()
+    };
+  } catch (e) {
+    Logger.log('getScraperDataPreview failed: ' + e.message);
+    return { rows: [], totalCount: 0, cappedAt: 500, locations: [], types: [] };
   }
 }
 

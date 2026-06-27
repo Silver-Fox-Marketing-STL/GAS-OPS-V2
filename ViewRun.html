@@ -6,42 +6,40 @@
     <div class="rv-topbar">
       <div class="rv-topbar-main">
 
-        <div class="user-select-wrap">
-          <label for="userSelect">Running as</label>
-          <select id="userSelect">
-            <option value="">-- Loading... --</option>
-          </select>
+        <div class="rv-topbar-inputs">
+          <div class="user-select-wrap">
+            <label for="userSelect">Running as</label>
+            <select id="userSelect">
+              <option value="">-- Loading... --</option>
+            </select>
+          </div>
+
+          <div>
+            <label for="runDealerSelect">Dealer</label>
+            <select id="runDealerSelect">
+              <option value="">-- Loading dealers... --</option>
+            </select>
+          </div>
+
+          <div>
+            <label for="dealId">Pipedrive Deal ID</label>
+            <input type="text" id="dealId" placeholder="e.g. 44021" />
+            <div class="field-hint">Optional. Pre-fills the finalization step shown after the run.</div>
+          </div>
+
+          <!-- Second deal ID — shown only for dealers with a billing_split configured -->
+          <div id="splitDealRow" style="display:none;">
+            <label for="splitDealId" id="splitDealLabel">Second Deal ID</label>
+            <input type="text" id="splitDealId" placeholder="e.g. 44022" />
+            <div class="field-hint" id="splitDealHint">Optional. This dealer bills these units to a separate Pipedrive deal — entered or confirmed after the run.</div>
+          </div>
         </div>
 
-        <div>
-          <label for="runDealerSelect">Dealer</label>
-          <select id="runDealerSelect">
-            <option value="">-- Loading dealers... --</option>
-          </select>
+        <div class="rv-topbar-actions">
+          <button id="caoBtn" onclick="prefillFromCAO()" disabled>&#x21BA; Pre-fill from CAO</button>
+          <button class="btn-primary" id="runBtn" onclick="runSelected()" disabled>Run Dealer</button>
+          <button class="btn-secondary" id="cancelBtn" onclick="closeModal()">Cancel</button>
         </div>
-
-        <div>
-          <label for="dealId">Pipedrive Deal ID</label>
-          <input type="text" id="dealId" placeholder="e.g. 44021" />
-          <div class="field-hint">Optional. Pre-fills the finalization step shown after the run.</div>
-        </div>
-
-        <!-- Second deal ID — shown only for dealers with a billing_split configured -->
-        <div id="splitDealRow" style="display:none;">
-          <label for="splitDealId" id="splitDealLabel">Second Deal ID</label>
-          <input type="text" id="splitDealId" placeholder="e.g. 44022" />
-          <div class="field-hint" id="splitDealHint">Optional. This dealer bills these units to a separate Pipedrive deal — entered or confirmed after the run.</div>
-        </div>
-
-        <label class="bypass-label">
-          <input type="checkbox" id="bypassFilters" />
-          Bypass filtering rules
-          <span class="bypass-hint">Use if a vehicle is being incorrectly filtered out</span>
-        </label>
-
-        <button id="caoBtn" onclick="prefillFromCAO()" disabled>&#x21BA; Pre-fill from CAO</button>
-        <button class="btn-primary" id="runBtn" onclick="runSelected()" disabled>Run Dealer</button>
-        <button class="btn-secondary" id="cancelBtn" onclick="closeModal()">Cancel</button>
 
       </div>
       <div class="rv-topbar-sub">
@@ -59,6 +57,11 @@
       <div class="rv-vinzone">
         <label for="vinInput">VINs / Stock Numbers</label>
         <textarea id="vinInput" placeholder="Paste VINs here, one per line..."></textarea>
+        <label class="bypass-label">
+          <input type="checkbox" id="bypassFilters" />
+          Bypass filtering rules
+          <span class="bypass-hint">Use if a vehicle is being incorrectly filtered out</span>
+        </label>
         <div class="vin-count" id="runVinCount"></div>
         <div class="rv-matchcount" id="vinMatchCount"></div>
       </div>
@@ -70,11 +73,11 @@
             <thead>
               <tr>
                 <th>Year</th><th>Make</th><th>Model</th><th>Type</th>
-                <th>Stock</th><th>VIN</th><th>Status</th>
+                <th>Stock</th><th>VIN</th><th>Status</th><th>Link</th>
               </tr>
             </thead>
             <tbody id="vinDataBody">
-              <tr class="rv-empty-row"><td colspan="7">Select a dealer, then enter VINs to check them.</td></tr>
+              <tr class="rv-empty-row"><td colspan="8">Select a dealer, then enter VINs to check them.</td></tr>
             </tbody>
           </table>
         </div>
@@ -142,7 +145,10 @@
     /* ── Option B layout: top bar + 3-zone body ─────────────────────────── */
     #view-run .rv-wrap { display: flex; flex-direction: column; height: 100%; min-height: 0; gap: var(--space-3); padding: var(--space-3); }
     #view-run .rv-topbar { display: flex; flex-direction: column; gap: var(--space-2); }
-    #view-run .rv-topbar-main { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+    #view-run .rv-topbar-main { display: flex; align-items: flex-start; gap: var(--space-3); }
+    #view-run .rv-topbar-inputs { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-3); }
+    #view-run .rv-topbar-actions { flex-shrink: 0; display: flex; flex-direction: column; gap: var(--space-2); padding-top: 18px; }
+    #view-run .rv-topbar-actions button { width: 100%; white-space: nowrap; }
     #view-run .rv-topbar-sub  { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); font-size: var(--fs-sm); color: var(--text-2); }
     #view-run .rv-body { display: flex; gap: var(--space-3); flex: 1; min-height: 0; }
     #view-run .rv-vinzone { flex: 0 0 250px; display: flex; flex-direction: column; min-height: 0; }
@@ -163,6 +169,9 @@
     #view-run #vinDataTable td.rv-vin { font-family: monospace; color: var(--text-2); }
     #view-run #vinDataTable tr.rv-notfound td { color: var(--danger); background: var(--danger-weak); }
     #view-run #vinDataTable tr.rv-empty-row td { color: var(--text-muted); text-align: center; padding: var(--space-4); }
+    #view-run #vinDataTable td.rv-link { white-space: nowrap; }
+    #view-run #vinDataTable td.rv-link a { color: var(--accent); text-decoration: none; font-size: var(--fs-sm); }
+    #view-run #vinDataTable td.rv-link a:hover { text-decoration: underline; }
 
     #view-run label {
       display: block;
@@ -1331,10 +1340,9 @@
           // CustomSelect enhancer, so reading its .value here is unreliable)
           if (rvVinData.dealerKey !== dealerKey) return;
           rvVinData = { dealerKey: dealerKey, map: map || {} };
-          try { console.log('[rvLoad] loaded dealer=' + dealerKey + ' map=' + Object.keys(rvVinData.map).length); } catch (_e) {}
           rvRenderTable();
         })
-        .withFailureHandler(function(e) { try { console.log('[rvLoad] getDealerVinData FAILED for ' + dealerKey + ': ' + (e && e.message)); } catch (_e) {} })
+        .withFailureHandler(function() {})
         .getDealerVinData(dealerKey);
     }
 
@@ -1351,10 +1359,9 @@
       var raw = (document.getElementById('vinInput').value || '').split(/\r?\n/);
       var lines = [];
       for (var i = 0; i < raw.length; i++) { var v = raw[i].trim(); if (v) lines.push(v); }
-      try { console.log('[rvTable] dealer=' + rvVinData.dealerKey + ' map=' + Object.keys(rvVinData.map).length + ' lines=' + lines.length); } catch (_e) {}
 
       if (!lines.length) {
-        body.innerHTML = '<tr class="rv-empty-row"><td colspan="7">' +
+        body.innerHTML = '<tr class="rv-empty-row"><td colspan="8">' +
           (rvVinData.dealerKey ? 'Enter VINs to check them against this dealer.' : 'Select a dealer, then enter VINs to check them.') +
           '</td></tr>';
         if (countEl) countEl.textContent = '';
@@ -1367,6 +1374,9 @@
         var d = rvVinData.map[key];
         if (d) {
           found++;
+          var urlCell = (d.url && d.url !== '*')
+            ? '<a href="' + escHtml(d.url) + '" target="_blank" rel="noopener">Vehicle URL</a>'
+            : '—';
           html += '<tr>' +
             '<td>' + escHtml(d.year)  + '</td>' +
             '<td>' + escHtml(d.make)  + '</td>' +
@@ -1375,12 +1385,14 @@
             '<td>' + escHtml(d.stock) + '</td>' +
             '<td class="rv-vin">' + escHtml(lines[j]) + '</td>' +
             '<td>' + escHtml(d.status) + '</td>' +
+            '<td class="rv-link">' + urlCell + '</td>' +
           '</tr>';
         } else {
           html += '<tr class="rv-notfound">' +
             '<td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>' +
             '<td class="rv-vin">' + escHtml(lines[j]) + '</td>' +
             '<td>⚠ not in this dealer</td>' +
+            '<td>—</td>' +
           '</tr>';
         }
       }
