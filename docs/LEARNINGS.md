@@ -161,6 +161,45 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   view + a metadata-reflected `data-arrange` axis; the linear/height-calc-JS views are
   excluded, and every gridified child gets its pre-grid sizing restored so the default
   template is a true no-op.
+- **A portable widget injected into arbitrary host views must defend its own box model with
+  `!important`.** The app-wide `CustomSelect` enhancer injects its themed dropdown DOM
+  (`.cs-btn` / `.cs-menu li`) **into** whatever view holds the native `<select>` — and five
+  view scopes carry a wildcard `#view-xxx * { padding:0 }` reset. That reset's specificity
+  (1,0,0) **beats** the widget's class rules (≤ 0,1,1), so it silently **zeroed the widget's
+  padding** → cramped "tiny options" (chased through several wrong guesses — enhancement,
+  width, font-size — before the real cause). Scoping the host reset to exclude the injected
+  subtree isn't safely feasible: it needs an L4 `:not(.x *)`, and on a browser without complex
+  `:not()` support the **whole** reset is dropped → the view's own layout breaks. So the
+  portable widget **self-defends** — it sets its own padding `!important`. Same family as the
+  Encarta `!important` "legitimate top layer of intent" note: a self-contained component that
+  must look right inside any host owns its own box model, loudly.
+- **iOS Safari fires a `change` event when a `<select>` is RE-PARENTED** — so a progressive
+  enhancer that moves the select into a wrapper trips its own inline `onchange` mid-surgery.
+  `CustomSelect.enhance()` does `insert wrapper → move select into it`; on iOS that DOM move
+  emits a spurious `change`, and an inline `onchange` handler then ran **before its view was
+  initialized**, threw, and the `try/catch` reverted the enhancement (selects stayed native on
+  mobile while working fine on desktop). Fix: **detach the inline `onchange` attribute during
+  the DOM move and restore it after.** Watch for the same on any framework/enhancer that
+  re-parents form controls on iOS.
+- **iOS "text size adjust" (font boosting) scales identical `px` text DIFFERENTLY per
+  container** unless you pin `text-size-adjust:100%` (`-webkit-` + standard) on `:root`.
+  Identical dropdowns rendered at visibly different sizes on iPhone until it was set — a
+  silent, container-dependent zoom that no amount of explicit `font-size` overrides on its
+  own, because the boost is applied *after* your sizing.
+- **Copying a select's computed flex onto its wrapper: `flex:1` resolves to flex-basis `0%` —
+  turn that into `0 0 0%` and the control COLLAPSES.** To make the enhanced wrapper fill the
+  *same* slot as the native select, the enhancer reads the select's computed flex. A grow-flex
+  select (`flex:1`) computes to grow=1 / basis `0%`; naively serializing the basis as a fixed
+  `0 0 0%` removed the grow and shrank the button to nothing (the "smaller dropdown" bug). A
+  **grow-flex control must keep growing** — branch on `flex-grow`: `>0` → `1 1 <basis|0%>`,
+  only a real fixed basis (`px`/non-zero `%`) → `0 0 <basis>`, else `width:100%`. Don't copy a
+  computed `0%` basis as if it were a fixed size.
+- **No console on mobile → print computed styles to an on-screen toast from the device.** The
+  padding-override root cause above was only isolated by rendering the offending element's
+  *computed* `padding` into a transient on-screen toast on the actual phone — after several
+  wrong theories (enhancement failing, width, font-size). Lesson: when you can't open devtools
+  on the device, **measure the computed value on-device first**, then theorize; a guess about
+  why mobile renders differently is usually wrong until the real number is in hand.
 
 ## External APIs (Pipedrive)
 
