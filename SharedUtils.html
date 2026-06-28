@@ -19,6 +19,11 @@
        OS-native <select> popup render light (ignoring author option colors)
        in the web app even in dark themes. */
     color-scheme: light;
+    /* Pin text to its true size — disables iOS Safari "font boosting" (automatic
+       text inflation), which scaled the SAME px font differently per container and
+       made identical dropdowns (.cs-menu) render at different sizes across views. */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
     /* surfaces (bright white fields) */
     --bg: #ffffff;
     --surface: #f7f5f2;
@@ -80,6 +85,15 @@
     --measure-data:      1680px;                   /* data/table working-area cap */
     --gutter-wide:       48px;                      /* ultra-wide (>=2100px) side breathing room */
     --col-form-side:     clamp(360px, 32vw, 440px); /* replaces the hardcoded 440px split column; resolves to 440 at 1400 */
+
+    /* element-size tokens — base :root defaults = today's literals, so a no-op
+       until a theme overrides one. Let a theme resize chrome / view columns with
+       zero per-view CSS. (The side-column width uses --col-form-side above.) */
+    --shell-header-h: 46px;    /* #appHeader height (App.html) */
+    --shell-sidebar-w: 210px;  /* #sidebar width (App.html) */
+    --brand-fs: 17px;          /* .app-brand font-size (App.html) */
+    --rv-vin-w: 250px;         /* Run Order VIN textarea column (ViewRun) */
+    --rv-rail-w: 280px;        /* Run Order right rail column (ViewRun) */
   }
 
   :root[data-theme="dark"],
@@ -112,30 +126,6 @@
     --focus-ring: 0 0 0 3px rgba(253,65,13,.45);
   }
 
-  /* ── "Dark — Dense" — sample structural theme ──────────────────────────────
-     Template for new themes. Colour/type/density are pure token overrides here;
-     the *structural* part (sidebar moves to a right-hand rail) lives in App.html
-     as shell-scoped rules keyed off this same data-theme. Copy this block + add
-     { id, label } to Theme.themes in the script below to make a new theme.     */
-  :root[data-theme="dark-dense"] {
-    color-scheme: dark;
-    --bg: #0d1117; --surface: #161b22; --surface-2: #1c232c; --surface-3: #222b35;
-    --text: #e6edf3; --text-2: #b6c2cf; --text-3: #8b98a5; --text-muted: #6b7785;
-    --border: #353f4b; --border-2: #45515f;
-    --accent: #2f9bff; --accent-hover: #5fb0ff; --accent-active: #1f6fd0;
-    --accent-weak: rgba(47,155,255,.12); --accent-weak-2: rgba(47,155,255,.22); --on-accent: #04101f;
-    --success: #3fb950; --success-weak: rgba(63,185,80,.15); --on-success: #04130a;
-    --danger:  #f85149; --danger-weak:  rgba(248,81,73,.15);  --on-danger:  #1a0605;
-    --warning: #d29922; --warning-weak: rgba(210,153,34,.15); --warning-strong: #e3b341;
-    --info:    #58a6ff; --info-weak:    rgba(88,166,255,.15);
-    --shadow: 0 1px 6px rgba(0,0,0,.5); --shadow-lg: 0 6px 22px rgba(0,0,0,.6);
-    --focus-ring: 0 0 0 2px rgba(47,155,255,.5);
-    /* denser + squarer — reusing the existing density tokens, no new vars */
-    --radius-sm: 2px; --radius: 3px; --radius-lg: 5px;
-    --fs-h1: 20px; --fs-h2: 16px; --fs-h3: 14px; --fs-body: 12px; --fs-sm: 11px;
-    --space-1: 3px; --space-2: 6px; --space-3: 9px; --space-4: 12px; --space-5: 15px; --space-6: 20px;
-  }
-
   /* ── "Midnight HC" — high-contrast near-black palette ──────────────────────
      Pure token overrides (no structural change). Built for max legibility on
      dim screens / night shifts: near-black surfaces, white text, deliberately
@@ -154,34 +144,6 @@
     --info:    #6cb6ff; --info-weak:    rgba(108,182,255,.18);
     --shadow: 0 2px 12px rgba(0,0,0,.7); --shadow-lg: 0 8px 30px rgba(0,0,0,.8);
     --focus-ring: 0 0 0 3px rgba(255,90,44,.6);
-  }
-
-  /* ── "Cyberpunk" — neon-HUD reinvention ────────────────────────────────────
-     Deep blue-black + neon cyan/magenta, sharp corners, glow "shadows", Rajdhani
-     HUD type. Tokens live here; the shell reflow (HUD nav/header, scanline
-     canvas, neon borders) is the data-theme block in App.html, which also loads
-     the Rajdhani / Share Tech Mono webfonts. A11y: TEXT stays bright (#e6f7ff) —
-     neon is reserved for accents/headings/borders/active, never body copy.      */
-  :root[data-theme="cyberpunk"] {
-    color-scheme: dark;
-    --bg: #05070d; --surface: #0b0f1a; --surface-2: #121826; --surface-3: #1a2233;
-    --text: #e6f7ff; --text-2: #9fb6cc; --text-3: #6f8499; --text-muted: #6e8298;
-    --border: #4a7c95; --border-2: #5a96b2;   /* neon-tube edges; ≥3:1 on all dark surfaces */
-    --accent: #00eaff; --accent-hover: #5cf2ff; --accent-active: #00b8cc;
-    --accent-weak: rgba(0,234,255,.12); --accent-weak-2: rgba(0,234,255,.22); --on-accent: #03121a;
-    --success: #39ff14; --success-weak: rgba(57,255,20,.14);  --on-success: #021200;
-    --danger:  #ff3355; --danger-weak:  rgba(255,51,85,.16);  --on-danger:  #18020a;  /* redder than the magenta accent so errors still read "stop" */
-    --warning: #fde047; --warning-weak: rgba(253,224,71,.14); --warning-strong: #fff08a;
-    --info:    #b14dff; --info-weak:    rgba(177,77,255,.16);
-    /* type pills — neon variants; dark text reads better on bright neon fills */
-    --type-new: #39ff14; --type-po: #fde047; --type-cpo: #b14dff; --type-cpoel: #00eaff; --on-type: #03121a;
-    /* sharp corners + cyan glow instead of soft drop-shadow */
-    --radius-sm: 0; --radius: 2px; --radius-lg: 2px;
-    --shadow: 0 0 12px rgba(0,234,255,.15); --shadow-lg: 0 0 26px rgba(0,234,255,.25);
-    --focus-ring: 0 0 0 2px rgba(0,234,255,.65), 0 0 12px rgba(0,234,255,.4);
-    /* HUD type (webfonts loaded in App.html <head>) */
-    --font-head: 'Rajdhani', 'Montserrat', sans-serif;
-    --font-body: 'Rajdhani', 'Montserrat', sans-serif;
   }
 
   /* ── "Encarta" — Windows 95/98 + 90s multimedia (a full reinvention) ──────────
@@ -222,6 +184,106 @@
     --font-head: Tahoma, 'MS Sans Serif', Geneva, Verdana, sans-serif;
     --font-body: Tahoma, 'MS Sans Serif', Geneva, Verdana, sans-serif;
   }
+
+  /* ════════════════════════════════════════════════════════════════════════
+     CURATED PALETTE PRESETS — pure token overrides (no structural change), so
+     each reuses the default light/dark layout and is backend/UX-safe by
+     construction. To add one: copy a block, add { id, label } to Theme.themes
+     below, and (DARK only) add the id to the .app-brand .logo list in App.html.
+     ════════════════════════════════════════════════════════════════════════ */
+
+  /* ── Slate — cool neutral light (the crisp blue counterpart to warm Light) ── */
+  /* the palette for the 'slate-icons' composed preset (slate palette + icon rail). */
+  :root[data-theme="slate-icons"] {
+    color-scheme: light;
+    --bg: #ffffff; --surface: #f1f5f9; --surface-2: #e6edf3; --surface-3: #dae3ec;
+    --text: #0f1e2e; --text-2: #3f5163; --text-3: #647688; --text-muted: #93a3b3;
+    --border: #d8e0e8; --border-2: #c2ccd6;
+    --accent: #2563eb; --accent-hover: #1d4fc4; --accent-active: #173f9c;
+    --accent-weak: rgba(37,99,235,.08); --accent-weak-2: rgba(37,99,235,.16); --on-accent: #ffffff;
+    --success: #1e7e34; --success-weak: #e6f4ea; --on-success: #ffffff;
+    --danger:  #c0392b; --danger-weak:  #fce8e6; --on-danger:  #ffffff;
+    --warning: #b8860b; --warning-weak: #fff7e0; --warning-strong: #8a6400;
+    --info:    #2563a8; --info-weak:    #e7eef7;
+    --shadow: 0 2px 10px rgba(15,30,46,.10); --shadow-lg: 0 6px 24px rgba(15,30,46,.16);
+    --focus-ring: 0 0 0 3px rgba(37,99,235,.30);
+  }
+
+  /* ── Sage — soft green light, calm and low-saturation ── */
+  :root[data-theme="sage"] {
+    color-scheme: light;
+    --bg: #fbfdfb; --surface: #eef4ee; --surface-2: #e2ece2; --surface-3: #d4e2d4;
+    --text: #1c2a20; --text-2: #44574a; --text-3: #6a7c6f; --text-muted: #97a59b;
+    --border: #d7e3d7; --border-2: #c0d0c0;
+    --accent: #2f8f5b; --accent-hover: #25744a; --accent-active: #1c5a39;
+    --accent-weak: rgba(47,143,91,.10); --accent-weak-2: rgba(47,143,91,.18); --on-accent: #ffffff;
+    --success: #1e7e34; --success-weak: #e6f4ea; --on-success: #ffffff;
+    --danger:  #c0392b; --danger-weak:  #fce8e6; --on-danger:  #ffffff;
+    --warning: #9a7400; --warning-weak: #f3ecd0; --warning-strong: #6f5400;
+    --info:    #2f6a8f; --info-weak:    #e1ebf2;
+    --shadow: 0 2px 10px rgba(28,42,32,.10); --shadow-lg: 0 6px 24px rgba(28,42,32,.16);
+    --focus-ring: 0 0 0 3px rgba(47,143,91,.32);
+  }
+
+  /* ── Gruvbox — warm retro dark, orange accent ── */
+  /* the palette for the 'gruvbox-rail' composed preset (gruvbox palette + top-rail). */
+  :root[data-theme="gruvbox-rail"] {
+    color-scheme: dark;
+    --bg: #282828; --surface: #3c3836; --surface-2: #504945; --surface-3: #665c54;
+    --text: #ebdbb2; --text-2: #d5c4a1; --text-3: #bdae93; --text-muted: #928374;
+    --border: #504945; --border-2: #665c54;
+    --accent: #fe8019; --accent-hover: #ff9b47; --accent-active: #d65d0e;
+    --accent-weak: rgba(254,128,25,.16); --accent-weak-2: rgba(254,128,25,.26); --on-accent: #1d1407;
+    --success: #b8bb26; --success-weak: rgba(184,187,38,.18); --on-success: #141600;
+    --danger:  #fb4934; --danger-weak:  rgba(251,73,52,.18);  --on-danger:  #1d0603;
+    --warning: #fabd2f; --warning-weak: rgba(250,189,47,.18); --warning-strong: #ffd152;
+    --info:    #8ec07c; --info-weak:    rgba(142,192,124,.18);
+    --shadow: 0 2px 12px rgba(0,0,0,.5); --shadow-lg: 0 8px 28px rgba(0,0,0,.6);
+    --focus-ring: 0 0 0 3px rgba(254,128,25,.5);
+  }
+
+  /* ── "Windows XP" (Luna) — blue title bars, beige controls, system fonts.
+     Palette/tokens here; the window-frame chrome is the data-theme block in
+     App.html; the desktop page-arrangement is data-arrange="desktop". ── */
+  :root[data-theme="luna"] {
+    color-scheme: light;
+    --bg: #ffffff; --surface: #ece9d8; --surface-2: #e3e0cf; --surface-3: #d6d3c2;
+    --text: #000000; --text-2: #1c1c1c; --text-3: #444444; --text-muted: #6b6b6b;
+    --border: #aca899; --border-2: #7f9db9;
+    --accent: #316ac5; --accent-hover: #2a5bb0; --accent-active: #1f4894;
+    --accent-weak: #d8e4f8; --accent-weak-2: #bcd2f0; --on-accent: #ffffff;
+    --success: #2f7d1f; --success-weak: #dcecd2; --on-success: #ffffff;
+    --danger:  #b41a1a; --danger-weak:  #f3d6d6; --on-danger:  #ffffff;
+    --warning: #9a6a00; --warning-weak: #f5e7c6; --warning-strong: #6a4a00;
+    --info:    #1c5fb0; --info-weak:    #d8e4f8;
+    --radius-sm: 3px; --radius: 3px; --radius-lg: 4px;
+    --shadow: 0 1px 3px rgba(0,0,0,.25); --shadow-lg: 0 4px 14px rgba(0,0,0,.35);
+    --focus-ring: 0 0 0 2px rgba(255,140,0,.6);
+    --font-head: 'Trebuchet MS', Tahoma, 'Segoe UI', sans-serif;
+    --font-body: Tahoma, 'Segoe UI', Verdana, sans-serif;
+    --shell-header-h: 30px;
+  }
+
+  /* ════════════════════════════════════════════════════════════════════════
+     STRUCTURAL AXES (token half) — DENSITY + SHAPE. A theme opts in by declaring
+     `density` / `shape` in its Theme.themes metadata; the client reflects it onto
+     <html> pre-paint as data-density / data-shape. Reusable across every palette,
+     so a curated "complete idea" theme composes palette × density × shape with no
+     duplicated CSS. (The LAYOUT + NAV half — data-shell / data-nav — lives in
+     App.html, which owns the shell markup.) Shape is declared AFTER density so a
+     sharp theme's 0-radius wins over any density radius tweak.
+     ════════════════════════════════════════════════════════════════════════ */
+  :root[data-density="compact"] {
+    --fs-h1: 20px; --fs-h2: 16px; --fs-h3: 14px; --fs-body: 12px; --fs-sm: 11px;
+    --space-1: 3px; --space-2: 6px; --space-3: 9px; --space-4: 12px; --space-5: 15px; --space-6: 20px;
+  }
+  :root[data-density="spacious"] {
+    --fs-h1: 25px; --fs-h2: 20px; --fs-h3: 16px; --fs-body: 14px; --fs-sm: 13px;
+    --space-1: 5px; --space-2: 10px; --space-3: 16px; --space-4: 22px; --space-5: 30px; --space-6: 40px;
+  }
+  :root[data-shape="sharp"] { --radius-sm: 0; --radius: 0; --radius-lg: 0; }
+  /* flat = no drop shadows; the existing hairline borders carry structure. */
+  :root[data-shape="flat"]  { --shadow: none; --shadow-lg: none; }
 
   /* Base typography — the body font applies app-wide; per-view font-family
      declarations are migrated to these tokens view-by-view. */
@@ -281,7 +343,10 @@
     background: var(--surface); color: var(--text);
     border: 1px solid var(--border); border-radius: var(--radius-sm);
     font-family: var(--font-body); font-size: 13px; font-weight: 600;
-    padding: 8px; cursor: pointer; text-align: left;
+    /* !important: the widget is injected INTO views, several of which have a
+       wildcard `#view-xxx * { padding:0 }` reset (specificity 1,0,0) that would
+       otherwise zero the control's padding. The widget defends its own layout. */
+    padding: 8px !important; cursor: pointer; text-align: left;
   }
   .cs-btn:hover { border-color: var(--border-2); }
   .cs-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
@@ -292,15 +357,18 @@
   /* position:fixed so the open list escapes any overflow:auto panel clipping
      (several selects live inside scrollable columns); JS sets left/top/width. */
   .cs-menu {
-    position: fixed; z-index: 70; margin: 0; padding: 4px; list-style: none;
+    position: fixed; z-index: 70; margin: 0; padding: 4px !important; list-style: none;
     background: var(--surface); border: 1px solid var(--border-2);
     border-radius: var(--radius); box-shadow: var(--shadow-lg);
     max-height: 280px; overflow-y: auto;
   }
   .cs-menu[hidden] { display: none; }
   .cs-menu li {
-    padding: 6px 9px; border-radius: var(--radius-sm); cursor: pointer;
-    font-family: var(--font-body); font-size: 13px; font-weight: 600;
+    /* Open list = comfortable: bigger text + more space between options. (The
+       closed .cs-btn stays compact — "compact box, big text when it expands".) */
+    padding: 11px 14px !important;   /* !important: survive host views' `* { padding:0 }` reset (see .cs-btn) */
+    border-radius: var(--radius-sm); cursor: pointer;
+    font-family: var(--font-body); font-size: 15px; font-weight: 600;
     color: var(--text); white-space: nowrap;
   }
   .cs-menu li:hover,
@@ -308,6 +376,23 @@
   .cs-menu li[aria-selected="true"] { background: var(--accent); color: var(--on-accent); }
   .cs-menu li[aria-disabled="true"] { opacity: .5; cursor: default; }
   .cs-menu li[aria-disabled="true"]:hover { background: none; }
+
+  /* Shared base for native <select>s — so a dropdown reads the SAME whether or not
+     CustomSelect has enhanced it into a .cs-btn (selects render native before
+     enhancement / if it's unavailable). Matches the .cs-btn spec (the comfortable
+     "Run Order" look) so prominent selectors that set no select CSS of their own
+     (e.g. the Dealer Rules dealer dropdown, Data Sources dealer/source) stop
+     falling back to the cramped browser default. Dense in-table selects override
+     this with their own compact rules (higher #view-xxx specificity), so packed
+     tables stay tight. */
+  select {
+    font-family: var(--font-body); font-size: 13px; font-weight: 600;
+    color: var(--text); background: var(--surface);
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    padding: 8px; cursor: pointer;
+  }
+  select:hover { border-color: var(--border-2); }
+  select:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 </style>
 <script>
   // ── HTML escaping (single shared copy) ─────────────────────────────────────
@@ -403,16 +488,32 @@
   // Initial value is injected server-side (saved pref) or set from the OS by a
   // head script before first paint (App.html / Classic.html).
   var Theme = {
+    // A curated theme = an id (identity) + a palette block (:root[data-theme="id"],
+    // or a shared one) + optional STRUCTURAL AXES it composes: shell (App.html
+    // data-shell), density + shape (SharedUtils data-density/-shape), nav (App.html
+    // data-nav). apply()/reflectAxes() write those axes onto <html>; an axis a theme
+    // doesn't declare is REMOVED → the default (sidebar / comfortable / rounded /
+    // labeled). So a "complete idea" theme is ONE metadata entry + (if it needs a
+    // bespoke per-page arrangement) some [data-theme="id"] #view-xxx CSS — no
+    // per-combo shell CSS. Pure presentation: axes never touch view JS, so a theme
+    // cannot break a backend link.
+    _axes: ['shell', 'density', 'shape', 'nav', 'arrange'],
     themes: [
       { id: 'light',         label: 'Light' },
       { id: 'dark',          label: 'Dark' },
-      { id: 'dark-dense',    label: 'Dark — Dense' },   // structural: dense, right-hand rail
-      { id: 'top-rail',      label: 'Top Rail' },       // structural: nav as a top bar (light palette)
-      { id: 'top-rail-dark', label: 'Top Rail — Dark' }, // composed: top-bar structure (App.html) + Dark palette
-      { id: 'midnight',      label: 'Midnight HC' },     // high-contrast near-black palette
-      { id: 'cyberpunk',     label: 'Cyberpunk' },       // neon-HUD: full token + shell reinvention (App.html)
-      { id: 'encarta',       label: 'Encarta' }          // Win95/98 + 90s multimedia: 3D beveled chrome (App.html)
+      { id: 'top-rail',      label: 'Top Rail',         shell: 'top-rail' },
+      { id: 'top-rail-dark', label: 'Top Rail — Dark',  shell: 'top-rail' },
+      { id: 'midnight',      label: 'Midnight HC' },
+      { id: 'encarta',       label: 'Encarta' },
+      { id: 'sage',          label: 'Sage' },
+      { id: 'gruvbox-rail',  label: 'Gruvbox Rail',      shell: 'top-rail' },
+      { id: 'slate-icons',   label: 'Slate — Icon Rail', nav: 'icons' },
+      { id: 'luna',          label: 'Windows XP',        arrange: 'desktop' }
     ],
+    _meta: function(id) {
+      for (var i = 0; i < this.themes.length; i++) { if (this.themes[i].id === id) return this.themes[i]; }
+      return null;
+    },
     has: function(id) {
       for (var i = 0; i < this.themes.length; i++) { if (this.themes[i].id === id) return true; }
       return false;
@@ -424,8 +525,24 @@
     apply: function(id, persist) {
       var t = this.has(id) ? id : 'light';
       document.documentElement.setAttribute('data-theme', t);
+      this.reflectAxes(t);
       this.syncPicker(t);
       if (persist) { try { google.script.run.saveThemePreference(t); } catch (e) {} }
+    },
+    // Reflect a theme's structural axes onto <html> as data-shell/-density/-shape/
+    // -nav. An axis the theme doesn't declare is REMOVED → base (default) CSS wins.
+    // Pure attribute writes — no view JS, no google.script.run, so it is
+    // backend-safe by construction. Called by apply() and pre-paint (below).
+    reflectAxes: function(id) {
+      var meta = this._meta(id) || {};
+      var root = document.documentElement;
+      for (var i = 0; i < this._axes.length; i++) {
+        var ax = this._axes[i], val = meta[ax];
+        if (val) root.setAttribute('data-' + ax, val);
+        else root.removeAttribute('data-' + ax);
+      }
+      // Per-user UI prefs (nav layout / autohide) layer ON TOP of the theme's axes.
+      if (typeof UiPrefs !== 'undefined' && UiPrefs.applyOverrides) UiPrefs.applyOverrides();
     },
     set: function(id) { this.apply(id, true); },
     // Custom dropdown (button + <ul>) rather than a native <select>: the native
@@ -519,6 +636,79 @@
     }
   };
 
+  // ── Per-user UI preferences — layered ON TOP of the theme ───────────────────
+  // The theme sets structural axes (reflectAxes); these per-user prefs then
+  // OVERRIDE the nav layout (data-shell) and autohide (data-nav) when the user
+  // picked something other than "auto" in UI Settings. Persisted per Google
+  // account (server saveUiPref/getUiPrefs), injected pre-paint via window.UI_PREFS
+  // in App.html's head. Pure attribute writes — no view JS / google.script.run
+  // dependency for the layout itself, so a save failure can't break the chrome.
+  var UiPrefs = {
+    navLayout: (window.UI_PREFS && UI_PREFS.navLayout) || 'auto',
+    autohide:  !!(window.UI_PREFS && UI_PREFS.autohide),
+    // user nav-layout value → data-shell value ('' = remove attr = default sidebar)
+    _SHELL: { 'sidebar': '', 'top-rail': 'top-rail', 'bottom-rail': 'bottom-rail', 'start-menu': 'start-menu' },
+    // Apply the user's overrides AFTER reflectAxes set the theme's axes. 'auto'
+    // leaves the theme's layout untouched; an explicit pick wins. autohide only
+    // ADDS data-nav="icons" (the icon-rail behavior, scoped to the sidebar in CSS).
+    applyOverrides: function() {
+      var root = document.documentElement;
+      // Mobile (narrow viewport) wins over theme AND user pref: every theme uses
+      // the start-menu taskbar nav on a phone. Forcing data-shell="start-menu"
+      // reuses that layout's CSS as-is; data-viewport="mobile" (set by the width
+      // listener below) drives the per-view single-column stacking. Clear data-nav
+      // so the icon-rail can't fight the start panel.
+      if (root.getAttribute('data-viewport') === 'mobile') {
+        root.setAttribute('data-shell', 'start-menu');
+        root.removeAttribute('data-nav');
+        return;
+      }
+      if (this.navLayout && this.navLayout !== 'auto' && this._SHELL.hasOwnProperty(this.navLayout)) {
+        var shell = this._SHELL[this.navLayout];
+        if (shell) root.setAttribute('data-shell', shell);
+        else root.removeAttribute('data-shell');
+      }
+      if (this.autohide) root.setAttribute('data-nav', 'icons');
+    },
+    setNavLayout: function(v) {
+      this.navLayout = v;
+      Theme.reflectAxes(Theme.current());     // re-apply theme axes, then these overrides
+      try { google.script.run.saveUiPref('nav_layout', String(v)); } catch (e) {}
+    },
+    setAutohide: function(on) {
+      this.autohide = !!on;
+      Theme.reflectAxes(Theme.current());
+      try { google.script.run.saveUiPref('autohide', this.autohide ? 'true' : 'false'); } catch (e) {}
+    }
+  };
+  window.UiPrefs = UiPrefs;
+
+  // Reflect the initial theme's structural axes onto <html> BEFORE the shell
+  // paints. This SharedUtils script runs during parse, ahead of #appRoot markup
+  // (App.html includes SharedUtils first), so setting data-shell/-density/-shape/
+  // -nav here means the chosen layout paints right the first time — no flash.
+  // (data-theme itself is already set by App.html's pre-paint head script.)
+  // reflectAxes also applies UiPrefs overrides (defined just above), so the
+  // user's chosen nav layout / autohide paint correctly on first frame too.
+  try { Theme.reflectAxes(Theme.current()); } catch (e) {}
+
+  // ── Responsive: data-viewport="mobile" on a narrow screen (auto, by width) ──
+  // Drives the mobile layout (start-menu nav for every theme + single-column
+  // view stacking). The head sets the initial value pre-paint (no flash); this
+  // matchMedia listener keeps it live on rotate/resize and re-runs reflectAxes so
+  // the nav + stacking re-resolve. No toggle, no device sniffing — pure width.
+  if (window.matchMedia) {
+    var _vpMq = window.matchMedia('(max-width: 760px)');
+    var _applyViewport = function() {
+      if (_vpMq.matches) document.documentElement.setAttribute('data-viewport', 'mobile');
+      else document.documentElement.removeAttribute('data-viewport');
+      try { Theme.reflectAxes(Theme.current()); } catch (e) {}
+    };
+    if (_vpMq.addEventListener) _vpMq.addEventListener('change', _applyViewport);
+    else if (_vpMq.addListener) _vpMq.addListener(_applyViewport);   // older Safari
+    _applyViewport();
+  }
+
   // ── Custom select enhancer ──────────────────────────────────────────────────
   // Progressively enhances native <select>s into themed dropdowns matching the
   // theme picker — so their OPEN list is themeable in the Apps Script web-app
@@ -593,6 +783,14 @@
       if (!this._eligible(select)) return;
       var self = this;
       var wrapper = null;
+      // Re-parenting a <select> during enhancement fires a 'change' event in some
+      // mobile browsers (iOS Safari). An INLINE onchange handler then runs
+      // mid-enhance — before its view is initialized — throws, and forces a revert
+      // (this is why selects with inline onchange stayed native on mobile while the
+      // others enhanced). Detach the inline handler during the DOM surgery, restore
+      // it after (the real .cs-menu pick re-dispatches 'change', so it still fires).
+      var _inlineChange = select.getAttribute('onchange');
+      if (_inlineChange != null) { try { select.removeAttribute('onchange'); } catch (e0) {} }
       try {
         select.dataset.cs = '1';
 
@@ -610,8 +808,16 @@
         // case for this app); only a select with an explicit flex-basis
         // (e.g. flex:0 0 220px — Norm's map picker) keeps that fixed size.
         wrapper.style.display = 'block';
+        // Replicate the select's flex role so the enhanced control fills the SAME
+        // slot. A grow-flex select (e.g. flex:1, whose computed flex-basis is 0%/0px)
+        // must GROW — turning that into a fixed "0 0 0%" COLLAPSED the button (the
+        // "smaller dropdown" bug). Only a real fixed basis (e.g. flex:0 0 220px —
+        // Norm's map picker) is copied as a fixed slot; everything else fills 100%.
+        var fg = parseFloat(cs.flexGrow) || 0;
         var fb = cs.flexBasis;
-        if (fb && fb !== 'auto' && fb !== '0px' && /(px|%)$/.test(fb)) {
+        if (fg > 0) {
+          wrapper.style.flex = '1 1 ' + ((fb && fb !== 'auto') ? fb : '0%');
+        } else if (fb && fb !== 'auto' && fb !== '0px' && fb !== '0%' && /(px|%)$/.test(fb)) {
           wrapper.style.flex = '0 0 ' + fb;
         } else {
           wrapper.style.width = '100%';
@@ -720,6 +926,8 @@
       } catch (err) {
         try { console.warn('CustomSelect.enhance failed — reverting to native', select, err); } catch (e2) {}
         self._revert(select, wrapper);
+      } finally {
+        if (_inlineChange != null) { try { select.setAttribute('onchange', _inlineChange); } catch (e4) {} }
       }
     },
 

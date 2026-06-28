@@ -4,7 +4,7 @@
   <base target="_top">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=Pixelify+Sans:wght@400..700&family=Poppins:wght@700;800&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=Pixelify+Sans:wght@400..700&family=Poppins:wght@700;800&display=swap" rel="stylesheet">
   <script>
     // Theme bootstrap — runs before first paint to avoid a flash. Keep any saved
     // preference the server injected (any theme id); only follow the OS when none.
@@ -14,7 +14,15 @@
         var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
         root.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
       }
+      // Mobile = narrow viewport. Set pre-paint so the responsive (start-menu) nav
+      // paints on the first frame; a matchMedia listener in SharedUtils keeps it live.
+      if (window.matchMedia && window.matchMedia('(max-width: 760px)').matches) {
+        root.setAttribute('data-viewport', 'mobile');
+      }
     })();
+    // Per-user UI prefs (nav layout / autohide) from the server — read pre-paint
+    // by SharedUtils' UiPrefs so the chosen nav layout paints on the first frame.
+    window.UI_PREFS = { navLayout: '<?= initialNavLayout ?>', autohide: <?= initialAutohide ?> };
   </script>
   <style>
     /* ── App shell ─────────────────────────────────────────────────────────── */
@@ -31,7 +39,7 @@
 
     /* ── Sidebar ───────────────────────────────────────────────────────────── */
     #sidebar {
-      width: 210px;
+      width: var(--shell-sidebar-w);
       flex-shrink: 0;
       background: var(--surface);
       border-right: 1px solid var(--border);
@@ -45,7 +53,7 @@
       gap: 9px;
       padding: 14px 16px 15px;
       font-family: var(--font-head);
-      font-size: 17px;
+      font-size: var(--brand-fs);
       font-weight: 800;
       letter-spacing: -.01em;
       color: var(--text);
@@ -64,11 +72,11 @@
               mask: url("data:image/png;base64,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") center / contain no-repeat;
     }
     :root[data-theme="dark"] .app-brand .logo,
-    :root[data-theme="dark-dense"] .app-brand .logo,
     :root[data-theme="midnight"] .app-brand .logo,
     :root[data-theme="top-rail-dark"] .app-brand .logo,
-    :root[data-theme="cyberpunk"] .app-brand .logo,
-    :root[data-theme="encarta"] .app-brand .logo { background-color: #d2d2d6; }   /* light logo on the navy title strip */
+    :root[data-theme="encarta"] .app-brand .logo,
+    :root[data-theme="gruvbox-rail"] .app-brand .logo,
+    :root[data-theme="luna"] .app-brand .logo { background-color: #d2d2d6; }   /* light logo on the navy/blue title strip */
 
     /* Theme picker (sidebar) — a CUSTOM dropdown, NOT a native <select>. The
        native open option list is OS-rendered, and the Apps Script web-app
@@ -109,29 +117,31 @@
     .theme-menu li:focus { outline: none; background: var(--accent-weak); }
     .theme-menu li[aria-selected="true"] { background: var(--accent); color: var(--on-accent); }
     /* Top Rail layouts put the picker in a horizontal TOP bar — open DOWNWARD. */
-    :root[data-theme^="top-rail"] .theme-menu { bottom: auto; top: calc(100% + 4px); }
+    :root[data-shell="top-rail"] .theme-menu { bottom: auto; top: calc(100% + 4px); }
 
-    /* Dark — Dense: STRUCTURAL part of the theme — the sidebar becomes a
-       right-hand rail. Pure CSS keyed off data-theme; markup + nav onclick wiring
-       (and thus the backend calls) are untouched. Colour/density live in
-       SharedUtils. The active-nav accent flips to the rail's inner (right) edge
-       so the selection cue keeps pointing at the content it selects. */
-    :root[data-theme="dark-dense"] #appRoot { flex-direction: row-reverse; }
-    :root[data-theme="dark-dense"] #sidebar { width: 188px; border-right: none; border-left: 1px solid var(--border); }
-    :root[data-theme="dark-dense"] .nav-item,
-    :root[data-theme="dark-dense"] .nav-group-header { border-left-width: 0; border-right: 3px solid transparent; }
-    :root[data-theme="dark-dense"] .nav-item.active { border-right-color: var(--accent); }
+    /* ── Right-rail layout (data-shell="right-rail") ───────────────────────────
+       STRUCTURAL axis: the sidebar moves to a right-hand rail. Reusable by ANY
+       palette (Dark — Dense composes it via shell:'right-rail' in its metadata).
+       Pure CSS; markup + nav onclick wiring (and thus the backend calls) untouched.
+       The active-nav accent flips to the rail's inner (right) edge so the
+       selection cue keeps pointing at the content it selects. */
+    :root[data-shell="right-rail"] #appRoot { flex-direction: row-reverse; }
+    :root[data-shell="right-rail"] #sidebar { width: 188px; border-right: none; border-left: 1px solid var(--border); }
+    :root[data-shell="right-rail"] .nav-item,
+    :root[data-shell="right-rail"] .nav-group-header { border-left-width: 0; border-right: 3px solid transparent; }
+    :root[data-shell="right-rail"] .nav-item.active { border-right-color: var(--accent); }
 
-    /* Top Rail: STRUCTURAL — the side rail becomes a horizontal TOP bar. The
-       prefix selector [data-theme^="top-rail"] applies this to BOTH "top-rail"
-       (Light palette) and "top-rail-dark" (which pulls the Dark palette tokens
-       in SharedUtils) — structure × palette composed with no duplicated rules.
-       Pure CSS keyed off data-theme; markup + nav onclick wiring (and thus the
-       backend calls) untouched. The active marker moves from the left edge to a
-       bottom underline (tab metaphor), and the System Settings group becomes a
-       hover flyout since it can't stack inline. */
-    :root[data-theme^="top-rail"] #appRoot { flex-direction: column; }
-    :root[data-theme^="top-rail"] #sidebar {
+    /* ── Top-rail layout (data-shell="top-rail") ───────────────────────────────
+       STRUCTURAL axis: the side rail becomes a horizontal TOP bar. Keyed on
+       data-shell, so ANY palette composes it by declaring shell:'top-rail' in its
+       Theme.themes metadata — e.g. "Top Rail" (light), "Top Rail — Dark" (Dark
+       palette), and "Gruvbox Rail" all share these rules with no duplication.
+       Pure CSS; markup + nav onclick wiring (and thus the backend calls) untouched.
+       The active marker moves from the left edge to a bottom underline (tab
+       metaphor), and the System Settings group becomes a hover flyout since it
+       can't stack inline. */
+    :root[data-shell="top-rail"] #appRoot { flex-direction: column; }
+    :root[data-shell="top-rail"] #sidebar {
       width: 100%; flex-direction: row; align-items: center; padding-top: 0;
       border-right: none; border-bottom: 1px solid var(--border);
     }
@@ -139,12 +149,12 @@
        the leftover height and scroll. Without it the pane grows to content height
        and body{overflow:hidden} clips it — the "can't scroll any page" bug. The
        base #appMain only sets min-width:0 (what the default ROW layout needs). */
-    :root[data-theme^="top-rail"] #appMain { min-height: 0; }
-    :root[data-theme^="top-rail"] .app-brand { border-bottom: none; border-right: 1px solid var(--border); margin-bottom: 0; }
-    :root[data-theme^="top-rail"] .nav-item,
-    :root[data-theme^="top-rail"] .nav-group-header { border-left-width: 0; border-bottom: 3px solid transparent; }
-    :root[data-theme^="top-rail"] .nav-item.active { border-bottom-color: var(--accent); }
-    :root[data-theme^="top-rail"] .nav-footer { display: none; }
+    :root[data-shell="top-rail"] #appMain { min-height: 0; }
+    :root[data-shell="top-rail"] .app-brand { border-bottom: none; border-right: 1px solid var(--border); margin-bottom: 0; }
+    :root[data-shell="top-rail"] .nav-item,
+    :root[data-shell="top-rail"] .nav-group-header { border-left-width: 0; border-bottom: 3px solid transparent; }
+    :root[data-shell="top-rail"] .nav-item.active { border-bottom-color: var(--accent); }
+    :root[data-shell="top-rail"] .nav-footer { display: none; }
     /* System Settings → flyout dropdown. Mouse: hover reveals. The :focus-within
        path is kept so the flyout becomes keyboard-reachable FOR FREE the moment
        the nav's div[onclick] items get tabindex — but that's a pre-existing,
@@ -152,54 +162,149 @@
        fix. ponytail: hover/mouse flyout; keyboard nav-activation is app-wide debt.
        The data-theme attr out-specifies .nav-group.collapsed, so the JS collapse
        toggle is inert here — hover/focus drives visibility. */
-    :root[data-theme^="top-rail"] .nav-group { position: relative; }
-    :root[data-theme^="top-rail"] .nav-group-items {
+    :root[data-shell="top-rail"] .nav-group { position: relative; }
+    :root[data-shell="top-rail"] .nav-group-items {
       position: absolute; top: 100%; left: 0; min-width: 190px;
       background: var(--surface); border: 1px solid var(--border);
       box-shadow: var(--shadow-lg); z-index: 50; display: none;
     }
-    :root[data-theme^="top-rail"] .nav-group:hover .nav-group-items,
-    :root[data-theme^="top-rail"] .nav-group:focus-within .nav-group-items { display: block; }
-    :root[data-theme^="top-rail"] .nav-group-items .nav-sub { padding-left: 16px; }
+    :root[data-shell="top-rail"] .nav-group:hover .nav-group-items,
+    :root[data-shell="top-rail"] .nav-group:focus-within .nav-group-items { display: block; }
+    :root[data-shell="top-rail"] .nav-group-items .nav-sub { padding-left: 16px; }
 
-    /* ── "Cyberpunk" — neon-HUD shell reflow ──────────────────────────────────
-       Restyles the EXISTING shell into a console/HUD: uppercase letter-spaced
-       labels, neon-cyan glow on brand/active/header/borders, a faint scanline
-       canvas overlay. Palette + Rajdhani fonts come from the SharedUtils token
-       block; markup + nav onclick wiring untouched. A11y: glow stays subtle and
-       OFF body copy (body uses the bright --text token); scanline opacity is
-       minimal so legibility holds, and the overlay is pointer-events:none. */
-    :root[data-theme="cyberpunk"] #sidebar {
-      border-right: 1px solid var(--accent);
-      box-shadow: 2px 0 18px rgba(0,234,255,.08);
+    /* ── Nav axis (data-nav) — reusable nav rendering, composed via theme metadata.
+       "icons": collapse the side rail to an icon strip that expands on hover/focus
+       (VS Code style). Side/right-rail shells only — inert under top-rail (a top
+       bar has no width to reclaim). Pure CSS; nav markup + onclick wiring untouched.
+       ponytail: hover-expand, no titles/markup change; the collapsed brand logo is
+       clipped by overflow (it expands on hover). Add a compact mark if a theme
+       wants a polished collapsed brand. */
+    :root[data-nav="icons"]:not([data-shell="top-rail"]):not([data-shell="bottom-rail"]):not([data-shell="start-menu"]) #sidebar {
+      width: 60px; overflow: hidden; transition: width .12s ease;
     }
-    :root[data-theme="cyberpunk"] .app-brand {
-      font-family: var(--font-head);
-      text-transform: uppercase; letter-spacing: .18em;
-      color: var(--accent); text-shadow: 0 0 8px rgba(0,234,255,.55);
+    :root[data-nav="icons"]:not([data-shell="top-rail"]):not([data-shell="bottom-rail"]):not([data-shell="start-menu"]) #sidebar:hover,
+    :root[data-nav="icons"]:not([data-shell="top-rail"]):not([data-shell="bottom-rail"]):not([data-shell="start-menu"]) #sidebar:focus-within { width: 210px; }
+    /* collapsed (not hovered): font-size:0 collapses each row's text label; the
+       .icon span restores its own size, so only the glyphs show. */
+    :root[data-nav="icons"]:not([data-shell="top-rail"]):not([data-shell="bottom-rail"]):not([data-shell="start-menu"]) #sidebar:not(:hover):not(:focus-within) .nav-item,
+    :root[data-nav="icons"]:not([data-shell="top-rail"]):not([data-shell="bottom-rail"]):not([data-shell="start-menu"]) #sidebar:not(:hover):not(:focus-within) .nav-group-header,
+    :root[data-nav="icons"]:not([data-shell="top-rail"]):not([data-shell="bottom-rail"]):not([data-shell="start-menu"]) #sidebar:not(:hover):not(:focus-within) .app-brand { font-size: 0; gap: 0; }
+    :root[data-nav="icons"]:not([data-shell="top-rail"]):not([data-shell="bottom-rail"]):not([data-shell="start-menu"]) #sidebar:not(:hover):not(:focus-within) .icon { font-size: 14px; }
+    :root[data-nav="icons"]:not([data-shell="top-rail"]):not([data-shell="bottom-rail"]):not([data-shell="start-menu"]) #sidebar:not(:hover):not(:focus-within) .nav-group-caret,
+    :root[data-nav="icons"]:not([data-shell="top-rail"]):not([data-shell="bottom-rail"]):not([data-shell="start-menu"]) #sidebar:not(:hover):not(:focus-within) .theme-caret,
+    :root[data-nav="icons"]:not([data-shell="top-rail"]):not([data-shell="bottom-rail"]):not([data-shell="start-menu"]) #sidebar:not(:hover):not(:focus-within) #themeBtnLabel { display: none; }
+
+    /* ── Bottom-rail layout (data-shell="bottom-rail") — horizontal nav at the
+       BOTTOM. Mirrors top-rail; active marker is a TOP border and the Settings
+       flyout / theme menu open UPWARD. Chosen via UI Settings (user pref). ── */
+    :root[data-shell="bottom-rail"] #appRoot { flex-direction: column-reverse; }
+    :root[data-shell="bottom-rail"] #sidebar {
+      width: 100%; flex-direction: row; align-items: center; padding-top: 0;
+      border-right: none; border-top: 1px solid var(--border);
     }
-    :root[data-theme="cyberpunk"] .nav-item,
-    :root[data-theme="cyberpunk"] .nav-group-header { text-transform: uppercase; letter-spacing: .05em; }
-    :root[data-theme="cyberpunk"] .nav-item:hover { color: var(--accent); text-shadow: 0 0 6px rgba(0,234,255,.5); }
-    :root[data-theme="cyberpunk"] .nav-item.active {
-      box-shadow: inset 3px 0 0 var(--accent), inset 0 0 20px rgba(0,234,255,.14);
-      text-shadow: 0 0 6px rgba(0,234,255,.5);
+    :root[data-shell="bottom-rail"] #appMain { min-height: 0; }
+    :root[data-shell="bottom-rail"] .app-brand { border-bottom: none; border-right: 1px solid var(--border); margin-bottom: 0; }
+    :root[data-shell="bottom-rail"] .nav-item,
+    :root[data-shell="bottom-rail"] .nav-group-header { border-left-width: 0; border-top: 3px solid transparent; }
+    :root[data-shell="bottom-rail"] .nav-item.active { border-top-color: var(--accent); }
+    :root[data-shell="bottom-rail"] .nav-footer { display: none; }
+    :root[data-shell="bottom-rail"] .nav-group { position: relative; }
+    :root[data-shell="bottom-rail"] .nav-group-items {
+      position: absolute; bottom: 100%; top: auto; left: 0; min-width: 190px;
+      background: var(--surface); border: 1px solid var(--border);
+      box-shadow: var(--shadow-lg); z-index: 50; display: none;
     }
-    :root[data-theme="cyberpunk"] #appHeader {
-      border-bottom: 1px solid var(--accent);
-      box-shadow: 0 1px 14px rgba(0,234,255,.18);
+    :root[data-shell="bottom-rail"] .nav-group:hover .nav-group-items,
+    :root[data-shell="bottom-rail"] .nav-group:focus-within .nav-group-items { display: block; }
+    :root[data-shell="bottom-rail"] .nav-group-items .nav-sub { padding-left: 16px; }
+    :root[data-shell="bottom-rail"] .theme-menu { bottom: calc(100% + 4px); top: auto; }
+
+    /* ── Start-menu layout (data-shell="start-menu") — a bottom TASKBAR (#startBar)
+       with a Start button; the sidebar becomes a pop-up "Start" panel toggled by
+       toggleStartMenu() (sets data-start-open on <html>). #startBar is display:none
+       in every other layout (true no-op). Chosen via UI Settings (user pref). ── */
+    :root[data-shell="start-menu"] #appRoot { display: block; position: relative; }
+    :root[data-shell="start-menu"] #appMain { height: calc(100vh - var(--taskbar-h, 40px)); }
+    :root[data-shell="start-menu"] #startBar {
+      display: flex; align-items: center; gap: var(--space-3);
+      position: absolute; left: 0; right: 0; bottom: 0; height: var(--taskbar-h, 40px);
+      box-sizing: border-box;   /* padding stays inside the bar width (no horizontal overflow) */
+      background: var(--surface); border-top: 1px solid var(--border-2);
+      /* Pull the Start button (left) + clock (right) inboard from the rounded screen
+         corners — original bar height, no growth. Extra LEFT inset because the Start
+         button sits deepest in the bottom-left corner curve; the clock (right) clears
+         at 28px. (default viewport keeps the bar above the home indicator). */
+      padding: 0 28px 0 48px;
+      z-index: 150;
     }
-    :root[data-theme="cyberpunk"] #appHeaderTitle {
-      text-transform: uppercase; letter-spacing: .14em;
-      color: var(--accent); text-shadow: 0 0 8px rgba(0,234,255,.4);
+    :root[data-shell="start-menu"] #sidebar {
+      position: absolute; left: 6px; bottom: calc(var(--taskbar-h, 40px) + 6px);
+      width: 240px; max-height: 72vh; overflow-y: auto;
+      border: 1px solid var(--border-2); border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-lg); z-index: 200; display: none;
     }
-    /* faint CRT scanline over the (dark) content — texture only, never clicks.
-       Views render dark here (each #view-xxx root = var(--bg)), so the cyan lines
-       read as a subtle screen texture, not a film over white. */
-    :root[data-theme="cyberpunk"] #appContent::after {
-      content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 2;
-      background-image: repeating-linear-gradient(0deg, rgba(0,234,255,.028) 0 1px, transparent 1px 3px);
+    :root[data-shell="start-menu"][data-start-open] #sidebar { display: flex; }
+    :root[data-shell="start-menu"] #sidebar .nav-spacer { display: none; }   /* compact panel — don't push Close to the bottom */
+
+    /* Start button + taskbar clock — hidden unless the start-menu layout is active. */
+    #startBar { display: none; }
+    .start-btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-family: var(--font-head); font-weight: 700; font-size: 13px;
+      color: var(--on-accent); background: var(--accent);
+      border: none; border-radius: var(--radius); padding: 6px 14px; cursor: pointer;
     }
+    .start-btn:hover { background: var(--accent-hover); }
+    .start-btn .start-logo { font-size: 14px; line-height: 1; }
+    .start-clock { margin-left: auto; font-size: var(--fs-sm); color: var(--text-2); font-variant-numeric: tabular-nums; }
+    /* Luna dresses the taskbar + Start button as Windows XP. */
+    :root[data-theme="luna"] #startBar { background: linear-gradient(180deg,#2a8bf2 0%,#1860c8 50%,#0a52c0 100%); border-top: 1px solid #003bbf; }
+    :root[data-theme="luna"] .start-btn { background: linear-gradient(180deg,#7bbf4a,#3c8d0d); color: #fff; border-radius: 0 12px 12px 0; font-style: italic; box-shadow: inset 0 1px 0 rgba(255,255,255,.4); }
+    :root[data-theme="luna"] .start-clock { color: #fff; }
+
+    /* ════════════════════════════════════════════════════════════════════════
+       MOBILE (data-viewport="mobile") — auto by viewport width (<=760px), set in
+       the head pre-paint + a matchMedia listener in SharedUtils. On mobile,
+       UiPrefs.applyOverrides forces data-shell="start-menu", so EVERY theme gets
+       the start-menu taskbar nav (this REUSES that layout's CSS as-is); below we
+       widen the Start panel for touch, fix the height to dvh, stack the
+       grid-skeleton views to one column, and trim padding. Theme palettes/tokens
+       carry through automatically; per-theme mobile tweaks are scoped
+       [data-viewport="mobile"][data-theme="x"]. Placed AFTER the start-menu block
+       so these (equal-specificity) overrides win on source order. ── */
+    :root[data-viewport="mobile"] #appMain { height: calc(100dvh - var(--taskbar-h, 40px)); }   /* dvh dodges the mobile address-bar jump; falls back to the start-menu 100vh rule */
+    :root[data-viewport="mobile"] #sidebar { width: 84vw; max-width: 320px; }
+    :root[data-viewport="mobile"] .nav-item,
+    :root[data-viewport="mobile"] .nav-group-header { padding-top: 12px; padding-bottom: 12px; }   /* finger-sized targets */
+
+    /* Grid-skeleton views collapse to a single column. */
+    :root[data-viewport="mobile"] #view-run .rv-body { grid-template-columns: 1fr; grid-template-areas: "vin" "table" "rail"; }
+    :root[data-viewport="mobile"] #view-vinlog .layout { grid-template-columns: 1fr; grid-template-areas: "main" "side"; }
+    :root[data-viewport="mobile"] #view-vinlog .col-main { border-right: none; border-bottom: 1px solid var(--border); }
+    :root[data-viewport="mobile"] #view-import .import-cols { grid-template-columns: 1fr; grid-template-areas: "left" "right"; }
+    :root[data-viewport="mobile"] #view-home .home-cards { grid-template-columns: 1fr; }
+
+    /* Trim oversized desktop padding; let wide tables scroll instead of overflowing the screen. */
+    :root[data-viewport="mobile"] #view-run .rv-wrap,
+    :root[data-viewport="mobile"] .uis-scroll,
+    :root[data-viewport="mobile"] .home-scroll,
+    :root[data-viewport="mobile"] .ds-scroll,
+    :root[data-viewport="mobile"] .ps-scroll { padding: var(--space-3); }
+    :root[data-viewport="mobile"] .table-wrap,
+    :root[data-viewport="mobile"] .ds-table,
+    :root[data-viewport="mobile"] .dash-table { overflow-x: auto; }
+
+    /* Config views: collapse internal multi-column grids to one column so cards
+       go full-width (labels stop clipping, pills wrap instead of overflowing).
+       Dealer Rules — both the Filtering tab (.filter-grid 4-col, .filter-grid-2
+       2-col) and the Pipedrive tab (.ps-thenelse 2-col, .pd-overrides-grid 3-col). */
+    :root[data-viewport="mobile"] #view-rules .filter-grid,
+    :root[data-viewport="mobile"] #view-rules .filter-grid-2,
+    :root[data-viewport="mobile"] #view-rules .ps-thenelse,
+    :root[data-viewport="mobile"] #view-rules .pd-overrides-grid { grid-template-columns: 1fr; }
+
+    /* Per-theme mobile tweak: Luna sheds its desktop window chrome (full-bleed client). */
+    :root[data-viewport="mobile"][data-theme="luna"] #appMain { margin: 0; border-radius: 0; border: none; }
 
     /* ── "Encarta" — Win95/98 window-frame reskin ────────────────────────────────
        Reframes the app as a Win95 application window over the existing markup:
@@ -309,6 +414,35 @@
     :root[data-theme="encarta"] #view-run #vinDataTable th { background: var(--surface) !important; }
     :root[data-theme="encarta"] #view-run .rv-rail { border-left: 2px inset #dfdfdf !important; }
 
+    /* ── "Windows XP" (Luna) — window-frame reskin over the existing shell. ── */
+    :root[data-theme="luna"] #appRoot { background: linear-gradient(180deg,#5a7edc,#4a6fc8); }
+    :root[data-theme="luna"] #appMain { margin: 6px 6px 0; border-radius: 8px 8px 0 0; overflow: hidden; border: 1px solid #0831d9; }
+    :root[data-theme="luna"] #appHeader { background: linear-gradient(180deg,#0058ee 0%,#2a8bf2 9%,#1d6fd6 45%,#0054e3 90%,#003bbf 100%); border-bottom: 1px solid #003bbf; }
+    :root[data-theme="luna"] #appHeaderTitle { color: #fff; font-weight: 700; text-shadow: 1px 1px 1px rgba(0,0,0,.4); }
+    :root[data-theme="luna"] #appHeaderRight { color: #dce8ff; }
+    :root[data-theme="luna"] #sidebar { background: linear-gradient(180deg,#f0f4fb,#d6e2f5); border-right: 1px solid #7f9db9; }
+    :root[data-theme="luna"] .app-brand { background: linear-gradient(180deg,#0058ee,#0054e3); color: #fff; border-bottom: 1px solid #003bbf; }
+    :root[data-theme="luna"] .nav-item.active { background: var(--accent); color: #fff; border-left-color: #002d8a; }
+    :root[data-theme="luna"] .nav-item.active .icon { color: #fff; }
+    :root[data-theme="luna"] .nav-footer { background: linear-gradient(180deg,#57a818,#3c8d0d); color: #fff; border-top: 1px solid #2a6a08; }
+    :root[data-theme="luna"] button { background: linear-gradient(180deg,#fdfdfd,#e8e8d8); border: 1px solid #8a8a7a; border-radius: 3px; box-shadow: none; }
+    :root[data-theme="luna"] button:hover { border-color: var(--accent-hover); }
+    :root[data-theme="luna"] input:not([type=checkbox]):not([type=radio]):not([type=range]),
+    :root[data-theme="luna"] select, :root[data-theme="luna"] textarea { background: #fff; border: 1px solid #7f9db9; border-radius: 2px; box-shadow: none; }
+
+    /* data-arrange="desktop" — Home cards become a grid of captioned desktop icons.
+       Theme-agnostic LAYOUT on the axis; any future "desktop" theme reuses it. */
+    :root[data-arrange="desktop"] #view-home .home-cards { grid-template-columns: repeat(auto-fill, 96px); gap: 18px; padding: 14px; }
+    :root[data-arrange="desktop"] #view-home .home-card { background: transparent; border: none; box-shadow: none; text-align: center; padding: 6px 2px; }
+    :root[data-arrange="desktop"] #view-home .home-card .card-icon { font-size: 40px; margin-bottom: 4px; }
+    :root[data-arrange="desktop"] #view-home .home-card .card-desc { display: none; }
+    :root[data-arrange="desktop"] #view-home .home-section-label { display: none; }
+    /* Luna pairs the desktop with a blue background + light captions. */
+    :root[data-theme="luna"] #view-home, :root[data-theme="luna"] #appContent { background: linear-gradient(180deg,#5a7edc,#4a6fc8); }
+    :root[data-theme="luna"] #view-home .home-card .card-title { color: #fff; text-shadow: 1px 1px 2px rgba(0,0,0,.6); }
+    /* Luna moves the Run rail to the left as an Explorer task pane (uses the grid skeleton below). */
+    :root[data-theme="luna"] #view-run .rv-body { grid-template-columns: var(--rv-rail-w) 1fr var(--rv-vin-w); grid-template-areas: "rail table vin"; }
+
     .nav-item {
       display: flex;
       align-items: center;
@@ -364,7 +498,7 @@
     /* ── Main area ─────────────────────────────────────────────────────────── */
     #appMain { flex: 1; min-width: 0; display: flex; flex-direction: column; }
     #appHeader {
-      height: 46px;
+      height: var(--shell-header-h);
       flex-shrink: 0;
       background: var(--bg);
       border-bottom: 1px solid var(--border);
@@ -387,10 +521,6 @@
     /* Author display rules on view roots (flex etc.) would defeat the UA's
        [hidden] rule — force it. */
     .view[hidden] { display: none !important; }
-
-    /* Web App mode (doGet, full-screen browser tab): there's no host dialog to
-       close, so hide the Close item — the user just closes the tab. */
-    :root[data-mode="webapp"] #navClose { display: none; }
 
     /* ── Wide-screen responsive frame ───────────────────────────────────────
        Each view root declares a data-layout tier; its content wrapper(s) carry
@@ -445,11 +575,14 @@
       <div class="nav-item" id="nav-view-utilities" onclick="navTo('view-utilities')">
         <span class="icon">&#128295;</span> Utilities
       </div>
-      <div class="nav-group" id="nav-group-settings">
+      <div class="nav-group collapsed" id="nav-group-settings">
         <div class="nav-group-header" onclick="toggleSettingsGroup()" title="Show / hide configuration screens">
           <span class="icon">&#9881;</span> System Settings <span class="nav-group-caret">&#9662;</span>
         </div>
         <div class="nav-group-items">
+          <div class="nav-item nav-sub" id="nav-view-ui-settings" onclick="navTo('view-ui-settings')">
+            <span class="icon">&#127899;</span> UI Settings
+          </div>
           <div class="nav-item nav-sub" id="nav-view-rules" onclick="navTo('view-rules')">
             <span class="icon">&#9881;</span> Dealer Rules
           </div>
@@ -477,9 +610,6 @@
         </button>
         <ul id="themeMenu" class="theme-menu" role="listbox" aria-label="Theme" hidden></ul>
       </div>
-      <div class="nav-item" id="navClose" onclick="exitApp()">
-        <span class="icon">&#10005;</span> Close SilverFox
-      </div>
       <div class="nav-footer">SilverFox V2 &middot; GAS-OPS</div>
     </nav>
 
@@ -499,7 +629,16 @@
         <?!= include_('ViewUtilities') ?>
         <?!= include_('ViewPipedriveSettings') ?>
         <?!= include_('ViewFieldCodes') ?>
+        <?!= include_('ViewUiSettings') ?>
       </div>
+    </div>
+
+    <!-- Bottom taskbar — only rendered in the start-menu nav layout (CSS display:none otherwise). -->
+    <div id="startBar">
+      <button type="button" class="start-btn" onclick="toggleStartMenu(event)" aria-label="Start menu">
+        <span class="start-logo" aria-hidden="true">&#8862;</span> Start
+      </button>
+      <span class="start-clock" id="startClock"></span>
     </div>
 
   </div>
@@ -516,7 +655,8 @@
       'view-norm':   'Normalization',
       'view-utilities': 'Utilities',
       'view-pipedrive-settings': 'Pipedrive Settings',
-      'view-fieldcodes': 'Field Codes'
+      'view-fieldcodes': 'Field Codes',
+      'view-ui-settings': 'UI Settings'
     };
     var _viewInited = {};
 
@@ -539,7 +679,7 @@
         items[j].classList.toggle('active', items[j].id === 'nav-' + viewId);
       }
       // Keep the System Settings group open when navigating to one of its children.
-      if (['view-rules', 'view-norm', 'view-datasources', 'view-pipedrive-settings', 'view-fieldcodes'].indexOf(viewId) !== -1) {
+      if (['view-ui-settings', 'view-rules', 'view-norm', 'view-datasources', 'view-pipedrive-settings', 'view-fieldcodes'].indexOf(viewId) !== -1) {
         var sg = document.getElementById('nav-group-settings');
         if (sg) sg.classList.remove('collapsed');
       }
@@ -552,14 +692,37 @@
           try { VIEW_INITS[viewId](); } catch (e) { toast('Init error: ' + e.message, 'error'); }
         }
       }
+      // Enhance this view's <select>s now that it's VISIBLE (real layout + options
+      // present). Enhancing while a view is hidden is unreliable, which is why only
+      // Run Order's selects (re-populated via innerHTML → caught by the observer)
+      // got the themed dropdown before. Idempotent — already-enhanced selects skip.
+      // Runs BEFORE VIEW_SHOWN so height-calc views (Norm/FieldCodes) measure the
+      // enhanced layout.
+      if (window.CustomSelect && CustomSelect.enhanceAll) {
+        try { CustomSelect.enhanceAll(target); } catch (e) {}
+      }
       if (window.VIEW_SHOWN && VIEW_SHOWN[viewId]) {
         try { VIEW_SHOWN[viewId](); } catch (e) {}
       }
+      closeStartMenu();   // picking a destination closes the Start panel (no-op in other layouts)
     }
 
     function toggleSettingsGroup() {
       var g = document.getElementById('nav-group-settings');
       if (g) g.classList.toggle('collapsed');
+    }
+
+    // ── Start-menu layout: Start button popup + taskbar clock ────────────────
+    function toggleStartMenu(e) {
+      if (e) e.stopPropagation();   // don't let the click bubble to the outside-close handler
+      var root = document.documentElement;
+      if (root.hasAttribute('data-start-open')) root.removeAttribute('data-start-open');
+      else root.setAttribute('data-start-open', '');
+    }
+    function closeStartMenu() { document.documentElement.removeAttribute('data-start-open'); }
+    function tickStartClock() {
+      var el = document.getElementById('startClock');
+      if (el) { try { el.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); } catch (e) {} }
     }
 
     // Mark not-yet-migrated sections in the sidebar
@@ -598,6 +761,15 @@
     // Prefetch shared bootstrap data (dealers + users) while the user is on
     // Home — Run Order / VIN Logs then populate instantly on first visit.
     AppData.load();
+    // Start-menu (taskbar) layout: live clock + click-outside-to-close (inert
+    // unless the start-menu nav layout is active and the panel is open).
+    tickStartClock(); setInterval(tickStartClock, 30000);
+    document.addEventListener('click', function(e) {
+      if (document.documentElement.hasAttribute('data-start-open') &&
+          e.target.closest && !e.target.closest('#sidebar') && !e.target.closest('#startBar')) {
+        closeStartMenu();
+      }
+    });
   </script>
 </body>
 </html>

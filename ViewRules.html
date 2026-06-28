@@ -797,7 +797,11 @@
     #view-rules .pd-org-clear:hover { background: var(--surface); color: var(--accent); border-color: var(--accent); }
 
     /* Type → product grid */
-    #view-rules .pd-product-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    /* Desktop: a 5-col table; if the panel is ever narrower than min-width it
+       scrolls within its card. On mobile it reflows into one card per type — see
+       the [data-viewport="mobile"] block below. */
+    #view-rules .pd-table-scroll { overflow-x: auto; }
+    #view-rules .pd-product-table { width: 100%; min-width: 600px; border-collapse: collapse; font-size: 12px; }
     #view-rules .pd-product-table th {
       background: var(--surface-2); padding: 6px 10px; text-align: left;
       font-size: 11px; font-weight: bold; text-transform: uppercase;
@@ -821,6 +825,33 @@
     #view-rules .pd-type-badge.type-po    { background: var(--type-po); }
     #view-rules .pd-type-badge.type-cpo   { background: var(--type-cpo); }
     #view-rules .pd-type-badge.type-cpoel { background: var(--type-cpoel); }
+
+    /* ── Mobile: reflow the product table into ONE CARD PER TYPE ────────────────
+       Horizontally scrolling a 5-col table of tiny selects is painful on touch, so
+       on a phone each type becomes a vertical card — the type badge is the card
+       header and Product / Variation / Schema / UTM stack as full-width labeled
+       fields (labels rendered from each td's data-label). Desktop keeps the table.
+       Applies to BOTH the main and source-split product grids (same class). */
+    :root[data-viewport="mobile"] #view-rules .pd-table-scroll { overflow-x: visible; }
+    :root[data-viewport="mobile"] #view-rules .pd-product-table { min-width: 0; display: block; font-size: 12px; }
+    :root[data-viewport="mobile"] #view-rules .pd-product-table thead { display: none; }
+    :root[data-viewport="mobile"] #view-rules .pd-product-table tbody { display: block; }
+    :root[data-viewport="mobile"] #view-rules .pd-product-table tr {
+      display: block; margin-bottom: 10px; padding: 10px;
+      border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface);
+    }
+    :root[data-viewport="mobile"] #view-rules .pd-product-table td {
+      display: block; width: auto; border: none; padding: 4px 0;
+    }
+    :root[data-viewport="mobile"] #view-rules .pd-product-table td.pd-type-cell {
+      padding: 0 0 6px; margin-bottom: 6px; border-bottom: 1px solid var(--border);
+    }
+    :root[data-viewport="mobile"] #view-rules .pd-product-table td[data-label]::before {
+      content: attr(data-label); display: block; margin-bottom: 3px;
+      font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.3px; color: var(--text-3);
+    }
+    :root[data-viewport="mobile"] #view-rules .pd-product-table td select,
+    :root[data-viewport="mobile"] #view-rules .pd-product-table td input { width: 100%; box-sizing: border-box; }
 
     /* Product table — third column (Variation) shares the product column styling. */
     #view-rules .pd-product-table td:first-child { width: 90px; }
@@ -1949,8 +1980,8 @@
         sourceGrid =
           '<div class="pd-sub-label">Products for the ' + escHtml(sgName) + ' output</div>' +
           pdSchemaHint_() +
-          '<table class="pd-product-table"><thead><tr><th>Type</th><th>Product</th><th>Variation</th><th>Schema</th><th>UTM</th></tr></thead>' +
-            '<tbody>' + srcRows + '</tbody></table>';
+          '<div class="pd-table-scroll"><table class="pd-product-table"><thead><tr><th>Type</th><th>Product</th><th>Variation</th><th>Schema</th><th>UTM</th></tr></thead>' +
+            '<tbody>' + srcRows + '</tbody></table></div>';
       }
 
       // "Show all products" — only meaningful when product scoping is active AND
@@ -1977,8 +2008,8 @@
           '<div class="pd-sub-label">Type → Product</div>' +
           showAllRow +
           pdSchemaHint_() +
-          '<table class="pd-product-table"><thead><tr><th>Type</th><th>Product</th><th>Variation</th><th>Schema</th><th>UTM</th></tr></thead>' +
-            '<tbody>' + rows + '</tbody></table>' +
+          '<div class="pd-table-scroll"><table class="pd-product-table"><thead><tr><th>Type</th><th>Product</th><th>Variation</th><th>Schema</th><th>UTM</th></tr></thead>' +
+            '<tbody>' + rows + '</tbody></table></div>' +
           sourceGrid +
 
           '<details class="rules-adv"' + (ovrOpen ? ' open' : '') + '>' +
@@ -2061,12 +2092,14 @@
       // model (pdSelections[...].productMap) and round-trips on save via buildProductMap_.
       return pdEffectiveTypes().map(function(t) {
         var cell = map[t] || {};
+        // data-label / pd-type-cell drive the mobile card reflow (CSS turns each
+        // row into a card with the type badge as header + labeled stacked fields).
         return '<tr>' +
-          '<td><span class="pd-type-badge ' + pdTypeClass_(t) + '">' + escHtml(t) + '</span></td>' +
-          '<td>' + pdProductSelect_(group, t, cell.product_id, mapKey) + '</td>' +
-          '<td>' + pdVariationSelect_(group, t, cell.product_id, cell.variation_id, mapKey) + '</td>' +
-          '<td>' + pdProductSchemaSelect_(group, t, mapKey, cell.schema) + '</td>' +
-          '<td>' + pdProductUtmInput_(group, t, mapKey, cell.utm) + '</td>' +
+          '<td class="pd-type-cell"><span class="pd-type-badge ' + pdTypeClass_(t) + '">' + escHtml(t) + '</span></td>' +
+          '<td data-label="Product">' + pdProductSelect_(group, t, cell.product_id, mapKey) + '</td>' +
+          '<td data-label="Variation">' + pdVariationSelect_(group, t, cell.product_id, cell.variation_id, mapKey) + '</td>' +
+          '<td data-label="Schema">' + pdProductSchemaSelect_(group, t, mapKey, cell.schema) + '</td>' +
+          '<td data-label="UTM">' + pdProductUtmInput_(group, t, mapKey, cell.utm) + '</td>' +
         '</tr>';
       }).join('');
     }

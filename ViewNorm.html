@@ -52,10 +52,6 @@
     </table>
   </div>
 
-  <div class="footer app-measure" id="normFooter">
-    <button class="btn-secondary" onclick="exitApp()">Close SilverFox</button>
-  </div>
-
 </div>
 
 <style>
@@ -78,7 +74,7 @@
   #view-norm .top-bar label { font-weight: bold; white-space: nowrap; }
   #view-norm select {
     flex: 0 0 220px;
-    padding: 6px 8px;
+    padding: 8px;
     font-size: 13px;
     border: 1px solid var(--border-2);
     border-radius: 4px;
@@ -200,6 +196,29 @@
 
     /* themed root (overrides the interim .view light guard) */
     #view-norm { background: var(--bg); color: var(--text); }
+
+  /* ── Mobile (data-viewport="mobile") — phone ≤760px ───────────────────────
+     Wrap the add bar (raw → normalized → buttons) so it stacks. The entries
+     table holds little data, so make it FIT ~360px with NO horizontal scroll:
+     drop the min-width + x-scroll, shrink the cell font/padding + action
+     buttons, and allow wrapping. CSS only — no wrapper divs / no sibling
+     reordering (sizeNormTable measures .top-bar/.add-bar/.footer/#normStatus).
+     No-op on desktop. */
+  :root[data-viewport="mobile"] #view-norm .add-bar { flex-wrap: wrap; }
+  :root[data-viewport="mobile"] #view-norm .add-field { flex: 1 1 100%; }
+  :root[data-viewport="mobile"] #view-norm .add-arrow { display: none; }
+  :root[data-viewport="mobile"] #view-norm .add-buttons { flex: 1 1 100%; justify-content: flex-end; }
+  :root[data-viewport="mobile"] #view-norm .top-bar { flex-wrap: wrap; }
+  :root[data-viewport="mobile"] #view-norm .order-note { margin-left: 0; flex: 1 1 100%; }
+  :root[data-viewport="mobile"] #view-norm table { font-size: 11px; }
+  :root[data-viewport="mobile"] #view-norm td,
+  :root[data-viewport="mobile"] #view-norm thead th { padding: 5px 5px; }
+  :root[data-viewport="mobile"] #view-norm td.col-input,
+  :root[data-viewport="mobile"] #view-norm td.col-output { word-break: break-word; }
+  /* Shrink the actions column + its icon buttons so all four columns fit. */
+  :root[data-viewport="mobile"] #view-norm thead th.col-actions,
+  :root[data-viewport="mobile"] #view-norm td.col-actions { width: 96px; white-space: normal; }
+  :root[data-viewport="mobile"] #view-norm .btn-icon { padding: 3px 5px; font-size: 11px; margin: 1px; }
 </style>
 
 <script>

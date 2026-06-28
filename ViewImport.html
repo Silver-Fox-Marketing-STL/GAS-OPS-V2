@@ -224,14 +224,16 @@
     #view-import .status-bar.success { background: var(--success-weak); color: var(--success); }
     #view-import .status-bar.error { background: var(--danger-weak); color: var(--danger); }
 
-    /* ── Two-column import form (wide modal) ─────────────────────────────────── */
-    #view-import .import-cols { display: flex; gap: 20px; align-items: flex-start; }
+    /* ── Two-column import form (wide modal) ───────────────────────────────────
+       Grid skeleton (default = the original left / right row, no-op): named areas
+       let a theme swap columns or restyle widths with no markup change. */
+    #view-import .import-cols { display: grid; grid-template-columns: 460px 1fr;
+                               grid-template-areas: "left right"; gap: 20px; align-items: start; }
     #view-import .import-left {
-      width: 460px;
-      flex-shrink: 0;
+      grid-area: left;
     }
     #view-import .import-right {
-      flex: 1;
+      grid-area: right;
       min-width: 0;
     }
     #view-import .files-placeholder {
@@ -462,8 +464,8 @@
       background: var(--surface);
     }
     #view-import .cd-filters select {
-      padding: 5px 8px;
-      font-size: 12px;
+      padding: 8px;
+      font-size: 13px;
       border: 1px solid var(--border-2);
       border-radius: 4px;
       background: var(--bg);
@@ -639,6 +641,21 @@
 
     /* themed root (overrides the interim .view light guard) */
     #view-import { background: var(--bg); color: var(--text); }
+
+    /* ── Mobile (data-viewport="mobile") — phone ≤760px ─────────────────────
+       .import-cols already stacks (App.html). Here: wrap the Current Data
+       filter row + the conflict keep-existing/keep-new choice row so they don't
+       overflow, trim panel padding, and ensure the wide data tables scroll
+       within their existing overflow containers. Conflict cards are already
+       full-width (grid 1fr) with table-layout:fixed. No-op on desktop. */
+    :root[data-viewport="mobile"] #view-import .cd-filters { flex-wrap: wrap; }
+    :root[data-viewport="mobile"] #view-import .cd-count { margin-left: 0; flex: 1 1 100%; }
+    :root[data-viewport="mobile"] #view-import .conflict-choice { flex-wrap: wrap; gap: 8px 22px; }
+    :root[data-viewport="mobile"] #view-import .modal-header,
+    :root[data-viewport="mobile"] #view-import .modal-body { padding-left: var(--space-3); padding-right: var(--space-3); }
+    :root[data-viewport="mobile"] #view-import .modal-footer { flex-wrap: wrap; }
+    :root[data-viewport="mobile"] #view-import .modal-footer .status-bar { flex: 1 1 100%; order: -1; }
+    :root[data-viewport="mobile"] #view-import #cdTable { min-width: 700px; }
 </style>
 
 <script>

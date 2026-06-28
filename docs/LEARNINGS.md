@@ -117,6 +117,50 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   `pdOrgResultsByGid` in `ViewRules.html`, and `psLinkPickOrg(i, j)` via
   `psLinkOrgResultsByRow` in `ViewPipedriveSettings.html`.) The same hazard exists
   for any value rendered into an inline handler — names, file paths, free-text notes.
+- **Composable theme axes without breaking the single-pick model: key reusable
+  structural CSS on independent `data-*` attributes, reflected FROM a theme's metadata,
+  not on the theme id itself — and reflect them PRE-PAINT.** The theme system stayed a
+  single curated pick (one persisted `data-theme` slug), but a theme needed to reshape
+  *layout + elements*, not just colors. Hardcoding that per theme (`[data-theme="x"]
+  #sidebar{…}` copied for every palette that wants a top rail) is N×M CSS. Instead each
+  theme declares optional **axes** in its `Theme.themes` metadata (`shell`/`density`/
+  `shape`/`nav`/`arrange`) and `Theme.reflectAxes(id)` writes each onto `<html>` as
+  `data-shell`/`data-density`/`data-shape`/`data-nav`/`data-arrange`; the reusable structural
+  CSS keys on those axis attributes, so one rule serves every palette and a pure palette ×
+  axis recombination needs **zero** new CSS. **An omitted axis is REMOVED → its default**
+  (so a theme only opts into the structure it wants, and the floor is the base layout).
+  **Page rearrangement rides the same axis via CSS-Grid skeletons:** a view's top-level
+  layout parent is `display:grid` with named `grid-template-areas` whose **default template
+  reproduces today's layout exactly (a no-op)** and each section gets a `grid-area`; a theme
+  then redefines the template under `[data-arrange="…"] #view-xxx` (reusable) or
+  `[data-theme="id"] #view-xxx` (bespoke) — so moving the Run Order rail to the left for
+  Luna is **one CSS line** (`grid-template-areas:"rail table vin"`), no markup or JS change.
+  Apply the skeleton only to views with a fixed section set; leave **linear / height-calc-JS
+  views** (Norm/Utilities/FieldCodes) on flex — they've nothing to rearrange and the grid
+  blockify (next bullet) would only risk regressions. Two load-bearing details: (1) **reflect
+  pre-paint** — the `reflectAxes(current())` call sits at the end of the shell-included shared
+  script (`App.html` includes `SharedUtils` before `#appRoot`), so the chosen layout paints
+  right the first frame (no FOUC); doing it in a view's init runs too late and flashes.
+  (2) **Watch for attribute-name collisions** — `data-layout` was already taken (on each
+  `.view` root for the responsive width tier), so the shell axis is `data-shell` **and** the
+  page-arrange axis is `data-arrange` (NOT `data-layout`); namespace deliberately or two
+  unrelated systems silently fight over one attribute. Persistence stays one slug; axes never
+  touch view JS or `google.script.run`, so a theme still can't break a backend link. (Same
+  family as the "re-key the config source without rewriting consumers" lesson — here the
+  consumers are CSS selectors and the new source is per-theme metadata.)
+- **Converting a flex container to CSS Grid is NOT automatically a visual no-op.** Grid
+  *blockifies* its items (an `inline-flex`/`inline-block` child becomes `flex`/`block`) and
+  `justify-self`/`align-items` default to **`stretch`** — so a content-width element (a pill
+  laid out `display:inline-flex`) **balloons to the full column width** the moment it's a grid
+  item. When gridifying a layout for theme-driven rearrangement (the grid-skeleton pattern
+  above), audit each child's prior sizing and carry it over: a content-width inline element
+  needs **`justify-self:start`** to stay its own width, and the old `align-items` must be
+  re-expressed (`flex-start` → grid `align-items:start`). Caught in review on the ViewHome
+  status pill (`#view-home .home-status { justify-self:start }`). The reusable pattern:
+  theme-driven page rearrangement = a default-preserving `grid-template-areas` skeleton on a
+  view + a metadata-reflected `data-arrange` axis; the linear/height-calc-JS views are
+  excluded, and every gridified child gets its pre-grid sizing restored so the default
+  template is a true no-op.
 
 ## External APIs (Pipedrive)
 

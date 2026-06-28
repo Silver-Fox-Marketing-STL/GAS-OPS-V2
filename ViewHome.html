@@ -9,7 +9,7 @@
       <span id="homeStatusText">Loading dashboard&hellip;</span>
     </div>
 
-    <div class="home-section-label">Workflows</div>
+    <div class="home-section-label home-wflabel">Workflows</div>
     <div class="home-cards">
       <div class="home-card" onclick="navTo('view-run')">
         <div class="card-icon">&#9654;</div>
@@ -55,7 +55,19 @@
     height: 100%;
     overflow-y: auto;
     padding: 22px 26px;
+    /* Grid skeleton (default = the original vertical stack, no-op): no gap, so
+       each section's own margin-bottom carries spacing exactly as block flow did.
+       Named areas let a theme reorder sections with no markup change. */
+    display: grid;
+    grid-template-columns: 1fr;
+    grid-template-areas: "status" "wflabel" "cards" "dashhead" "dash";
+    align-content: start;
   }
+  #view-home .home-status { grid-area: status; justify-self: start; }  /* no-op: keep the inline-flex pill content-width (grid items default to stretch) */
+  #view-home .home-wflabel { grid-area: wflabel; }
+  #view-home .home-cards { grid-area: cards; }
+  #view-home .home-dash-head { grid-area: dashhead; }
+  #view-home #homeDashboard { grid-area: dash; }
 
   #view-home .home-status {
     display: inline-flex;
@@ -175,6 +187,21 @@
 
     /* themed root (overrides the interim .view light guard) */
     #view-home { background: var(--bg); color: var(--text); }
+
+  /* ── Mobile: stop a wide dashboard table from widening the whole page ───────
+     A wide table expands its flex/grid ancestors (default min-width:auto),
+     stretching the cards + Refresh button off the right edge. Pin every layout
+     ancestor to min-width:0 so the table can't grow them, and let each table
+     scroll sideways inside its own card (display:block makes the <table>'s own
+     overflow-x scroll). */
+  :root[data-viewport="mobile"] #view-home .home-scroll,
+  :root[data-viewport="mobile"] #view-home #homeDashboard,
+  :root[data-viewport="mobile"] #view-home .home-dash { min-width: 0; }
+  :root[data-viewport="mobile"] #view-home .dash-table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+  }
 </style>
 
 <script>
