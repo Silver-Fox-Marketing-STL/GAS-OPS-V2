@@ -36,10 +36,12 @@
         <span class="ds-section">Header mapping</span>
         <span id="dsMapMeta" class="ds-meta"></span>
       </div>
-      <table class="ds-table">
-        <thead><tr><th style="width:42%">File header</th><th style="width:8%">Example</th><th>Maps to canonical column</th></tr></thead>
-        <tbody id="dsMapBody"></tbody>
-      </table>
+      <div class="ds-tablescroll">
+        <table class="ds-table">
+          <thead><tr><th style="width:42%">File header</th><th style="width:8%">Example</th><th>Maps to canonical column</th></tr></thead>
+          <tbody id="dsMapBody"></tbody>
+        </table>
+      </div>
 
       <div id="dsUnmapped" class="ds-unmapped"></div>
 
@@ -94,6 +96,17 @@
 
     /* themed root (overrides the interim .view light guard) */
     #view-datasources { background: var(--bg); color: var(--text); }
+
+  /* ── Mobile (data-viewport="mobile") — phone ≤760px ───────────────────────
+     Stack the dealer/source/file control row, relax the 260px input min-width
+     so the file picker + selects fit a ~360px screen, and let the wide mapping
+     table scroll within the card. No-op on desktop. */
+  :root[data-viewport="mobile"] #view-datasources .ds-controls { flex-direction: column; gap: var(--space-3); }
+  :root[data-viewport="mobile"] #view-datasources .ds-field { width: 100%; }
+  :root[data-viewport="mobile"] #view-datasources select,
+  :root[data-viewport="mobile"] #view-datasources input[type=file] { min-width: 0; width: 100%; }
+  :root[data-viewport="mobile"] #view-datasources .ds-tablescroll { overflow-x: auto; }
+  :root[data-viewport="mobile"] #view-datasources .ds-table { min-width: 480px; }
 </style>
 
 <script>

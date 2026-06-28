@@ -109,12 +109,17 @@
       </div>
     </div>
 
-    <!-- ── Global deal-field rules ──────────────────────────────────────────── -->
+    <!-- ── Global deal-field rules (collapsible — large; default collapsed) ──── -->
     <div class="ps-card">
-      <div class="ps-section-label">Global Deal-Field Rules</div>
-      <div class="ps-hint">These rules apply to <strong>every</strong> Pipedrive deal, regardless of dealer. Each rule sets one deal field — either by copying an organization field's value, or conditionally from the organization's fields.</div>
-      <div id="psRulesWrap" class="ps-rules-wrap"></div>
-      <button class="ps-btn-add" id="psAddRuleBtn" onclick="psAddRule()">+ Add rule</button>
+      <button type="button" class="ps-collapse-head" id="psRulesToggle" onclick="psToggleRulesCard()" aria-expanded="false">
+        <span class="ps-section-label" style="margin:0;">Global Deal-Field Rules</span>
+        <span class="ps-collapse-arrow" id="psRulesArrow">▸</span>
+      </button>
+      <div id="psRulesBody" style="display:none;">
+        <div class="ps-hint">These rules apply to <strong>every</strong> Pipedrive deal, regardless of dealer. Each rule sets one deal field — either by copying an organization field's value, or conditionally from the organization's fields.</div>
+        <div id="psRulesWrap" class="ps-rules-wrap"></div>
+        <button class="ps-btn-add" id="psAddRuleBtn" onclick="psAddRule()">+ Add rule</button>
+      </div>
     </div>
 
   </div>
@@ -164,6 +169,10 @@
     overflow-y: auto;
     overflow-x: hidden;
     padding: 16px 18px;
+    /* flex column (no gap) so a future theme can reorder cards via `order:` —
+       cards keep their own margin-bottom, so this is a no-op for spacing. */
+    display: flex;
+    flex-direction: column;
   }
 
   /* ── Cards ───────────────────────────────────────────────────────────────── */
@@ -514,6 +523,20 @@
 
   /* themed root (overrides the interim .view light guard) */
   #view-pipedrive-settings { background: var(--bg); color: var(--text); }
+
+  /* ── Mobile (data-viewport="mobile") — phone ≤760px ───────────────────────
+     Stack every internal multi-column grid (connection form 2/3-col, install
+     2-col, THEN/ELSE 2-col), trim the card padding, and let the bulk
+     dealer→org linker table scroll horizontally within its existing scroll
+     wrap. The mode/copy/cond rows already flex-wrap. No-op on desktop. */
+  :root[data-viewport="mobile"] #view-pipedrive-settings .ps-form-grid,
+  :root[data-viewport="mobile"] #view-pipedrive-settings .ps-form-grid-3,
+  :root[data-viewport="mobile"] #view-pipedrive-settings .pd-install-grid,
+  :root[data-viewport="mobile"] #view-pipedrive-settings .ps-thenelse { grid-template-columns: 1fr; }
+  :root[data-viewport="mobile"] #view-pipedrive-settings .ps-scroll { padding: var(--space-3); }
+  :root[data-viewport="mobile"] #view-pipedrive-settings .ps-card { padding: var(--space-3); }
+  :root[data-viewport="mobile"] #view-pipedrive-settings .ps-link-tablewrap { overflow-x: auto; }
+  :root[data-viewport="mobile"] #view-pipedrive-settings .ps-link-table { min-width: 560px; }
 </style>
 
 <script>
@@ -609,13 +632,14 @@
         if (overlay) overlay.classList.add('hidden');
         if (rbtn) { rbtn.disabled = false; rbtn.textContent = 'Refresh from Pipedrive'; }
         setPsStatus('Error loading settings: ' + e.message, 'error');
-        // getPipedriveSettingsBootstrap doesn't return domain on its own; probe status.
+        // Bootstrap failed — probe getPipedriveStatus to at least render the connection.
         psProbeStatus_();
       })
       .getPipedriveSettingsBootstrap(!!refresh);
   }
 
-  // The bootstrap may not carry domain — getPipedriveStatus is authoritative for it.
+  // Fallback (bootstrap-failure path): probe getPipedriveStatus for the connection
+  // state. On success the bootstrap now returns `domain` directly (rendered above).
   function psProbeStatus_() {
     google.script.run
       .withSuccessHandler(function(st) {
@@ -971,6 +995,15 @@
     document.getElementById('psLinkBody').style.display = psLinkOpen ? 'block' : 'none';
     document.getElementById('psLinkArrow').textContent = psLinkOpen ? '▾' : '▸';
     document.getElementById('psLinkToggle').setAttribute('aria-expanded', psLinkOpen ? 'true' : 'false');
+  }
+
+  // Global Deal-Field Rules — large section, default collapsed. Reads the DOM
+  // display (like pdInstallToggle_) so no extra state var. Content/JS untouched.
+  function psToggleRulesCard() {
+    var open = document.getElementById('psRulesBody').style.display !== 'block';
+    document.getElementById('psRulesBody').style.display = open ? 'block' : 'none';
+    document.getElementById('psRulesArrow').textContent = open ? '▾' : '▸';
+    document.getElementById('psRulesToggle').setAttribute('aria-expanded', open ? 'true' : 'false');
   }
 
   function psScanDealerOrgs() {

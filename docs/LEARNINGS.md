@@ -117,6 +117,89 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   `pdOrgResultsByGid` in `ViewRules.html`, and `psLinkPickOrg(i, j)` via
   `psLinkOrgResultsByRow` in `ViewPipedriveSettings.html`.) The same hazard exists
   for any value rendered into an inline handler — names, file paths, free-text notes.
+- **Composable theme axes without breaking the single-pick model: key reusable
+  structural CSS on independent `data-*` attributes, reflected FROM a theme's metadata,
+  not on the theme id itself — and reflect them PRE-PAINT.** The theme system stayed a
+  single curated pick (one persisted `data-theme` slug), but a theme needed to reshape
+  *layout + elements*, not just colors. Hardcoding that per theme (`[data-theme="x"]
+  #sidebar{…}` copied for every palette that wants a top rail) is N×M CSS. Instead each
+  theme declares optional **axes** in its `Theme.themes` metadata (`shell`/`density`/
+  `shape`/`nav`/`arrange`) and `Theme.reflectAxes(id)` writes each onto `<html>` as
+  `data-shell`/`data-density`/`data-shape`/`data-nav`/`data-arrange`; the reusable structural
+  CSS keys on those axis attributes, so one rule serves every palette and a pure palette ×
+  axis recombination needs **zero** new CSS. **An omitted axis is REMOVED → its default**
+  (so a theme only opts into the structure it wants, and the floor is the base layout).
+  **Page rearrangement rides the same axis via CSS-Grid skeletons:** a view's top-level
+  layout parent is `display:grid` with named `grid-template-areas` whose **default template
+  reproduces today's layout exactly (a no-op)** and each section gets a `grid-area`; a theme
+  then redefines the template under `[data-arrange="…"] #view-xxx` (reusable) or
+  `[data-theme="id"] #view-xxx` (bespoke) — so moving the Run Order rail to the left for
+  Luna is **one CSS line** (`grid-template-areas:"rail table vin"`), no markup or JS change.
+  Apply the skeleton only to views with a fixed section set; leave **linear / height-calc-JS
+  views** (Norm/Utilities/FieldCodes) on flex — they've nothing to rearrange and the grid
+  blockify (next bullet) would only risk regressions. Two load-bearing details: (1) **reflect
+  pre-paint** — the `reflectAxes(current())` call sits at the end of the shell-included shared
+  script (`App.html` includes `SharedUtils` before `#appRoot`), so the chosen layout paints
+  right the first frame (no FOUC); doing it in a view's init runs too late and flashes.
+  (2) **Watch for attribute-name collisions** — `data-layout` was already taken (on each
+  `.view` root for the responsive width tier), so the shell axis is `data-shell` **and** the
+  page-arrange axis is `data-arrange` (NOT `data-layout`); namespace deliberately or two
+  unrelated systems silently fight over one attribute. Persistence stays one slug; axes never
+  touch view JS or `google.script.run`, so a theme still can't break a backend link. (Same
+  family as the "re-key the config source without rewriting consumers" lesson — here the
+  consumers are CSS selectors and the new source is per-theme metadata.)
+- **Converting a flex container to CSS Grid is NOT automatically a visual no-op.** Grid
+  *blockifies* its items (an `inline-flex`/`inline-block` child becomes `flex`/`block`) and
+  `justify-self`/`align-items` default to **`stretch`** — so a content-width element (a pill
+  laid out `display:inline-flex`) **balloons to the full column width** the moment it's a grid
+  item. When gridifying a layout for theme-driven rearrangement (the grid-skeleton pattern
+  above), audit each child's prior sizing and carry it over: a content-width inline element
+  needs **`justify-self:start`** to stay its own width, and the old `align-items` must be
+  re-expressed (`flex-start` → grid `align-items:start`). Caught in review on the ViewHome
+  status pill (`#view-home .home-status { justify-self:start }`). The reusable pattern:
+  theme-driven page rearrangement = a default-preserving `grid-template-areas` skeleton on a
+  view + a metadata-reflected `data-arrange` axis; the linear/height-calc-JS views are
+  excluded, and every gridified child gets its pre-grid sizing restored so the default
+  template is a true no-op.
+- **A portable widget injected into arbitrary host views must defend its own box model with
+  `!important`.** The app-wide `CustomSelect` enhancer injects its themed dropdown DOM
+  (`.cs-btn` / `.cs-menu li`) **into** whatever view holds the native `<select>` — and five
+  view scopes carry a wildcard `#view-xxx * { padding:0 }` reset. That reset's specificity
+  (1,0,0) **beats** the widget's class rules (≤ 0,1,1), so it silently **zeroed the widget's
+  padding** → cramped "tiny options" (chased through several wrong guesses — enhancement,
+  width, font-size — before the real cause). Scoping the host reset to exclude the injected
+  subtree isn't safely feasible: it needs an L4 `:not(.x *)`, and on a browser without complex
+  `:not()` support the **whole** reset is dropped → the view's own layout breaks. So the
+  portable widget **self-defends** — it sets its own padding `!important`. Same family as the
+  Encarta `!important` "legitimate top layer of intent" note: a self-contained component that
+  must look right inside any host owns its own box model, loudly.
+- **iOS Safari fires a `change` event when a `<select>` is RE-PARENTED** — so a progressive
+  enhancer that moves the select into a wrapper trips its own inline `onchange` mid-surgery.
+  `CustomSelect.enhance()` does `insert wrapper → move select into it`; on iOS that DOM move
+  emits a spurious `change`, and an inline `onchange` handler then ran **before its view was
+  initialized**, threw, and the `try/catch` reverted the enhancement (selects stayed native on
+  mobile while working fine on desktop). Fix: **detach the inline `onchange` attribute during
+  the DOM move and restore it after.** Watch for the same on any framework/enhancer that
+  re-parents form controls on iOS.
+- **iOS "text size adjust" (font boosting) scales identical `px` text DIFFERENTLY per
+  container** unless you pin `text-size-adjust:100%` (`-webkit-` + standard) on `:root`.
+  Identical dropdowns rendered at visibly different sizes on iPhone until it was set — a
+  silent, container-dependent zoom that no amount of explicit `font-size` overrides on its
+  own, because the boost is applied *after* your sizing.
+- **Copying a select's computed flex onto its wrapper: `flex:1` resolves to flex-basis `0%` —
+  turn that into `0 0 0%` and the control COLLAPSES.** To make the enhanced wrapper fill the
+  *same* slot as the native select, the enhancer reads the select's computed flex. A grow-flex
+  select (`flex:1`) computes to grow=1 / basis `0%`; naively serializing the basis as a fixed
+  `0 0 0%` removed the grow and shrank the button to nothing (the "smaller dropdown" bug). A
+  **grow-flex control must keep growing** — branch on `flex-grow`: `>0` → `1 1 <basis|0%>`,
+  only a real fixed basis (`px`/non-zero `%`) → `0 0 <basis>`, else `width:100%`. Don't copy a
+  computed `0%` basis as if it were a fixed size.
+- **No console on mobile → print computed styles to an on-screen toast from the device.** The
+  padding-override root cause above was only isolated by rendering the offending element's
+  *computed* `padding` into a transient on-screen toast on the actual phone — after several
+  wrong theories (enhancement failing, width, font-size). Lesson: when you can't open devtools
+  on the device, **measure the computed value on-device first**, then theorize; a guess about
+  why mobile renders differently is usually wrong until the real number is in hand.
 
 ## External APIs (Pipedrive)
 

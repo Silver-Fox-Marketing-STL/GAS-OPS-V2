@@ -53,7 +53,6 @@
 
   <div class="footer app-measure" id="fcFooter">
     <span class="footer-note">Changes apply on the next run — they re-point how each field code's value is read from ORDERMATCH.</span>
-    <button class="btn-secondary" onclick="exitApp()">Close SilverFox</button>
   </div>
 
 </div>
@@ -230,6 +229,36 @@
 
   /* themed root (overrides the interim .view light guard) */
   #view-fieldcodes { background: var(--bg); color: var(--text); }
+
+  /* ── Mobile (data-viewport="mobile") — phone ≤760px ───────────────────────
+     Wrap the add bar (code / column / description / buttons) so it stacks, and
+     let the table scroll horizontally within its (JS-height-sized) wrap. CSS
+     only — no wrapper divs / no sibling reordering (fcSizeTable measures
+     .top-bar/.add-bar/.footer/#fcStatus). No-op on desktop. */
+  :root[data-viewport="mobile"] #view-fieldcodes .add-bar { flex-wrap: wrap; }
+  :root[data-viewport="mobile"] #view-fieldcodes .add-field { flex: 1 1 100%; }
+  :root[data-viewport="mobile"] #view-fieldcodes .add-buttons { flex: 1 1 100%; justify-content: flex-end; }
+  :root[data-viewport="mobile"] #view-fieldcodes .top-bar { flex-wrap: wrap; }
+  :root[data-viewport="mobile"] #view-fieldcodes .top-bar .intro { margin-left: 0; text-align: left; flex: 1 1 100%; }
+  :root[data-viewport="mobile"] #view-fieldcodes .footer { flex-wrap: wrap; }
+  :root[data-viewport="mobile"] #view-fieldcodes .footer .footer-note { margin-right: 0; flex: 1 1 100%; }
+  :root[data-viewport="mobile"] #view-fieldcodes .table-wrap { overflow-x: auto; }
+  /* Drop the (decorative) Source badge column on mobile — that frees enough width
+     for the remaining 4 columns to fit the viewport at width:100% (table-layout:
+     fixed) with NO horizontal scroll. Font stays ≥11px; long field codes /
+     descriptions wrap, and the two action buttons may wrap if a row is cramped. */
+  :root[data-viewport="mobile"] #view-fieldcodes .col-source { display: none; }
+  :root[data-viewport="mobile"] #view-fieldcodes table { min-width: 0; font-size: 11px; }
+  :root[data-viewport="mobile"] #view-fieldcodes thead th.col-code    { width: 26%; }
+  :root[data-viewport="mobile"] #view-fieldcodes thead th.col-col     { width: 16%; }
+  :root[data-viewport="mobile"] #view-fieldcodes thead th.col-desc    { width: 34%; }
+  :root[data-viewport="mobile"] #view-fieldcodes thead th.col-actions { width: 24%; }
+  :root[data-viewport="mobile"] #view-fieldcodes td.col-code,
+  :root[data-viewport="mobile"] #view-fieldcodes td.col-desc { word-break: break-word; }
+  :root[data-viewport="mobile"] #view-fieldcodes td.col-actions { white-space: normal; }
+  :root[data-viewport="mobile"] #view-fieldcodes td,
+  :root[data-viewport="mobile"] #view-fieldcodes thead th { padding: 5px 6px; }
+  :root[data-viewport="mobile"] #view-fieldcodes .btn-icon { padding: 3px 5px; font-size: 11px; margin: 1px; }
 </style>
 
 <script>

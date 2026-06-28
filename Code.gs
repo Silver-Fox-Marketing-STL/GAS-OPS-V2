@@ -396,6 +396,9 @@ function include_(name) {
 function openApp() {
   var t = HtmlService.createTemplateFromFile('App');
   t.initialTheme = getThemePreference();   // '' when unset → head script follows the OS
+  var uiPrefs_ = getUiPrefs();
+  t.initialNavLayout = uiPrefs_.navLayout;             // 'auto' | 'sidebar' | 'top-rail' | 'bottom-rail' | 'start-menu'
+  t.initialAutohide  = uiPrefs_.autohide ? 'true' : 'false';
   t.appMode = 'modal';                     // vs 'webapp' (doGet); App.html hides the Close item in webapp
   var html = t.evaluate()
     .setWidth(MODAL_WIDTH)
@@ -415,6 +418,9 @@ function openApp() {
 function doGet(e) {
   var t = HtmlService.createTemplateFromFile('App');
   t.initialTheme = getThemePreference();
+  var uiPrefs_ = getUiPrefs();
+  t.initialNavLayout = uiPrefs_.navLayout;             // 'auto' | 'sidebar' | 'top-rail' | 'bottom-rail' | 'start-menu'
+  t.initialAutohide  = uiPrefs_.autohide ? 'true' : 'false';
   t.appMode = 'webapp';
   return t.evaluate()
     .setTitle('SilverFox')
@@ -4835,6 +4841,38 @@ function saveThemePreference(theme) {
   }
 }
 
+// Allowed nav layouts — the trust boundary for ui_nav_layout (mirrors isThemeSlug_'s spirit).
+var UI_NAV_LAYOUTS_ = ['auto', 'sidebar', 'top-rail', 'bottom-rail', 'start-menu'];
+
+/**
+ * Per-user UI preferences the frontend layers on top of the theme.
+ * Fail-safe: an unrecognized stored nav layout falls back to 'auto'.
+ * @returns {{navLayout: string, autohide: boolean}}
+ */
+function getUiPrefs() {
+  var p = PropertiesService.getUserProperties();
+  var nav = p.getProperty('ui_nav_layout');
+  return {
+    navLayout: UI_NAV_LAYOUTS_.indexOf(nav) !== -1 ? nav : 'auto',
+    autohide: p.getProperty('ui_autohide') === 'true'
+  };
+}
+
+/**
+ * Persists one UI preference. Ignores anything off-shape (fail-safe, like
+ * saveThemePreference). Client-callable; both args are strings.
+ * @param {string} key   'nav_layout' | 'autohide'
+ * @param {string} value
+ */
+function saveUiPref(key, value) {
+  var p = PropertiesService.getUserProperties();
+  if (key === 'nav_layout' && UI_NAV_LAYOUTS_.indexOf(value) !== -1) {
+    p.setProperty('ui_nav_layout', value);
+  } else if (key === 'autohide' && (value === 'true' || value === 'false')) {
+    p.setProperty('ui_autohide', value);
+  }
+}
+
 // ============================================================================
 // SECTION 29: IMPORT HEALTH MONITORING
 // ============================================================================
@@ -6273,6 +6311,7 @@ function getPipedriveSettingsBootstrap(refresh) {
   var cat = getPipedriveConfigBootstrap(refresh);
   return {
     configured:      true,
+    domain:          status.domain,                  // so the "Connected to <domain>" label resolves (was showing "(unknown domain)")
     defaults:        status.defaults,
     dealFields:      cat.dealFields || [],
     orgFields:       cat.orgFields || [],

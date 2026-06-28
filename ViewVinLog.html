@@ -68,9 +68,6 @@
       </div>
 
       <div class="side-bottom">
-        <div class="btn-row" style="margin-top: 0;">
-          <button class="btn-secondary" onclick="exitApp()">Close SilverFox</button>
-        </div>
         <div id="vinlogStatus" class="empty"></div>
       </div>
 
@@ -104,10 +101,13 @@
       overflow: hidden;
     }
 
-    /* ── Two-column layout (wide modal) ──────────────────────────────────── */
-    #view-vinlog .layout { display: flex; height: 100%; }
+    /* ── Two-column layout (wide modal) ──────────────────────────────────────
+       Grid skeleton (default = the original main / side row, no-op): named areas
+       let a theme swap the columns or restyle widths with no markup change. */
+    #view-vinlog .layout { display: grid; grid-template-columns: 1fr var(--col-form-side);
+                           grid-template-areas: "main side"; height: 100%; }
     #view-vinlog .col-main {
-      flex: 1;
+      grid-area: main;
       min-width: 0;
       padding: 20px;
       display: flex;
@@ -116,8 +116,7 @@
       overflow: hidden;
     }
     #view-vinlog .col-side {
-      width: var(--col-form-side);   /* tracks proportionally instead of an isolated far-right slab */
-      flex-shrink: 0;
+      grid-area: side;
       padding: 20px;
       overflow-y: auto;
       background: var(--bg);
@@ -440,6 +439,18 @@
 
     /* themed root (overrides the interim .view light guard) */
     #view-vinlog { background: var(--bg); color: var(--text); }
+
+    /* ── Mobile (data-viewport="mobile") — phone ≤760px ─────────────────────
+       .layout already stacks (App.html). The runs table holds little data, so
+       make it FIT ~360px with NO horizontal scroll: drop the min-width + x-scroll,
+       shrink the cell font/padding, and let the status cell wrap. The VIN popup
+       card caps to the viewport width. No-op on desktop. */
+    :root[data-viewport="mobile"] #view-vinlog #runsTable { font-size: 11px; }
+    :root[data-viewport="mobile"] #view-vinlog #runsTable th,
+    :root[data-viewport="mobile"] #view-vinlog #runsTable td { padding: 5px 4px; }
+    :root[data-viewport="mobile"] #view-vinlog #runsTable td:nth-child(4) { white-space: normal; overflow: visible; }
+    :root[data-viewport="mobile"] #view-vinlog .status-badge { font-size: 9px; padding: 2px 5px; }
+    :root[data-viewport="mobile"] #vlVinPopup .vl-popup-card { width: 92vw; max-width: 360px; }
 </style>
 
 <script>
