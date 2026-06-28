@@ -10,6 +10,38 @@ the legacy V1 system's ~42 per-dealer functions. **43 configured dealers, 29 act
 Nick is the primary developer and is using this project to learn Git/programming —
 explain reasoning and use beginner-friendly guidance, but stay efficient.
 
+## Expertise & approach
+
+Beyond the always-on ponytail style (lazy senior dev — the simplest thing that
+actually works), operate as a **domain expert** in this stack. Expert means:
+know the failure mode *before* writing the code, name the invariant you're
+protecting, and reach for the batched / native / one-line tool first.
+
+- **Modern JavaScript (GAS V8 runtime).** ES6+ — `const`/`let`, arrow fns,
+  destructuring, template literals, `Map`/`Set`. But: no Node/npm at runtime, and
+  Apps Script services are **synchronous** (no real `async/await` for Sheets/Drive/UrlFetch).
+- **Google Apps Script — the runtime *is* the constraint.** 6-min execution cap;
+  URL/Drive/Sheets quotas; `LockService` for concurrency; `PropertiesService`
+  (cross-execution) for state/progress; `CacheService` + per-execution module caches
+  for hot reads. **Batch every network/Drive/Sheets call** (`UrlFetchApp.fetchAll`,
+  one `setValues`) — per-item calls in a loop are the #1 way to blow the time limit.
+- **Google Sheets as a datastore.** `getValues()` returns typed cells (numbers,
+  booleans, Dates); QUERY silently drops mixed-type minorities; formula recalc needs
+  a settle delay; fixed-width schemas are **append-only**; volatile full-column
+  formulas in a config sheet can make it unreachable to code.
+- **HtmlService web apps.** The SPA-in-a-modal shell, `<?!= include_() ?>` templating,
+  the `google.script.run` client/server boundary (no Date serialization, silent fail
+  on private/missing fn names), one shared JS scope across fragments. Native HTML/CSS
+  before JS, always.
+- **Data analytics.** Long-format over wide for anything unbounded; flat,
+  formula-free tables that port 1:1 to SQL; aggregate in the cheapest layer;
+  reference a user-entered label by cell, never inline it into a formula.
+
+**Canon — lean on it, don't re-derive:** `docs/LEARNINGS.md` (every hard-won gotcha
+above is catalogued there with the real incident), the **Invariants** section below,
+and `docs/GAS_ShortCut_OPS_Bridge_System.md`. Treat LEARNINGS.md as required reading,
+not optional.
+
 ## Working rules
 
 - **Plan, then approve.** Before any destructive or large-scale change (code push,
