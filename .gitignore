@@ -13,3 +13,9 @@ node_modules/
 
 # Visual brainstorming companion session files (local only)
 .superpowers/
+
+# Obsidian vault artifacts — personal notes, not project files (local only)
+.obsidian/
+*.canvas
+*.base
+2026-*.md

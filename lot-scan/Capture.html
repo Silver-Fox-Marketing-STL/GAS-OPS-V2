@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html data-theme="light">
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <script>
+    // Pre-paint: mobile is the primary mode for this phone tool.
+    (function () {
+      var r = document.documentElement;
+      if (window.matchMedia && window.matchMedia('(max-width: 760px)').matches) r.setAttribute('data-viewport', 'mobile');
+    })();
+  </script>
+
+  <!-- ZXing — client-side barcode / Data-Matrix decoder (2D first, 1D fallback). The CDK
+       labels often carry the VIN in a barcode, which decodes exactly. Falls back to OCR. -->
+  <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
+
+  <!-- Shared design tokens + toast + escHtml + CustomSelect + mobile layer (copied from the main app). -->
+  <?!= include_('SharedUtils') ?>
+
+  <style>
+    html, body { height: 100%; margin: 0; }
+    body { font-family: var(--font-body); font-size: var(--fs-body); color: var(--text); background: var(--bg); }
+    .ls-wrap { max-width: 560px; margin: 0 auto; min-height: 100%; display: flex; flex-direction: column;
+               padding: var(--space-4); box-sizing: border-box; }
+    .ls-head { display: flex; align-items: baseline; gap: var(--space-2); margin-bottom: var(--space-3); }
+    .ls-title { font-family: var(--font-head); font-weight: 800; font-size: var(--fs-h2); margin: 0; }
+    .ls-sub { font-size: var(--fs-hint); color: var(--text-3); }
+
+    /* tabs */
+    .ls-tabs { display: flex; gap: var(--space-2); margin-bottom: var(--space-3); }
+    .ls-tab { flex: 1; padding: 10px; text-align: center; cursor: pointer; font-weight: 700; font-size: var(--fs-sm);
+      border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text-2); }
+    .ls-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+    .ls-row { display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-3); }
+    .ls-label { font-size: var(--fs-hint); color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; }
+
+    .ls-shoot-row { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-2); }
+    .ls-shoot { flex: 1 1 140px; }
+    .ls-shoot input { display: none; }
+    .ls-shoot-btn { display: flex; align-items: center; justify-content: center; gap: var(--space-2);
+      width: 100%; padding: var(--space-5); box-sizing: border-box;
+      font-family: var(--font-head); font-weight: 700; font-size: var(--fs-lg);
+      color: #fff; background: var(--accent); border: none; border-radius: var(--radius); cursor: pointer; }
+    .ls-shoot-btn.disabled { opacity: .5; pointer-events: none; }
+    .ls-shoot-btn-alt { background: var(--surface-2); color: var(--accent); border: 1px solid var(--border); }
+    .ls-count { font-size: var(--fs-hint); color: var(--text-3); margin: var(--space-1) 0 var(--space-3); }
+
+    /* result panel (camera) + draft rows */
+    .ls-result, .ls-batch { margin-top: var(--space-2); }
+    .ls-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-4); }
+    .ls-card.pass   { border-left: 5px solid var(--success, #1c7a3a); }
+    .ls-card.verify { border-left: 5px solid var(--warning, #c87f00); }
+    .ls-card.fail   { border-left: 5px solid var(--danger,  #b3261e); }
+    .ls-status { font-family: var(--font-head); font-weight: 800; font-size: var(--fs-lg); margin: 0 0 var(--space-2); }
+    .ls-status.pass { color: var(--success, #1c7a3a); }
+    .ls-status.verify { color: var(--warning, #c87f00); }
+    .ls-status.fail { color: var(--danger, #b3261e); }
+    .ls-vin { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-lg); font-weight: 700;
+              letter-spacing: .04em; word-break: break-all; }
+    .ls-veh { font-size: var(--fs-sm); color: var(--text-2); margin-top: 2px; }
+    .ls-edit { display: flex; gap: var(--space-2); margin-top: var(--space-3); }
+    .ls-edit input { flex: 1; min-width: 0; padding: 10px; font-family: var(--font-mono, ui-monospace, monospace);
+      text-transform: uppercase; border: 1px solid var(--border); border-radius: var(--radius-sm);
+      background: var(--surface); color: var(--text); }
+    .ls-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
+    .ls-btn { flex: 1 1 130px; padding: 12px; text-align: center; cursor: pointer; font-weight: 700; font-size: var(--fs-sm);
+      border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); }
+    .ls-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .ls-scanning { color: var(--text-3); font-style: italic; padding: var(--space-3) 0; }
+    .ls-hint { color: var(--text-3); font-size: var(--fs-sm); }
+    .ls-view { display: inline-block; margin-top: var(--space-2); padding: 6px 12px; border: 1px solid var(--border);
+      border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); text-decoration: none; font-size: var(--fs-sm); }
+    /* inline photo (camera = local capture, drafts = Drive thumbnail) + tap-to-enlarge lightbox */
+    .ls-photo { display: block; width: 100%; max-height: 42vh; object-fit: contain; margin-top: var(--space-2);
+      border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); cursor: zoom-in; }
+    .ls-lightbox { position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,.9);
+      display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
+    .ls-lightbox[hidden] { display: none; }
+    .ls-lightbox img { max-width: 96vw; max-height: 96vh; object-fit: contain; }
+    .ls-diag { margin-top: var(--space-2); font-size: var(--fs-hint); color: var(--text-3); word-break: break-all; }
+    .ls-diag summary { cursor: pointer; }
+    .ls-badge { font-size: var(--fs-hint); font-weight: 700; padding: 1px 8px; border-radius: 999px; }
+    .ls-badge.ok { background: var(--success-weak, #dcefe0); color: var(--success, #1c7a3a); }
+    .ls-badge.bad { background: var(--danger-weak, #f6dcdc); color: var(--danger, #b3261e); }
+    .ls-badge.wait { background: var(--surface-3); color: var(--text-2); }
+
+    /* drafts */
+    .ls-dbatch { margin-top: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+    .ls-dsum { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); padding: var(--space-3); cursor: pointer; list-style: none; }
+    .ls-dsum::-webkit-details-marker { display: none; }
+    .ls-dsum::before { content: '\25B8'; margin-right: 4px; color: var(--text-3); }
+    details[open] > .ls-dsum::before { content: '\25BE'; }
+    .ls-dsum .t { font-family: var(--font-head); font-weight: 700; }
+    .ls-dbtns { display: flex; gap: var(--space-2); padding: 0 var(--space-3) var(--space-2); }
+    .ls-drow { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-3); margin-bottom: var(--space-2); }
+    .ls-drow .top { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+    .ls-drow .x { margin-left: auto; cursor: pointer; color: var(--text-3); border: none; background: none; font-size: var(--fs-lg); }
+  </style>
+</head>
+<body>
+  <div class="ls-wrap">
+    <div class="ls-head">
+      <h1 class="ls-title">Lot Scan</h1>
+      <span class="ls-sub">photograph a VIN &middot; dash, sticker, or tag</span>
+    </div>
+
+    <div class="ls-tabs">
+      <div class="ls-tab active" id="tabCapture" onclick="vpTab('capture')">Capture</div>
+      <div class="ls-tab" id="tabDrafts" onclick="vpTab('drafts')">Drafts</div>
+    </div>
+
+    <!-- ── CAPTURE ────────────────────────────────────────────────── -->
+    <div id="viewCapture">
+      <div class="ls-row">
+        <span class="ls-label">Dealer</span>
+        <select id="lsDealer" onchange="vpDealerChange()"><option value="">Loading&hellip;</option></select>
+      </div>
+
+      <div class="ls-shoot-row">
+        <label class="ls-shoot">
+          <input type="file" id="lsPhoto" accept="image/*" capture="environment" onchange="vpCameraSelected(this)">
+          <span class="ls-shoot-btn" id="lsShootBtn">&#128247;&nbsp; Scan a VIN</span>
+        </label>
+        <label class="ls-shoot">
+          <input type="file" id="lsGallery" accept="image/*" multiple onchange="vpGallerySelected(this)">
+          <span class="ls-shoot-btn ls-shoot-btn-alt" id="lsGalleryBtn">&#11014;&nbsp; Upload batch</span>
+        </label>
+      </div>
+      <div class="ls-count" id="lsCount"></div>
+
+      <div class="ls-batch" id="lsBatch"></div>
+      <div class="ls-result" id="lsResult"></div>
+    </div>
+
+    <!-- ── DRAFTS ─────────────────────────────────────────────────── -->
+    <div id="viewDrafts" hidden>
+      <div class="ls-row" style="flex-direction:row; align-items:center;">
+        <span class="ls-hint" style="flex:1;">Your uploaded batches still being finished. They also reach the office Inbox.</span>
+        <button type="button" class="ls-btn" style="flex:0 0 auto;" onclick="vpLoadDrafts()">&#8635; Refresh</button>
+      </div>
+      <div id="lsDrafts"><p class="ls-hint">Loading&hellip;</p></div>
+    </div>
+  </div>
+
+  <div id="lsLightbox" class="ls-lightbox" hidden onclick="vpCloseLightbox()"><img id="lsLightboxImg" alt=""></div>
+
+  <script>
+    // (Standalone page — symbols prefixed `vp`. escHtml/toast/CustomSelect from SharedUtils.)
+    var vpVinMap = {}, vpDealerKey = '';
+    var vpSessionBatch = 'cam' + Date.now();   // groups a camera session in the office inbox
+    var vpSessionCount = 0, vpFail = 0;         // consecutive OCR-fail counter (real-time)
+    var vpLastSid = '', vpLastPhotoUrl = '', vpLastDiag = {}, vpLastB64 = '';
+
+    // ── Client VIN check (mirror of the server isValidVin_) ──
+    var VP_TRANSLIT = { A:1,B:2,C:3,D:4,E:5,F:6,G:7,H:8,J:1,K:2,L:3,M:4,N:5,P:7,R:9,S:2,T:3,U:4,V:5,W:6,X:7,Y:8,Z:9,
+      '0':0,'1':1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9 };
+    var VP_WEIGHTS = [8,7,6,5,4,3,2,10,0,9,8,7,6,5,4,3,2];
+    function vpValidVin(vin) {
+      vin = String(vin || '').toUpperCase();
+      if (!/^[A-HJ-NPR-Z0-9]{17}$/.test(vin)) return false;
+      var sum = 0;
+      for (var i = 0; i < 17; i++) { var v = VP_TRANSLIT[vin.charAt(i)]; if (v === undefined) return false; sum += v * VP_WEIGHTS[i]; }
+      var r = sum % 11, cd = (r === 10) ? 'X' : String(r);
+      return vin.charAt(8) === cd;
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+      google.script.run
+        .withSuccessHandler(vpInitDealers)
+        .withFailureHandler(function (e) { toast('Could not load dealers: ' + (e && e.message || e), 'error'); })
+        .getCaptureBootstrap();
+    });
+
+    function vpTab(which) {
+      var cap = which === 'capture';
+      document.getElementById('viewCapture').hidden = !cap;
+      document.getElementById('viewDrafts').hidden = cap;
+      document.getElementById('tabCapture').classList.toggle('active', cap);
+      document.getElementById('tabDrafts').classList.toggle('active', !cap);
+      if (!cap) vpLoadDrafts();
+    }
+
+    function vpInitDealers(b) {
+      var sel = document.getElementById('lsDealer');
+      var html = '<option value="">&mdash; Select a dealer &mdash;</option>';
+      (b.dealers || []).forEach(function (d) { html += '<option value="' + escHtml(d.key) + '">' + escHtml(d.name) + '</option>'; });
+      sel.innerHTML = html;
+      if (b.lastDealer) sel.value = b.lastDealer;
+      if (window.CustomSelect) { try { CustomSelect.enhanceAll(document); } catch (e) {} }
+      if (sel.value) vpDealerChange();
+    }
+
+    function vpDealerChange() {
+      vpDealerKey = document.getElementById('lsDealer').value || '';
+      vpVinMap = {};
+      vpSetShoot();
+      if (!vpDealerKey) return;
+      google.script.run.withSuccessHandler(function (m) { vpVinMap = m || {}; }).getDealerVinMap(vpDealerKey);
+    }
+    function vpSetShoot() {
+      var off = !vpDealerKey;
+      document.getElementById('lsShootBtn').classList.toggle('disabled', off);
+      document.getElementById('lsGalleryBtn').classList.toggle('disabled', off);
+    }
+
+    // ════════════════ REAL-TIME CAMERA (guided) ════════════════
+    function vpCameraSelected(input) {
+      var file = input.files && input.files[0];
+      input.value = '';
+      if (!file) return;
+      if (!vpDealerKey) { toast('Pick a dealer first.', 'info'); return; }
+      document.getElementById('lsBatch').innerHTML = '';
+      vpResultHtml('<div class="ls-card"><div class="ls-scanning">Reading VIN&hellip;</div></div>');
+      var url = URL.createObjectURL(file);
+      var img = new Image();
+      img.onload = function () {
+        vpTryBarcode(img, function (barcodeVin) {
+          var b64 = vpToBase64(img);
+          vpLastB64 = b64;   // keep the local capture to show inline in the result panel
+          URL.revokeObjectURL(url);
+          vpLastDiag = { zxing: !!window.ZXing, barcode: barcodeVin || '(none)' };
+          google.script.run
+            .withSuccessHandler(vpCameraResult)
+            .withFailureHandler(function (e) { vpResultHtml('<div class="ls-card fail"><div class="ls-veh">Failed: ' + escHtml((e && e.message) || String(e)) + '</div></div>'); })
+            .submitVinPhoto(vpDealerKey, b64, barcodeVin || '', '', vpSessionBatch);
+        });
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); toast('Could not read that image.', 'error'); };
+      img.src = url;
+    }
+
+    function vpCameraResult(res) {
+      if (!res || !res.ok) { vpResultHtml('<div class="ls-card fail"><div class="ls-veh">Failed: ' + escHtml((res && res.error) || 'unknown') + '</div></div>'); return; }
+      vpSessionCount++;
+      document.getElementById('lsCount').textContent = vpSessionCount + ' captured this session';
+      vpLastSid = res.submissionId || '';
+      vpLastPhotoUrl = res.photoUrl || '';
+      if (res.valid && res.matched) { vpFail = 0; vpRenderPass(res); }
+      else if (res.valid)           { vpFail = 0; vpRenderVerify(res); }
+      else                          { vpFail++;   vpRenderFail(res); }
+    }
+
+    function vpRenderPass(res) {
+      var veh = res.vehicle || {};
+      var line = [veh.year, veh.make, veh.model, veh.type].filter(Boolean).join(' ') + (veh.stock ? (' · Stock ' + veh.stock) : '');
+      vpResultHtml(
+        '<div class="ls-card pass">' +
+          '<div class="ls-status pass">&#10003; Got it &mdash; in inventory</div>' +
+          '<div class="ls-vin">' + escHtml(res.vin) + '</div>' +
+          '<div class="ls-veh">' + escHtml(line) + '</div>' +
+          '<div class="ls-actions"><button type="button" class="ls-btn primary" onclick="vpCamera()">&#128247; Take another</button></div>' +
+          vpViewHtml() + vpDebugHtml(res) +
+        '</div>');
+    }
+
+    function vpRenderVerify(res) {
+      vpResultHtml(
+        '<div class="ls-card verify">' +
+          '<div class="ls-status verify">&#9888; Not in this dealer&rsquo;s stock</div>' +
+          '<div class="ls-hint">Check the VIN against the photo, then add it (it still prints) or retake.</div>' +
+          '<div class="ls-edit"><input id="lsEdit" type="text" maxlength="17" value="' + escHtml(res.vin) + '"></div>' +
+          '<div class="ls-actions">' +
+            '<button type="button" class="ls-btn primary" onclick="vpKeepNext()">&#10003; Add &amp; next</button>' +
+            '<button type="button" class="ls-btn" onclick="vpDiscardNext()">&#128247; Retake</button>' +
+          '</div>' + vpViewHtml() + vpDebugHtml(res) +
+        '</div>');
+    }
+
+    function vpRenderFail(res) {
+      var photoOnly = vpFail >= 2
+        ? '<button type="button" class="ls-btn" onclick="vpSubmitPhotoOnly()">&#128228; Submit photo only</button>' : '';
+      vpResultHtml(
+        '<div class="ls-card fail">' +
+          '<div class="ls-status fail">&#10007; Couldn&rsquo;t read a VIN</div>' +
+          '<div class="ls-hint">' + (vpFail >= 2
+            ? 'Still no luck. Retake (fill the frame, kill glare), type it in, or submit the photo for the office to transcribe.'
+            : 'Retake &mdash; get closer, fill the frame, avoid glare. Or type the VIN if you can read it.') + '</div>' +
+          '<div class="ls-edit"><input id="lsEdit" type="text" maxlength="17" placeholder="Type VIN&hellip;"></div>' +
+          '<div class="ls-actions">' +
+            '<button type="button" class="ls-btn primary" onclick="vpCamera()">&#128247; Retake</button>' +
+            '<button type="button" class="ls-btn" onclick="vpUseManual()">Use typed VIN</button>' +
+            photoOnly +
+          '</div>' + vpViewHtml() + vpDebugHtml(res) +
+        '</div>');
+      // Retake from a fail discards the just-saved (no-VIN) row unless they submit-photo-only.
+      // We discard lazily: vpCamera() leaves the row; vpSubmitPhotoOnly keeps it; an explicit
+      // retake that abandons it is handled by the office (a stray failed row) — keep it simple.
+    }
+
+    // result-panel actions
+    function vpCamera() { document.getElementById('lsPhoto').click(); }   // reopen camera (within click gesture)
+
+    function vpKeepNext() {
+      var v = vpEditVal();
+      if (v && v !== '') { vpCommitEdit(v, function () { toast('Added.', 'success'); vpCamera(); }); }
+      else { toast('Added.', 'success'); vpCamera(); }   // keep as-is (already saved)
+    }
+    function vpDiscardNext() {
+      if (vpLastSid) google.script.run.discardSubmission(vpLastSid);
+      vpCamera();
+    }
+    function vpUseManual() {
+      var v = vpEditVal();
+      if (v.length !== 17) { toast('A VIN is 17 characters.', 'info'); return; }
+      vpFail = 0;
+      vpCommitEdit(v, function () { toast('Saved.', 'success'); vpCamera(); });
+    }
+    function vpSubmitPhotoOnly() { vpFail = 0; toast('Photo submitted for transcription.', 'success'); vpCamera(); }
+
+    function vpEditVal() { var e = document.getElementById('lsEdit'); return e ? String(e.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '') : ''; }
+    function vpCommitEdit(vin, done) {
+      google.script.run.withSuccessHandler(function () { done && done(); })
+        .withFailureHandler(function (e) { toast('Save failed: ' + ((e && e.message) || e), 'error'); })
+        .submitVinPhoto(vpDealerKey, '', vin, vpLastSid, vpSessionBatch);
+    }
+
+    function vpResultHtml(h) { document.getElementById('lsResult').innerHTML = h; }
+    // Show the just-captured photo inline (the local downscaled image — instant, no fetch)
+    // so the VIN and the photo are visible together; tap to enlarge.
+    function vpViewHtml() { return vpLastB64 ? '<img class="ls-photo" src="' + vpLastB64 + '" alt="captured photo" onclick="vpLightbox(this.src)">' : ''; }
+    function vpLightbox(src) { document.getElementById('lsLightboxImg').src = src; document.getElementById('lsLightbox').hidden = false; }
+    function vpCloseLightbox() { document.getElementById('lsLightbox').hidden = true; document.getElementById('lsLightboxImg').src = ''; }
+    function vpDebugHtml(res) {
+      var d = vpLastDiag || {};
+      var ocr = (res && res.ocrText != null) ? res.ocrText : '';
+      return '<details class="ls-diag"><summary>debug</summary>' +
+        'ZXing: ' + (d.zxing ? 'loaded' : 'NOT loaded') + ' &middot; barcode: ' + escHtml(d.barcode || '') +
+        '<br>OCR err: ' + escHtml((res && res.ocrErr) || '(none)') +
+        '<br>OCR text: ' + escHtml((ocr || '(empty)').substring(0, 280)) + '</details>';
+    }
+
+    // ════════════════ BATCH UPLOAD (async background) ════════════════
+    function vpGallerySelected(input) {
+      var files = input.files ? Array.prototype.slice.call(input.files) : [];
+      input.value = '';
+      if (!files.length) return;
+      if (!vpDealerKey) { toast('Pick a dealer first.', 'info'); return; }
+      vpResultHtml('');
+      vpBatchUpload(files);
+    }
+
+    // Batch = PARALLEL uploads (Drive only) + a SERIAL, chunked committer. Uploads run POOL
+    // at a time; uploaded ids are buffered and committed in chunks ONE call at a time, so
+    // rows are written by a single execution — no concurrent appends, so no lost rows.
+    function vpBatchUpload(files) {
+      var batchId = 'b' + Date.now() + '-' + Math.floor(Math.random() * 1e6);
+      var total = files.length, idx = 0, inFlight = 0, finished = 0;
+      var UPLOAD_POOL = 5, CHUNK = 10;
+      var buffer = [], committing = false, decoding = false;
+      var stats = { upOk: 0, upFail: 0, cmOk: 0, cmFail: 0, upErr: '', cmErr: '' };
+      vpBatchProgress(0, total);
+
+      function bump(n) { finished += n; vpBatchProgress(finished, total); if (finished >= total) vpBatchDone(stats, total); }
+
+      // Decode ONE image at a time (mobile Safari OOMs decoding several 12MP photos at once
+      // → the "image decode failed" losses). Uploads still run UPLOAD_POOL in parallel.
+      function decodeNext() {
+        if (decoding || idx >= total || inFlight >= UPLOAD_POOL) return;
+        decoding = true;
+        var file = files[idx++];
+        var url = URL.createObjectURL(file);
+        var img = new Image();
+        img.onload = function () {
+          var b64 = null;
+          try { b64 = vpToBase64(img); } catch (e) {}
+          URL.revokeObjectURL(url);
+          decoding = false;
+          if (b64) { fireUpload(b64); }
+          else { stats.upFail++; if (!stats.upErr) stats.upErr = 'canvas failed [' + (file.type || '?') + ']'; bump(1); }
+          decodeNext();
+        };
+        // Desktop browsers can't decode HEIC in <img> — fall back to converting it to JPEG.
+        img.onerror = function () { URL.revokeObjectURL(url); vpHeicFallback(file); };
+        img.src = url;
+      }
+
+      // Lazy-load heic2any only when a HEIC decode actually fails (iOS Safari decodes HEIC
+      // natively, so the phone path never downloads it).
+      function vpEnsureHeic(cb) {
+        if (window.heic2any) { cb(true); return; }
+        if (window._vpHeicQ) { window._vpHeicQ.push(cb); return; }
+        window._vpHeicQ = [cb];
+        var s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js';
+        s.onload = function () { var q = window._vpHeicQ || []; window._vpHeicQ = null; q.forEach(function (f) { f(true); }); };
+        s.onerror = function () { var q = window._vpHeicQ || []; window._vpHeicQ = null; q.forEach(function (f) { f(false); }); };
+        document.head.appendChild(s);
+      }
+
+      function vpHeicFallback(file) {
+        vpEnsureHeic(function (ok) {
+          if (!ok || !window.heic2any) {
+            decoding = false; stats.upFail++;
+            if (!stats.upErr) stats.upErr = 'decode failed [' + (file.type || '?') + '] ' + (file.name || '');
+            bump(1); decodeNext(); return;
+          }
+          heic2any({ blob: file, toType: 'image/jpeg', quality: 0.85 }).then(function (out) {
+            var jpeg = (out && out.length) ? out[0] : out;   // heic2any returns a Blob or [Blob]
+            var u2 = URL.createObjectURL(jpeg);
+            var img2 = new Image();
+            img2.onload = function () {
+              var b64 = null; try { b64 = vpToBase64(img2); } catch (e) {}
+              URL.revokeObjectURL(u2); decoding = false;
+              if (b64) fireUpload(b64);
+              else { stats.upFail++; if (!stats.upErr) stats.upErr = 'heic→jpeg decode failed'; bump(1); }
+              decodeNext();
+            };
+            img2.onerror = function () { URL.revokeObjectURL(u2); decoding = false; stats.upFail++; if (!stats.upErr) stats.upErr = 'heic→jpeg load failed'; bump(1); decodeNext(); };
+            img2.src = u2;
+          }).catch(function (e) {
+            decoding = false; stats.upFail++; if (!stats.upErr) stats.upErr = 'heic convert failed: ' + ((e && e.message) || e); bump(1); decodeNext();
+          });
+        });
+      }
+
+      function fireUpload(b64) {
+        inFlight++;
+        google.script.run
+          .withSuccessHandler(function (res) {
+            inFlight--;
+            if (res && res.ok) { stats.upOk++; buffer.push({ fileId: res.fileId, url: res.url }); }
+            else { stats.upFail++; if (!stats.upErr) stats.upErr = (res && res.error) || 'upload not ok'; bump(1); }
+            pump(); decodeNext();
+          })
+          .withFailureHandler(function (e) {
+            inFlight--; stats.upFail++; if (!stats.upErr) stats.upErr = (e && e.message) || String(e);
+            bump(1); pump(); decodeNext();
+          })
+          .uploadPhotoOnly(vpDealerKey, b64);
+      }
+
+      function pump() {
+        if (committing || !buffer.length) return;
+        var allUploadsDone = (idx >= total && inFlight === 0);
+        if (buffer.length < CHUNK && !allUploadsDone) return;
+        committing = true;
+        var chunk = buffer.splice(0, CHUNK);
+        google.script.run
+          .withSuccessHandler(function (res) {
+            committing = false;
+            if (res && res.ok) stats.cmOk += (res.committed || chunk.length);
+            else { stats.cmFail += chunk.length; if (!stats.cmErr) stats.cmErr = (res && res.error) || 'commit not ok'; }
+            bump(chunk.length); pump();
+          })
+          .withFailureHandler(function (e) {
+            committing = false;
+            stats.cmFail += chunk.length; if (!stats.cmErr) stats.cmErr = (e && e.message) || String(e);
+            bump(chunk.length); pump();
+          })
+          .commitQueuedBatch(vpDealerKey, batchId, chunk);
+      }
+
+      decodeNext();   // single kick — the serial decode cascade fills the upload pool
+    }
+    function vpBatchProgress(done, total) { vpBatchHtml('<div class="ls-card"><div class="ls-scanning">Uploading ' + done + ' / ' + total + '&hellip;</div></div>'); }
+    function vpBatchDone(stats, total) {
+      google.script.run.ensureOcrTrigger();   // kick off background OCR
+      var landed = stats.cmOk;
+      vpBatchHtml(
+        '<div class="ls-card ' + (landed >= total ? 'pass' : 'verify') + '">' +
+          '<div class="ls-status ' + (landed >= total ? 'pass' : 'verify') + '">' + (landed >= total ? '&#10003; ' : '&#9888; ') + landed + ' / ' + total + ' photos queued</div>' +
+          '<div class="ls-hint">Processing in the background &mdash; you can close the app. We&rsquo;ll email you when it&rsquo;s done.</div>' +
+          '<details class="ls-diag"' + (landed >= total ? '' : ' open') + '><summary>debug</summary>' +
+            'uploads: ok=' + stats.upOk + ' fail=' + stats.upFail + '<br>' +
+            'commits: ok=' + stats.cmOk + ' fail=' + stats.cmFail + '<br>' +
+            'upErr: ' + escHtml(stats.upErr || '(none)') + '<br>' +
+            'cmErr: ' + escHtml(stats.cmErr || '(none)') +
+          '</details>' +
+          '<div class="ls-actions"><button type="button" class="ls-btn primary" onclick="vpTab(\'drafts\')">View Drafts</button></div>' +
+        '</div>');
+    }
+    function vpBatchHtml(h) { document.getElementById('lsBatch').innerHTML = h; }
+
+    // ════════════════ DRAFTS ════════════════
+    function vpLoadDrafts() {
+      var box = document.getElementById('lsDrafts');
+      box.innerHTML = '<p class="ls-hint">Loading&hellip;</p>';
+      google.script.run
+        .withSuccessHandler(vpRenderDrafts)
+        .withFailureHandler(function (e) { box.innerHTML = '<p class="ls-hint">Could not load: ' + escHtml((e && e.message) || e) + '</p>'; })
+        .getMyDrafts();
+    }
+
+    function vpRenderDrafts(res) {
+      var box = document.getElementById('lsDrafts');
+      if (!res || !res.ok) { box.innerHTML = '<p class="ls-hint">Error: ' + escHtml((res && res.error) || 'unknown') + '</p>'; return; }
+      var drafts = res.drafts || [];
+      if (!drafts.length) { box.innerHTML = '<p class="ls-hint">No drafts. Uploaded batches show here while they finish.</p>'; return; }
+      // group by batchId
+      var groups = {}, order = [];
+      drafts.forEach(function (d) { var b = d.batchId || '(none)'; if (!groups[b]) { groups[b] = []; order.push(b); } groups[b].push(d); });
+      var html = '';
+      order.forEach(function (bid) {
+        var rows = groups[bid], dealer = rows[0].dealerName || rows[0].dealerKey || '';
+        var when = rows[0].ts || '';
+        var shortId = bid.length > 12 ? bid.substr(0, 12) : bid;
+        var queued = rows.filter(function (r) { return r.ocrState === 'queued'; }).length;
+        // collapsed by default (<details> without `open`)
+        html += '<details class="ls-dbatch"><summary class="ls-dsum">' +
+          '<span class="t">' + escHtml(dealer) + '</span>' +
+          '<span class="ls-hint">' + escHtml(when) + ' · ' + rows.length + ' photo' + (rows.length === 1 ? '' : 's') +
+            (queued ? (' · ' + queued + ' processing') : '') + ' · #' + escHtml(shortId) + '</span>' +
+          '</summary>' +
+          '<div class="ls-dbtns">' +
+            '<button type="button" class="ls-btn primary" onclick="vpSendBatch(\'' + escHtml(bid) + '\')">Send to office</button>' +
+            '<button type="button" class="ls-btn" onclick="vpDeleteBatch(\'' + escHtml(bid) + '\')">Delete batch</button>' +
+          '</div>';
+        rows.forEach(function (r) { html += vpDraftRow(r); });
+        html += '</details>';
+      });
+      box.innerHTML = html;
+    }
+
+    function vpDraftRow(r) {
+      var badge;
+      if (r.ocrState === 'queued') badge = '<span class="ls-badge wait">processing…</span>';
+      else if (r.matched) badge = '<span class="ls-badge ok">in stock</span>';
+      else if (r.valid) badge = '<span class="ls-badge bad">verify</span>';
+      else badge = '<span class="ls-badge bad">needs VIN</span>';
+      var veh = [r.year, r.make, r.model].filter(Boolean).join(' ');
+      var h = '<div class="ls-drow" data-sid="' + r.id + '">' +
+        '<div class="top"><span class="ls-vin">' + escHtml(r.vin || '(no VIN)') + '</span> ' + badge +
+        '<button type="button" class="x" title="Discard" onclick="vpDraftDiscard(\'' + r.id + '\')">&times;</button></div>';
+      if (veh) h += '<div class="ls-veh">' + escHtml(veh) + (r.stock ? (' · Stock ' + escHtml(r.stock)) : '') + '</div>';
+      if (r.ocrState !== 'queued') {
+        h += '<div class="ls-edit"><input id="de_' + r.id + '" type="text" maxlength="17" value="' + escHtml(r.vin || '') + '" placeholder="Correct VIN…">' +
+             '<button type="button" class="ls-btn" style="flex:0 0 auto;" onclick="vpDraftRecheck(\'' + r.id + '\',\'' + escHtml(r.dealerKey) + '\')">Re-check</button></div>';
+      }
+      if (r.photoFileId) {
+        h += '<div class="ls-actions"><button type="button" class="ls-btn" onclick="vpShowDraftPhoto(\'' + r.id + '\',\'' + r.photoFileId + '\')">&#128247; Show / hide photo</button></div>';
+        h += '<div id="ph_' + r.id + '"></div>';
+      }
+      h += '</div>';
+      return h;
+    }
+
+    function vpSendBatch(bid) {
+      google.script.run
+        .withSuccessHandler(function (res) { toast((res && res.sent ? res.sent : 0) + ' sent to office.', 'success'); vpLoadDrafts(); })
+        .withFailureHandler(function (e) { toast('Failed: ' + ((e && e.message) || e), 'error'); })
+        .sendDraftBatch(bid);
+    }
+    function vpDeleteBatch(bid) {
+      if (!confirm('Delete this whole batch? The photos move to Drive trash.')) return;
+      google.script.run
+        .withSuccessHandler(function (res) { toast((res && res.deleted ? res.deleted : 0) + ' deleted.', 'success'); vpLoadDrafts(); })
+        .withFailureHandler(function (e) { toast('Failed: ' + ((e && e.message) || e), 'error'); })
+        .discardBatch(bid);
+    }
+    // Load the photo inline (server-fetched bytes — reliable in the web-app sandbox).
+    // Toggles: tap again to hide. Tap the image to enlarge.
+    function vpShowDraftPhoto(sid, fileId) {
+      var box = document.getElementById('ph_' + sid);
+      if (!box) return;
+      if (box.dataset.loaded === '1') { box.innerHTML = ''; box.dataset.loaded = ''; return; }
+      box.innerHTML = '<span class="ls-hint">Loading photo…</span>';
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (res && res.ok) { box.innerHTML = '<img class="ls-photo" src="' + res.dataUrl + '" onclick="vpLightbox(this.src)">'; box.dataset.loaded = '1'; }
+          else { box.innerHTML = '<span class="ls-hint">Could not load photo.</span>'; }
+        })
+        .withFailureHandler(function () { box.innerHTML = '<span class="ls-hint">Could not load photo.</span>'; })
+        .getPhotoDataUrl(fileId);
+    }
+
+    function vpDraftDiscard(sid) {
+      if (!confirm('Discard this photo?')) return;
+      google.script.run.withSuccessHandler(function () { vpLoadDrafts(); }).discardSubmission(sid);
+    }
+    function vpDraftRecheck(sid, dealerKey) {
+      var el = document.getElementById('de_' + sid);
+      var vin = el ? String(el.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '') : '';
+      if (vin.length !== 17) { toast('A VIN is 17 characters.', 'info'); return; }
+      google.script.run
+        .withSuccessHandler(function () { toast('Updated.', 'success'); vpLoadDrafts(); })
+        .withFailureHandler(function (e) { toast('Failed: ' + ((e && e.message) || e), 'error'); })
+        .submitVinPhoto(dealerKey, '', vin, sid, '');
+    }
+
+    // ════════════════ shared image helpers ════════════════
+    function vpToBase64(img) {
+      var max = 3000, w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+      var scale = Math.min(1, max / Math.max(w, h));
+      var cw = Math.max(1, Math.round(w * scale)), ch = Math.max(1, Math.round(h * scale));
+      var c = document.createElement('canvas'); c.width = cw; c.height = ch;
+      c.getContext('2d').drawImage(img, 0, 0, cw, ch);
+      return c.toDataURL('image/jpeg', 0.85);
+    }
+    function vpTryBarcode(img, cb) {
+      if (!window.ZXing) { cb(''); return; }
+      vpDecode(img, [ZXing.BarcodeFormat.DATA_MATRIX, ZXing.BarcodeFormat.QR_CODE, ZXing.BarcodeFormat.PDF_417], function (vin) {
+        if (vin) { cb(vin); return; }
+        vpDecode(img, [ZXing.BarcodeFormat.CODE_128, ZXing.BarcodeFormat.CODE_39], cb);
+      });
+    }
+    function vpDecode(img, formats, cb) {
+      try {
+        var hints = new Map();
+        hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+        hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
+        new ZXing.BrowserMultiFormatReader(hints).decodeFromImageElement(img)
+          .then(function (r) { cb(vpFindVin(r && r.getText ? r.getText() : '')); })
+          .catch(function () { cb(''); });
+      } catch (e) { cb(''); }
+    }
+    function vpFindVin(text) {
+      var f = String(text || '').toUpperCase().replace(/O/g, '0').replace(/I/g, '1').replace(/Q/g, '0');
+      var toks = f.match(/[A-Z0-9]+/g) || [];
+      for (var i = 0; i < toks.length; i++) {
+        var t = toks[i];
+        if (t.length === 17 && vpValidVin(t)) return t;
+        for (var s = 0; s + 17 <= t.length; s++) { var w = t.substr(s, 17); if (vpValidVin(w)) return w; }
+      }
+      return '';
+    }
+  </script>
+</body>
+</html>

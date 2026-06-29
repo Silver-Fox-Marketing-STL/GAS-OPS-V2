@@ -1,0 +1,185 @@
+<!-- ════════════════════════════════════════════════════════════════════════════
+     VIN INBOX VIEW — office-side processing of Lot Scanner submissions.
+     Reads the shared SF_LOT_SUBMISSIONS sheet via getVinSubmissions; groups
+     pending submissions by dealer; lets the processor correct the OCR'd VIN
+     (updateVinSubmissionStatus), mark processed/discarded, and copy a dealer's
+     confirmed VINs to paste into Run Order. (escHtml/toast from SharedUtils.)
+════════════════════════════════════════════════════════════════════════════ -->
+<div class="view" id="view-vin-inbox" hidden>
+  <div class="vi-scroll">
+    <div class="vi-head">
+      <h2 class="u-h2" style="margin:0;">VIN Inbox</h2>
+      <button type="button" class="vi-refresh" onclick="viLoad()">&#8635; Refresh</button>
+    </div>
+    <p class="u-hint" style="max-width:70ch;">Photos submitted from the Lot Scanner, grouped by dealer. Review/correct the read VIN, mark each <strong>Processed</strong> or <strong>Discard</strong> — or copy a dealer's valid VINs to paste into Run Order.</p>
+    <div id="viBody"><p class="u-hint">Loading&hellip;</p></div>
+  </div>
+</div>
+
+<style>
+  #view-vin-inbox { height: 100%; color: var(--text); }
+  #view-vin-inbox .vi-scroll { height: 100%; overflow-y: auto; padding: var(--space-5) var(--space-6); }
+  #view-vin-inbox .vi-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+  #view-vin-inbox .vi-refresh { padding: 6px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); cursor: pointer; }
+
+  #view-vin-inbox .vi-group { margin-top: var(--space-5); }
+  #view-vin-inbox .vi-group-head { display: flex; align-items: center; gap: var(--space-2); font-family: var(--font-head); font-weight: 700; font-size: var(--fs-lg); margin-bottom: var(--space-2); }
+  #view-vin-inbox .vi-count { font-size: var(--fs-hint); color: var(--text-3); font-weight: 600; }
+  #view-vin-inbox .vi-copy { margin-left: auto; padding: 5px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); cursor: pointer; font-size: var(--fs-sm); }
+
+  #view-vin-inbox .vi-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--space-3); }
+  #view-vin-inbox .vi-card { display: flex; gap: var(--space-3); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-3); }
+  #view-vin-inbox .vi-card.miss { border-color: var(--warning, #c87f00); }
+  #view-vin-inbox .vi-thumb { width: 92px; height: 92px; flex-shrink: 0; border-radius: var(--radius-sm); object-fit: cover; background: var(--surface-3); border: 1px solid var(--border); }
+  #view-vin-inbox .vi-info { flex: 1; min-width: 0; }
+  #view-vin-inbox .vi-vin { font-family: var(--font-mono, ui-monospace, monospace); font-weight: 700; word-break: break-all; }
+  #view-vin-inbox .vi-badges { display: flex; gap: var(--space-2); margin: var(--space-1) 0; flex-wrap: wrap; }
+  #view-vin-inbox .vi-badge { font-size: var(--fs-hint); font-weight: 700; padding: 1px 8px; border-radius: 999px; }
+  #view-vin-inbox .vi-badge.ok { background: var(--success-weak, #dcefe0); color: var(--success, #1c7a3a); }
+  #view-vin-inbox .vi-badge.bad { background: var(--danger-weak, #f6dcdc); color: var(--danger, #b3261e); }
+  #view-vin-inbox .vi-badge.draft { background: var(--warning-weak, #fbe7cf); color: var(--warning, #c87f00); }
+  #view-vin-inbox .vi-badge.wait { background: var(--surface-3); color: var(--text-2); }
+  #view-vin-inbox .vi-veh { font-size: var(--fs-sm); color: var(--text-2); }
+  #view-vin-inbox .vi-meta { font-size: var(--fs-hint); color: var(--text-3); margin-top: 2px; }
+  #view-vin-inbox .vi-actions { display: flex; gap: var(--space-2); margin-top: var(--space-2); flex-wrap: wrap; }
+  #view-vin-inbox .vi-actions input { flex: 1; min-width: 130px; padding: 6px; font-family: var(--font-mono, ui-monospace, monospace); text-transform: uppercase; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); }
+  #view-vin-inbox .vi-actions button { padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); cursor: pointer; font-size: var(--fs-sm); }
+  #view-vin-inbox .vi-actions button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #view-vin-inbox .vi-empty { color: var(--text-3); margin-top: var(--space-5); }
+</style>
+
+<script>
+  // (SPA single JS scope — symbols prefixed `vi`.)
+  window.VIEW_SHOWN = window.VIEW_SHOWN || {};
+  VIEW_SHOWN['view-vin-inbox'] = function () { viLoad(); };   // reload pending on every visit
+
+  var viSubs = [], viGroupNames = [];
+
+  function viLoad() {
+    var body = document.getElementById('viBody');
+    if (!body) return;
+    body.innerHTML = '<p class="u-hint">Loading&hellip;</p>';
+    google.script.run
+      .withSuccessHandler(viRender)
+      .withFailureHandler(function (e) {
+        body.innerHTML = '<p class="vi-empty">Could not load submissions: ' + escHtml((e && e.message) || String(e)) + '</p>';
+      })
+      .getVinSubmissions();   // no filter = OPEN work (draft + submitted)
+  }
+
+  function viRender(res) {
+    var body = document.getElementById('viBody');
+    if (!res || !res.ok) { body.innerHTML = '<p class="vi-empty">Error: ' + escHtml((res && res.error) || 'unknown') + '</p>'; return; }
+    if (!res.configured) {
+      body.innerHTML = '<p class="vi-empty">The submissions sheet isn’t linked yet. Set <code>LOT_SUBMISSIONS_SHEET_ID</code> in Code.gs (run the Lot Scanner’s <code>setupLotScannerResources()</code> once to create it).</p>';
+      return;
+    }
+    viSubs = res.submissions || [];
+    if (!viSubs.length) { body.innerHTML = '<p class="vi-empty">No open submissions.</p>'; return; }
+
+    // Group by dealer name.
+    var groups = {};
+    viGroupNames = [];
+    viSubs.forEach(function (s) {
+      var name = s.dealerName || s.dealerKey || '(unknown dealer)';
+      if (!groups[name]) { groups[name] = []; viGroupNames.push(name); }
+      groups[name].push(s);
+    });
+    viGroupNames.sort();
+
+    var html = '';
+    viGroupNames.forEach(function (name, gi) {
+      var rows = groups[name];
+      html += '<div class="vi-group">';
+      html += '<div class="vi-group-head">' + escHtml(name) +
+              ' <span class="vi-count">' + rows.length + ' pending</span>' +
+              '<button type="button" class="vi-copy" onclick="viCopy(' + gi + ')">Copy valid VINs</button></div>';
+      html += '<div class="vi-cards">';
+      rows.forEach(function (s) { html += viCard(s); });
+      html += '</div></div>';
+    });
+    body.innerHTML = html;
+  }
+
+  function viCard(s) {
+    // photoFileId / id are system-generated (no quotes) → safe in handlers.
+    var thumb = s.photoFileId
+      ? '<a href="' + escHtml(s.photoUrl) + '" target="_blank" rel="noopener"><img class="vi-thumb" alt="VIN photo" ' +
+        'src="https://drive.google.com/thumbnail?id=' + encodeURIComponent(s.photoFileId) + '&sz=w200" ' +
+        'onerror="this.style.display=\'none\'"></a>'
+      : '';
+    var veh = '';
+    if (s.matched) {
+      var line = [s.year, s.make, s.model, s.type].filter(Boolean).join(' ');
+      if (s.stock) line += ' · Stock ' + s.stock;
+      veh = '<div class="vi-veh">' + escHtml(line) + '</div>';
+    }
+    var meta = '<div class="vi-meta">' + escHtml(s.email || '') + (s.ts ? (' · ' + escHtml(s.ts)) : '') + '</div>';
+    var queued = (s.ocrState === 'queued');
+    var h = '';
+    h += '<div class="vi-card' + (queued || s.matched ? '' : ' miss') + '">';
+    h += thumb;
+    h += '<div class="vi-info">';
+    h += '<div class="vi-vin">' + escHtml(s.vin || (queued ? '(processing…)' : '(no VIN)')) + '</div>';
+    h += '<div class="vi-badges">';
+    if (s.isDraft) h += '<span class="vi-badge draft">draft — not yet sent</span>';
+    if (queued) {
+      h += '<span class="vi-badge wait">still processing…</span>';
+    } else {
+      h += '<span class="vi-badge ' + (s.valid ? 'ok' : 'bad') + '">' + (s.valid ? 'valid VIN' : 'invalid VIN') + '</span>';
+      h += '<span class="vi-badge ' + (s.matched ? 'ok' : 'bad') + '">' + (s.matched ? 'in inventory' : 'not in inventory') + '</span>';
+    }
+    h += '</div>';
+    h += veh + meta;
+    if (!queued) {
+      h += '<div class="vi-actions">';
+      h += '<input id="vivin_' + s.id + '" type="text" maxlength="17" value="' + escHtml(s.vin || '') + '" placeholder="Correct VIN…">';
+      h += '<button type="button" onclick="viRecheck(\'' + s.id + '\')">Re-check</button>';
+      h += '<button type="button" class="primary" onclick="viProcess(\'' + s.id + '\')">Processed</button>';
+      h += '<button type="button" onclick="viDiscard(\'' + s.id + '\')">Discard</button>';
+      h += '</div>';
+    }
+    h += '</div></div>';
+    return h;
+  }
+
+  function viCopy(gi) {
+    var name = viGroupNames[gi];
+    var seen = {}, vins = [];
+    viSubs.forEach(function (s) {
+      var n = s.dealerName || s.dealerKey || '(unknown dealer)';
+      if (n === name && s.vin && s.valid && !seen[s.vin]) { seen[s.vin] = 1; vins.push(s.vin); }
+    });
+    if (!vins.length) { toast('No valid VINs to copy for ' + name + '.', 'info'); return; }
+    viClip(vins.join('\n'));
+    toast(vins.length + ' VIN' + (vins.length === 1 ? '' : 's') + ' copied — paste into Run Order.', 'success');
+  }
+
+  function viClip(text) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text); return; }
+    } catch (e) {}
+    var ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.left = '-9999px';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); } catch (e2) {}
+    document.body.removeChild(ta);
+  }
+
+  function viAction(sid, status, vin, okMsg) {
+    google.script.run
+      .withSuccessHandler(function (res) {
+        if (res && res.ok) { if (okMsg) toast(okMsg, 'success'); viLoad(); }
+        else { toast('Failed: ' + escHtml((res && res.error) || '?'), 'error'); }
+      })
+      .withFailureHandler(function (e) { toast('Failed: ' + escHtml((e && e.message) || String(e)), 'error'); })
+      .updateVinSubmissionStatus(sid, status, vin || '');
+  }
+
+  function viRecheck(sid) {
+    var el = document.getElementById('vivin_' + sid);
+    viAction(sid, 'submitted', el ? el.value : '', 'VIN updated.');   // keep it open in the queue
+  }
+  function viProcess(sid) { viAction(sid, 'processed', '', 'Marked processed.'); }
+  function viDiscard(sid) { if (confirm('Discard this submission?')) viAction(sid, 'discarded', '', 'Discarded.'); }
+</script>

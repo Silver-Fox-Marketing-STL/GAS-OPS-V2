@@ -15,3 +15,8 @@ docs/**
 
 # Visual-brainstorming companion scratch (local-only mockups; never Apps Script source)
 .superpowers/**
+
+# Standalone Lot Scanner — its OWN Apps Script project (lot-scan/.clasp.json), pushed
+# separately from inside lot-scan/. Must NOT be pushed into the main project or its
+# Code.gs / SharedUtils.html would collide (Apps Script's file namespace is flat).
+lot-scan/**

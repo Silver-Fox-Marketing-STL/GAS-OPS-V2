@@ -7597,5 +7597,156 @@ function attachBillingPdfToDeal_(dealId, outputDocId, group, meta) {
 }
 
 // ============================================================================
+// SECTION 32: VIN INBOX — lot-scanner submissions (read / process)
+// ----------------------------------------------------------------------------
+// The standalone Lot Scanner app (a SEPARATE Apps Script project) writes one row
+// per photographed VIN to the shared SF_LOT_SUBMISSIONS sheet + a Drive photos
+// folder. This section is the office-side inbox the ViewVinInbox view reads:
+// review/correct the OCR'd VIN, mark processed/discarded, and copy a dealer's
+// confirmed VINs into Run Order. Connection is by ID only — no shared runtime.
+// ============================================================================
+
+// Paste the SF_LOT_SUBMISSIONS id logged by the scanner's setupLotScannerResources().
+var LOT_SUBMISSIONS_SHEET_ID = '1zs-Ycj64LTwIYJt84kC_-qY_EhsWgB1Pa5pQlsG-N1M';
+var LOT_SUBMISSIONS_TAB = 'SUBMISSIONS';
+// 0-based column map — MUST match the scanner's LOT_SUBMISSION_COLS order.
+var LOT_SUB = {
+  ID: 0, TS: 1, EMAIL: 2, DEALER_KEY: 3, DEALER_NAME: 4, PHOTO_ID: 5, PHOTO_URL: 6,
+  VIN_EXTRACTED: 7, VIN_FINAL: 8, VALID: 9, MATCHED: 10,
+  YEAR: 11, MAKE: 12, MODEL: 13, TYPE: 14, STOCK: 15, STATUS: 16, PROCESSED_TS: 17, PROCESSED_BY: 18, NOTES: 19,
+  BATCH_ID: 20, OCR_STATE: 21
+};
+// Human lifecycle: draft (field still owns) | submitted (field-sent / real-time) | processed | discarded.
+var LOT_SUB_STATUSES = ['draft', 'submitted', 'processed', 'discarded'];
+
+function getLotSubmissionsSheet_() {
+  if (!LOT_SUBMISSIONS_SHEET_ID) return null;
+  return SpreadsheetApp.openById(LOT_SUBMISSIONS_SHEET_ID).getSheetByName(LOT_SUBMISSIONS_TAB);
+}
+
+// ── VIN validation (ISO 3779) — re-validates a corrected VIN in the inbox ──
+var VIN_TRANSLIT = {
+  A:1, B:2, C:3, D:4, E:5, F:6, G:7, H:8, J:1, K:2, L:3, M:4, N:5, P:7, R:9,
+  S:2, T:3, U:4, V:5, W:6, X:7, Y:8, Z:9,
+  '0':0, '1':1, '2':2, '3':3, '4':4, '5':5, '6':6, '7':7, '8':8, '9':9
+};
+var VIN_WEIGHTS = [8, 7, 6, 5, 4, 3, 2, 10, 0, 9, 8, 7, 6, 5, 4, 3, 2];
+
+function vinCheckDigit_(vin) {
+  var sum = 0;
+  for (var i = 0; i < 17; i++) {
+    var v = VIN_TRANSLIT[vin.charAt(i)];
+    if (v === undefined) return null;
+    sum += v * VIN_WEIGHTS[i];
+  }
+  var r = sum % 11;
+  return r === 10 ? 'X' : String(r);
+}
+
+function isValidVin_(vin) {
+  if (typeof vin !== 'string') return false;
+  vin = vin.toUpperCase();
+  if (!/^[A-HJ-NPR-Z0-9]{17}$/.test(vin)) return false;   // exactly 17, no I/O/Q
+  var cd = vinCheckDigit_(vin);
+  return cd !== null && vin.charAt(8) === cd;
+}
+
+/**
+ * Client-callable. Returns lot-scanner submission rows as objects.
+ * @param {{status?:string, dealerKey?:string}} filter  no status = OPEN (draft+submitted); a status = exact match.
+ * @returns {{ok:boolean, configured:boolean, submissions:Array, error?:string}}
+ */
+function getVinSubmissions(filter) {
+  try {
+    var sh = getLotSubmissionsSheet_();
+    if (!sh) return { ok: true, configured: false, submissions: [] };
+    filter = filter || {};
+    var wantStatus = filter.status || '';      // '' = OPEN (draft + submitted); else exact match
+    var wantDealer = filter.dealerKey || '';
+    var CAP = 1000;
+    var data = sh.getDataRange().getValues();
+    var out = [];
+    for (var i = 1; i < data.length && out.length < CAP; i++) {
+      var r = data[i];
+      if (!r[LOT_SUB.ID]) continue;
+      var status = String(r[LOT_SUB.STATUS] || 'submitted');
+      if (wantStatus) { if (status !== wantStatus) continue; }
+      else if (status === 'processed' || status === 'discarded') continue;   // default: open work only
+      if (wantDealer && String(r[LOT_SUB.DEALER_KEY]) !== wantDealer) continue;
+      out.push({
+        id: String(r[LOT_SUB.ID]), ts: String(r[LOT_SUB.TS] || ''), email: String(r[LOT_SUB.EMAIL] || ''),
+        dealerKey: String(r[LOT_SUB.DEALER_KEY] || ''), dealerName: String(r[LOT_SUB.DEALER_NAME] || ''),
+        photoFileId: String(r[LOT_SUB.PHOTO_ID] || ''), photoUrl: String(r[LOT_SUB.PHOTO_URL] || ''),
+        vinExtracted: String(r[LOT_SUB.VIN_EXTRACTED] || ''), vin: String(r[LOT_SUB.VIN_FINAL] || ''),
+        valid: isTrue_(r[LOT_SUB.VALID]), matched: isTrue_(r[LOT_SUB.MATCHED]),
+        year: String(r[LOT_SUB.YEAR] || ''), make: String(r[LOT_SUB.MAKE] || ''), model: String(r[LOT_SUB.MODEL] || ''),
+        type: String(r[LOT_SUB.TYPE] || ''), stock: String(r[LOT_SUB.STOCK] || ''),
+        status: status, isDraft: (status === 'draft'),
+        ocrState: String(r[LOT_SUB.OCR_STATE] || ''), batchId: String(r[LOT_SUB.BATCH_ID] || ''),
+        notes: String(r[LOT_SUB.NOTES] || '')
+      });
+    }
+    return { ok: true, configured: true, submissions: out };
+  } catch (e) {
+    Logger.log('getVinSubmissions failed: ' + e.message);
+    return { ok: false, configured: true, submissions: [], error: e.message };
+  }
+}
+
+/**
+ * Client-callable. Updates one submission's status (allow-listed) and, if a
+ * corrected VIN is supplied, re-validates + re-matches it against the dealer's
+ * inventory and rewrites the VIN/vehicle columns.
+ * @returns {{ok:boolean, valid?:boolean, matched?:boolean, error?:string}}
+ */
+function updateVinSubmissionStatus(submissionId, status, correctedVin) {
+  try {
+    var sh = getLotSubmissionsSheet_();
+    if (!sh) return { ok: false, error: 'Submissions sheet not configured.' };
+    if (LOT_SUB_STATUSES.indexOf(status) === -1) return { ok: false, error: 'Invalid status.' };
+    var data = sh.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][LOT_SUB.ID]) !== String(submissionId)) continue;
+      var rowNum = i + 1;
+      var resultValid, resultMatched;
+
+      var corrected = String(correctedVin || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+      if (corrected) {
+        resultValid = isValidVin_(corrected);
+        var vehicle = null;
+        try {
+          var cfg = getDealerConfig_(String(data[i][LOT_SUB.DEALER_KEY]));
+          if (cfg && cfg[CFG.SCRAPER_LOCATION]) {
+            var map = buildVinDataMap_(getDealerScraperData_(cfg[CFG.SCRAPER_LOCATION]) || []);
+            vehicle = map[corrected] || null;
+          }
+        } catch (e) { Logger.log('inbox re-match failed (non-fatal): ' + e.message); }
+        resultMatched = !!vehicle;
+        var v = vehicle || {};
+        // cols 9..16 (1-based): vin_final, vin_valid, matched, year, make, model, type, stock
+        sh.getRange(rowNum, LOT_SUB.VIN_FINAL + 1, 1, 8).setValues([[
+          corrected, resultValid ? 'TRUE' : 'FALSE', resultMatched ? 'TRUE' : 'FALSE',
+          v.year || '', v.make || '', v.model || '', v.type || '', v.stock || ''
+        ]]);
+      }
+
+      var by = '';
+      try { by = Session.getActiveUser().getEmail() || ''; } catch (e2) {}
+      var ts = (status === 'processed' || status === 'discarded')
+        ? Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'America/Chicago', 'yyyy-MM-dd HH:mm:ss')
+        : '';
+      // cols 17..19 (1-based): status, processed_ts, processed_by
+      sh.getRange(rowNum, LOT_SUB.STATUS + 1, 1, 3).setValues([[status, ts, by]]);
+      return { ok: true, valid: resultValid, matched: resultMatched };
+    }
+    return { ok: false, error: 'Submission not found.' };
+  } catch (e) {
+    Logger.log('updateVinSubmissionStatus failed: ' + e.message);
+    return { ok: false, error: e.message };
+  }
+}
+
+
+// ============================================================================
 // END OF SCRIPT
 // ============================================================================

@@ -572,6 +572,9 @@
       <div class="nav-item" id="nav-view-vinlog" onclick="navTo('view-vinlog')">
         <span class="icon">&#128203;</span> VIN Logs
       </div>
+      <div class="nav-item" id="nav-view-vin-inbox" onclick="navTo('view-vin-inbox')">
+        <span class="icon">&#128229;</span> VIN Inbox
+      </div>
       <div class="nav-item" id="nav-view-utilities" onclick="navTo('view-utilities')">
         <span class="icon">&#128295;</span> Utilities
       </div>
@@ -624,6 +627,7 @@
         <?!= include_('ViewImport') ?>
         <?!= include_('ViewDataSources') ?>
         <?!= include_('ViewVinLog') ?>
+        <?!= include_('ViewVinInbox') ?>
         <?!= include_('ViewRules') ?>
         <?!= include_('ViewNorm') ?>
         <?!= include_('ViewUtilities') ?>
@@ -651,6 +655,7 @@
       'view-import': 'Import Data',
       'view-datasources': 'Data Sources',
       'view-vinlog': 'VIN Logs',
+      'view-vin-inbox': 'VIN Inbox',
       'view-rules':  'Dealer Rules',
       'view-norm':   'Normalization',
       'view-utilities': 'Utilities',

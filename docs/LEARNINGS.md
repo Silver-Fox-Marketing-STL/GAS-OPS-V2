@@ -200,6 +200,54 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   wrong theories (enhancement failing, width, font-size). Lesson: when you can't open devtools
   on the device, **measure the computed value on-device first**, then theorize; a guess about
   why mobile renders differently is usually wrong until the real number is in hand.
+- **Native Google Drive OCR is the free, no-egress OCR for this stack — and the resource
+  `mimeType` must be the IMAGE content-type, NOT the Google-Doc type.**
+  `Drive.Files.insert({title, mimeType: blob.getContentType()}, blob, {ocr:true, ocrLanguage:'en'})`
+  (Advanced Drive Service **v2**) converts the uploaded image to a Google Doc whose recognized
+  text you read via `DocumentApp.openById(id).getBody().getText()` — then **always trash the temp
+  Doc**. Found live: setting `mimeType` to the Google-Doc type produced **empty** text; using the
+  image content-type is the working recipe (`ocr:true` does the conversion). Free, no API key, no
+  third-party egress. Requires enabling the Drive API advanced service — if it's off, `Drive` is
+  undefined (guard with `typeof Drive`). (`extractVinFromImage_`, Lot Scanner.)
+- **Drive OCR has a low PER-USER rate limit — never fire a batch's OCR calls at once.** Bursting a
+  gallery batch through OCR threw "User rate limit exceeded for OCR". Mitigate by OCRing in the
+  background a few at a time with a bounded backoff-retry, paced by a 1-minute trigger (~8/run
+  here) — not all at once.
+- **A time-driven trigger works in a `USER_ACCESSING` web app and runs AS the accessing user** —
+  so a per-user `drainOcrQueue` trigger OCRs that user's own rows under their own OCR quota and can
+  `MailApp` them the summary. Make it **self-deleting when the queue drains** (and recreated by the
+  next batch) to respect the 20-trigger/user limit + daily runtime quota. Adding Mail + Trigger
+  scopes forces re-authorization on the next open. (Lot Scanner batch engine.)
+- **Concurrent sheet appends LOSE rows even "under a lock" if you open the sheet OUTSIDE the lock.**
+  Parallel executions each cached a stale last-row, so their `appendRow`s overwrote each other — a
+  23-photo batch deterministically landed **9**. The robust fix used here: **don't append
+  concurrently at all** — parallelize the slow Drive upload (`uploadPhotoOnly`, 5 at once) but write
+  the rows through a **single serialized, chunked committer** (`commitQueuedBatch` — one execution
+  `setValues`-es N rows). (If you must append per call, open the sheet **inside** the lock so it
+  reads the current last row, and `flush()` before releasing — that's how the real-time single
+  submit `appendVinSubmission_` does it.)
+- **Mobile Safari OOMs decoding several ~12MP photos at once — decode SERIALLY, parallelize only
+  the upload.** A 5-wide `<img>`/canvas decode pool failed `img.onload` for ~14 of 23 photos
+  ("image decode failed"), while one-at-a-time decoded all of them. The decode (image into memory +
+  canvas) is the memory-heavy step, not the network upload — so keep one image in memory at a time
+  and run the *uploads* in parallel. (Lot Scanner gallery batch.)
+- **A `drive.google.com/thumbnail?id=…` (or `/file/d/…/view`) URL won't load inside the
+  HtmlService web-app sandbox** — auth / cross-origin, it silently 403s or blanks. Fetch the bytes
+  **server-side** and return a data URL (`getPhotoDataUrl` → `DriveApp.getFileById(id).getBlob()` →
+  base64) to show a Drive photo reliably in-app. (A *just-captured* local image shows fine as a
+  client-side object URL — iOS Safari can even render HEIC in an `<img>` — it's only the
+  already-on-Drive photo that needs the server fetch.)
+- **Client-side barcode / Data-Matrix decode (ZXing) beats OCR when the label carries a code.** CDK
+  windshield labels print a small VIN but also encode it in a 2D **Data Matrix** (or a 1D Code
+  39/128). Decode **2D formats first then 1D**, and **validate every decode as a real 17-char VIN**
+  (a stock-number barcode just fails the check digit → fall back to OCR). Loaded from a CDN
+  (blocking), with graceful OCR fallback when nothing decodes. (`vpTryBarcode`, Lot Scanner.)
+- **The VIN ISO-3779 check digit is the reliability lever for OCR** — validate 17 chars (no
+  I/O/Q) **plus** the position-9 check digit; force the VIN-illegal O/I/Q to 0/1/0; prefer
+  exact-valid 17-char tokens, and only THEN attempt bounded single-char OCR-confusion repairs
+  (0↔O, 8↔B, 5↔S, 2↔Z, …) — the check digit rejects almost all of the noise (a stray window passes
+  it only ~1/11, and the human confirms anyway). (`isValidVin_`/`extractVinCandidates_`, Lot
+  Scanner.)
 
 ## External APIs (Pipedrive)
 
@@ -409,6 +457,15 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   identical content to two branches yields matching blob SHAs (no merge conflicts).
 - Always pull fresh from GitHub before editing — local copies and project-knowledge
   copies of `Code.gs` go stale fast.
+- **clasp: a STANDALONE sub-project inside an existing repo needs two guards.** Creating the Lot
+  Scanner (`lot-scan/`, its own Apps Script project) inside the main repo hit both: (1) `clasp
+  create` walks **up** the tree and finds the parent `.clasp.json` ("Project file already exists")
+  → create it in a **sibling temp dir** instead, then copy its `.clasp.json` into the subfolder;
+  (2) `clasp push` from the repo root scoops the sub-project's files into the **main** script
+  (clasp's namespace is flat → `Code`/`SharedUtils` collisions) → add the subfolder to the main
+  project's **`.claspignore`**. Also seen once: a stray self-referencing **library** entry in the
+  remote manifest ("You do not have access to library … used by your script") — clear it by
+  re-pushing the clean local `appsscript.json`.
 
 ## Sheets MCP
 
