@@ -10,6 +10,9 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## [Unreleased]
 
+### Changed — docs: de-auto-load the Bridge doc to save context _(no code change)_
+- `CLAUDE.md` no longer `@`-auto-loads `docs/GAS_ShortCut_OPS_Bridge_System.md` (~56k tokens/session). The Bridge doc remains the **canonical source of truth** — unchanged, still in git — but is now **read on demand** (like `Project_Knowledge_Base.md` / `Development_Plan.md`). `docs/LEARNINGS.md` stays auto-loaded (required reading). The "Canon" + "Reference docs" sections in `CLAUDE.md` note the Bridge doc must be Read for exact invariants/schemas/history.
+
 ### Changed — Lot Scanner v2: guided real-time capture + async batch + Drafts _(branch `feature/lot-vin-scanner`)_
 - **Two capture paths.** 📷 **Scan a VIN** (camera) is now a **guided real-time flow**: each shot decodes/OCRs immediately and shows one outcome — ✅ *in inventory* (Take another), ⚠️ *valid VIN not in this dealer's stock* (verify against the photo → **Add & next** / **Retake**), or ❌ *no VIN read* (**Retake**; on the **2nd consecutive fail** also **Submit photo only** for the office to transcribe). Retake calls **`discardSubmission`** (delete the row + trash its photo). ⬆ **Upload batch** (gallery) is now fully asynchronous.
 - **Asynchronous batch that survives the app closing.** **`queuePhoto`** saves each photo + a `queued` draft row **with no OCR** (fast — the crew never waits), then **`ensureOcrTrigger`** installs a **per-user time-driven trigger** (**`drainOcrQueue`**, runs as that user so OCR uses their own quota) that processes the queue in the background (~8/run, rate-limit-bounded) and, when the user's queue drains, **emails them a summary** (`MailApp`) and **self-deletes**. Closing the app mid-processing loses nothing.

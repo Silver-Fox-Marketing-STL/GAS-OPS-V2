@@ -39,7 +39,8 @@ protecting, and reach for the batched / native / one-line tool first.
 
 **Canon — lean on it, don't re-derive:** `docs/LEARNINGS.md` (every hard-won gotcha
 above is catalogued there with the real incident), the **Invariants** section below,
-and `docs/GAS_ShortCut_OPS_Bridge_System.md`. Treat LEARNINGS.md as required reading,
+and `docs/GAS_ShortCut_OPS_Bridge_System.md` (read on demand — NOT in context; Read
+it for exact invariants/schemas/history). Treat LEARNINGS.md as required reading,
 not optional.
 
 ## Working rules
@@ -347,11 +348,15 @@ not optional.
 
 ## Reference docs
 
-@docs/GAS_ShortCut_OPS_Bridge_System.md
-@docs/LEARNINGS.md
+@docs/LEARNINGS.md  *(auto-loaded — required reading; the hard-won gotchas)*
 
-Also in `docs/` (read on demand, not auto-loaded):
-`GAS_ShortCut_OPS_Project_Knowledge_Base.md` (compressed decision history),
-`GAS_ShortCut_OPS_Development_Plan.md` (roadmap incl. V3 direction).
+Read on demand (NOT auto-loaded — Read the file when you need it):
+- `docs/GAS_ShortCut_OPS_Bridge_System.md` — the exhaustive system reference +
+  full changelog. **Canonical source of truth.** Read it whenever you need an exact
+  invariant, schema, column index, or a feature's history. De-auto-loaded to save
+  context (~56k tokens/session); its precision is unchanged — just no longer free.
+- `GAS_ShortCut_OPS_Project_Knowledge_Base.md` (compressed decision history),
+  `GAS_ShortCut_OPS_Development_Plan.md` (roadmap incl. V3 direction).
+
 V3 (FastAPI + React + PostgreSQL) is paused; the GAS ShortCut OPS config model is its
 canonical spec — don't extend the old Flask prototype.
