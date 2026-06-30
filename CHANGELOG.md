@@ -10,6 +10,13 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## [Unreleased]
 
+### Fixed — Pipedrive: product **tax** now pushed onto deal line items _(branch `feature/lot-vin-scanner`)_
+- Products pushed to a Pipedrive deal were attached at **0% tax** regardless of the product's catalog **Tax %**, so the deal's "Total with tax" was wrong (a manually-added product showed the correct tax; a system-pushed one didn't). Root cause: Pipedrive's API does **not** auto-copy a product's catalog tax onto a deal line — only the UI does — and the push never sent `tax`/`tax_method`. Backend `Code.gs` only; no UI/schema change.
+  - **`pdListProducts_`** now captures **`tax: Number(p.tax) || 0`** from the catalog product (both the v1 branch and the org-scoped v2 branch — verified live that v2 `/products` returns `tax`).
+  - **`buildLineItems_`** sets each line's `tax` from its catalog product; **`mergeLineItems_`** preserves `tax` when collapsing source-split lines.
+  - **`pdAttachProducts_`** and **`pdAddDealProduct_`** now send **`tax` + `tax_method: 'exclusive'`** on `POST /deals/{id}/products` — mirroring a manual add (SilverFox never includes tax in the product price, so the method is always exclusive). Verified live: a pushed line now matches a manual one (e.g. a 9.679% product yields the correct "Total with tax"); products with a 0% catalog rate (Design, Installation) are unaffected. Applies to both **create** (New Deal) and **link** (existing/manually-created) pushes.
+  - **Known limitation:** the attach dup-guard still skips a product **already on the deal**, so a line attached by a *prior* push at 0% is not retro-updated on a re-push — only newly-attached lines get tax. (A product-less manually-created deal — the common case — attaches everything fresh, so it's correct.)
+
 ### Changed — docs: de-auto-load the Bridge doc to save context _(no code change)_
 - `CLAUDE.md` no longer `@`-auto-loads `docs/GAS_ShortCut_OPS_Bridge_System.md` (~56k tokens/session). The Bridge doc remains the **canonical source of truth** — unchanged, still in git — but is now **read on demand** (like `Project_Knowledge_Base.md` / `Development_Plan.md`). `docs/LEARNINGS.md` stays auto-loaded (required reading). The "Canon" + "Reference docs" sections in `CLAUDE.md` note the Bridge doc must be Read for exact invariants/schemas/history.
 

@@ -312,6 +312,15 @@ not optional.
   subtract VIN-log dupes (a re-printed VIN is still produced and billed); reads the
   gross `totalNew`/`totalPO`/`totalCpo`/`totalCpoEl` from `readBillingTotals_`. All
   dealers. (Was net-of-dupes.)
+- Pipedrive line-item **tax** must be sent explicitly — the API does **not** copy a
+  product's catalog "Tax %" onto a deal line (only the UI does). `pdListProducts_`
+  captures `tax` from the catalog (v1 + v2); `buildLineItems_`/`mergeLineItems_`
+  carry it; `pdAttachProducts_`/`pdAddDealProduct_` send `tax` + **`tax_method:
+  'exclusive'`** (SilverFox never includes tax in the price). NB: the v1 GET
+  `/deals/{id}/products` under-reports `tax` as 0 — verify via the deal total or v2.
+  The attach dup-guard skips products already on a deal, so a re-push does **not**
+  retro-fix a line attached at 0% by an earlier push (fresh attaches only). See the
+  LEARNINGS "Pipedrive does NOT auto-copy product tax" note.
 - Two product-partition axes, both driven generically from `filtering_rules` (no
   per-dealer code): **`billing_split`** = separate deals, each its own org +
   `product_map` (e.g. MBCC); **`source_split`** = one deal, separate products per
