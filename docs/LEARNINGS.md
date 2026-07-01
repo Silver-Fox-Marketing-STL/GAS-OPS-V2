@@ -269,6 +269,27 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   endpoint silently **no-ops** the fields — the call succeeds, the values just
   don't land. (`pdResolveDealFields_` returns a flat `{key:value}` map, incl. the
   `_currency` companion, precisely so it can be passed straight to `pdUpdateDeal_`.)
+- **Pipedrive does NOT auto-copy a product's catalog tax onto a deal line — only
+  the UI does. The API push must send `tax` + `tax_method` explicitly.** A product
+  in the catalog carries a `tax` percentage ("Tax %"), and adding it to a deal *in
+  the Pipedrive UI* copies that rate onto the line. But `POST /deals/{id}/products`
+  via the API defaults the line to **0% tax** unless you pass `tax` (and
+  `tax_method`) yourself — so system-pushed products billed no tax while manually
+  added ones did. Fix: read `tax` off the catalog product (`pdListProducts_`), carry
+  it through `buildLineItems_`/`mergeLineItems_`, and send `tax` + `tax_method:
+  'exclusive'` in `pdAttachProducts_`/`pdAddDealProduct_` (SilverFox never includes
+  tax in the price → always exclusive). **Confirmed-live trap that made this hard to
+  diagnose: the v1 GET `/deals/{id}/products` UNDER-REPORTS `tax` as `0` even when
+  the line genuinely has tax** — the first probe read tax:0 on a known-good manual
+  deal and looked like manual-add didn't set tax either. The deal's *summary* settled
+  it (Subtotal $124.80 → Total-with-tax $134.87 = exactly 9.679% on the two taxed
+  $104 of lines), and the **v2** GET reports the line `tax` correctly. So: confirm
+  tax behavior via the **deal total or v2**, not the v1 line read; and the POST
+  *response echo* is the reliable check that the API accepted your `tax` param.
+  (Same family as the v1/v2 `success` / `is_linkable` shape traps — don't trust one
+  endpoint's representation; verify against live data.) Caveat: `pdAttachProducts_`'s
+  dup-guard skips a product already on the deal, so a line attached at 0% by an
+  earlier push isn't retro-fixed on re-push — only fresh attaches get tax.
 - **Idempotency for "create" external calls: write the external ID to a durable
   LOCAL record the INSTANT the API returns it, and treat that ID's presence as
   "already created."** The Pipedrive push writes the new Deal ID to RUN_LOG col D

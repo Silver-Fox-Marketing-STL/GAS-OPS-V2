@@ -5669,6 +5669,7 @@ function pdListProducts_() {
   if (!orgFieldKey) {
     return pdListAllV1_('/products').map(function(p) {
       return { id: p.id, name: p.name, code: p.code || '', prices: p.prices || [],
+               tax: Number(p.tax) || 0,
                inactive: (p.selectable === false || p.active_flag === false) };
     });
   }
@@ -5676,6 +5677,7 @@ function pdListProducts_() {
   // (under custom_fields[<key>]); for an Organization field that value is the org id.
   return pdListAllV2_('/products?custom_fields=' + encodeURIComponent(orgFieldKey)).map(function(p) {
     var out = { id: p.id, name: p.name, code: p.code || '', prices: p.prices || [],
+                tax: Number(p.tax) || 0,
                 inactive: (p.is_linkable === false) };  // v2: not linkable to deals = deactivated
     var cf = p.custom_fields || {};
     var cid = pdExtractOrgId_(cf[orgFieldKey]);
@@ -6352,8 +6354,8 @@ function getProductVariations(productId) {
  * re-printed VIN is still produced & billed). Iterates the product map's mapped types
  * (incl. user-added ones), reading each gross count from billing.byType[type].
  * Same product+variation across types are summed; different variations stay
- * distinct lines. Returns [{product_id, quantity, item_price, name,
- * product_variation_id?}].
+ * distinct lines. Returns [{product_id, quantity, item_price, name, tax,
+ * product_variation_id?}] — tax = the product's catalog "Tax %" (sent exclusive on attach).
  * @param {Object} billing             readBillingTotals_ result (uses .byType)
  * @param {Object} productMap          {type: {product_id, variation_id?}} (a bare id is tolerated)
  * @param {Array}  products            pdListProducts_ result (price + name lookup)
@@ -6403,6 +6405,7 @@ function buildLineItems_(billing, productMap, products, currency, variationsByPr
         price = prod ? priceFrom(prod.prices) : 0;
       }
       var li = { product_id: pid, quantity: 0, item_price: price, name: name,
+                 tax: prod ? (Number(prod.tax) || 0) : 0,   // product's catalog "Tax %" — applied exclusive on attach
                  inactive: prod ? (prod.inactive === true) : true };  // not in catalog = treat unavailable
       if (vid) li.product_variation_id = vid;
       agg[key] = li;
@@ -6432,7 +6435,8 @@ function mergeLineItems_(items) {
   (items || []).forEach(function(li) {
     var key = String(li.product_id) + '|' + (li.product_variation_id || '');
     if (!agg[key]) {
-      agg[key] = { product_id: li.product_id, quantity: 0, item_price: li.item_price, name: li.name, inactive: !!li.inactive };
+      agg[key] = { product_id: li.product_id, quantity: 0, item_price: li.item_price, name: li.name,
+                   tax: Number(li.tax) || 0, inactive: !!li.inactive };
       if (li.product_variation_id) agg[key].product_variation_id = li.product_variation_id;
     }
     agg[key].quantity += (Number(li.quantity) || 0);
@@ -6483,7 +6487,8 @@ function pdAttachProducts_(dealId, lineItems) {
     var li = lineItems[i];
     var k = String(li.product_id) + '|' + (li.product_variation_id || '');
     if (existing[k]) { skipped++; continue; }
-    var body = { product_id: Number(li.product_id), item_price: Number(li.item_price) || 0, quantity: Number(li.quantity) || 0 };
+    var body = { product_id: Number(li.product_id), item_price: Number(li.item_price) || 0, quantity: Number(li.quantity) || 0,
+                 tax: Number(li.tax) || 0, tax_method: 'exclusive' };   // mirror a manual add: product's catalog Tax %, exclusive
     if (li.product_variation_id) body.product_variation_id = Number(li.product_variation_id);
     var r = pdFetch_('post', '/deals/' + dealId + '/products', body);
     if (r.ok) attached++; else errs.push('product ' + li.product_id + ': ' + r.error);
@@ -6504,7 +6509,8 @@ function pdUpdateDealProduct_(dealId, attachmentId, body) {
 
 /** Adds one product line item to a deal (no dedup — the caller owns idempotency). */
 function pdAddDealProduct_(dealId, item) {
-  var b = { product_id: Number(item.product_id), item_price: Number(item.item_price) || 0, quantity: Number(item.quantity) || 1 };
+  var b = { product_id: Number(item.product_id), item_price: Number(item.item_price) || 0, quantity: Number(item.quantity) || 1,
+            tax: Number(item.tax) || 0, tax_method: item.tax_method || 'exclusive' };
   if (item.product_variation_id) b.product_variation_id = Number(item.product_variation_id);
   var r = pdFetch_('post', '/deals/' + dealId + '/products', b);
   if (!r.ok) return { ok: false, error: r.error || 'Line-item add failed.' };
