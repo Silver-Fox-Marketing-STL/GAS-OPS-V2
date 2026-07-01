@@ -85,7 +85,7 @@ not optional.
   App invariants: `.view[hidden]{display:none !important}`; hidden views keep
   state; imports and runs are mutually exclusive via `AppBusy`; `ui.alert`
   fails via `google.script.run` — use the `*Core_`/`app*` wrapper split.
-- Local project: `C:\Users\Nick_Workstation\Documents\SilverFox-V2`
+- Local project (folder name varies per machine): `C:\Users\newvi\Documents\GAS-OPS-V2` (this PC) / `C:\Users\Nick_Workstation\Documents\SilverFox-V2` (other PC) — same repo, name is local-only
 - clasp script ID: `1E5aTcofzWzJZssOikaf6lFytS92vRHmj-k1NDV0C_Xu7NoJk7VUEjtNO`
 - Script is bound to SF_SYSTEM_MASTER; menu: **SilverFox V2** (the literal in-code
   Apps Script menu label — unchanged; the system is now called **GAS ShortCut OPS**).
