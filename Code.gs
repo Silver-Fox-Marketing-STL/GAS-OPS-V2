@@ -8008,8 +8008,10 @@ function eomDealerPdfHtml_(orgGroup, monthLabel, dealBase) {
     + '.sum .tot td{font-weight:800;border-top:2px solid #1a3a5c;border-bottom:none;}';
 
   var esc = eomEscHtml_, money = eomMoney_;
+  // bgcolor ATTRIBUTE (not CSS background) — the legacy converter honors the
+  // attribute reliably but drops `background`/`background-color` declarations.
   function chip(inner) {
-    return '<span style="background-color:#eef3f9;color:#5b6b7a;font-size:11px;font-weight:600;padding:3px 10px;margin-right:6px;">' + inner + '</span>';
+    return '<td bgcolor="#eef3f9" style="background-color:#eef3f9;color:#5b6b7a;font-size:11px;font-weight:600;padding:4px 10px;">' + inner + '</td><td width="7"></td>';
   }
   var pages = orgGroup.contacts.map(function (ct) {
     var header = '<table width="100%"><tr>'
@@ -8018,17 +8020,19 @@ function eomDealerPdfHtml_(orgGroup, monthLabel, dealBase) {
       + '<td align="right" valign="bottom" style="padding-bottom:8px;border-bottom:2px solid #1a3a5c;"><span class="mo">EOM &mdash; '
       + esc(monthLabel) + '</span></td></tr></table>';
 
-    var chips = '<div style="margin:10px 0 4px;">'
+    var chips = '<table cellspacing="0" cellpadding="0" style="margin:10px 0 4px;"><tr>'
       + chip('<b style="color:#1a2733;">' + ct.stats.orders + '</b> orders')
       + chip('<b style="color:#1a2733;">' + ct.stats.duplicates + '</b> duplicates')
-      + chip('total <b style="color:#1a2733;">' + money(ct.stats.totalAmt) + '</b>') + '</div>';
+      + chip('total <b style="color:#1a2733;">' + money(ct.stats.totalAmt) + '</b>')
+      + '</tr></table>';
 
     var sum = '<div class="seclabel">Product summary</div><table class="sum">'
       + '<tr><th>Code</th><th>Product</th><th class="r">Qty</th><th class="r">Total value</th></tr>';
     ct.summaryRows.forEach(function (p, i) {
-      sum += '<tr' + (i % 2 ? ' class="alt"' : '') + '><td>' + esc(p.code) + '</td><td><b>' + esc(p.name) + '</b>'
+      var bg = (i % 2) ? ' bgcolor="#f6f8fa"' : '';
+      sum += '<tr><td' + bg + '>' + esc(p.code) + '</td><td' + bg + '><b>' + esc(p.name) + '</b>'
         + (p.vari ? ' <span class="var">&middot; ' + esc(p.vari) + '</span>' : '')
-        + '</td><td class="r">' + p.qty + '</td><td class="r">' + money(p.amt) + '</td></tr>';
+        + '</td><td' + bg + ' class="r">' + p.qty + '</td><td' + bg + ' class="r">' + money(p.amt) + '</td></tr>';
     });
     sum += '<tr class="tot"><td></td><td>TOTAL</td><td class="r">' + ct.stats.totalQty + '</td><td class="r">' + money(ct.stats.totalAmt) + '</td></tr></table>';
 
@@ -8049,11 +8053,12 @@ function eomDealerPdfHtml_(orgGroup, monthLabel, dealBase) {
             + '<span class="muted">' + l.qty + ' &times; ' + money(l.price) + '</span><br><b>' + money(l.sum) + '</b></td></tr>';
         }).join('');
       }
-      deals += '<table width="100%" style="border:1px solid #dce4ec;border-left:3px solid #2d6a9f;margin-top:10px;page-break-inside:avoid;">'
-        + '<tr><td style="background-color:#eef3f9;padding:7px 12px;font-weight:700;"><a href="' + dealBase + d.id + '" style="color:#2d6a9f;text-decoration:none;">#'
+      // The whole header block (title/value row + meta row) is one light-blue band.
+      deals += '<table width="100%" cellspacing="0" style="border:1px solid #dce4ec;border-left:3px solid #2d6a9f;margin-top:10px;page-break-inside:avoid;">'
+        + '<tr><td bgcolor="#eef3f9" style="background-color:#eef3f9;padding:7px 12px 3px;font-weight:700;"><a href="' + dealBase + d.id + '" style="color:#2d6a9f;text-decoration:none;">#'
         + d.id + ' &middot; ' + esc(d.title || ('Deal ' + d.id)) + '</a></td>'
-        + '<td align="right" style="background-color:#eef3f9;padding:7px 12px;font-weight:800;">' + money(d.dealValue) + '</td></tr>'
-        + '<tr><td colspan="2" style="color:#5b6b7a;font-size:11px;padding:5px 12px 0;">' + esc(d.owner) + (created ? ' &middot; ' + created : '') + ' &middot; ' + dupTxt + '</td></tr>'
+        + '<td bgcolor="#eef3f9" align="right" valign="top" style="background-color:#eef3f9;padding:7px 12px 3px;font-weight:800;">' + money(d.dealValue) + '</td></tr>'
+        + '<tr><td bgcolor="#eef3f9" colspan="2" style="background-color:#eef3f9;color:#5b6b7a;font-size:11px;padding:0 12px 7px;">' + esc(d.owner) + (created ? ' &middot; ' + created : '') + ' &middot; ' + dupTxt + '</td></tr>'
         + body + '</table>';
     });
 
