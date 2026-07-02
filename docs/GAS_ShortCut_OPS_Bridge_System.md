@@ -1258,13 +1258,38 @@ truth for both spreadsheet tabs and PDFs), and writes a per-month bundle.
 `eomGetMonthFolder_`, nested under the auto-made *EOM Reports* folder;
 `eomPutFile_` = replace-by-name):
 - **Spreadsheet** — flat `DATA` audit tab + one formatted tab per org (`eomBuildOrgTabs_`).
-- **One PDF per dealer** (`<Dealer> — <Month> EOM.pdf`) — each contact its own page.
+- **One PDF per dealer** (`<Dealer> — <Month> EOM.pdf`) — merged by default (one
+  continuous flow, contact on each deal card); the split-contacts option restores
+  one page per contact.
 - **`report.json`** — `{meta, group}` (grouped data + meta, NO flat rows) for the viewers.
 
 Config in `PIPEDRIVE_SETTINGS`: `eom_billing_pipeline_id` (4), `eom_default_stage_id`
 (44), `eom_reports_folder_id`. Run-time **stage picker** + **Report month** picker
-in `ViewEndOfMonth.html`. `generateEomReport(scope, stageId, runId, monthLabel)`;
-progress via `eom_progress_<runId>` ScriptProperty.
+in `ViewEndOfMonth.html`. `generateEomReport(scope, stageId, runId, monthLabel,
+splitContacts)`; progress via `eom_progress_<runId>` ScriptProperty.
+
+### Contact split — merge-at-consumption (invariant)
+The per-contact split is a **toggleable option, OFF by default, everywhere**.
+`report.json` keeps the SPLIT shape (`org → contacts[]`) **forever** — old and
+published files stay valid, and the viewer toggle works both ways live. Merging
+happens at CONSUMPTION, implemented twice deliberately:
+- **Client:** `eomrMergeGroup_` inside `EomReportRenderer.html` (the fragment must
+  stay self-contained for the byte-copy). `eomrRenderReport(group, meta, opts)` —
+  `opts.splitContacts` (default false) picks the mode; hosts initialize their
+  toggle from `meta.splitContacts` but the renderer never reads meta for mode.
+- **Server:** `eomMergeContactGroups_` (Code.gs) feeds the PDF/org-tab builders in
+  the same shape. **Keep the two merges in sync** — a parity test in the Node
+  self-checks runs both against one fixture.
+
+Merged shape = one pseudo-contact per org `{contact:'', merged:true}`: deals
+concatenated (each carries `contact`, attributed from its section for pre-v2.14
+files), stats summed, summary rows merged by `code+'|||'+vari` (qty/amt summed,
+notes unioned), deals sorted by id. Consumers key off `ct.merged` / empty
+`ct.contact`: PDF drops the per-contact page breaks + header and adds
+`· Contact: X` to the deal band meta (labeled `Owner:`/`Created:`, truncated
+~105 chars for the fixed 714px SVG band); org tabs drop the contact header row
+and carry a `Contact` column on every deal row (both modes). `eomGroupForReport_`
+now writes `contact` onto each deal (additive).
 
 ### PDF engine — invariant (do not "fix" back to CSS fills)
 Rendered by the raw `Utilities.newBlob(html,'text/html').getAs('application/pdf')`
@@ -1296,15 +1321,27 @@ writes only the generation columns) but **never touches** the published_* column
 so what the invoice team sees changes only on a deliberate re-finalize.
 
 ### Viewers
-- **Shared renderer** `EomReportRenderer.html` — pure `eomrRenderReport(group, meta)`
-  (`eomr*`, self-contained esc/money): per org → per contact, product summary always
-  visible, each deal a collapsible `<details>` (collapsed). **Byte-copied** into
-  `eom-viewer/` (keep identical — verify with `cmp`).
+- **Shared renderer** `EomReportRenderer.html` — pure `eomrRenderReport(group, meta,
+  opts)` (`eomr*`, self-contained esc/money + `eomrMergeGroup_`): per org (merged
+  default) or per contact (`opts.splitContacts`), product summary always visible,
+  each deal a collapsible `<details>` (collapsed; 15px left-side caret, hover
+  affordance). The deal title is PLAIN TEXT — the Pipedrive link is a **"Go to
+  deal"** button in the expanded meta row (`Owner: … · Created: … · N duplicates
+  [· Contact: …]`), rendered only when `meta.dealBaseUrl` is set. CSS is **design
+  tokens with hex fallbacks** (`var(--text, #1a2733)` …) so the report follows the
+  host theme in-app AND in the themed standalone viewer, yet still renders with no
+  tokens defined. **Byte-copied** into `eom-viewer/` (keep identical — verify with
+  `cmp`).
 - **In-app** (`ViewEndOfMonth.html`, `eomv*`): a **Reports** card lists index rows
   with **View** (`getEomReportJson` → the report.json STRING → `JSON.parse` →
-  `eomrRenderReport`) and **Finalize & publish**. Handlers pass a row **index**, not
-  the label (inline-handler apostrophe trap). Reports card shows even when Pipedrive
-  is disconnected (`getEomBootstrap` returns `reports` in both branches).
+  `eomrRenderReport`) and **Finalize & publish**. The viewer bar has a live
+  **Split by contact** toggle (re-renders from the stored payload, initialized from
+  `meta.splitContacts`); opening a report adds `.eom-wide` to the wrap
+  (`--measure-data`) and `eomShowPanels` restores the 760px form cap. The generate
+  card has the matching default-off **split** checkbox (5th `generateEomReport`
+  arg). Handlers pass a row **index**, not the label (inline-handler apostrophe
+  trap). Reports card shows even when Pipedrive is disconnected (`getEomBootstrap`
+  returns `reports` in both branches).
 - **Standalone `eom-viewer/`** — a SEPARATE Apps Script web app (own `.clasp.json`,
   excluded from the main push via `.claspignore`; flat namespace). Deployed
   **`executeAs: USER_DEPLOYING` + `access: DOMAIN`** so the invoice team bookmarks one
@@ -1313,6 +1350,13 @@ so what the invoice team sees changes only on a deliberate re-finalize.
   can call any public fn with the owner's authority); both data endpoints serve
   **published rows + display fields only** (never file ids or URLs); optional
   `EOM_VIEWER_ALLOWED` email allowlist. Connects by the `SF_EOM_REPORTS` id only.
+  **Theming:** `Viewer.html` carries a **deliberate, palette-only copy** of the
+  SharedUtils token blocks (light/dark/midnight/encarta/sage/slate/gruvbox —
+  structural themes + axes dropped; re-sync BY HAND, NOT checksum-guarded) plus a
+  trimmed `Theme` object + the App.html picker. Persistence is **localStorage**
+  (`eomViewerTheme`, pre-paint head script) — deliberately NOT
+  `saveThemePreference`, so the 3-function public surface is untouched. Each month
+  view has its own **Split by contact** toggle.
   **Deploy:** paste Script ID into `eom-viewer/.clasp.json`, `clasp push` from inside
   `eom-viewer/`, Deploy → web app (Execute as **Me**, access **domain**); update via
   *edit deployment → new version* to keep the URL (never "New deployment").
