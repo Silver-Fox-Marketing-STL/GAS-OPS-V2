@@ -8180,6 +8180,72 @@ function eomColIndex_() {
   return m;
 }
 
+/** Groups flat rows -> [{org, contacts:[{contact, stats, summaryRows, deals}]}].
+ *  Single source of truth for BOTH the spreadsheet org tabs and the PDFs. */
+function eomGroupForReport_(rows) {
+  var C = eomColIndex_();
+  var orgMap = {};
+  rows.forEach(function (row) {
+    var org = String(row[C.org_name] || '').trim();
+    if (!org) return;
+    var contact = String(row[C.person_name] || 'Unassigned').trim() || 'Unassigned';
+    if (!orgMap[org]) orgMap[org] = {};
+    if (!orgMap[org][contact]) orgMap[org][contact] = [];
+    orgMap[org][contact].push(row);
+  });
+  return Object.keys(orgMap).sort().map(function (org) {
+    var contacts = Object.keys(orgMap[org]).sort().map(function (contact) {
+      var cRows = orgMap[org][contact];
+
+      // Stats: unique deals + duplicate count (dupes counted once per deal)
+      var seen = {}, orders = 0, duplicates = 0;
+      cRows.forEach(function (r) {
+        var id = r[C.deal_id];
+        if (!seen[id]) { seen[id] = true; orders++; duplicates += Number(r[C.duplicates]) || 0; }
+      });
+
+      // Product summary grouped by code + variation (product-less rows —
+      // deals with no line items — don't produce a blank summary line)
+      var sumMap = {};
+      cRows.forEach(function (r) {
+        var code = String(r[C.product_code] || '').trim();
+        var name = String(r[C.product_name] || '').trim();
+        if (!code && !name) return;
+        var vari = String(r[C.variation] || '').trim();
+        var note = String(r[C.product_notes] || '').trim();
+        var key = code + '|||' + vari;
+        if (!sumMap[key]) sumMap[key] = { code: code, name: name, desc: String(r[C.product_description] || '').trim(), vari: vari, qty: 0, amt: 0, notes: {} };
+        sumMap[key].qty += Number(r[C.quantity]) || 0;
+        sumMap[key].amt += Number(r[C.sum]) || 0;
+        if (note) sumMap[key].notes[note] = true;
+      });
+      var summaryRows = Object.keys(sumMap).map(function (k) { return sumMap[k]; }).sort(function (a, b) {
+        return a.code < b.code ? -1 : a.code > b.code ? 1 : a.vari < b.vari ? -1 : a.vari > b.vari ? 1 : 0;
+      }).map(function (p) {
+        return { code: p.code, name: p.name, desc: p.desc, vari: p.vari, qty: p.qty, amt: p.amt, notesStr: Object.keys(p.notes).join(' | ') };
+      });
+      var totalQty = 0, totalAmt = 0;
+      summaryRows.forEach(function (p) { totalQty += p.qty; totalAmt += p.amt; });
+
+      // Per-deal grouping (a product-less deal still appears, flagged hasProducts:false)
+      var dealMap = {};
+      cRows.forEach(function (r) {
+        var id = r[C.deal_id];
+        if (!dealMap[id]) dealMap[id] = { id: id, title: String(r[C.deal_title] || '').trim(), created: String(r[C.deal_created_at] || '').trim(), owner: String(r[C.deal_owner] || '').trim(), duplicates: Number(r[C.duplicates]) || 0, dealValue: Number(r[C.deal_value]) || 0, lines: [] };
+        dealMap[id].lines.push({ code: String(r[C.product_code] || '').trim(), name: String(r[C.product_name] || '').trim(), vari: String(r[C.variation] || '').trim(), qty: Number(r[C.quantity]) || 0, price: Number(r[C.item_price]) || 0, sum: Number(r[C.sum]) || 0, desc: String(r[C.product_description] || '').trim(), notes: String(r[C.product_notes] || '').trim() });
+      });
+      var deals = Object.keys(dealMap).map(function (k) { return dealMap[k]; }).sort(function (a, b) { return a.id - b.id; });
+      deals.forEach(function (d) {
+        d.hasProducts = d.lines.some(function (l) { return l.code || l.name; });
+        if (!d.hasProducts) d.lines = [];
+      });
+
+      return { contact: contact, stats: { orders: orders, duplicates: duplicates, totalQty: totalQty, totalAmt: totalAmt }, summaryRows: summaryRows, deals: deals };
+    });
+    return { org: org, contacts: contacts };
+  });
+}
+
 /** Orchestrates the whole report file: flat audit tab + per-org tabs. */
 function eomWriteReport_(rows, scope) {
   var tz = Session.getScriptTimeZone() || 'America/Chicago';
@@ -8196,7 +8262,7 @@ function eomWriteReport_(rows, scope) {
   dataSheet.setName('DATA ' + dateStr);
   eomWriteFlatTab_(dataSheet, rows);
 
-  var orgCount = eomBuildOrgTabs_(ss, rows, eomDealBaseUrl_());
+  var orgCount = eomBuildOrgTabs_(ss, eomGroupForReport_(rows));
 
   ss.setActiveSheet(dataSheet);
   ss.moveActiveSheet(1);   // keep the flat data tab first
@@ -8258,13 +8324,14 @@ function eomApplyOps_(sheet, ops) {
   });
 }
 
-/** Builds one formatted tab per organization from the in-memory flat rows.
- * Ports BillingDashboard.buildDashboard — same layout (org header → per contact:
- * stats, product summary + TOTAL, per-deal line items with a Pipedrive hyperlink)
- * — but writes values in a single setValues per tab and applies formatting in
- * blocks. Returns the org-tab count. */
-function eomBuildOrgTabs_(ss, rows, dealBase) {
-  var C = eomColIndex_();
+/** Builds one formatted tab per organization from the SHARED grouped data
+ * (eomGroupForReport_ — same source feeds the PDFs). Ports
+ * BillingDashboard.buildDashboard's layout (org header → per contact: stats,
+ * product summary + TOTAL, per-deal line items with a Pipedrive hyperlink),
+ * writing values in a single setValues per tab and formatting in blocks.
+ * Returns the org-tab count. */
+function eomBuildOrgTabs_(ss, group) {
+  var dealBase = eomDealBaseUrl_();
   var S = {
     darkBg: '#1a3a5c', darkFg: '#ffffff', midBg: '#2d6a9f', midFg: '#ffffff',
     contactBg: '#3a3a6c', contactFg: '#ffffff', statsBg: '#dce8f5', totalsBg: '#c8d8f0',
@@ -8274,21 +8341,10 @@ function eomBuildOrgTabs_(ss, rows, dealBase) {
   };
   var SUMMARY_COLS = 8, DEAL_COLS = 7, TOTAL_COLS = 8, EMPTY = '—';
   var MONEY = '$#,##0.00';
-
-  // org → contact → [rows]
-  var orgMap = {};
-  rows.forEach(function (row) {
-    var org = String(row[C.org_name] || '').trim();
-    if (!org) return;
-    var contact = String(row[C.person_name] || 'Unassigned').trim() || 'Unassigned';
-    if (!orgMap[org]) orgMap[org] = {};
-    if (!orgMap[org][contact]) orgMap[org][contact] = [];
-    orgMap[org][contact].push(row);
-  });
-  var orgs = Object.keys(orgMap).sort();
   var used = {};
 
-  orgs.forEach(function (org) {
+  group.forEach(function (og) {
+    var org = og.org;
     var sheet = ss.insertSheet(eomSafeTabName_(org, used));
     [150, 180, 220, 110, 70, 100, 100, 320].forEach(function (w, i) { sheet.setColumnWidth(i + 1, w); });
 
@@ -8299,45 +8355,14 @@ function eomBuildOrgTabs_(ss, rows, dealBase) {
     ops.push({ r: rOrg, c: 1, nc: TOTAL_COLS, merge: true, bg: S.darkBg, fg: S.darkFg, bold: true, size: 16, align: 'center', border: [true, true, true, true], bc: S.border });
     row8([]);
 
-    Object.keys(orgMap[org]).sort().forEach(function (contact) {
-      var cRows = orgMap[org][contact];
-
-      // Stats: unique deals + duplicate count
-      var seen = {}, orderCount = 0, totalDups = 0;
-      cRows.forEach(function (row) {
-        var id = row[C.deal_id];
-        if (!seen[id]) { seen[id] = true; orderCount++; totalDups += Number(row[C.duplicates]) || 0; }
-      });
-
-      // Product summary grouped by code + variation
-      var sumMap = {};
-      cRows.forEach(function (row) {
-        var code = String(row[C.product_code] || '').trim();
-        var vari = String(row[C.variation] || '').trim();
-        var note = String(row[C.product_notes] || '').trim();
-        var key = code + '|||' + vari;
-        if (!sumMap[key]) sumMap[key] = { code: code, name: String(row[C.product_name] || '').trim(), desc: String(row[C.product_description] || '').trim(), vari: vari, qty: 0, amt: 0, notes: {} };
-        sumMap[key].qty += Number(row[C.quantity]) || 0;
-        sumMap[key].amt += Number(row[C.sum]) || 0;
-        if (note) sumMap[key].notes[note] = true;
-      });
-      var summaryRows = Object.keys(sumMap).map(function (k) { return sumMap[k]; }).sort(function (a, b) {
-        return a.code < b.code ? -1 : a.code > b.code ? 1 : a.vari < b.vari ? -1 : a.vari > b.vari ? 1 : 0;
-      });
-      var totalQty = 0, totalAmt = 0;
-      summaryRows.forEach(function (p) { totalQty += p.qty; totalAmt += p.amt; });
-
-      // Per-deal grouping
-      var dealMap = {};
-      cRows.forEach(function (row) {
-        var id = row[C.deal_id];
-        if (!dealMap[id]) dealMap[id] = { id: id, title: String(row[C.deal_title] || '').trim(), created: String(row[C.deal_created_at] || '').trim(), owner: String(row[C.deal_owner] || '').trim(), duplicates: Number(row[C.duplicates]) || 0, dealValue: Number(row[C.deal_value]) || 0, lines: [] };
-        dealMap[id].lines.push({ code: String(row[C.product_code] || '').trim(), name: String(row[C.product_name] || '').trim(), vari: String(row[C.variation] || '').trim(), qty: Number(row[C.quantity]) || 0, price: Number(row[C.item_price]) || 0, sum: Number(row[C.sum]) || 0, desc: String(row[C.product_description] || '').trim(), notes: String(row[C.product_notes] || '').trim() });
-      });
-      var deals = Object.keys(dealMap).map(function (k) { return dealMap[k]; }).sort(function (a, b) { return a.id - b.id; });
+    og.contacts.forEach(function (ct) {
+      var orderCount = ct.stats.orders, totalDups = ct.stats.duplicates;
+      var summaryRows = ct.summaryRows;
+      var totalQty = ct.stats.totalQty, totalAmt = ct.stats.totalAmt;
+      var deals = ct.deals;
 
       // Contact header
-      var rc = row8(['Contact: ' + contact]);
+      var rc = row8(['Contact: ' + ct.contact]);
       ops.push({ r: rc, c: 1, nc: TOTAL_COLS, merge: true, bg: S.contactBg, fg: S.contactFg, bold: true, size: 11, align: 'center', border: [true, true, true, true], bc: S.border });
       // Stats row
       var rs = row8(['Orders (unique deals):', orderCount, '', 'Total duplicates:', totalDups]);
@@ -8350,8 +8375,7 @@ function eomBuildOrgTabs_(ss, rows, dealBase) {
       var rSh = row8(['Product Code', 'Product Name', 'Description', 'Variation', 'Qty', 'Total Value', 'Notes', 'Full Label']);
       ops.push({ r: rSh, c: 1, nc: SUMMARY_COLS, bg: S.darkBg, fg: S.darkFg, bold: true, size: 10, align: 'center', border: [true, true, true, true], bc: S.border });
       summaryRows.forEach(function (p, i) {
-        var notesStr = Object.keys(p.notes).join(' | ');
-        var rr = row8([p.code, p.name, p.desc, p.vari || EMPTY, p.qty, p.amt, notesStr, eomBuildFullLabel_(p.name, p.desc, p.vari, notesStr)]);
+        var rr = row8([p.code, p.name, p.desc, p.vari || EMPTY, p.qty, p.amt, p.notesStr, eomBuildFullLabel_(p.name, p.desc, p.vari, p.notesStr)]);
         ops.push({ r: rr, c: 1, nc: SUMMARY_COLS, bg: i % 2 === 0 ? '#ffffff' : S.altBg, size: 10, wrap: true, align: 'center', border: [false, true, false, true], bc: S.border });
         ops.push({ r: rr, c: 6, numfmt: MONEY });
       });
