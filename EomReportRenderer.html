@@ -25,7 +25,10 @@
   .eomr-card-title { display: flex; flex-direction: column; min-width: 0; }
   .eomr-dealer { font-size: 18px; font-weight: 800; letter-spacing: -0.2px; }
   .eomr-contact-name { color: var(--text-2, #5b6b7a); margin-top: 2px; }
-  .eomr-card-body { padding: 4px 16px 14px; }
+  /* Expanded content indents under its heading (treeview read): the card body
+     under the dealer heading, and each deal's meta/lines under the deal header.
+     The deal cards themselves stay at the card-body level (no double indent). */
+  .eomr-card-body { padding: 4px 16px 14px 34px; }
   .eomr-chips { margin-left: auto; display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
   .eomr-chip { display: inline-block; background: var(--surface-2, #eef3f9); color: var(--text-2, #5b6b7a); font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 999px; white-space: nowrap; }
   .eomr-chip b { color: var(--text, #1a2733); }
@@ -46,15 +49,15 @@
   .eomr-caret { color: var(--accent, #2d6a9f); font-size: 15px; line-height: 1; }
   .eomr-caret::before { content: '\25B8'; }
   details[open] > summary .eomr-caret::before { content: '\25BE'; }   /* .eomr-caret only exists in report summaries */
-  .eomr-deal-meta { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--text-2, #5b6b7a); font-size: 11px; padding: 6px 12px 4px; }
+  .eomr-deal-meta { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--text-2, #5b6b7a); font-size: 11px; padding: 6px 12px 4px 32px; }
   .eomr-deal-link { display: inline-block; border: 1px solid var(--accent, #2d6a9f); color: var(--accent, #2d6a9f); border-radius: var(--radius-sm, 4px); padding: 2px 10px; font-size: 11px; font-weight: 600; text-decoration: none; white-space: nowrap; }
   .eomr-deal-link:hover { background: var(--accent-weak, #eef3f9); }
-  .eomr-line { display: flex; justify-content: space-between; gap: 12px; padding: 7px 12px; border-top: 1px solid var(--border, #dce4ec); }
+  .eomr-line { display: flex; justify-content: space-between; gap: 12px; padding: 7px 12px 7px 32px; border-top: 1px solid var(--border, #dce4ec); }
   .eomr-line-name b { font-weight: 700; }
   .eomr-line-desc { color: var(--text-2, #5b6b7a); font-size: 11px; margin-top: 2px; max-width: 70ch; }
   .eomr-line-qty { color: var(--text-2, #5b6b7a); font-size: 11px; white-space: nowrap; }
   .eomr-line-amt { font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
-  .eomr-noprod { color: var(--text-2, #5b6b7a); font-size: 12px; padding: 8px 12px; }
+  .eomr-noprod { color: var(--text-2, #5b6b7a); font-size: 12px; padding: 8px 12px 8px 32px; }
   .eomr-empty { color: var(--text-2, #5b6b7a); padding: 20px; text-align: center; }
 </style>
 <script>
