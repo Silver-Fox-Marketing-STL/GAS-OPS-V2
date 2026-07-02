@@ -8101,8 +8101,11 @@ function eomPdfSpike() {
   ] };
   var html = eomDealerPdfHtml_(g, 'June 2026', 'https://silverfoxmarketing.pipedrive.com/deal/');
   var pdf = eomHtmlToPdf_(html, 'EOM PDF SPIKE.pdf');
-  var file = eomGetReportsFolder_().createFile(pdf);
-  Logger.log('SPIKE PDF: ' + file.getUrl());
+  var folder = eomGetReportsFolder_();
+  var old = folder.getFilesByName('EOM PDF SPIKE.pdf');   // trash prior runs so you never open a stale copy
+  while (old.hasNext()) old.next().setTrashed(true);
+  var file = folder.createFile(pdf);
+  Logger.log('SPIKE PDF (open THIS url): ' + file.getUrl());
   return file.getUrl();
 }
 
