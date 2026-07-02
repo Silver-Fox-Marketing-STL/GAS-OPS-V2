@@ -34,6 +34,11 @@
           <select id="eomStage"></select>
           <div class="u-hint" style="margin-top:4px;">Defaults to the EOM Merge stage. Point it at another stage (e.g. <em>EOM Exported</em>) to test a report after the real deals have moved on.</div>
         </div>
+        <div class="eom-field" id="eomMonthField">
+          <label for="eomMonth">Report month</label>
+          <select id="eomMonth"></select>
+          <div class="u-hint" style="margin-top:4px;">Names the folder, the PDF files, and each page header (e.g. &ldquo;June 2026 EOM Reports&rdquo;). Defaults to the current month.</div>
+        </div>
         <div class="eom-actions">
           <button type="button" class="eom-btn-primary" id="eomGenBtn" onclick="eomGenerate()">Generate Report</button>
         </div>
@@ -158,6 +163,7 @@
 
     eomFillStageSelect(eomEl('eomStage'), eomDefaultStageId);
     eomFillStageSelect(eomEl('eomCfgStage'), eomDefaultStageId);
+    eomFillMonths(eomEl('eomMonth'));
     eomEl('eomCfgPipeline').value = (b.pipelineId != null ? b.pipelineId : '');
 
     eomScopeChanged();
@@ -175,6 +181,18 @@
       html += '<option value="' + s.id + '"' + (String(s.id) === String(selectedId) ? ' selected' : '') + '>' +
               escHtml(s.name) + ' (' + s.id + ')</option>';
     });
+    sel.innerHTML = html;
+  }
+
+  function eomFillMonths(sel) {
+    if (!sel) return;
+    var names = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    var now = new Date(), html = '';
+    for (var i = 0; i < 14; i++) {
+      var d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      var label = names[d.getMonth()] + ' ' + d.getFullYear();
+      html += '<option value="' + label + '"' + (i === 0 ? ' selected' : '') + '>' + label + '</option>';
+    }
     sel.innerHTML = html;
   }
 
@@ -218,6 +236,7 @@
     }
     var scope = eomEl('eomScope').value;
     var stageId = eomEl('eomStage').value;
+    var monthLabel = eomEl('eomMonth').value;
     if (scope === 'stage' && !stageId) { toast('Pick a stage first.', 'error'); return; }
 
     if (window.AppBusy) AppBusy.set('eom', true);
@@ -241,7 +260,7 @@
     google.script.run
       .withSuccessHandler(eomOnDone)
       .withFailureHandler(eomOnFail)
-      .generateEomReport(scope, stageId, eomRunId);
+      .generateEomReport(scope, stageId, eomRunId, monthLabel);
   }
 
   function eomStopPoll() { if (eomPoll) { clearInterval(eomPoll); eomPoll = null; } }
@@ -270,10 +289,12 @@
     if (res && res.ok) {
       eomUpdateProgress({ message: 'Done.', percent: 100, done: true, error: null });
       box.classList.remove('err');
-      box.innerHTML = 'Built <strong>' + res.orgCount + '</strong> organization tab' + (res.orgCount === 1 ? '' : 's') +
-        ' from <strong>' + res.dealCount + '</strong> deal' + (res.dealCount === 1 ? '' : 's') +
-        ' (' + res.rowCount + ' product row' + (res.rowCount === 1 ? '' : 's') + '). ' +
-        '<a href="' + escHtml(res.url) + '" target="_blank" rel="noopener">Open the report &rarr;</a>';
+      box.innerHTML = 'Built <strong>' + res.orgCount + '</strong> org tab' + (res.orgCount === 1 ? '' : 's') +
+        ' and <strong>' + res.pdfCount + '</strong> dealer PDF' + (res.pdfCount === 1 ? '' : 's') +
+        ' for <strong>' + escHtml(res.monthLabel || '') + '</strong>' +
+        ' from ' + res.dealCount + ' deal' + (res.dealCount === 1 ? '' : 's') + '. ' +
+        '<a href="' + escHtml(res.folderUrl) + '" target="_blank" rel="noopener">Open the folder &rarr;</a> &middot; ' +
+        '<a href="' + escHtml(res.url) + '" target="_blank" rel="noopener">spreadsheet</a>';
     } else {
       eomUpdateProgress({ message: (res && res.error) || 'Failed.', percent: 100, done: true, error: (res && res.error) || 'Failed.' });
       box.classList.add('err');
