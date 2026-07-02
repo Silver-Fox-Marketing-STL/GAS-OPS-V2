@@ -20,3 +20,8 @@ docs/**
 # separately from inside lot-scan/. Must NOT be pushed into the main project or its
 # Code.gs / SharedUtils.html would collide (Apps Script's file namespace is flat).
 lot-scan/**
+
+# Standalone EOM Report Viewer — its OWN Apps Script project (eom-viewer/.clasp.json),
+# pushed separately from inside eom-viewer/. Excluded here so its Code.gs / Viewer.html /
+# EomReportRenderer.html copy never collides with the main project (flat namespace).
+eom-viewer/**

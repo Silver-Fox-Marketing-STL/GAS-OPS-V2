@@ -1,0 +1,124 @@
+<!-- ════════════════════════════════════════════════════════════════════════════
+     EOM REPORT RENDERER — shared, self-contained fragment.
+     Pure client renderer of a report.json payload (the eomGroupForReport_ output
+     + meta) into interactive HTML: per org → per contact (stat chips + product
+     summary + TOTAL always visible; each deal a COLLAPSIBLE <details>, collapsed
+     by default). Same content as the per-dealer PDF. All symbols prefixed `eomr`
+     (one shared JS scope). Self-contained (own esc + money) so it byte-copies
+     unchanged into eom-viewer/. KEEP THE TWO COPIES IDENTICAL (a checksum drift
+     check guards this in the Node self-checks).
+════════════════════════════════════════════════════════════════════════════ -->
+<style>
+  .eomr-report { color: #1a2733; font: 13px/1.45 Arial, Helvetica, sans-serif; }
+  .eomr-org { margin-bottom: 20px; }
+  .eomr-contact { border: 1px solid #dce4ec; border-radius: 8px; padding: 14px 16px; margin-bottom: 14px; background: #fff; }
+  .eomr-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; border-bottom: 2px solid #1a3a5c; padding-bottom: 8px; }
+  .eomr-dealer { font-size: 18px; font-weight: 800; letter-spacing: -0.2px; }
+  .eomr-contact-name { color: #5b6b7a; margin-top: 2px; }
+  .eomr-month { color: #1a3a5c; font-weight: 700; white-space: nowrap; }
+  .eomr-chips { margin: 10px 0 4px; }
+  .eomr-chip { display: inline-block; background: #eef3f9; color: #5b6b7a; font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 999px; margin-right: 6px; }
+  .eomr-chip b { color: #1a2733; }
+  .eomr-seclabel { font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: #2d6a9f; margin: 14px 0 6px; }
+  .eomr-sum { width: 100%; border-collapse: collapse; }
+  .eomr-sum th { text-align: left; font-size: 10.5px; text-transform: uppercase; color: #5b6b7a; border-bottom: 1px solid #dce4ec; padding: 5px 8px; }
+  .eomr-sum td { padding: 5px 8px; border-bottom: 1px solid #dce4ec; }
+  .eomr-sum tr:nth-child(even) td { background: #f6f8fa; }
+  .eomr-sum .eomr-r { text-align: right; font-variant-numeric: tabular-nums; }
+  .eomr-sum .eomr-tot td { font-weight: 800; border-top: 2px solid #1a3a5c; border-bottom: none; background: #fff; }
+  .eomr-var { color: #5b6b7a; font-weight: 600; }
+  .eomr-deal { border: 1px solid #dce4ec; border-left: 3px solid #2d6a9f; border-radius: 6px; margin-top: 10px; overflow: hidden; }
+  .eomr-deal > summary { list-style: none; cursor: pointer; background: #eef3f9; padding: 8px 12px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .eomr-deal > summary::-webkit-details-marker { display: none; }
+  .eomr-deal-title { font-weight: 700; }
+  .eomr-deal-title a { color: #2d6a9f; text-decoration: none; }
+  .eomr-deal-val { font-weight: 800; white-space: nowrap; }
+  .eomr-caret { color: #2d6a9f; font-size: 10px; margin-left: 8px; }
+  .eomr-caret::before { content: '\25B8'; }
+  .eomr-deal[open] .eomr-caret::before { content: '\25BE'; }
+  .eomr-deal-meta { color: #5b6b7a; font-size: 11px; padding: 6px 12px 2px; }
+  .eomr-line { display: flex; justify-content: space-between; gap: 12px; padding: 7px 12px; border-top: 1px solid #dce4ec; }
+  .eomr-line-name b { font-weight: 700; }
+  .eomr-line-desc { color: #5b6b7a; font-size: 11px; margin-top: 2px; max-width: 460px; }
+  .eomr-line-qty { color: #5b6b7a; font-size: 11px; white-space: nowrap; }
+  .eomr-line-amt { font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .eomr-noprod { color: #5b6b7a; font-size: 12px; padding: 8px 12px; }
+  .eomr-empty { color: #5b6b7a; padding: 20px; text-align: center; }
+</style>
+<script>
+  // Self-contained so the fragment byte-copies into eom-viewer/ with no deps.
+  function eomrEsc_(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  function eomrMoney_(n) {
+    var v = Math.round((Number(n) || 0) * 100) / 100, neg = v < 0; v = Math.abs(v);
+    var parts = v.toFixed(2).split('.');
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return (neg ? '-$' : '$') + parts.join('.');
+  }
+
+  /** group (eomGroupForReport_ output) + meta -> interactive HTML string. */
+  function eomrRenderReport(group, meta) {
+    var esc = eomrEsc_, money = eomrMoney_;
+    meta = meta || {};
+    var monthLabel = meta.monthLabel || '', dealBase = meta.dealBaseUrl || '';
+    if (!group || !group.length) return '<div class="eomr-report"><div class="eomr-empty">This report has no organizations.</div></div>';
+
+    var html = '<div class="eomr-report">';
+    group.forEach(function (og) {
+      html += '<div class="eomr-org">';
+      (og.contacts || []).forEach(function (ct) {
+        var s = ct.stats || {};
+        html += '<div class="eomr-contact">'
+          + '<div class="eomr-head"><div><div class="eomr-dealer">' + esc(og.org) + '</div>'
+          + '<div class="eomr-contact-name">Contact: ' + esc(ct.contact) + '</div></div>'
+          + '<div class="eomr-month">EOM — ' + esc(monthLabel) + '</div></div>'
+          + '<div class="eomr-chips">'
+          + '<span class="eomr-chip"><b>' + (s.orders || 0) + '</b> orders</span>'
+          + '<span class="eomr-chip"><b>' + (s.duplicates || 0) + '</b> duplicates</span>'
+          + '<span class="eomr-chip">total <b>' + money(s.totalAmt) + '</b></span></div>';
+
+        html += '<div class="eomr-seclabel">Product summary</div><table class="eomr-sum">'
+          + '<tr><th>Code</th><th>Product</th><th class="eomr-r">Qty</th><th class="eomr-r">Total value</th></tr>';
+        (ct.summaryRows || []).forEach(function (p) {
+          html += '<tr><td>' + esc(p.code) + '</td><td><b>' + esc(p.name) + '</b>'
+            + (p.vari ? ' <span class="eomr-var">· ' + esc(p.vari) + '</span>' : '')
+            + '</td><td class="eomr-r">' + (p.qty || 0) + '</td><td class="eomr-r">' + money(p.amt) + '</td></tr>';
+        });
+        html += '<tr class="eomr-tot"><td></td><td>TOTAL</td><td class="eomr-r">' + (s.totalQty || 0) + '</td><td class="eomr-r">' + money(s.totalAmt) + '</td></tr></table>';
+
+        html += '<div class="eomr-seclabel">Deals</div>';
+        (ct.deals || []).forEach(function (d) {
+          var created = d.created ? String(d.created).substring(0, 10) : '';
+          var dupTxt = (d.duplicates || 0) + ' duplicate' + (d.duplicates === 1 ? '' : 's');
+          var titleTxt = '#' + d.id + ' · ' + (d.title || ('Deal ' + d.id));
+          var titleHtml = dealBase
+            ? '<a href="' + esc(dealBase + d.id) + '" target="_blank" rel="noopener">' + esc(titleTxt) + '</a>'
+            : esc(titleTxt);
+          html += '<details class="eomr-deal"><summary>'
+            + '<span class="eomr-deal-title">' + titleHtml + '<span class="eomr-caret"></span></span>'
+            + '<span class="eomr-deal-val">' + money(d.dealValue) + '</span></summary>'
+            + '<div class="eomr-deal-meta">' + esc(d.owner) + (created ? ' · ' + created : '') + ' · ' + dupTxt + '</div>';
+          if (!d.hasProducts) {
+            html += '<div class="eomr-noprod">No products on this deal.</div>';
+          } else {
+            (d.lines || []).forEach(function (l) {
+              var descTxt = [l.desc, l.notes].filter(function (x) { return x && String(x).trim(); }).map(esc).join(' — ');
+              html += '<div class="eomr-line"><div class="eomr-line-name"><b>' + esc(l.name || l.code) + '</b>'
+                + (l.vari ? ' <span class="eomr-var">· ' + esc(l.vari) + '</span>' : '')
+                + (descTxt ? '<div class="eomr-line-desc">' + descTxt + '</div>' : '') + '</div>'
+                + '<div style="text-align:right"><div class="eomr-line-qty">' + (l.qty || 0) + ' × ' + money(l.price) + '</div>'
+                + '<div class="eomr-line-amt">' + money(l.sum) + '</div></div></div>';
+            });
+          }
+          html += '</details>';
+        });
+        html += '</div>';   // .eomr-contact
+      });
+      html += '</div>';     // .eomr-org
+    });
+    return html + '</div>';
+  }
+</script>

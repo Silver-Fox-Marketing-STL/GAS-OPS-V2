@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <!-- Shared report renderer (BYTE-COPY of the main app's EomReportRenderer.html;
+       brings both its CSS and eomrRenderReport). Keep the two files identical. -->
+  <?!= include_('EomReportRenderer') ?>
+  <style>
+    body { margin: 0; font-family: Arial, Helvetica, sans-serif; background: #f4f6f9; color: #1a2733; }
+    .vw-head { background: #1a3a5c; color: #fff; padding: 12px 20px; }
+    .vw-brand { font-weight: 800; font-size: 16px; letter-spacing: -0.2px; }
+    .vw-sub { color: #cdddf0; font-size: 12px; margin-top: 2px; }
+    .vw-body { display: flex; gap: 16px; padding: 16px; max-width: 1120px; margin: 0 auto; align-items: flex-start; }
+    .vw-list { flex: 0 0 230px; background: #fff; border: 1px solid #dce4ec; border-radius: 8px; padding: 8px; }
+    .vw-item { display: block; width: 100%; text-align: left; background: none; border: none; border-radius: 6px; padding: 8px 10px; cursor: pointer; font: inherit; color: inherit; }
+    .vw-item:hover { background: #f0f4f9; }
+    .vw-item.active { background: #eef3f9; }
+    .vw-item-month { display: block; font-weight: 700; }
+    .vw-item-sub { display: block; font-size: 11px; color: #5b6b7a; margin-top: 1px; }
+    .vw-main { flex: 1; min-width: 0; background: #fff; border: 1px solid #dce4ec; border-radius: 8px; padding: 18px 20px; }
+    .vw-title { margin: 0 0 4px; font-size: 20px; font-weight: 800; }
+    .vw-pubinfo { color: #5b6b7a; font-size: 12px; margin-bottom: 14px; }
+    .vw-hint { color: #5b6b7a; }
+    .vw-err { color: #b3261e; }
+    @media (max-width: 720px) { .vw-body { flex-direction: column; } .vw-list { flex: none; width: 100%; box-sizing: border-box; } }
+  </style>
+</head>
+<body>
+  <header class="vw-head">
+    <div class="vw-brand">Silver Fox — EOM Reports</div>
+    <div class="vw-sub">Monthly billing reports</div>
+  </header>
+  <div class="vw-body">
+    <aside class="vw-list" id="vwList"><p class="vw-hint">Loading…</p></aside>
+    <main class="vw-main" id="vwMain"><p class="vw-hint">Select a month.</p></main>
+  </div>
+
+  <script>
+    // Standalone viewer glue (vw* prefix). Self-contained esc — no SharedUtils here.
+    function escHtml(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+    var vwReports = [];
+    function vwEl(id) { return document.getElementById(id); }
+
+    function vwInit() {
+      google.script.run
+        .withSuccessHandler(vwOnBoot)
+        .withFailureHandler(function (e) { vwEl('vwList').innerHTML = '<p class="vw-err">' + escHtml((e && e.message) || String(e)) + '</p>'; })
+        .getViewerBootstrap();
+    }
+
+    function vwOnBoot(res) {
+      if (!res || !res.ok) { vwEl('vwList').innerHTML = '<p class="vw-err">' + escHtml((res && res.error) || 'Could not load.') + '</p>'; return; }
+      vwReports = res.reports || [];
+      if (!vwReports.length) {
+        vwEl('vwList').innerHTML = '<p class="vw-hint">No published reports yet.</p>';
+        vwEl('vwMain').innerHTML = '<p class="vw-hint">Nothing published yet — check back once a report has been finalized.</p>';
+        return;
+      }
+      var html = '';
+      vwReports.forEach(function (r, i) {
+        html += '<button type="button" class="vw-item" onclick="vwOpen(' + i + ')">'
+          + '<span class="vw-item-month">' + escHtml(r.monthLabel) + '</span>'
+          + '<span class="vw-item-sub">' + escHtml(r.orgCount || '0') + ' orgs · ' + escHtml(r.dealCount || '0') + ' deals</span></button>';
+      });
+      vwEl('vwList').innerHTML = html;
+      vwOpen(0);   // newest month by default
+    }
+
+    function vwOpen(i) {
+      var r = vwReports[i]; if (!r) return;
+      var items = document.querySelectorAll('.vw-item');
+      for (var k = 0; k < items.length; k++) items[k].classList.toggle('active', k === i);
+      var main = vwEl('vwMain');
+      main.innerHTML = '<p class="vw-hint">Loading ' + escHtml(r.monthLabel) + '…</p>';
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (!res || !res.ok) { main.innerHTML = '<p class="vw-err">' + escHtml((res && res.error) || 'Could not load.') + '</p>'; return; }
+          try {
+            var p = JSON.parse(res.json);
+            main.innerHTML = '<div class="vw-title">' + escHtml(r.monthLabel) + '</div>'
+              + '<div class="vw-pubinfo">Published ' + escHtml(r.publishedAt || '') + '</div>'
+              + eomrRenderReport(p.group, p.meta);
+          } catch (e) { main.innerHTML = '<p class="vw-err">Report data could not be read.</p>'; }
+        })
+        .withFailureHandler(function (e) { main.innerHTML = '<p class="vw-err">' + escHtml((e && e.message) || String(e)) + '</p>'; })
+        .getReportJson(r.monthKey);
+    }
+
+    vwInit();
+  </script>
+</body>
+</html>
