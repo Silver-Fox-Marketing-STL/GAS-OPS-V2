@@ -8015,9 +8015,11 @@ function eomSvgUri_(w, h, inner) {
   return 'data:image/svg+xml;base64,' + Utilities.base64Encode(svg, Utilities.Charset.UTF_8);
 }
 
-/** The full HTML document for one dealer's PDF (one page per contact).
- *  TABLE-BASED (the converter drops display:flex); colored bands/pills are
- *  baked SVG images (see eomSvgUri_); line items stay selectable HTML text. */
+/** The full HTML document for one dealer's PDF. Fed a MERGED group by default
+ *  (one continuous flow, contact shown per deal card); with splitContacts each
+ *  contact section gets its own page. TABLE-BASED (the converter drops
+ *  display:flex); colored bands/pills are baked SVG images (see eomSvgUri_);
+ *  line items stay selectable HTML text. */
 function eomDealerPdfHtml_(orgGroup, monthLabel, dealBase) {
   var css = ''
     + '@page{size:letter;margin:0.5in;}'
@@ -8059,7 +8061,7 @@ function eomDealerPdfHtml_(orgGroup, monthLabel, dealBase) {
   var pages = orgGroup.contacts.map(function (ct, i) {
     var header = '<table width="100%"><tr>'
       + '<td style="padding-bottom:8px;border-bottom:2px solid #1a3a5c;"><div class="dealer">' + esc(orgGroup.org)
-      + '</div><div class="contact">Contact: ' + esc(ct.contact) + '</div></td>'
+      + '</div>' + (ct.contact ? '<div class="contact">Contact: ' + esc(ct.contact) + '</div>' : '') + '</td>'
       + '<td align="right" valign="bottom" style="padding-bottom:8px;border-bottom:2px solid #1a3a5c;"><span class="mo">EOM &mdash; '
       + esc(monthLabel) + '</span></td></tr></table>';
 
@@ -8099,7 +8101,9 @@ function eomDealerPdfHtml_(orgGroup, monthLabel, dealBase) {
       // The whole header block (title/value + meta) is ONE baked SVG band image,
       // wrapped in the deal link. Body line rows stay selectable HTML text.
       var title = '#' + d.id + ' · ' + (d.title || ('Deal ' + d.id));
-      var meta = d.owner + (created ? ' · ' + created : '') + ' · ' + dupTxt;
+      var meta = 'Owner: ' + d.owner + (created ? ' · Created: ' + created : '') + ' · ' + dupTxt
+        + (ct.merged && d.contact ? ' · Contact: ' + d.contact : '');
+      if (meta.length > 105) meta = meta.slice(0, 103) + '…';   // fixed 714px band — don't overflow the SVG text run
       deals += '<table width="100%" cellspacing="0" style="border:1px solid #dce4ec;border-left:3px solid #2d6a9f;margin-top:10px;page-break-inside:avoid;">'
         + '<tr><td colspan="2" style="padding:0;font-size:0;line-height:0;"><a href="' + dealBase + d.id + '">'
         + bandImg(title, money(d.dealValue), meta) + '</a></td></tr>'
@@ -8108,7 +8112,7 @@ function eomDealerPdfHtml_(orgGroup, monthLabel, dealBase) {
 
     var foot = '<table width="100%" style="border-top:1px solid #dce4ec;margin-top:14px;"><tr>'
       + '<td style="color:#5b6b7a;font-size:10px;padding-top:6px;">Silver Fox Marketing &middot; EOM Billing</td>'
-      + '<td align="right" style="color:#5b6b7a;font-size:10px;padding-top:6px;">' + esc(orgGroup.org) + ' &middot; ' + esc(ct.contact) + '</td></tr></table>';
+      + '<td align="right" style="color:#5b6b7a;font-size:10px;padding-top:6px;">' + esc(orgGroup.org) + (ct.contact ? ' &middot; ' + esc(ct.contact) : '') + '</td></tr></table>';
 
     return '<div class="contact-page"' + (i > 0 ? ' style="page-break-before:always;"' : '') + '>'
       + header + chips + sum + deals + foot + '</div>';
@@ -8145,7 +8149,9 @@ function eomPdfSpike() {
       deals: [ { id: 10501, title: 'June Fleet', owner: 'Mike R.', created: '2026-06-11T00:00:00Z', duplicates: 0, dealValue: 500, hasProducts: true,
         lines: [ { code: 'SCP-STD', name: 'Standard Shortcut Pack', vari: '', qty: 10, price: 50, sum: 500, desc: '', notes: '' } ] } ] }
   ] };
-  var html = eomDealerPdfHtml_(g, 'June 2026', 'https://silverfoxmarketing.pipedrive.com/deal/');
+  // Render the production DEFAULT (merged contacts) — also exercises the merge
+  // helper live. Pass g directly instead to preview the split-contacts layout.
+  var html = eomDealerPdfHtml_(eomMergeContactGroups_([g])[0], 'June 2026', 'https://silverfoxmarketing.pipedrive.com/deal/');
   var pdf = eomHtmlToPdf_(html, 'EOM PDF SPIKE.pdf');
   var folder = eomGetReportsFolder_();
   var old = folder.getFilesByName('EOM PDF SPIKE.pdf');   // trash prior runs so you never open a stale copy
@@ -8212,7 +8218,7 @@ function eomGroupForReport_(rows) {
       var dealMap = {};
       cRows.forEach(function (r) {
         var id = r[C.deal_id];
-        if (!dealMap[id]) dealMap[id] = { id: id, title: String(r[C.deal_title] || '').trim(), created: String(r[C.deal_created_at] || '').trim(), owner: String(r[C.deal_owner] || '').trim(), duplicates: Number(r[C.duplicates]) || 0, dealValue: Number(r[C.deal_value]) || 0, lines: [] };
+        if (!dealMap[id]) dealMap[id] = { id: id, title: String(r[C.deal_title] || '').trim(), created: String(r[C.deal_created_at] || '').trim(), owner: String(r[C.deal_owner] || '').trim(), contact: contact, duplicates: Number(r[C.duplicates]) || 0, dealValue: Number(r[C.deal_value]) || 0, lines: [] };
         dealMap[id].lines.push({ code: String(r[C.product_code] || '').trim(), name: String(r[C.product_name] || '').trim(), vari: String(r[C.variation] || '').trim(), qty: Number(r[C.quantity]) || 0, price: Number(r[C.item_price]) || 0, sum: Number(r[C.sum]) || 0, desc: String(r[C.product_description] || '').trim(), notes: String(r[C.product_notes] || '').trim() });
       });
       var deals = Object.keys(dealMap).map(function (k) { return dealMap[k]; }).sort(function (a, b) { return a.id - b.id; });
@@ -8224,6 +8230,51 @@ function eomGroupForReport_(rows) {
       return { contact: contact, stats: { orders: orders, duplicates: duplicates, totalQty: totalQty, totalAmt: totalAmt }, summaryRows: summaryRows, deals: deals };
     });
     return { org: org, contacts: contacts };
+  });
+}
+
+/** Collapses each org's contact sections into ONE pseudo-contact
+ *  ({contact:'', merged:true}): deals concatenated (each attributed with its
+ *  source contact), stats summed, summary rows merged by code+variation.
+ *  MIRRORS the client-side eomrMergeGroup_ in EomReportRenderer.html — keep the
+ *  two in sync (a parity test in the Node self-checks guards this). The default
+ *  (splitContacts=false) generation feeds THIS shape to the PDF/org-tab
+ *  builders; report.json always keeps the split shape. Input is never mutated. */
+function eomMergeContactGroups_(group) {
+  return (group || []).map(function (og) {
+    var stats = { orders: 0, duplicates: 0, totalQty: 0, totalAmt: 0 };
+    var deals = [], sumMap = {}, sumKeys = [];
+    (og.contacts || []).forEach(function (ct) {
+      var s = ct.stats || {};
+      stats.orders += Number(s.orders) || 0;
+      stats.duplicates += Number(s.duplicates) || 0;
+      stats.totalQty += Number(s.totalQty) || 0;
+      stats.totalAmt += Number(s.totalAmt) || 0;
+      (ct.deals || []).forEach(function (d) {
+        var copy = {}, k;
+        for (k in d) copy[k] = d[k];
+        if (!copy.contact) copy.contact = ct.contact;   // pre-v2.14 groups lack .contact
+        deals.push(copy);
+      });
+      (ct.summaryRows || []).forEach(function (p) {
+        var key = String(p.code || '') + '|||' + String(p.vari || '');
+        var row = sumMap[key];
+        if (!row) { row = { code: p.code, name: p.name, desc: p.desc, vari: p.vari, qty: 0, amt: 0, notes: [] }; sumMap[key] = row; sumKeys.push(key); }
+        row.qty += Number(p.qty) || 0;
+        row.amt += Number(p.amt) || 0;
+        String(p.notesStr || '').split(' | ').forEach(function (n) {
+          if (n && row.notes.indexOf(n) === -1) row.notes.push(n);
+        });
+      });
+    });
+    var summaryRows = sumKeys.map(function (k) {
+      var r = sumMap[k];
+      return { code: r.code, name: r.name, desc: r.desc, vari: r.vari, qty: r.qty, amt: r.amt, notesStr: r.notes.join(' | ') };
+    }).sort(function (a, b) {
+      return a.code < b.code ? -1 : a.code > b.code ? 1 : a.vari < b.vari ? -1 : a.vari > b.vari ? 1 : 0;
+    });
+    deals.sort(function (a, b) { return a.id - b.id; });
+    return { org: og.org, contacts: [{ contact: '', merged: true, stats: stats, summaryRows: summaryRows, deals: deals }] };
   });
 }
 
@@ -8356,13 +8407,16 @@ function eomIndexGetRow_(monthKey) {
 /** Orchestrates the whole report bundle into the month folder: the spreadsheet
  *  (flat audit tab + per-org tabs, unchanged content) plus one PDF per dealer,
  *  plus report.json (grouped data + meta) for the viewers. A single dealer's PDF
- *  failure is non-fatal (logged, run continues). */
-function eomWriteReport_(rows, scope, monthLabel, runId, stageId) {
+ *  failure is non-fatal (logged, run continues). splitContacts=false (the
+ *  default) merges contact sections in the PDFs/org tabs; report.json ALWAYS
+ *  keeps the split shape (the viewers merge at render time). */
+function eomWriteReport_(rows, scope, monthLabel, runId, stageId, splitContacts) {
   var tz = Session.getScriptTimeZone() || 'America/Chicago';
   var dateStr = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
   var fileName = 'EOM Report ' + dateStr + ' (' + (scope === 'full_billing' ? 'Full Billing' : 'EOM') + ')';
 
   var group = eomGroupForReport_(rows);
+  var pubGroup = splitContacts ? group : eomMergeContactGroups_(group);
   var folder = null;
   try { folder = eomGetMonthFolder_(monthLabel); }
   catch (e) { Logger.log('EOM: month folder failed (non-fatal): ' + e.message); }
@@ -8372,7 +8426,7 @@ function eomWriteReport_(rows, scope, monthLabel, runId, stageId) {
   var dataSheet = ss.getSheets()[0];
   dataSheet.setName('DATA ' + dateStr);
   eomWriteFlatTab_(dataSheet, rows);
-  var orgCount = eomBuildOrgTabs_(ss, group);
+  var orgCount = eomBuildOrgTabs_(ss, pubGroup);
   ss.setActiveSheet(dataSheet);
   ss.moveActiveSheet(1);   // keep the flat data tab first
   SpreadsheetApp.flush();
@@ -8387,9 +8441,9 @@ function eomWriteReport_(rows, scope, monthLabel, runId, stageId) {
   // One PDF per dealer.
   var dealBase = eomDealBaseUrl_(), pdfCount = 0;
   if (folder) {
-    for (var i = 0; i < group.length; i++) {
-      var og = group[i];
-      if (runId) eomSetProgress_(runId, { message: 'PDF ' + (i + 1) + ' / ' + group.length + ' — ' + og.org + '…', percent: 65 + Math.round(30 * (i / group.length)), done: false, error: null });
+    for (var i = 0; i < pubGroup.length; i++) {
+      var og = pubGroup[i];
+      if (runId) eomSetProgress_(runId, { message: 'PDF ' + (i + 1) + ' / ' + pubGroup.length + ' — ' + og.org + '…', percent: 65 + Math.round(30 * (i / pubGroup.length)), done: false, error: null });
       try {
         var html = eomDealerPdfHtml_(og, monthLabel, dealBase);
         var pdfName = og.org.replace(/[\\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim() + ' — ' + monthLabel + ' EOM.pdf';
@@ -8409,7 +8463,8 @@ function eomWriteReport_(rows, scope, monthLabel, runId, stageId) {
         stageId: (stageId == null ? '' : String(stageId)),
         generatedAt: Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm:ss'),
         orgCount: orgCount, dealCount: dealCount,
-        folderUrl: folder.getUrl(), ssUrl: ss.getUrl(), dealBaseUrl: dealBase
+        folderUrl: folder.getUrl(), ssUrl: ss.getUrl(), dealBaseUrl: dealBase,
+        splitContacts: !!splitContacts
       };
       var jf = eomPutFile_(folder, Utilities.newBlob(eomBuildReportJson_(group, meta), 'application/json', 'report.json'), 'report.json');
       jsonFileId = jf.getId();
@@ -8510,9 +8565,12 @@ function eomBuildOrgTabs_(ss, group) {
       var totalQty = ct.stats.totalQty, totalAmt = ct.stats.totalAmt;
       var deals = ct.deals;
 
-      // Contact header
-      var rc = row8(['Contact: ' + ct.contact]);
-      ops.push({ r: rc, c: 1, nc: TOTAL_COLS, merge: true, bg: S.contactBg, fg: S.contactFg, bold: true, size: 11, align: 'center', border: [true, true, true, true], bc: S.border });
+      // Contact header (omitted for a merged pseudo-contact — the contact then
+      // rides on each deal row instead)
+      if (!ct.merged) {
+        var rc = row8(['Contact: ' + ct.contact]);
+        ops.push({ r: rc, c: 1, nc: TOTAL_COLS, merge: true, bg: S.contactBg, fg: S.contactFg, bold: true, size: 11, align: 'center', border: [true, true, true, true], bc: S.border });
+      }
       // Stats row
       var rs = row8(['Orders (unique deals):', orderCount, '', 'Total duplicates:', totalDups]);
       ops.push({ r: rs, c: 1, nc: TOTAL_COLS, bg: S.statsBg, size: 10, border: [false, true, true, true], bc: S.border });
@@ -8544,11 +8602,12 @@ function eomBuildOrgTabs_(ss, group) {
         var url = dealBase + deal.id;
         var safeTitle = (deal.title || ('Deal ' + deal.id)).replace(/"/g, '""');
         var createdDate = deal.created ? deal.created.substring(0, 10) : '';
-        // Deal field labels
-        var rDl = row8(['Deal', 'Owner', 'Created', 'Duplicates', 'Deal Value', '', '']);
+        // Deal field labels (col 6 = Contact — always shown; the value is the
+        // deal's own contact, load-bearing when the contact header is merged away)
+        var rDl = row8(['Deal', 'Owner', 'Created', 'Duplicates', 'Deal Value', 'Contact', '']);
         ops.push({ r: rDl, c: 1, nc: DEAL_COLS, bg: S.dealFieldHdrBg, fg: S.dealFieldHdrFg, bold: true, size: 9, italic: true, align: 'center', border: [true, true, false, true], bc: S.dealBorder });
         // Deal data (col 1 is a HYPERLINK formula written via setValues)
-        var rDd = row8(['=HYPERLINK("' + url + '","' + safeTitle + '")', deal.owner, createdDate, deal.duplicates, deal.dealValue, '', '']);
+        var rDd = row8(['=HYPERLINK("' + url + '","' + safeTitle + '")', deal.owner, createdDate, deal.duplicates, deal.dealValue, deal.contact || ct.contact || '', '']);
         ops.push({ r: rDd, c: 1, nc: DEAL_COLS, bg: S.dealBg, fg: S.dealFg, bold: true, size: 12, align: 'center', border: [false, true, true, true], bc: S.dealBorder });
         ops.push({ r: rDd, c: 5, numfmt: MONEY });
         // Product headers
@@ -8670,9 +8729,10 @@ function finalizeEomReport(monthLabel) {
  * batches, and build a NEW dated report file. Emits progress under runId.
  * @returns {{ok:boolean, url?, name?, orgCount?, dealCount?, rowCount?, error?}}
  */
-function generateEomReport(scope, stageId, runId, monthLabel) {
+function generateEomReport(scope, stageId, runId, monthLabel, splitContacts) {
   runId = String(runId || 'eom');
   monthLabel = String(monthLabel || '').trim() || eomCurrentMonthLabel_();
+  splitContacts = splitContacts === true;   // default OFF: merged PDFs/org tabs
   try {
     if (!pdGetSecrets_()) { eomSetProgress_(runId, { message: 'Pipedrive not connected.', percent: 100, done: true, error: 'Pipedrive is not configured.' }); return { ok: false, error: 'Pipedrive is not configured.' }; }
     eomSetProgress_(runId, { message: 'Fetching deals…', percent: 5, done: false, error: null });
@@ -8693,7 +8753,7 @@ function generateEomReport(scope, stageId, runId, monthLabel) {
     }
 
     eomSetProgress_(runId, { message: 'Building spreadsheet…', percent: 60, done: false, error: null });
-    var result = eomWriteReport_(allRows, scope, monthLabel, runId, stageId);
+    var result = eomWriteReport_(allRows, scope, monthLabel, runId, stageId, splitContacts);
 
     // Index this generation (leaves any published snapshot untouched — invariant 1).
     if (result.jsonFileId) {
