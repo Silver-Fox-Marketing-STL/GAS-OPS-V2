@@ -39,6 +39,10 @@
           <select id="eomMonth"></select>
           <div class="u-hint" style="margin-top:4px;">Names the folder, the PDF files, and each page header (e.g. &ldquo;June 2026 EOM Reports&rdquo;). Defaults to the current month.</div>
         </div>
+        <div class="eom-field">
+          <label class="eom-checkline"><input type="checkbox" id="eomSplitGen"> Split PDFs &amp; org tabs by contact person</label>
+          <div class="u-hint" style="margin-top:4px;">Off (default): one continuous report per dealer, contact shown on each deal. On: each contact gets their own PDF page and tab section.</div>
+        </div>
         <div class="eom-actions">
           <button type="button" class="eom-btn-primary" id="eomGenBtn" onclick="eomGenerate()">Generate Report</button>
         </div>
@@ -89,6 +93,7 @@
         <div class="eom-viewer-bar">
           <button type="button" class="eom-btn-ghost" onclick="eomvClose()">&larr; Back to reports</button>
           <span id="eomViewerTitle" class="eom-viewer-title"></span>
+          <label class="eom-checkline eom-viewer-opt"><input type="checkbox" id="eomvSplit" onchange="eomvRerender()"> Split by contact</label>
         </div>
         <div id="eomViewerBody"></div>
       </div>
@@ -101,6 +106,9 @@
   #view-end-of-month { height: 100%; color: var(--text); }
   #view-end-of-month .eom-scroll { height: 100%; overflow-y: auto; padding: var(--space-5) var(--space-6); }
   #view-end-of-month .eom-wrap { max-width: 760px; }
+  /* Report viewing gets the full data measure; form panels keep the 760px cap
+     (eomvView adds the class, eomShowPanels removes it). */
+  #view-end-of-month .eom-wrap.eom-wide { max-width: var(--measure-data, 1680px); }
   #view-end-of-month .eom-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
   #view-end-of-month .eom-refresh { padding: 6px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); cursor: pointer; }
 
@@ -150,8 +158,13 @@
   #view-end-of-month .eom-status.gen { background: var(--surface-3); color: var(--text-2); }
   #view-end-of-month .eom-status.pub { background: var(--success-weak, #dcefe0); color: var(--success, #1c7a3a); }
 
+  /* Checkbox rows (the .eom-field input width:100% rule must not stretch these) */
+  #view-end-of-month label.eom-checkline { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); font-weight: 600; color: var(--text-2); cursor: pointer; margin-bottom: 0; }
+  #view-end-of-month .eom-checkline input { width: auto; margin: 0; }
+
   /* In-app viewer */
   #view-end-of-month .eom-viewer-bar { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3); }
+  #view-end-of-month .eom-viewer-opt { margin-left: auto; white-space: nowrap; }
   #view-end-of-month .eom-viewer-title { font-family: var(--font-head); font-weight: 700; font-size: var(--fs-lg); }
   #view-end-of-month .eom-viewer-err { color: var(--danger, #b3261e); }
 </style>
@@ -168,8 +181,10 @@
   var eomStart = 0;
   var eomLastConfigured = false;
   var eomReportsData = [];     // index rows; handlers pass an INDEX (never a label — apostrophe-in-handler trap)
+  var eomvPayload = null;      // parsed report.json of the open report (for live split re-render)
 
   function eomEl(id) { return document.getElementById(id); }
+  function eomWrap() { return document.querySelector('#view-end-of-month .eom-wrap'); }
 
   function eomLoadBootstrap() {
     google.script.run
@@ -203,6 +218,8 @@
 
   // Shows the config panels (per connection state) + the reports card; hides the viewer.
   function eomShowPanels() {
+    eomvPayload = null;
+    var wrap = eomWrap(); if (wrap) wrap.classList.remove('eom-wide');   // form panels back to 760px
     eomEl('eomViewer').style.display = 'none';
     eomEl('eomReportsCard').style.display = 'block';
     eomEl('eomNotConfigured').style.display = eomLastConfigured ? 'none' : 'block';
@@ -248,6 +265,7 @@
   function eomvView(i) {
     var r = eomReportsData[i]; if (!r) return;
     var body = eomEl('eomViewerBody');
+    eomvPayload = null;
     body.innerHTML = '<p class="u-hint">Loading report&hellip;</p>';
     eomEl('eomViewerTitle').textContent = r.monthLabel + (r.status === 'published' ? ' (published)' : ' (generated — not yet published)');
     eomEl('eomNotConfigured').style.display = 'none';
@@ -255,16 +273,24 @@
     eomEl('eomAdvanced').style.display = 'none';
     eomEl('eomReportsCard').style.display = 'none';
     eomEl('eomViewer').style.display = 'block';
+    var wrap = eomWrap(); if (wrap) wrap.classList.add('eom-wide');   // let the report use the full width
     google.script.run
       .withSuccessHandler(function (res) {
         if (!res || !res.ok) { body.innerHTML = '<p class="eom-viewer-err">' + escHtml((res && res.error) || 'Could not load report.') + '</p>'; return; }
         try {
-          var payload = JSON.parse(res.json);
-          body.innerHTML = eomrRenderReport(payload.group, payload.meta);
-        } catch (e) { body.innerHTML = '<p class="eom-viewer-err">Bad report data: ' + escHtml(e.message) + '</p>'; }
+          eomvPayload = JSON.parse(res.json);
+          eomEl('eomvSplit').checked = !!(eomvPayload.meta && eomvPayload.meta.splitContacts);
+          eomvRerender();
+        } catch (e) { eomvPayload = null; body.innerHTML = '<p class="eom-viewer-err">Bad report data: ' + escHtml(e.message) + '</p>'; }
       })
       .withFailureHandler(function (e) { body.innerHTML = '<p class="eom-viewer-err">' + escHtml((e && e.message) || String(e)) + '</p>'; })
       .getEomReportJson(r.monthLabel);
+  }
+
+  // Re-renders the open report with the current split-by-contact choice.
+  function eomvRerender() {
+    if (!eomvPayload) return;
+    eomEl('eomViewerBody').innerHTML = eomrRenderReport(eomvPayload.group, eomvPayload.meta, { splitContacts: eomEl('eomvSplit').checked });
   }
 
   function eomvClose() { eomShowPanels(); }
@@ -369,10 +395,11 @@
         .getEomProgress(eomRunId);
     }, 1500);
 
+    var splitGen = !!(eomEl('eomSplitGen') && eomEl('eomSplitGen').checked);
     google.script.run
       .withSuccessHandler(eomOnDone)
       .withFailureHandler(eomOnFail)
-      .generateEomReport(scope, stageId, eomRunId, monthLabel);
+      .generateEomReport(scope, stageId, eomRunId, monthLabel, splitGen);
   }
 
   function eomStopPoll() { if (eomPoll) { clearInterval(eomPoll); eomPoll = null; } }
