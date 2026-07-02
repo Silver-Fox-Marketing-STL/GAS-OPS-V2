@@ -7782,6 +7782,22 @@ var PD_EOM_FOLDER_KEY   = 'eom_reports_folder_id';   // Drive folder that holds 
 var EOM_DEFAULT_PIPELINE_ID = 4;   // "Billing" pipeline
 var EOM_DEFAULT_STAGE_ID    = 44;  // "EOM Merge" stage
 
+// Report index (SF_EOM_REPORTS): one row per month; the in-app Reports card AND
+// the standalone eom-viewer both read it. Created once by setupEomReportsIndex()
+// — paste the logged id into EOM_INDEX_SHEET_ID here AND into eom-viewer/Code.gs.
+// (Its own spreadsheet — SF_SYSTEM_MASTER is never written.) All cells are text:
+// Sheets date-parses "2026-07"/"July 2026", and google.script.run can't serialize
+// the resulting Date objects, so the whole grid is @-formatted and every write is
+// String()-converted with pre-formatted string timestamps.
+var EOM_INDEX_SHEET_ID = '';   // set after running setupEomReportsIndex()
+var EOM_INDEX_TAB = 'REPORTS';
+var EOM_INDEX_HEADERS = ['month_key', 'month_label', 'scope', 'stage_id', 'generated_at',
+  'json_file_id', 'folder_url', 'ss_url', 'org_count', 'deal_count', 'status',
+  'published_at', 'published_by', 'published_json_file_id'];
+var EOMIDX = { MONTH_KEY: 0, MONTH_LABEL: 1, SCOPE: 2, STAGE_ID: 3, GENERATED_AT: 4,
+  JSON_FILE_ID: 5, FOLDER_URL: 6, SS_URL: 7, ORG_COUNT: 8, DEAL_COUNT: 9, STATUS: 10,
+  PUBLISHED_AT: 11, PUBLISHED_BY: 12, PUBLISHED_JSON_FILE_ID: 13 };
+
 // Flat audit-table schema (mirrors the standalone RowBuilder.COLUMNS exactly).
 var EOM_COLUMNS = [
   'processed_at', 'deal_id', 'deal_title', 'deal_created_at', 'org_name',
@@ -8270,10 +8286,101 @@ function eomPutFile_(folder, blob, name) {
   return folder.createFile(blob.setName(name));
 }
 
+// ── Report index + report.json (feed the in-app + standalone viewers) ────────
+
+/** Sortable month key: "July 2026" -> "2026-07". '' on unparseable input. */
+function eomMonthKey_(label) {
+  var names = { january: '01', february: '02', march: '03', april: '04', may: '05', june: '06',
+                july: '07', august: '08', september: '09', october: '10', november: '11', december: '12' };
+  var m = String(label || '').trim().match(/^([A-Za-z]+)\s+(\d{4})$/);
+  if (!m) return '';
+  var mm = names[m[1].toLowerCase()];
+  return mm ? (m[2] + '-' + mm) : '';
+}
+
+/** The report payload the viewers render: grouped data + meta, NO flat rows
+ *  (those live in the spreadsheet DATA tab). Returns a JSON string. */
+function eomBuildReportJson_(group, meta) {
+  return JSON.stringify({ meta: meta, group: group });
+}
+
+/** One-time setup — creates the SF_EOM_REPORTS index spreadsheet, all-text, and
+ *  logs its id (paste into EOM_INDEX_SHEET_ID here AND eom-viewer/Code.gs). */
+function setupEomReportsIndex() {
+  var ss = SpreadsheetApp.create('SF_EOM_REPORTS');
+  var sh = ss.getSheets()[0];
+  sh.setName(EOM_INDEX_TAB);
+  sh.getRange(1, 1, sh.getMaxRows(), EOM_INDEX_HEADERS.length).setNumberFormat('@');   // all-text (invariant 2)
+  sh.getRange(1, 1, 1, EOM_INDEX_HEADERS.length).setValues([EOM_INDEX_HEADERS]).setFontWeight('bold');
+  sh.setFrozenRows(1);
+  try { var f = eomGetReportsFolder_(); if (f) DriveApp.getFileById(ss.getId()).moveTo(f); } catch (e) {}
+  Logger.log('SF_EOM_REPORTS created. Paste this id into EOM_INDEX_SHEET_ID (Code.gs) AND eom-viewer/Code.gs:\n' + ss.getId());
+  return ss.getId();
+}
+
+/** The REPORTS sheet, or null if the index isn't configured/openable. */
+function eomOpenIndex_() {
+  if (!EOM_INDEX_SHEET_ID) return null;
+  try {
+    var ss = SpreadsheetApp.openById(EOM_INDEX_SHEET_ID);
+    return ss.getSheetByName(EOM_INDEX_TAB) || ss.getSheets()[0];
+  } catch (e) { Logger.log('EOM index open failed: ' + e.message); return null; }
+}
+
+/** Upsert the GENERATION columns of a month's row (status -> 'generated'),
+ *  leaving the published_* snapshot columns untouched so a re-run never mutates
+ *  what the invoice person sees. All-text writes (@-format each target range). */
+function eomIndexUpsert_(rec) {
+  var sh = eomOpenIndex_();
+  if (!sh) return false;
+  var gen = [
+    String(rec.monthKey), String(rec.monthLabel), String(rec.scope),
+    String(rec.stageId == null ? '' : rec.stageId), String(rec.generatedAt),
+    String(rec.jsonFileId || ''), String(rec.folderUrl || ''), String(rec.ssUrl || ''),
+    String(rec.orgCount == null ? '' : rec.orgCount), String(rec.dealCount == null ? '' : rec.dealCount),
+    'generated'
+  ];   // columns 0..10 (month_key..status)
+  var data = sh.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][EOMIDX.MONTH_KEY]) === String(rec.monthKey)) {
+      sh.getRange(i + 1, 1, 1, gen.length).setNumberFormat('@');
+      sh.getRange(i + 1, 1, 1, gen.length).setValues([gen]);
+      return true;
+    }
+  }
+  var row = sh.getLastRow() + 1, full = gen.concat(['', '', '']);   // published_* blank
+  sh.getRange(row, 1, 1, full.length).setNumberFormat('@');
+  sh.getRange(row, 1, 1, full.length).setValues([full]);
+  return true;
+}
+
+/** All index rows as plain strings, newest month first. (Main-app use — includes
+ *  Nick-only folder/spreadsheet URLs; the standalone viewer has its own reader.) */
+function eomIndexList_() {
+  var sh = eomOpenIndex_();
+  if (!sh) return [];
+  var data = sh.getDataRange().getValues(), out = [];
+  for (var i = 1; i < data.length; i++) {
+    var r = data[i];
+    if (!String(r[EOMIDX.MONTH_KEY]).trim()) continue;
+    out.push({
+      monthKey: String(r[EOMIDX.MONTH_KEY]), monthLabel: String(r[EOMIDX.MONTH_LABEL]),
+      scope: String(r[EOMIDX.SCOPE]), stageId: String(r[EOMIDX.STAGE_ID]),
+      generatedAt: String(r[EOMIDX.GENERATED_AT]), folderUrl: String(r[EOMIDX.FOLDER_URL]),
+      ssUrl: String(r[EOMIDX.SS_URL]), orgCount: String(r[EOMIDX.ORG_COUNT]),
+      dealCount: String(r[EOMIDX.DEAL_COUNT]), status: String(r[EOMIDX.STATUS]),
+      publishedAt: String(r[EOMIDX.PUBLISHED_AT]), publishedBy: String(r[EOMIDX.PUBLISHED_BY])
+    });
+  }
+  out.sort(function (a, b) { return a.monthKey < b.monthKey ? 1 : a.monthKey > b.monthKey ? -1 : 0; });
+  return out;
+}
+
 /** Orchestrates the whole report bundle into the month folder: the spreadsheet
- *  (flat audit tab + per-org tabs, unchanged content) plus one PDF per dealer.
- *  A single dealer's PDF failure is non-fatal (logged, run continues). */
-function eomWriteReport_(rows, scope, monthLabel, runId) {
+ *  (flat audit tab + per-org tabs, unchanged content) plus one PDF per dealer,
+ *  plus report.json (grouped data + meta) for the viewers. A single dealer's PDF
+ *  failure is non-fatal (logged, run continues). */
+function eomWriteReport_(rows, scope, monthLabel, runId, stageId) {
   var tz = Session.getScriptTimeZone() || 'America/Chicago';
   var dateStr = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
   var fileName = 'EOM Report ' + dateStr + ' (' + (scope === 'full_billing' ? 'Full Billing' : 'EOM') + ')';
@@ -8315,7 +8422,24 @@ function eomWriteReport_(rows, scope, monthLabel, runId) {
     }
   }
 
-  return { url: ss.getUrl(), folderUrl: folder ? folder.getUrl() : ss.getUrl(), name: fileName, orgCount: orgCount, pdfCount: pdfCount };
+  // report.json (grouped data + meta) for the in-app + standalone viewers.
+  var monthKey = eomMonthKey_(monthLabel), jsonFileId = '', dealCount = 0;
+  group.forEach(function (og) { og.contacts.forEach(function (ct) { dealCount += ct.deals.length; }); });
+  if (folder) {
+    try {
+      var meta = {
+        monthLabel: monthLabel, monthKey: monthKey, scope: scope,
+        stageId: (stageId == null ? '' : String(stageId)),
+        generatedAt: Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm:ss'),
+        orgCount: orgCount, dealCount: dealCount,
+        folderUrl: folder.getUrl(), ssUrl: ss.getUrl(), dealBaseUrl: dealBase
+      };
+      var jf = eomPutFile_(folder, Utilities.newBlob(eomBuildReportJson_(group, meta), 'application/json', 'report.json'), 'report.json');
+      jsonFileId = jf.getId();
+    } catch (e) { Logger.log('EOM: report.json write failed (non-fatal): ' + e.message); }
+  }
+
+  return { url: ss.getUrl(), folderUrl: folder ? folder.getUrl() : ss.getUrl(), name: fileName, orgCount: orgCount, pdfCount: pdfCount, jsonFileId: jsonFileId, monthKey: monthKey, dealCount: dealCount };
 }
 
 /** The flat 28-col audit tab (ports SheetWriter.writeReport). */
@@ -8544,7 +8668,20 @@ function generateEomReport(scope, stageId, runId, monthLabel) {
     }
 
     eomSetProgress_(runId, { message: 'Building spreadsheet…', percent: 60, done: false, error: null });
-    var result = eomWriteReport_(allRows, scope, monthLabel, runId);
+    var result = eomWriteReport_(allRows, scope, monthLabel, runId, stageId);
+
+    // Index this generation (leaves any published snapshot untouched — invariant 1).
+    if (result.jsonFileId) {
+      try {
+        eomIndexUpsert_({
+          monthKey: result.monthKey, monthLabel: monthLabel, scope: scope, stageId: stageId,
+          generatedAt: Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'America/Chicago', 'yyyy-MM-dd HH:mm:ss'),
+          jsonFileId: result.jsonFileId, folderUrl: result.folderUrl, ssUrl: result.url,
+          orgCount: result.orgCount, dealCount: result.dealCount
+        });
+      } catch (e) { Logger.log('EOM: index upsert failed (non-fatal): ' + e.message); }
+    }
+
     eomSetProgress_(runId, { message: 'Done — ' + result.orgCount + ' org tab(s), ' + result.pdfCount + ' PDF(s).', percent: 100, done: true, error: null, url: result.folderUrl });
     return { ok: true, url: result.url, folderUrl: result.folderUrl, name: result.name, orgCount: result.orgCount, pdfCount: result.pdfCount, dealCount: deals.length, rowCount: allRows.length, monthLabel: monthLabel };
   } catch (e) {
