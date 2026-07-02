@@ -8473,7 +8473,7 @@ function eomBuildOrgTabs_(ss, group) {
     eomApplyOps_(sheet, ops);
   });
 
-  return orgs.length;
+  return group.length;
 }
 
 // ── Progress (cross-execution, mirrors the run-progress pattern) ─────────────
