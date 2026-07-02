@@ -8067,8 +8067,9 @@ function eomHtmlToPdf_(html, filename) {
 }
 
 /** TEMPORARY de-risk spike — renders one sample dealer PDF into the EOM folder.
- *  Removed in the final task once fidelity is confirmed. Run from the Apps Script editor. */
-function eomPdfSpike_() {
+ *  Public (no trailing _) so it shows in the editor Run dropdown; removed in the
+ *  final task once fidelity is confirmed. Run from the Apps Script editor. */
+function eomPdfSpike() {
   var g = { org: 'Bommarito Automotive Group', contacts: [
     { contact: 'Sarah Chen', stats: { orders: 3, duplicates: 2, totalQty: 60, totalAmt: 3660 },
       summaryRows: [
