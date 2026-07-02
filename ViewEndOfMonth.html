@@ -77,6 +77,22 @@
         </div>
       </div>
 
+      <!-- Reports archive (generated / published) -->
+      <div id="eomReportsCard" class="eom-panel" style="display:none;">
+        <div class="eom-reports-title">Reports</div>
+        <div class="u-hint" style="margin-bottom:10px;">Review a generated report, then <strong>Finalize &amp; publish</strong> to make it appear in the report viewer for the invoice team.</div>
+        <div id="eomReportsList"></div>
+      </div>
+
+      <!-- In-app report viewer (collapsible per-deal view) -->
+      <div id="eomViewer" class="eom-viewer" style="display:none;">
+        <div class="eom-viewer-bar">
+          <button type="button" class="eom-btn-ghost" onclick="eomvClose()">&larr; Back to reports</button>
+          <span id="eomViewerTitle" class="eom-viewer-title"></span>
+        </div>
+        <div id="eomViewerBody"></div>
+      </div>
+
     </div>
   </div>
 </div>
@@ -121,6 +137,23 @@
   #view-end-of-month .eom-arrow { color: var(--text-3); }
   #view-end-of-month .eom-adv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); margin-top: var(--space-2); }
   :root[data-viewport="mobile"] #view-end-of-month .eom-adv-grid { grid-template-columns: 1fr; }
+
+  /* Reports archive */
+  #view-end-of-month .eom-reports-title { font-family: var(--font-head); font-weight: 700; font-size: var(--fs-lg); }
+  #view-end-of-month .eom-report-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: 10px 0; border-top: 1px solid var(--border); }
+  #view-end-of-month .eom-report-row:first-child { border-top: none; }
+  #view-end-of-month .eom-report-month { font-weight: 700; }
+  #view-end-of-month .eom-report-sub { font-size: var(--fs-hint); color: var(--text-3); margin-top: 2px; }
+  #view-end-of-month .eom-report-actions { display: flex; gap: var(--space-2); flex-shrink: 0; }
+  #view-end-of-month .eom-report-actions button { padding: 5px 12px; font-size: var(--fs-sm); }
+  #view-end-of-month .eom-status { font-size: 10px; font-weight: 700; padding: 1px 8px; border-radius: 999px; margin-left: 6px; vertical-align: middle; }
+  #view-end-of-month .eom-status.gen { background: var(--surface-3); color: var(--text-2); }
+  #view-end-of-month .eom-status.pub { background: var(--success-weak, #dcefe0); color: var(--success, #1c7a3a); }
+
+  /* In-app viewer */
+  #view-end-of-month .eom-viewer-bar { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3); }
+  #view-end-of-month .eom-viewer-title { font-family: var(--font-head); font-weight: 700; font-size: var(--fs-lg); }
+  #view-end-of-month .eom-viewer-err { color: var(--danger, #b3261e); }
 </style>
 
 <script>
@@ -133,6 +166,8 @@
   var eomRunId = null;
   var eomPoll = null;
   var eomStart = 0;
+  var eomLastConfigured = false;
+  var eomReportsData = [];     // index rows; handlers pass an INDEX (never a label — apostrophe-in-handler trap)
 
   function eomEl(id) { return document.getElementById(id); }
 
@@ -147,30 +182,107 @@
   function eomReload() { eomLoadBootstrap(); }
 
   function eomOnBootstrap(b) {
-    var notCfg = eomEl('eomNotConfigured'), controls = eomEl('eomControls'), adv = eomEl('eomAdvanced');
-    if (!b || !b.configured) {
-      notCfg.style.display = 'block';
-      controls.style.display = 'none';
-      adv.style.display = 'none';
-      return;
-    }
-    notCfg.style.display = 'none';
-    controls.style.display = 'block';
-    adv.style.display = 'block';
+    eomLastConfigured = !!(b && b.configured);
+    eomStages = (b && b.stages) || [];
+    eomDefaultStageId = b && b.defaultStageId;
+    eomReportsData = (b && b.reports) || [];
+    eomRenderReportsList(eomReportsData);
+    eomShowPanels();   // reports card + config panels (per configured); hides the viewer
 
-    eomStages = b.stages || [];
-    eomDefaultStageId = b.defaultStageId;
-
+    if (!eomLastConfigured) return;
     eomFillStageSelect(eomEl('eomStage'), eomDefaultStageId);
     eomFillStageSelect(eomEl('eomCfgStage'), eomDefaultStageId);
     eomFillMonths(eomEl('eomMonth'));
     eomEl('eomCfgPipeline').value = (b.pipelineId != null ? b.pipelineId : '');
-
     eomScopeChanged();
     // Re-enhance the now-populated selects (idempotent).
     if (window.CustomSelect && CustomSelect.enhanceAll) {
       try { CustomSelect.enhanceAll(eomEl('view-end-of-month')); } catch (e) {}
     }
+  }
+
+  // Shows the config panels (per connection state) + the reports card; hides the viewer.
+  function eomShowPanels() {
+    eomEl('eomViewer').style.display = 'none';
+    eomEl('eomReportsCard').style.display = 'block';
+    eomEl('eomNotConfigured').style.display = eomLastConfigured ? 'none' : 'block';
+    eomEl('eomControls').style.display = eomLastConfigured ? 'block' : 'none';
+    eomEl('eomAdvanced').style.display = eomLastConfigured ? 'block' : 'none';
+  }
+
+  function eomStageNameById(id) {
+    for (var i = 0; i < eomStages.length; i++) if (String(eomStages[i].id) === String(id)) return eomStages[i].name;
+    return '';
+  }
+
+  function eomRenderReportsList(reports) {
+    eomReportsData = reports || [];
+    var el = eomEl('eomReportsList');
+    if (!eomReportsData.length) { el.innerHTML = '<p class="u-hint" style="margin:0;">No reports generated yet.</p>'; return; }
+    var html = '';
+    eomReportsData.forEach(function (r, i) {
+      var isPub = r.status === 'published';
+      var stageName = eomStageNameById(r.stageId);
+      var scopeLabel = r.scope === 'full_billing' ? 'Full billing' : (stageName ? stageName : ('stage ' + r.stageId));
+      html += '<div class="eom-report-row"><div class="eom-report-main">'
+        + '<div class="eom-report-month">' + escHtml(r.monthLabel)
+        + ' <span class="eom-status ' + (isPub ? 'pub' : 'gen') + '">' + (isPub ? 'Published' : 'Generated') + '</span></div>'
+        + '<div class="eom-report-sub">' + escHtml(scopeLabel) + ' &middot; ' + escHtml(r.orgCount || '0') + ' orgs &middot; '
+        + escHtml(r.dealCount || '0') + ' deals &middot; generated ' + escHtml(r.generatedAt)
+        + (isPub && r.publishedAt ? ' &middot; published ' + escHtml(r.publishedAt) : '') + '</div></div>'
+        + '<div class="eom-report-actions">'
+        + '<button type="button" class="eom-btn-ghost" onclick="eomvView(' + i + ')">View</button>'
+        + '<button type="button" class="eom-btn-primary" onclick="eomvFinalize(' + i + ')">' + (isPub ? 'Re-finalize' : 'Finalize &amp; publish') + '</button>'
+        + '</div></div>';
+    });
+    el.innerHTML = html;
+  }
+
+  function eomRefreshReports() {
+    google.script.run
+      .withSuccessHandler(function (list) { eomRenderReportsList(list || []); })
+      .withFailureHandler(function () {})
+      .getEomReportsList();
+  }
+
+  function eomvView(i) {
+    var r = eomReportsData[i]; if (!r) return;
+    var body = eomEl('eomViewerBody');
+    body.innerHTML = '<p class="u-hint">Loading report&hellip;</p>';
+    eomEl('eomViewerTitle').textContent = r.monthLabel + (r.status === 'published' ? ' (published)' : ' (generated — not yet published)');
+    eomEl('eomNotConfigured').style.display = 'none';
+    eomEl('eomControls').style.display = 'none';
+    eomEl('eomAdvanced').style.display = 'none';
+    eomEl('eomReportsCard').style.display = 'none';
+    eomEl('eomViewer').style.display = 'block';
+    google.script.run
+      .withSuccessHandler(function (res) {
+        if (!res || !res.ok) { body.innerHTML = '<p class="eom-viewer-err">' + escHtml((res && res.error) || 'Could not load report.') + '</p>'; return; }
+        try {
+          var payload = JSON.parse(res.json);
+          body.innerHTML = eomrRenderReport(payload.group, payload.meta);
+        } catch (e) { body.innerHTML = '<p class="eom-viewer-err">Bad report data: ' + escHtml(e.message) + '</p>'; }
+      })
+      .withFailureHandler(function (e) { body.innerHTML = '<p class="eom-viewer-err">' + escHtml((e && e.message) || String(e)) + '</p>'; })
+      .getEomReportJson(r.monthLabel);
+  }
+
+  function eomvClose() { eomShowPanels(); }
+
+  function eomvFinalize(i) {
+    var r = eomReportsData[i]; if (!r) return;
+    var msg = (r.status === 'published')
+      ? 'Re-publish ' + r.monthLabel + '?\n\nThis replaces what the report viewer currently shows for that month with the latest generated version.'
+      : 'Publish ' + r.monthLabel + ' to the report viewer?\n\nThe invoice team will be able to see it.';
+    if (!confirm(msg)) return;
+    google.script.run
+      .withSuccessHandler(function (res) {
+        if (!res || !res.ok) { toast('Publish failed: ' + escHtml((res && res.error) || '?'), 'error'); return; }
+        toast(r.monthLabel + ' published to the viewer.', 'success');
+        eomRefreshReports();
+      })
+      .withFailureHandler(function (e) { toast('Publish failed: ' + escHtml((e && e.message) || String(e)), 'error'); })
+      .finalizeEomReport(r.monthLabel);
   }
 
   function eomFillStageSelect(sel, selectedId) {
@@ -295,6 +407,7 @@
         ' from ' + res.dealCount + ' deal' + (res.dealCount === 1 ? '' : 's') + '. ' +
         '<a href="' + escHtml(res.folderUrl) + '" target="_blank" rel="noopener">Open the folder &rarr;</a> &middot; ' +
         '<a href="' + escHtml(res.url) + '" target="_blank" rel="noopener">spreadsheet</a>';
+      eomRefreshReports();   // the new generation appears in the Reports card
     } else {
       eomUpdateProgress({ message: (res && res.error) || 'Failed.', percent: 100, done: true, error: (res && res.error) || 'Failed.' });
       box.classList.add('err');
