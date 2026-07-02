@@ -7980,6 +7980,15 @@ function eomEscHtml_(s) {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+/** Format a number as USD, no Intl dependency (GAS V8 Intl is unreliable). */
+function eomMoney_(n) {
+  var v = Math.round((Number(n) || 0) * 100) / 100;
+  var neg = v < 0; v = Math.abs(v);
+  var parts = v.toFixed(2).split('.');
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return (neg ? '-$' : '$') + parts.join('.');
+}
+
 function eomColIndex_() {
   var m = {};
   EOM_COLUMNS.forEach(function (c, i) { m[c] = i; });
