@@ -7989,11 +7989,19 @@ function eomMoney_(n) {
   return (neg ? '-$' : '$') + parts.join('.');
 }
 
+/** Wraps SVG inner markup in an <svg> document and returns a base64 data URI.
+ *  The raw HTML->PDF converter paints NO background fills behind HTML text
+ *  (CSS or bgcolor — confirmed by the live fill probe), but it DOES render
+ *  data-URI images, including SVG with text baked in. So every colored band
+ *  is an SVG image; selectable body text stays HTML. */
+function eomSvgUri_(w, h, inner) {
+  var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + w + '" height="' + h + '">' + inner + '</svg>';
+  return 'data:image/svg+xml;base64,' + Utilities.base64Encode(svg, Utilities.Charset.UTF_8);
+}
+
 /** The full HTML document for one dealer's PDF (one page per contact).
- *  TABLE-BASED with inline backgrounds: the legacy HTML->PDF converter behind
- *  Blob.getAs('application/pdf') drops display:flex (so a flex element's
- *  background never paints) — tables + inline bgcolor render reliably, same as
- *  the existing billing PDF. Zebra uses an explicit .alt class, not :nth-child. */
+ *  TABLE-BASED (the converter drops display:flex); colored bands/pills are
+ *  baked SVG images (see eomSvgUri_); line items stay selectable HTML text. */
 function eomDealerPdfHtml_(orgGroup, monthLabel, dealBase) {
   var css = ''
     + '@page{size:letter;margin:0.5in;}'
@@ -8004,15 +8012,34 @@ function eomDealerPdfHtml_(orgGroup, monthLabel, dealBase) {
     + '.muted{color:#5b6b7a;font-size:11px;} .var{color:#5b6b7a;font-weight:600;}'
     + '.seclabel{font-size:11px;font-weight:800;letter-spacing:.10em;text-transform:uppercase;color:#2d6a9f;margin:16px 0 6px;}'
     + 'table.sum{width:100%;} .sum th{text-align:left;font-size:10.5px;text-transform:uppercase;color:#5b6b7a;border-bottom:1px solid #dce4ec;padding:5px 8px;}'
-    + '.sum td{padding:5px 8px;border-bottom:1px solid #dce4ec;} .sum tr.alt td{background-color:#f6f8fa;} .sum .r{text-align:right;}'
+    + '.sum td{padding:5px 8px;border-bottom:1px solid #dce4ec;} .sum .r{text-align:right;}'
     + '.sum .tot td{font-weight:800;border-top:2px solid #1a3a5c;border-bottom:none;}';
 
   var esc = eomEscHtml_, money = eomMoney_;
-  // bgcolor ATTRIBUTE (not CSS background) — the legacy converter honors the
-  // attribute reliably but drops `background`/`background-color` declarations.
-  function chip(inner) {
-    return '<td bgcolor="#eef3f9" style="background-color:#eef3f9;color:#5b6b7a;font-size:11px;font-weight:600;padding:4px 10px;">' + inner + '</td><td width="7"></td>';
+  var BAND_W = 714;   // letter minus 0.5in margins ~= 720px content; card borders eat a few
+
+  // A rounded stat pill as a baked SVG image: "3 orders" / "total $3,660.00".
+  function chipImg(boldText, label, boldFirst) {
+    var full = boldFirst ? (boldText + ' ' + label) : (label + ' ' + boldText);
+    var w = Math.round(24 + full.length * 6.2);
+    var bold = '<tspan font-weight="bold" fill="#1a2733">' + esc(boldText) + '</tspan>';
+    var rest = '<tspan>' + (boldFirst ? (' ' + esc(label)) : (esc(label) + ' ')) + '</tspan>';
+    var inner = '<rect width="' + w + '" height="22" rx="11" fill="#eef3f9"/>'
+      + '<text x="' + Math.round(w / 2) + '" y="15" text-anchor="middle" font-family="Arial" font-size="11" fill="#5b6b7a">'
+      + (boldFirst ? bold + rest : rest + bold) + '</text>';
+    return '<img src="' + eomSvgUri_(w, 22, inner) + '" width="' + w + '" height="22">';
   }
+
+  // The deal header band (blue fill + title/value/meta) as one baked SVG image.
+  function bandImg(title, value, meta) {
+    var t = title.length > 64 ? title.slice(0, 62) + '…' : title;
+    var inner = '<rect width="' + BAND_W + '" height="42" fill="#eef3f9"/>'
+      + '<text x="12" y="18" font-family="Arial" font-size="13" font-weight="bold" fill="#2d6a9f">' + esc(t) + '</text>'
+      + '<text x="' + (BAND_W - 12) + '" y="18" text-anchor="end" font-family="Arial" font-size="13" font-weight="bold" fill="#1a2733">' + esc(value) + '</text>'
+      + '<text x="12" y="35" font-family="Arial" font-size="11" fill="#5b6b7a">' + esc(meta) + '</text>';
+    return '<img src="' + eomSvgUri_(BAND_W, 42, inner) + '" width="' + BAND_W + '" height="42" style="display:block;">';
+  }
+
   var pages = orgGroup.contacts.map(function (ct, i) {
     var header = '<table width="100%"><tr>'
       + '<td style="padding-bottom:8px;border-bottom:2px solid #1a3a5c;"><div class="dealer">' + esc(orgGroup.org)
@@ -8020,11 +8047,11 @@ function eomDealerPdfHtml_(orgGroup, monthLabel, dealBase) {
       + '<td align="right" valign="bottom" style="padding-bottom:8px;border-bottom:2px solid #1a3a5c;"><span class="mo">EOM &mdash; '
       + esc(monthLabel) + '</span></td></tr></table>';
 
-    var chips = '<table cellspacing="0" cellpadding="0" style="margin:10px 0 4px;"><tr>'
-      + chip('<b style="color:#1a2733;">' + ct.stats.orders + '</b> orders')
-      + chip('<b style="color:#1a2733;">' + ct.stats.duplicates + '</b> duplicates')
-      + chip('total <b style="color:#1a2733;">' + money(ct.stats.totalAmt) + '</b>')
-      + '</tr></table>';
+    var chips = '<p style="margin:10px 0 4px;">'
+      + chipImg(String(ct.stats.orders), 'orders', true) + ' '
+      + chipImg(String(ct.stats.duplicates), 'duplicates', true) + ' '
+      + chipImg(money(ct.stats.totalAmt), 'total', false)
+      + '</p>';
 
     var sum = '<div class="seclabel">Product summary</div><table class="sum">'
       + '<tr><th>Code</th><th>Product</th><th class="r">Qty</th><th class="r">Total value</th></tr>';
@@ -8053,12 +8080,13 @@ function eomDealerPdfHtml_(orgGroup, monthLabel, dealBase) {
             + '<span class="muted">' + l.qty + ' &times; ' + money(l.price) + '</span><br><b>' + money(l.sum) + '</b></td></tr>';
         }).join('');
       }
-      // The whole header block (title/value row + meta row) is one light-blue band.
+      // The whole header block (title/value + meta) is ONE baked SVG band image,
+      // wrapped in the deal link. Body line rows stay selectable HTML text.
+      var title = '#' + d.id + ' · ' + (d.title || ('Deal ' + d.id));
+      var meta = d.owner + (created ? ' · ' + created : '') + ' · ' + dupTxt;
       deals += '<table width="100%" cellspacing="0" style="border:1px solid #dce4ec;border-left:3px solid #2d6a9f;margin-top:10px;page-break-inside:avoid;">'
-        + '<tr><td bgcolor="#eef3f9" style="background-color:#eef3f9;padding:7px 12px 3px;font-weight:700;"><a href="' + dealBase + d.id + '" style="color:#2d6a9f;text-decoration:none;">#'
-        + d.id + ' &middot; ' + esc(d.title || ('Deal ' + d.id)) + '</a></td>'
-        + '<td bgcolor="#eef3f9" align="right" valign="top" style="background-color:#eef3f9;padding:7px 12px 3px;font-weight:800;">' + money(d.dealValue) + '</td></tr>'
-        + '<tr><td bgcolor="#eef3f9" colspan="2" style="background-color:#eef3f9;color:#5b6b7a;font-size:11px;padding:0 12px 7px;">' + esc(d.owner) + (created ? ' &middot; ' + created : '') + ' &middot; ' + dupTxt + '</td></tr>'
+        + '<tr><td colspan="2" style="padding:0;font-size:0;line-height:0;"><a href="' + dealBase + d.id + '">'
+        + bandImg(title, money(d.dealValue), meta) + '</a></td></tr>'
         + body + '</table>';
     });
 
