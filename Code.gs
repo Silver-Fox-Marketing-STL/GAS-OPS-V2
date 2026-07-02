@@ -8073,43 +8073,10 @@ function eomDealerPdfHtml_(orgGroup, monthLabel, dealBase) {
   return '<!doctype html><html><head><meta charset="utf-8"><style>' + css + '</style></head><body>' + pages + '</body></html>';
 }
 
-/** Uploads HTML to Drive, converting it to a Google Doc; returns the Doc id.
- *  Uses the Drive REST API with the script's OAuth token (same mechanism as the
- *  QR-code uploads) — no advanced service, no new scope. */
-function eomHtmlToDocId_(html, name) {
-  var boundary = '----eom' + Utilities.getUuid();
-  var body = '--' + boundary + '\r\n'
-    + 'Content-Type: application/json; charset=UTF-8\r\n\r\n'
-    + JSON.stringify({ name: name, mimeType: 'application/vnd.google-apps.document' }) + '\r\n'
-    + '--' + boundary + '\r\n'
-    + 'Content-Type: text/html; charset=UTF-8\r\n\r\n'
-    + html + '\r\n'
-    + '--' + boundary + '--';
-  var resp = UrlFetchApp.fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
-    method: 'post',
-    contentType: 'multipart/related; boundary=' + boundary,
-    payload: Utilities.newBlob(body).getBytes(),
-    headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
-    muteHttpExceptions: true
-  });
-  if (resp.getResponseCode() >= 300) throw new Error('HTML->Doc convert HTTP ' + resp.getResponseCode() + ': ' + resp.getContentText().slice(0, 300));
-  var j = JSON.parse(resp.getContentText());
-  if (!j || !j.id) throw new Error('HTML->Doc convert returned no id');
-  return j.id;
-}
-
-/** HTML -> Google Doc -> PDF Blob. The Docs renderer paints table cell shading
- *  (bgcolor) and page breaks, which the raw HTML->PDF converter does not. The
- *  temp Doc is always trashed. */
+/** HTML string -> named PDF Blob (the raw converter: crisp typography/borders;
+ *  background fills are the open question the fill probe answers). */
 function eomHtmlToPdf_(html, filename) {
-  var docId = eomHtmlToDocId_(html, filename.replace(/\.pdf$/i, ''));
-  var pdf;
-  try {
-    pdf = DriveApp.getFileById(docId).getAs('application/pdf').setName(filename);
-  } finally {
-    try { DriveApp.getFileById(docId).setTrashed(true); } catch (e) {}
-  }
-  return pdf;
+  return Utilities.newBlob(html, 'text/html', filename).getAs('application/pdf').setName(filename);
 }
 
 /** TEMPORARY de-risk spike — renders one sample dealer PDF into the EOM folder.
