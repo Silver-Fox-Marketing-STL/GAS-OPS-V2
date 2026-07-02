@@ -7754,5 +7754,530 @@ function updateVinSubmissionStatus(submissionId, status, correctedVin) {
 
 
 // ============================================================================
+// SECTION 33: EOM BILLING REPORT
+// ----------------------------------------------------------------------------
+// Ported from the standalone "Silver Fox / BillingDashboard" Apps Script project.
+// Pulls deals from Pipedrive BY PIPELINE STAGE (not by date — staff move deals
+// into the "EOM Merge" stage, then run), flattens each deal's products into a
+// flat 28-col audit table, then builds one formatted tab PER ORGANIZATION
+// (product summary + per-deal line-item breakdown).
+//
+// Reuses the Section-31 Pipedrive layer: pdGetSecrets_ (auth — NO separate
+// token), pdFetch_ / pdListAllV1_ (deal listing + pagination), pdListDealFields_
+// (the "Duplicates" custom-field key). The one net-new fetch is the PARALLEL
+// per-deal products call (UrlFetchApp.fetchAll) — sequential pdListDealProducts_
+// over hundreds of deals would blow the 6-min cap.
+//
+// Output is a NEW dated spreadsheet per run (in an "EOM Reports" Drive folder),
+// so nothing is ever written into SF_SYSTEM_MASTER and there is no destructive
+// "delete other tabs" step. Per-org tabs are built from the in-memory rows, not
+// by re-reading the sheet (avoids the getSheets()[0] / openById cache traps).
+// ============================================================================
+
+// Config lives in PIPEDRIVE_SETTINGS (key/value). Defaults make the feature work
+// out of the box; the EOM view surfaces both for editing.
+var PD_EOM_PIPELINE_KEY = 'eom_billing_pipeline_id'; // billing pipeline whose stages the report can pull from
+var PD_EOM_STAGE_KEY    = 'eom_default_stage_id';    // stage selected by default in the EOM view
+var PD_EOM_FOLDER_KEY   = 'eom_reports_folder_id';   // Drive folder that holds generated report files (created once)
+var EOM_DEFAULT_PIPELINE_ID = 4;   // "Billing" pipeline
+var EOM_DEFAULT_STAGE_ID    = 44;  // "EOM Merge" stage
+
+// Flat audit-table schema (mirrors the standalone RowBuilder.COLUMNS exactly).
+var EOM_COLUMNS = [
+  'processed_at', 'deal_id', 'deal_title', 'deal_created_at', 'org_name',
+  'person_name', 'deal_owner', 'deal_value', 'currency', 'pipeline', 'stage',
+  'duplicates', 'product_id', 'product_code', 'product_name', 'product_description',
+  'product_tax_percent', 'deal_tax_percent', 'variation', 'quantity', 'item_price',
+  'discount', 'sum', 'billing_frequency', 'billing_start_date', 'product_notes',
+  'product_added_at', 'product_last_edited'
+];
+
+// ── Config accessors ────────────────────────────────────────────────────────
+
+function eomGetPipelineId_() {
+  var n = parseInt(getPipedriveSettingValue_(PD_EOM_PIPELINE_KEY), 10);
+  return isNaN(n) ? EOM_DEFAULT_PIPELINE_ID : n;
+}
+function eomGetDefaultStageId_() {
+  var n = parseInt(getPipedriveSettingValue_(PD_EOM_STAGE_KEY), 10);
+  return isNaN(n) ? EOM_DEFAULT_STAGE_ID : n;
+}
+
+/** The Drive folder for generated reports — created once inside the output-docs
+ * folder and remembered. Falls back to the output-docs folder itself. */
+function eomGetReportsFolder_() {
+  var id = getPipedriveSettingValue_(PD_EOM_FOLDER_KEY);
+  if (id) { try { return DriveApp.getFolderById(id); } catch (e) {} }
+  var parent = null;
+  try { parent = DriveApp.getFolderById(OUTPUT_FOLDER_ID); } catch (e) {}
+  var folder;
+  try { folder = parent ? parent.createFolder('EOM Reports') : DriveApp.createFolder('EOM Reports'); }
+  catch (e) { return parent; }
+  setPipedriveSettingValue_(PD_EOM_FOLDER_KEY, folder.getId());
+  return folder;
+}
+
+// ── Pipedrive reads (reuse Section 31) ──────────────────────────────────────
+
+/** Stages of a pipeline, sorted by order — powers the run-screen stage picker. */
+function pdEomListStages_(pipelineId) {
+  var r = pdFetch_('get', '/stages?pipeline_id=' + encodeURIComponent(pipelineId));
+  if (!r.ok || !r.data) return [];
+  return r.data.map(function (s) { return { id: s.id, name: s.name, order_nr: s.order_nr || 0 }; })
+    .sort(function (a, b) { return a.order_nr - b.order_nr; });
+}
+
+/** Deals for a scope. 'full_billing' = all open deals in the configured pipeline;
+ * otherwise all not-deleted deals in the given stage (defaults to the EOM stage). */
+function eomListDeals_(scope, stageId) {
+  if (scope === 'full_billing') {
+    var pid = eomGetPipelineId_();
+    return pdListAllV1_('/deals?status=open').filter(function (d) { return d.pipeline_id === pid; });
+  }
+  var sid = parseInt(stageId, 10);
+  if (isNaN(sid)) sid = eomGetDefaultStageId_();
+  return pdListAllV1_('/deals?stage_id=' + sid + '&status=all_not_deleted');
+}
+
+/** Products for many deals in ONE parallel batch. Returns {dealId:[dealProduct,…]}.
+ * Never throws — a failed deal yields an empty product list. */
+function pdEomFetchProductsForDeals_(dealIds) {
+  var out = {};
+  var s = pdGetSecrets_();
+  if (!s) { dealIds.forEach(function (id) { out[id] = []; }); return out; }
+  var requests = dealIds.map(function (id) {
+    return {
+      url: s.baseV1 + '/deals/' + id + '/products?include_product_data=1&api_token=' + encodeURIComponent(s.token),
+      muteHttpExceptions: true
+    };
+  });
+  var responses;
+  try { responses = UrlFetchApp.fetchAll(requests); }
+  catch (e) { dealIds.forEach(function (id) { out[id] = []; }); return out; }
+  responses.forEach(function (resp, i) {
+    var id = dealIds[i];
+    try {
+      if (resp.getResponseCode() !== 200) { out[id] = []; return; }
+      var body = JSON.parse(resp.getContentText());
+      out[id] = body.data || [];
+    } catch (e) { out[id] = []; }
+  });
+  return out;
+}
+
+// Per-execution name caches (pipeline/stage/dealField), mirroring the standalone.
+var _eomPipelineNames_ = {};
+var _eomStageNames_ = {};
+var _eomDupKey_ = null;
+
+function eomPipelineName_(id) {
+  if (!id) return '';
+  if (_eomPipelineNames_[id] !== undefined) return _eomPipelineNames_[id];
+  var r = pdFetch_('get', '/pipelines/' + id);
+  return (_eomPipelineNames_[id] = (r.ok && r.data && r.data.name) ? r.data.name : '');
+}
+function eomStageName_(id) {
+  if (!id) return '';
+  if (_eomStageNames_[id] !== undefined) return _eomStageNames_[id];
+  var r = pdFetch_('get', '/stages/' + id);
+  return (_eomStageNames_[id] = (r.ok && r.data && r.data.name) ? r.data.name : '');
+}
+/** The 40-char key of the "Duplicates" custom deal field ('' if none). */
+function eomDuplicatesFieldKey_() {
+  if (_eomDupKey_ !== null) return _eomDupKey_;
+  _eomDupKey_ = '';
+  try {
+    pdListDealFields_().forEach(function (f) { if (f.name === 'Duplicates' && f.key) _eomDupKey_ = f.key; });
+  } catch (e) {}
+  return _eomDupKey_;
+}
+
+// ── Row building (ports TextCleaner + RowBuilder) ───────────────────────────
+
+/** Pipedrive rich-text HTML → clean plain text (ports TextCleaner.cleanHtml). */
+function eomCleanHtml_(raw) {
+  if (raw == null || raw === '') return '';
+  var s = String(raw);
+  if (s.indexOf('<') === -1 && s.indexOf('&') === -1) return s.trim();
+  var BLOCK_RE = /<\/?(?:div|p|br|li|tr|h[1-6]|blockquote|pre|ul|ol)[^>]*>/gi;
+  var TAG_RE = /<[^>]+>/g;
+  var NAMED = { '&nbsp;': ' ', '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&apos;': "'", '&#39;': "'" };
+  var t = s.replace(BLOCK_RE, '\n').replace(TAG_RE, '');
+  t = t.replace(/&(?:nbsp|amp|lt|gt|quot|apos|#39);/g, function (m) { return NAMED[m] || m; });
+  t = t.replace(/&#(\d+);/g, function (_, n) { return String.fromCharCode(parseInt(n, 10)); });
+  t = t.replace(/&#x([0-9a-fA-F]+);/g, function (_, n) { return String.fromCharCode(parseInt(n, 16)); });
+  t = t.replace(/\r\n?/g, '\n').replace(new RegExp(String.fromCharCode(160), 'g'), ' ').replace(/[ \t]+/g, ' ')
+       .replace(/ +\n/g, '\n').replace(/\n{3,}/g, '\n\n');
+  return t.trim();
+}
+
+function eomIsObj_(x) { return x !== null && typeof x === 'object'; }
+function eomResolveName_(obj) { return eomIsObj_(obj) ? (obj.name || '') : ''; }
+function eomVariationName_(product, variationId) {
+  if (!variationId || !product) return '';
+  var vars = product.product_variations || [];
+  for (var i = 0; i < vars.length; i++) { if (vars[i].id === variationId) return vars[i].name || ''; }
+  return '';
+}
+
+/** One deal (+ its products) → flat rows in EOM_COLUMNS order. A deal with no
+ * products still emits one row so it isn't lost (ports RowBuilder.build). */
+function eomBuildRows_(deal, products) {
+  var dupKey = eomDuplicatesFieldKey_();
+  var dupVal = dupKey ? deal[dupKey] : '';
+  if (dupVal == null) dupVal = '';
+  var base = {
+    processed_at: new Date().toISOString(),
+    deal_id: deal.id,
+    deal_title: deal.title || '',
+    deal_created_at: deal.add_time || '',
+    org_name: eomResolveName_(deal.org_id),
+    person_name: eomResolveName_(deal.person_id),
+    deal_owner: eomResolveName_(deal.user_id),
+    deal_value: deal.value != null ? deal.value : '',
+    currency: deal.currency || '',
+    pipeline: eomPipelineName_(deal.pipeline_id),
+    stage: eomStageName_(deal.stage_id),
+    duplicates: dupVal
+  };
+  if (!products || !products.length) {
+    return [EOM_COLUMNS.map(function (c) { return base[c] != null ? base[c] : ''; })];
+  }
+  var rows = [];
+  products.forEach(function (dp) {
+    var catalog = dp.product || {};
+    var pr = Object.assign({}, base, {
+      product_id: dp.product_id,
+      product_code: catalog.code || '',
+      product_name: dp.name || '',
+      product_description: eomCleanHtml_(catalog.description || ''),
+      product_tax_percent: catalog.tax != null ? catalog.tax : '',
+      deal_tax_percent: dp.tax != null ? dp.tax : '',
+      variation: eomVariationName_(catalog, dp.product_variation_id),
+      quantity: dp.quantity != null ? dp.quantity : '',
+      item_price: dp.item_price != null ? dp.item_price : '',
+      discount: dp.discount != null ? dp.discount : '',
+      sum: dp.sum != null ? dp.sum : '',
+      billing_frequency: dp.billing_frequency || '',
+      billing_start_date: dp.billing_start_date || '',
+      product_notes: eomCleanHtml_(dp.comments || ''),
+      product_added_at: dp.add_time || '',
+      product_last_edited: dp.last_edit || ''
+    });
+    rows.push(EOM_COLUMNS.map(function (c) { return pr[c] != null ? pr[c] : ''; }));
+  });
+  return rows;
+}
+
+// ── Report writing (ports SheetWriter + BillingDashboard) ───────────────────
+
+function eomColIndex_() {
+  var m = {};
+  EOM_COLUMNS.forEach(function (c, i) { m[c] = i; });
+  return m;
+}
+
+/** Orchestrates the whole report file: flat audit tab + per-org tabs. */
+function eomWriteReport_(rows, scope) {
+  var tz = Session.getScriptTimeZone() || 'America/Chicago';
+  var dateStr = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+  var fileName = 'EOM Report ' + dateStr + ' (' + (scope === 'full_billing' ? 'Full Billing' : 'EOM') + ')';
+
+  var ss = SpreadsheetApp.create(fileName);
+  try {
+    var folder = eomGetReportsFolder_();
+    if (folder) DriveApp.getFileById(ss.getId()).moveTo(folder);
+  } catch (e) { Logger.log('EOM: move-to-folder failed (non-fatal): ' + e.message); }
+
+  var dataSheet = ss.getSheets()[0];
+  dataSheet.setName('DATA ' + dateStr);
+  eomWriteFlatTab_(dataSheet, rows);
+
+  var orgCount = eomBuildOrgTabs_(ss, rows, eomDealBaseUrl_());
+
+  ss.setActiveSheet(dataSheet);
+  ss.moveActiveSheet(1);   // keep the flat data tab first
+  SpreadsheetApp.flush();
+  return { url: ss.getUrl(), name: fileName, orgCount: orgCount };
+}
+
+/** The flat 28-col audit tab (ports SheetWriter.writeReport). */
+function eomWriteFlatTab_(sheet, rows) {
+  var values = [EOM_COLUMNS].concat(rows);
+  sheet.getRange(1, 1, values.length, EOM_COLUMNS.length).setValues(values);
+  sheet.getRange(1, 1, 1, EOM_COLUMNS.length).setFontWeight('bold');
+  sheet.setFrozenRows(1);
+  for (var c = 1; c <= EOM_COLUMNS.length; c++) sheet.autoResizeColumn(c);
+}
+
+function eomDealBaseUrl_() {
+  var s = pdGetSecrets_();
+  return 'https://' + (s ? s.domain : 'silverfoxmarketing') + '.pipedrive.com/deal/';
+}
+
+/** Trims an org name to a legal, unique tab title (ports makeSafeTabName). */
+function eomSafeTabName_(name, usedNames) {
+  var stripped = String(name).replace(/[:\\\/\?\*\[\]]/g, '').trim();
+  var base = stripped.substring(0, 31), candidate = base, counter = 2;
+  while (usedNames[candidate.toLowerCase()]) {
+    var suffix = ' ' + counter;
+    base = stripped.substring(0, 31 - suffix.length);
+    candidate = base + suffix; counter++;
+  }
+  usedNames[candidate.toLowerCase()] = true;
+  return candidate;
+}
+
+function eomBuildFullLabel_(name, desc, vari, notes) {
+  var parts = [name, desc];
+  if (vari) parts.push(vari);
+  if (notes) parts.push(notes);
+  return parts.filter(function (p) { return p && String(p).trim(); }).join(' - ');
+}
+
+// Applies the collected formatting ops after a single bulk setValues, so we never
+// pay per-cell setValue costs (the standalone issued thousands of them per tab).
+function eomApplyOps_(sheet, ops) {
+  var SOLID = SpreadsheetApp.BorderStyle.SOLID;
+  ops.forEach(function (op) {
+    var rng = sheet.getRange(op.r, op.c, op.nr || 1, op.nc || 1);
+    if (op.merge) rng.merge();
+    if (op.bg) rng.setBackground(op.bg);
+    if (op.fg) rng.setFontColor(op.fg);
+    if (op.bold) rng.setFontWeight('bold');
+    if (op.size) rng.setFontSize(op.size);
+    if (op.italic) rng.setFontStyle('italic');
+    if (op.align) rng.setHorizontalAlignment(op.align);
+    rng.setVerticalAlignment(op.valign || 'middle');
+    if (op.wrap) rng.setWrap(true);
+    if (op.numfmt) rng.setNumberFormat(op.numfmt);
+    if (op.border) rng.setBorder(op.border[0], op.border[1], op.border[2], op.border[3], false, false, op.bc || null, SOLID);
+  });
+}
+
+/** Builds one formatted tab per organization from the in-memory flat rows.
+ * Ports BillingDashboard.buildDashboard — same layout (org header → per contact:
+ * stats, product summary + TOTAL, per-deal line items with a Pipedrive hyperlink)
+ * — but writes values in a single setValues per tab and applies formatting in
+ * blocks. Returns the org-tab count. */
+function eomBuildOrgTabs_(ss, rows, dealBase) {
+  var C = eomColIndex_();
+  var S = {
+    darkBg: '#1a3a5c', darkFg: '#ffffff', midBg: '#2d6a9f', midFg: '#ffffff',
+    contactBg: '#3a3a6c', contactFg: '#ffffff', statsBg: '#dce8f5', totalsBg: '#c8d8f0',
+    dealBg: '#e8f0e0', dealFg: '#1a3a1a', dealFieldHdrBg: '#b8d4b8', dealFieldHdrFg: '#1a3a1a',
+    dealColHdrBg: '#c8dfc8', dealColHdrFg: '#1a3a1a', altBg: '#f4f8fd', altDealBg: '#f2f7ee',
+    border: '#b0c8e8', dealBorder: '#8ab88a'
+  };
+  var SUMMARY_COLS = 8, DEAL_COLS = 7, TOTAL_COLS = 8, EMPTY = '—';
+  var MONEY = '$#,##0.00';
+
+  // org → contact → [rows]
+  var orgMap = {};
+  rows.forEach(function (row) {
+    var org = String(row[C.org_name] || '').trim();
+    if (!org) return;
+    var contact = String(row[C.person_name] || 'Unassigned').trim() || 'Unassigned';
+    if (!orgMap[org]) orgMap[org] = {};
+    if (!orgMap[org][contact]) orgMap[org][contact] = [];
+    orgMap[org][contact].push(row);
+  });
+  var orgs = Object.keys(orgMap).sort();
+  var used = {};
+
+  orgs.forEach(function (org) {
+    var sheet = ss.insertSheet(eomSafeTabName_(org, used));
+    [150, 180, 220, 110, 70, 100, 100, 320].forEach(function (w, i) { sheet.setColumnWidth(i + 1, w); });
+
+    var matrix = [], ops = [];
+    function row8(a) { var r = a.slice(0, 8); while (r.length < 8) r.push(''); matrix.push(r); return matrix.length; }
+
+    var rOrg = row8([org]);
+    ops.push({ r: rOrg, c: 1, nc: TOTAL_COLS, merge: true, bg: S.darkBg, fg: S.darkFg, bold: true, size: 16, align: 'center', border: [true, true, true, true], bc: S.border });
+    row8([]);
+
+    Object.keys(orgMap[org]).sort().forEach(function (contact) {
+      var cRows = orgMap[org][contact];
+
+      // Stats: unique deals + duplicate count
+      var seen = {}, orderCount = 0, totalDups = 0;
+      cRows.forEach(function (row) {
+        var id = row[C.deal_id];
+        if (!seen[id]) { seen[id] = true; orderCount++; totalDups += Number(row[C.duplicates]) || 0; }
+      });
+
+      // Product summary grouped by code + variation
+      var sumMap = {};
+      cRows.forEach(function (row) {
+        var code = String(row[C.product_code] || '').trim();
+        var vari = String(row[C.variation] || '').trim();
+        var note = String(row[C.product_notes] || '').trim();
+        var key = code + '|||' + vari;
+        if (!sumMap[key]) sumMap[key] = { code: code, name: String(row[C.product_name] || '').trim(), desc: String(row[C.product_description] || '').trim(), vari: vari, qty: 0, amt: 0, notes: {} };
+        sumMap[key].qty += Number(row[C.quantity]) || 0;
+        sumMap[key].amt += Number(row[C.sum]) || 0;
+        if (note) sumMap[key].notes[note] = true;
+      });
+      var summaryRows = Object.keys(sumMap).map(function (k) { return sumMap[k]; }).sort(function (a, b) {
+        return a.code < b.code ? -1 : a.code > b.code ? 1 : a.vari < b.vari ? -1 : a.vari > b.vari ? 1 : 0;
+      });
+      var totalQty = 0, totalAmt = 0;
+      summaryRows.forEach(function (p) { totalQty += p.qty; totalAmt += p.amt; });
+
+      // Per-deal grouping
+      var dealMap = {};
+      cRows.forEach(function (row) {
+        var id = row[C.deal_id];
+        if (!dealMap[id]) dealMap[id] = { id: id, title: String(row[C.deal_title] || '').trim(), created: String(row[C.deal_created_at] || '').trim(), owner: String(row[C.deal_owner] || '').trim(), duplicates: Number(row[C.duplicates]) || 0, dealValue: Number(row[C.deal_value]) || 0, lines: [] };
+        dealMap[id].lines.push({ code: String(row[C.product_code] || '').trim(), name: String(row[C.product_name] || '').trim(), vari: String(row[C.variation] || '').trim(), qty: Number(row[C.quantity]) || 0, price: Number(row[C.item_price]) || 0, sum: Number(row[C.sum]) || 0, desc: String(row[C.product_description] || '').trim(), notes: String(row[C.product_notes] || '').trim() });
+      });
+      var deals = Object.keys(dealMap).map(function (k) { return dealMap[k]; }).sort(function (a, b) { return a.id - b.id; });
+
+      // Contact header
+      var rc = row8(['Contact: ' + contact]);
+      ops.push({ r: rc, c: 1, nc: TOTAL_COLS, merge: true, bg: S.contactBg, fg: S.contactFg, bold: true, size: 11, align: 'center', border: [true, true, true, true], bc: S.border });
+      // Stats row
+      var rs = row8(['Orders (unique deals):', orderCount, '', 'Total duplicates:', totalDups]);
+      ops.push({ r: rs, c: 1, nc: TOTAL_COLS, bg: S.statsBg, size: 10, border: [false, true, true, true], bc: S.border });
+      row8([]);
+
+      // Summary label + headers
+      var rSl = row8(['Overall product summary']);
+      ops.push({ r: rSl, c: 1, nc: SUMMARY_COLS, merge: true, bg: S.midBg, fg: S.midFg, bold: true, size: 13, align: 'center', border: [true, true, true, true], bc: S.border });
+      var rSh = row8(['Product Code', 'Product Name', 'Description', 'Variation', 'Qty', 'Total Value', 'Notes', 'Full Label']);
+      ops.push({ r: rSh, c: 1, nc: SUMMARY_COLS, bg: S.darkBg, fg: S.darkFg, bold: true, size: 10, align: 'center', border: [true, true, true, true], bc: S.border });
+      summaryRows.forEach(function (p, i) {
+        var notesStr = Object.keys(p.notes).join(' | ');
+        var rr = row8([p.code, p.name, p.desc, p.vari || EMPTY, p.qty, p.amt, notesStr, eomBuildFullLabel_(p.name, p.desc, p.vari, notesStr)]);
+        ops.push({ r: rr, c: 1, nc: SUMMARY_COLS, bg: i % 2 === 0 ? '#ffffff' : S.altBg, size: 10, wrap: true, align: 'center', border: [false, true, false, true], bc: S.border });
+        ops.push({ r: rr, c: 6, numfmt: MONEY });
+      });
+      // Totals row
+      var rT = row8(['TOTAL', '', '', '', totalQty, totalAmt, '', '']);
+      ops.push({ r: rT, c: 1, nc: 4, merge: true, bold: true, size: 10, align: 'center' });
+      ops.push({ r: rT, c: 5, bold: true, size: 10, align: 'center' });
+      ops.push({ r: rT, c: 6, bold: true, size: 10, align: 'center', numfmt: MONEY });
+      ops.push({ r: rT, c: 7, nc: 2, merge: true, align: 'center' });
+      ops.push({ r: rT, c: 1, nc: SUMMARY_COLS, bg: S.totalsBg, border: [true, true, true, true], bc: S.border });
+      row8([]);
+
+      // Per-deal breakdown
+      var rPd = row8(['Per-deal breakdown']);
+      ops.push({ r: rPd, c: 1, nc: DEAL_COLS, merge: true, bg: S.dealBg, fg: S.dealFg, bold: true, size: 16, align: 'center', border: [true, true, true, true], bc: S.dealBorder });
+      deals.forEach(function (deal) {
+        var url = dealBase + deal.id;
+        var safeTitle = (deal.title || ('Deal ' + deal.id)).replace(/"/g, '""');
+        var createdDate = deal.created ? deal.created.substring(0, 10) : '';
+        // Deal field labels
+        var rDl = row8(['Deal', 'Owner', 'Created', 'Duplicates', 'Deal Value', '', '']);
+        ops.push({ r: rDl, c: 1, nc: DEAL_COLS, bg: S.dealFieldHdrBg, fg: S.dealFieldHdrFg, bold: true, size: 9, italic: true, align: 'center', border: [true, true, false, true], bc: S.dealBorder });
+        // Deal data (col 1 is a HYPERLINK formula written via setValues)
+        var rDd = row8(['=HYPERLINK("' + url + '","' + safeTitle + '")', deal.owner, createdDate, deal.duplicates, deal.dealValue, '', '']);
+        ops.push({ r: rDd, c: 1, nc: DEAL_COLS, bg: S.dealBg, fg: S.dealFg, bold: true, size: 12, align: 'center', border: [false, true, true, true], bc: S.dealBorder });
+        ops.push({ r: rDd, c: 5, numfmt: MONEY });
+        // Product headers
+        var rPh = row8(['Product Code', 'Product Name', 'Variation', 'Quantity', 'Unit Price', 'Amount', 'Description']);
+        ops.push({ r: rPh, c: 1, nc: DEAL_COLS, bg: S.dealColHdrBg, fg: S.dealColHdrFg, bold: true, size: 9, align: 'center', border: [false, true, true, true], bc: S.dealBorder });
+        // Line items
+        var lastLineRow = rPh;
+        deal.lines.forEach(function (line, i) {
+          var descNotes = [line.desc, line.notes].filter(function (s) { return s && s.trim(); }).join(' - ');
+          var rL = row8([line.code, line.name, line.vari || EMPTY, line.qty, line.price, line.sum, descNotes]);
+          ops.push({ r: rL, c: 1, nc: DEAL_COLS, bg: i % 2 === 0 ? '#ffffff' : S.altDealBg, size: 10, wrap: true, align: 'center', border: [false, true, false, true], bc: S.dealBorder });
+          ops.push({ r: rL, c: 5, numfmt: MONEY });
+          ops.push({ r: rL, c: 6, numfmt: MONEY });
+          lastLineRow = rL;
+        });
+        ops.push({ r: lastLineRow, c: 1, nc: DEAL_COLS, border: [false, true, true, true], bc: S.dealBorder }); // close the deal block
+        row8([]);
+      });
+      row8([]); row8([]);
+    });
+
+    sheet.getRange(1, 1, matrix.length, 8).setValues(matrix);
+    eomApplyOps_(sheet, ops);
+  });
+
+  return orgs.length;
+}
+
+// ── Progress (cross-execution, mirrors the run-progress pattern) ─────────────
+
+function eomSetProgress_(runId, obj) {
+  try { PropertiesService.getScriptProperties().setProperty('eom_progress_' + runId, JSON.stringify(obj)); } catch (e) {}
+}
+/** Client-callable: poll for report progress. */
+function getEomProgress(runId) {
+  try { return JSON.parse(PropertiesService.getScriptProperties().getProperty('eom_progress_' + runId) || '{}'); }
+  catch (e) { return {}; }
+}
+/** Client-callable: clear a finished run's progress. */
+function clearEomProgress(runId) {
+  try { PropertiesService.getScriptProperties().deleteProperty('eom_progress_' + runId); } catch (e) {}
+  return { ok: true };
+}
+
+// ── Client-callable entry points ────────────────────────────────────────────
+
+/** Bootstrap for the EOM view: connection state, pipeline, default stage, stages. */
+function getEomBootstrap() {
+  var status = getPipedriveStatus();
+  if (!status.configured) return { configured: false };
+  var pipelineId = eomGetPipelineId_();
+  return {
+    configured: true,
+    pipelineId: pipelineId,
+    defaultStageId: eomGetDefaultStageId_(),
+    stages: pdEomListStages_(pipelineId)
+  };
+}
+
+/** Client-callable: persist the EOM pipeline + default stage. */
+function saveEomSettings(pipelineId, defaultStageId) {
+  var pid = parseInt(pipelineId, 10);
+  var sid = parseInt(defaultStageId, 10);
+  setPipedriveSettingValue_(PD_EOM_PIPELINE_KEY, isNaN(pid) ? '' : String(pid));
+  setPipedriveSettingValue_(PD_EOM_STAGE_KEY, isNaN(sid) ? '' : String(sid));
+  return { ok: true, pipelineId: eomGetPipelineId_(), defaultStageId: eomGetDefaultStageId_(), stages: pdEomListStages_(eomGetPipelineId_()) };
+}
+
+/**
+ * Client-callable: pull deals for the scope/stage, fetch products in parallel
+ * batches, and build a NEW dated report file. Emits progress under runId.
+ * @returns {{ok:boolean, url?, name?, orgCount?, dealCount?, rowCount?, error?}}
+ */
+function generateEomReport(scope, stageId, runId) {
+  runId = String(runId || 'eom');
+  try {
+    if (!pdGetSecrets_()) { eomSetProgress_(runId, { message: 'Pipedrive not connected.', percent: 100, done: true, error: 'Pipedrive is not configured.' }); return { ok: false, error: 'Pipedrive is not configured.' }; }
+    eomSetProgress_(runId, { message: 'Fetching deals…', percent: 5, done: false, error: null });
+    var deals = eomListDeals_(scope, stageId);
+    if (!deals.length) {
+      var none = 'No deals found for the selected ' + (scope === 'full_billing' ? 'billing pipeline.' : 'stage.');
+      eomSetProgress_(runId, { message: none, percent: 100, done: true, error: none });
+      return { ok: false, error: none };
+    }
+
+    var allRows = [], CHUNK = 100;
+    for (var i = 0; i < deals.length; i += CHUNK) {
+      var batch = deals.slice(i, i + CHUNK);
+      eomSetProgress_(runId, { message: 'Fetching products ' + Math.min(i + CHUNK, deals.length) + ' / ' + deals.length + '…', percent: 5 + Math.round(45 * (i / deals.length)), done: false, error: null });
+      var productsByDeal = pdEomFetchProductsForDeals_(batch.map(function (d) { return d.id; }));
+      batch.forEach(function (deal) { allRows = allRows.concat(eomBuildRows_(deal, productsByDeal[deal.id] || [])); });
+      if (i + CHUNK < deals.length) Utilities.sleep(800);
+    }
+
+    eomSetProgress_(runId, { message: 'Building report…', percent: 60, done: false, error: null });
+    var result = eomWriteReport_(allRows, scope);
+    eomSetProgress_(runId, { message: 'Done — ' + result.orgCount + ' organization tab(s).', percent: 100, done: true, error: null, url: result.url });
+    return { ok: true, url: result.url, name: result.name, orgCount: result.orgCount, dealCount: deals.length, rowCount: allRows.length };
+  } catch (e) {
+    eomSetProgress_(runId, { message: 'Error: ' + e.message, percent: 100, done: true, error: e.message });
+    return { ok: false, error: e.message };
+  }
+}
+
+
+// ============================================================================
 // END OF SCRIPT
 // ============================================================================

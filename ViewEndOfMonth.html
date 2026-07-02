@@ -1,0 +1,292 @@
+<!-- ════════════════════════════════════════════════════════════════════════════
+     END OF MONTH VIEW — generates the EOM billing report from Pipedrive.
+     Pulls billing deals by pipeline stage (getEomBootstrap → stages), flattens
+     each deal's products, and builds a NEW dated spreadsheet with one tab per
+     organization. Long-running: generateEomReport runs server-side while we poll
+     getEomProgress for a live bar. All symbols prefixed `eom`. (escHtml / toast /
+     AppBusy / CustomSelect from SharedUtils.)
+════════════════════════════════════════════════════════════════════════════ -->
+<div class="view" id="view-end-of-month" hidden>
+  <div class="eom-scroll">
+    <div class="eom-wrap">
+      <div class="eom-head">
+        <h2 class="u-h2" style="margin:0;">End of Month Report</h2>
+        <button type="button" class="eom-refresh" onclick="eomReload()">&#8635; Refresh</button>
+      </div>
+      <p class="u-hint" style="max-width:70ch;">Pulls billing deals from Pipedrive by pipeline stage, flattens each deal's products, and builds a <strong>new dated spreadsheet</strong> with one tab per organization (product summary + per-deal breakdown). Move deals into the <em>EOM Merge</em> stage, then generate.</p>
+
+      <!-- Not-configured -->
+      <div id="eomNotConfigured" class="eom-panel eom-note" style="display:none;">
+        Pipedrive isn&rsquo;t connected yet. Connect it under <strong>System Settings &rarr; Pipedrive Settings</strong>, then come back.
+      </div>
+
+      <!-- Main controls -->
+      <div id="eomControls" class="eom-panel" style="display:none;">
+        <div class="eom-field">
+          <label for="eomScope">What to pull</label>
+          <select id="eomScope" onchange="eomScopeChanged()">
+            <option value="stage">By stage</option>
+            <option value="full_billing">Full billing (all open deals)</option>
+          </select>
+        </div>
+        <div class="eom-field" id="eomStageField">
+          <label for="eomStage">Stage</label>
+          <select id="eomStage"></select>
+          <div class="u-hint" style="margin-top:4px;">Defaults to the EOM Merge stage. Point it at another stage (e.g. <em>EOM Exported</em>) to test a report after the real deals have moved on.</div>
+        </div>
+        <div class="eom-actions">
+          <button type="button" class="eom-btn-primary" id="eomGenBtn" onclick="eomGenerate()">Generate Report</button>
+        </div>
+
+        <!-- Progress (mirrors Run Order) -->
+        <div id="eomProgressSection">
+          <div id="eomProgressStep">Starting&hellip;</div>
+          <div class="eom-progress-track"><div class="eom-progress-fill" id="eomProgressFill"></div></div>
+          <div class="eom-progress-meta"><span id="eomProgressElapsed"></span><span id="eomProgressPercent">0%</span></div>
+        </div>
+
+        <!-- Result -->
+        <div id="eomResult" class="eom-result" style="display:none;"></div>
+      </div>
+
+      <!-- Advanced: which pipeline/stage the report reads -->
+      <div id="eomAdvanced" class="eom-panel eom-advanced" style="display:none;">
+        <button type="button" class="eom-collapse-head" id="eomAdvToggle" onclick="eomToggleAdvanced()" aria-expanded="false">
+          <span>Report settings</span><span class="eom-arrow" id="eomAdvArrow">&#9656;</span>
+        </button>
+        <div id="eomAdvBody" style="display:none;">
+          <div class="u-hint">Which Pipedrive pipeline the report reads, and the stage selected by default. Defaults: pipeline <code>4</code> (Billing), stage <code>44</code> (EOM Merge).</div>
+          <div class="eom-adv-grid">
+            <div class="eom-field">
+              <label for="eomCfgPipeline">Billing pipeline ID</label>
+              <input type="number" id="eomCfgPipeline" min="0" placeholder="4">
+            </div>
+            <div class="eom-field">
+              <label for="eomCfgStage">Default stage</label>
+              <select id="eomCfgStage"></select>
+            </div>
+          </div>
+          <div class="eom-actions">
+            <button type="button" class="eom-btn-ghost" id="eomCfgSaveBtn" onclick="eomSaveSettings()">Save settings</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<style>
+  #view-end-of-month { height: 100%; color: var(--text); }
+  #view-end-of-month .eom-scroll { height: 100%; overflow-y: auto; padding: var(--space-5) var(--space-6); }
+  #view-end-of-month .eom-wrap { max-width: 760px; }
+  #view-end-of-month .eom-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+  #view-end-of-month .eom-refresh { padding: 6px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); cursor: pointer; }
+
+  #view-end-of-month .eom-panel { margin-top: var(--space-4); padding: var(--space-4); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+  #view-end-of-month .eom-note { color: var(--text-2); }
+
+  #view-end-of-month .eom-field { margin-bottom: var(--space-3); }
+  #view-end-of-month .eom-field label { display: block; font-size: var(--fs-sm); font-weight: 600; color: var(--text-2); margin-bottom: 4px; }
+  #view-end-of-month .eom-field select,
+  #view-end-of-month .eom-field input { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); }
+  #view-end-of-month .eom-field select:focus,
+  #view-end-of-month .eom-field input:focus { outline: none; border-color: var(--accent); }
+
+  #view-end-of-month .eom-actions { display: flex; gap: var(--space-2); margin-top: var(--space-2); }
+  #view-end-of-month .eom-btn-primary { padding: 8px 16px; border: 1px solid var(--accent); border-radius: var(--radius-sm); background: var(--accent); color: #fff; cursor: pointer; font-weight: 600; }
+  #view-end-of-month .eom-btn-primary:disabled { opacity: 0.55; cursor: default; }
+  #view-end-of-month .eom-btn-ghost { padding: 7px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); cursor: pointer; }
+
+  /* Progress (values mirror #view-run) */
+  #view-end-of-month #eomProgressSection { display: none; margin-top: var(--space-3); padding: 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; }
+  #view-end-of-month #eomProgressStep { font-size: 12px; color: var(--text); margin-bottom: 8px; min-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #view-end-of-month .eom-progress-track { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  #view-end-of-month .eom-progress-fill { height: 100%; background: var(--accent); border-radius: 3px; width: 0%; transition: width 0.5s ease, background 0.3s ease; }
+  #view-end-of-month .eom-progress-fill.done { background: var(--success); }
+  #view-end-of-month .eom-progress-fill.error { background: var(--danger); }
+  #view-end-of-month .eom-progress-meta { display: flex; justify-content: space-between; margin-top: 5px; font-size: 11px; color: var(--text-3); }
+  #view-end-of-month #eomProgressPercent { font-weight: bold; color: var(--text-2); }
+
+  #view-end-of-month .eom-result { margin-top: var(--space-3); padding: 12px; border: 1px solid var(--success, #1c7a3a); border-radius: var(--radius-sm); background: var(--success-weak, #dcefe0); color: var(--text); }
+  #view-end-of-month .eom-result.err { border-color: var(--danger, #b3261e); background: var(--danger-weak, #f6dcdc); }
+  #view-end-of-month .eom-result a { color: var(--accent); font-weight: 600; }
+
+  #view-end-of-month .eom-advanced .eom-collapse-head { display: flex; align-items: center; justify-content: space-between; width: 100%; background: none; border: none; padding: 0; color: var(--text); font-weight: 700; font-family: var(--font-head); cursor: pointer; }
+  #view-end-of-month .eom-arrow { color: var(--text-3); }
+  #view-end-of-month .eom-adv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); margin-top: var(--space-2); }
+  :root[data-viewport="mobile"] #view-end-of-month .eom-adv-grid { grid-template-columns: 1fr; }
+</style>
+
+<script>
+  // (SPA single JS scope — symbols prefixed `eom`.)
+  window.VIEW_INITS = window.VIEW_INITS || {};
+  VIEW_INITS['view-end-of-month'] = function () { eomLoadBootstrap(); };
+
+  var eomStages = [];          // [{id,name,order_nr}]
+  var eomDefaultStageId = null;
+  var eomRunId = null;
+  var eomPoll = null;
+  var eomStart = 0;
+
+  function eomEl(id) { return document.getElementById(id); }
+
+  function eomLoadBootstrap() {
+    google.script.run
+      .withSuccessHandler(eomOnBootstrap)
+      .withFailureHandler(function (e) {
+        toast('Could not load EOM settings: ' + escHtml((e && e.message) || String(e)), 'error');
+      })
+      .getEomBootstrap();
+  }
+  function eomReload() { eomLoadBootstrap(); }
+
+  function eomOnBootstrap(b) {
+    var notCfg = eomEl('eomNotConfigured'), controls = eomEl('eomControls'), adv = eomEl('eomAdvanced');
+    if (!b || !b.configured) {
+      notCfg.style.display = 'block';
+      controls.style.display = 'none';
+      adv.style.display = 'none';
+      return;
+    }
+    notCfg.style.display = 'none';
+    controls.style.display = 'block';
+    adv.style.display = 'block';
+
+    eomStages = b.stages || [];
+    eomDefaultStageId = b.defaultStageId;
+
+    eomFillStageSelect(eomEl('eomStage'), eomDefaultStageId);
+    eomFillStageSelect(eomEl('eomCfgStage'), eomDefaultStageId);
+    eomEl('eomCfgPipeline').value = (b.pipelineId != null ? b.pipelineId : '');
+
+    eomScopeChanged();
+    // Re-enhance the now-populated selects (idempotent).
+    if (window.CustomSelect && CustomSelect.enhanceAll) {
+      try { CustomSelect.enhanceAll(eomEl('view-end-of-month')); } catch (e) {}
+    }
+  }
+
+  function eomFillStageSelect(sel, selectedId) {
+    if (!sel) return;
+    if (!eomStages.length) { sel.innerHTML = '<option value="">(no stages found)</option>'; return; }
+    var html = '';
+    eomStages.forEach(function (s) {
+      html += '<option value="' + s.id + '"' + (String(s.id) === String(selectedId) ? ' selected' : '') + '>' +
+              escHtml(s.name) + ' (' + s.id + ')</option>';
+    });
+    sel.innerHTML = html;
+  }
+
+  function eomScopeChanged() {
+    var byStage = eomEl('eomScope').value === 'stage';
+    eomEl('eomStageField').style.display = byStage ? 'block' : 'none';
+  }
+
+  function eomToggleAdvanced() {
+    var body = eomEl('eomAdvBody');
+    var open = body.style.display !== 'block';
+    body.style.display = open ? 'block' : 'none';
+    eomEl('eomAdvArrow').innerHTML = open ? '&#9662;' : '&#9656;';
+    eomEl('eomAdvToggle').setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+
+  function eomSaveSettings() {
+    var pid = eomEl('eomCfgPipeline').value;
+    var sid = eomEl('eomCfgStage').value;
+    var btn = eomEl('eomCfgSaveBtn');
+    btn.disabled = true;
+    google.script.run
+      .withSuccessHandler(function (res) {
+        btn.disabled = false;
+        if (!res || !res.ok) { toast('Save failed.', 'error'); return; }
+        eomStages = res.stages || [];
+        eomDefaultStageId = res.defaultStageId;
+        eomFillStageSelect(eomEl('eomStage'), eomDefaultStageId);
+        eomFillStageSelect(eomEl('eomCfgStage'), eomDefaultStageId);
+        if (window.CustomSelect && CustomSelect.enhanceAll) { try { CustomSelect.enhanceAll(eomEl('view-end-of-month')); } catch (e) {} }
+        toast('Report settings saved.', 'success');
+      })
+      .withFailureHandler(function (e) { btn.disabled = false; toast('Save failed: ' + escHtml((e && e.message) || String(e)), 'error'); })
+      .saveEomSettings(pid, sid);
+  }
+
+  function eomGenerate() {
+    if (window.AppBusy && (AppBusy.is('run') || AppBusy.is('import'))) {
+      toast('A run or import is in progress. Wait for it to finish before generating a report.', 'error');
+      return;
+    }
+    var scope = eomEl('eomScope').value;
+    var stageId = eomEl('eomStage').value;
+    if (scope === 'stage' && !stageId) { toast('Pick a stage first.', 'error'); return; }
+
+    if (window.AppBusy) AppBusy.set('eom', true);
+    eomRunId = 'eom_' + (new Date()).getTime();
+    eomStart = (new Date()).getTime();
+
+    var btn = eomEl('eomGenBtn');
+    btn.disabled = true;
+    eomEl('eomResult').style.display = 'none';
+    eomEl('eomProgressSection').style.display = 'block';
+    eomUpdateProgress({ message: 'Starting…', percent: 0, done: false, error: null });
+
+    eomPoll = setInterval(function () {
+      var elapsed = Math.round(((new Date()).getTime() - eomStart) / 1000);
+      eomEl('eomProgressElapsed').textContent = elapsed + 's';
+      google.script.run
+        .withSuccessHandler(function (p) { if (p && p.message) eomUpdateProgress(p); if (p && p.done) eomStopPoll(); })
+        .getEomProgress(eomRunId);
+    }, 1500);
+
+    google.script.run
+      .withSuccessHandler(eomOnDone)
+      .withFailureHandler(eomOnFail)
+      .generateEomReport(scope, stageId, eomRunId);
+  }
+
+  function eomStopPoll() { if (eomPoll) { clearInterval(eomPoll); eomPoll = null; } }
+
+  function eomUpdateProgress(p) {
+    var fill = eomEl('eomProgressFill');
+    eomEl('eomProgressStep').textContent = p.message || 'Working…';
+    eomEl('eomProgressPercent').textContent = (p.percent || 0) + '%';
+    fill.style.width = (p.percent || 0) + '%';
+    fill.classList.remove('done', 'error');
+    if (p.done && !p.error) fill.classList.add('done');
+    if (p.error) fill.classList.add('error');
+  }
+
+  function eomFinish() {
+    eomStopPoll();
+    if (window.AppBusy) AppBusy.set('eom', false);
+    eomEl('eomGenBtn').disabled = false;
+    if (eomRunId) { try { google.script.run.clearEomProgress(eomRunId); } catch (e) {} }
+  }
+
+  function eomOnDone(res) {
+    eomFinish();
+    var box = eomEl('eomResult');
+    box.style.display = 'block';
+    if (res && res.ok) {
+      eomUpdateProgress({ message: 'Done.', percent: 100, done: true, error: null });
+      box.classList.remove('err');
+      box.innerHTML = 'Built <strong>' + res.orgCount + '</strong> organization tab' + (res.orgCount === 1 ? '' : 's') +
+        ' from <strong>' + res.dealCount + '</strong> deal' + (res.dealCount === 1 ? '' : 's') +
+        ' (' + res.rowCount + ' product row' + (res.rowCount === 1 ? '' : 's') + '). ' +
+        '<a href="' + escHtml(res.url) + '" target="_blank" rel="noopener">Open the report &rarr;</a>';
+    } else {
+      eomUpdateProgress({ message: (res && res.error) || 'Failed.', percent: 100, done: true, error: (res && res.error) || 'Failed.' });
+      box.classList.add('err');
+      box.textContent = (res && res.error) || 'Report failed.';
+    }
+  }
+
+  function eomOnFail(e) {
+    eomFinish();
+    eomUpdateProgress({ message: 'Error: ' + ((e && e.message) || String(e)), percent: 100, done: true, error: 'error' });
+    var box = eomEl('eomResult');
+    box.style.display = 'block';
+    box.classList.add('err');
+    box.textContent = 'Report failed: ' + ((e && e.message) || String(e));
+  }
+</script>

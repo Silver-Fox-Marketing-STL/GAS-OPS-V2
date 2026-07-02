@@ -575,6 +575,9 @@
       <div class="nav-item" id="nav-view-vin-inbox" onclick="navTo('view-vin-inbox')">
         <span class="icon">&#128229;</span> VIN Inbox
       </div>
+      <div class="nav-item" id="nav-view-end-of-month" onclick="navTo('view-end-of-month')">
+        <span class="icon">&#128202;</span> End of Month
+      </div>
       <div class="nav-item" id="nav-view-utilities" onclick="navTo('view-utilities')">
         <span class="icon">&#128295;</span> Utilities
       </div>
@@ -628,6 +631,7 @@
         <?!= include_('ViewDataSources') ?>
         <?!= include_('ViewVinLog') ?>
         <?!= include_('ViewVinInbox') ?>
+        <?!= include_('ViewEndOfMonth') ?>
         <?!= include_('ViewRules') ?>
         <?!= include_('ViewNorm') ?>
         <?!= include_('ViewUtilities') ?>
@@ -656,6 +660,7 @@
       'view-datasources': 'Data Sources',
       'view-vinlog': 'VIN Logs',
       'view-vin-inbox': 'VIN Inbox',
+      'view-end-of-month': 'End of Month',
       'view-rules':  'Dealer Rules',
       'view-norm':   'Normalization',
       'view-utilities': 'Utilities',
