@@ -8246,28 +8246,76 @@ function eomGroupForReport_(rows) {
   });
 }
 
-/** Orchestrates the whole report file: flat audit tab + per-org tabs. */
-function eomWriteReport_(rows, scope) {
+/** "July 2026" in the script timezone — the default report-month label. */
+function eomCurrentMonthLabel_() {
+  var tz = Session.getScriptTimeZone() || 'America/Chicago';
+  return Utilities.formatDate(new Date(), tz, 'MMMM yyyy');
+}
+
+/** Finds/creates "<monthLabel> EOM Reports" inside the reports folder. */
+function eomGetMonthFolder_(monthLabel) {
+  var parent = eomGetReportsFolder_();
+  var name = monthLabel + ' EOM Reports';
+  if (parent) {
+    var it = parent.getFoldersByName(name);
+    return it.hasNext() ? it.next() : parent.createFolder(name);
+  }
+  return DriveApp.createFolder(name);
+}
+
+/** Replace-by-name: trash any same-name file in the folder, then create. */
+function eomPutFile_(folder, blob, name) {
+  var it = folder.getFilesByName(name);
+  while (it.hasNext()) it.next().setTrashed(true);
+  return folder.createFile(blob.setName(name));
+}
+
+/** Orchestrates the whole report bundle into the month folder: the spreadsheet
+ *  (flat audit tab + per-org tabs, unchanged content) plus one PDF per dealer.
+ *  A single dealer's PDF failure is non-fatal (logged, run continues). */
+function eomWriteReport_(rows, scope, monthLabel, runId) {
   var tz = Session.getScriptTimeZone() || 'America/Chicago';
   var dateStr = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
   var fileName = 'EOM Report ' + dateStr + ' (' + (scope === 'full_billing' ? 'Full Billing' : 'EOM') + ')';
 
-  var ss = SpreadsheetApp.create(fileName);
-  try {
-    var folder = eomGetReportsFolder_();
-    if (folder) DriveApp.getFileById(ss.getId()).moveTo(folder);
-  } catch (e) { Logger.log('EOM: move-to-folder failed (non-fatal): ' + e.message); }
+  var group = eomGroupForReport_(rows);
+  var folder = null;
+  try { folder = eomGetMonthFolder_(monthLabel); }
+  catch (e) { Logger.log('EOM: month folder failed (non-fatal): ' + e.message); }
 
+  // Spreadsheet -> month folder (replace-by-name so re-runs stay clean).
+  var ss = SpreadsheetApp.create(fileName);
   var dataSheet = ss.getSheets()[0];
   dataSheet.setName('DATA ' + dateStr);
   eomWriteFlatTab_(dataSheet, rows);
-
-  var orgCount = eomBuildOrgTabs_(ss, eomGroupForReport_(rows));
-
+  var orgCount = eomBuildOrgTabs_(ss, group);
   ss.setActiveSheet(dataSheet);
   ss.moveActiveSheet(1);   // keep the flat data tab first
   SpreadsheetApp.flush();
-  return { url: ss.getUrl(), name: fileName, orgCount: orgCount };
+  try {
+    if (folder) {
+      var itSS = folder.getFilesByName(fileName);
+      while (itSS.hasNext()) itSS.next().setTrashed(true);
+      DriveApp.getFileById(ss.getId()).moveTo(folder);
+    }
+  } catch (e) { Logger.log('EOM: move spreadsheet failed (non-fatal): ' + e.message); }
+
+  // One PDF per dealer.
+  var dealBase = eomDealBaseUrl_(), pdfCount = 0;
+  if (folder) {
+    for (var i = 0; i < group.length; i++) {
+      var og = group[i];
+      if (runId) eomSetProgress_(runId, { message: 'PDF ' + (i + 1) + ' / ' + group.length + ' — ' + og.org + '…', percent: 65 + Math.round(30 * (i / group.length)), done: false, error: null });
+      try {
+        var html = eomDealerPdfHtml_(og, monthLabel, dealBase);
+        var pdfName = og.org.replace(/[\\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim() + ' — ' + monthLabel + ' EOM.pdf';
+        eomPutFile_(folder, eomHtmlToPdf_(html, pdfName), pdfName);
+        pdfCount++;
+      } catch (e) { Logger.log('EOM: PDF failed for ' + og.org + ' (non-fatal): ' + e.message); }
+    }
+  }
+
+  return { url: ss.getUrl(), folderUrl: folder ? folder.getUrl() : ss.getUrl(), name: fileName, orgCount: orgCount, pdfCount: pdfCount };
 }
 
 /** The flat 28-col audit tab (ports SheetWriter.writeReport). */
@@ -8473,8 +8521,9 @@ function saveEomSettings(pipelineId, defaultStageId) {
  * batches, and build a NEW dated report file. Emits progress under runId.
  * @returns {{ok:boolean, url?, name?, orgCount?, dealCount?, rowCount?, error?}}
  */
-function generateEomReport(scope, stageId, runId) {
+function generateEomReport(scope, stageId, runId, monthLabel) {
   runId = String(runId || 'eom');
+  monthLabel = String(monthLabel || '').trim() || eomCurrentMonthLabel_();
   try {
     if (!pdGetSecrets_()) { eomSetProgress_(runId, { message: 'Pipedrive not connected.', percent: 100, done: true, error: 'Pipedrive is not configured.' }); return { ok: false, error: 'Pipedrive is not configured.' }; }
     eomSetProgress_(runId, { message: 'Fetching deals…', percent: 5, done: false, error: null });
@@ -8494,10 +8543,10 @@ function generateEomReport(scope, stageId, runId) {
       if (i + CHUNK < deals.length) Utilities.sleep(800);
     }
 
-    eomSetProgress_(runId, { message: 'Building report…', percent: 60, done: false, error: null });
-    var result = eomWriteReport_(allRows, scope);
-    eomSetProgress_(runId, { message: 'Done — ' + result.orgCount + ' organization tab(s).', percent: 100, done: true, error: null, url: result.url });
-    return { ok: true, url: result.url, name: result.name, orgCount: result.orgCount, dealCount: deals.length, rowCount: allRows.length };
+    eomSetProgress_(runId, { message: 'Building spreadsheet…', percent: 60, done: false, error: null });
+    var result = eomWriteReport_(allRows, scope, monthLabel, runId);
+    eomSetProgress_(runId, { message: 'Done — ' + result.orgCount + ' org tab(s), ' + result.pdfCount + ' PDF(s).', percent: 100, done: true, error: null, url: result.folderUrl });
+    return { ok: true, url: result.url, folderUrl: result.folderUrl, name: result.name, orgCount: result.orgCount, pdfCount: result.pdfCount, dealCount: deals.length, rowCount: allRows.length, monthLabel: monthLabel };
   } catch (e) {
     eomSetProgress_(runId, { message: 'Error: ' + e.message, percent: 100, done: true, error: e.message });
     return { ok: false, error: e.message };
