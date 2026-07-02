@@ -33,7 +33,7 @@
  */
 
 // ── Connection: data by ID only (paste the SF_EOM_REPORTS id here) ──
-var INDEX_SHEET_ID = '';       // <-- paste the id logged by setupEomReportsIndex()
+var INDEX_SHEET_ID = '1p28o2IbGFrHOqKVs_DUpAtyzM6LFYyAKUpsBB7NwFxg';       // <-- paste the id logged by setupEomReportsIndex()
 var INDEX_TAB = 'REPORTS';
 // 0-based column map — MUST match the main app's EOMIDX.
 var IDX = { MONTH_KEY: 0, MONTH_LABEL: 1, SCOPE: 2, STAGE_ID: 3, GENERATED_AT: 4,

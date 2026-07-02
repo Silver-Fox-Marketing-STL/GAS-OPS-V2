@@ -7789,7 +7789,7 @@ var EOM_DEFAULT_STAGE_ID    = 44;  // "EOM Merge" stage
 // Sheets date-parses "2026-07"/"July 2026", and google.script.run can't serialize
 // the resulting Date objects, so the whole grid is @-formatted and every write is
 // String()-converted with pre-formatted string timestamps.
-var EOM_INDEX_SHEET_ID = '';   // set after running setupEomReportsIndex()
+var EOM_INDEX_SHEET_ID = '1p28o2IbGFrHOqKVs_DUpAtyzM6LFYyAKUpsBB7NwFxg';   // set after running setupEomReportsIndex()
 var EOM_INDEX_TAB = 'REPORTS';
 var EOM_INDEX_HEADERS = ['month_key', 'month_label', 'scope', 'stage_id', 'generated_at',
   'json_file_id', 'folder_url', 'ss_url', 'org_count', 'deal_count', 'status',
