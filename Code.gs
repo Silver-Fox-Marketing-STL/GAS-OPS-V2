@@ -7989,40 +7989,44 @@ function eomMoney_(n) {
   return (neg ? '-$' : '$') + parts.join('.');
 }
 
-/** The full HTML document for one dealer's PDF (one page per contact). */
+/** The full HTML document for one dealer's PDF (one page per contact).
+ *  TABLE-BASED with inline backgrounds: the legacy HTML->PDF converter behind
+ *  Blob.getAs('application/pdf') drops display:flex (so a flex element's
+ *  background never paints) — tables + inline bgcolor render reliably, same as
+ *  the existing billing PDF. Zebra uses an explicit .alt class, not :nth-child. */
 function eomDealerPdfHtml_(orgGroup, monthLabel, dealBase) {
   var css = ''
     + '@page{size:letter;margin:0.5in;}'
-    + '*{box-sizing:border-box;} body{margin:0;color:#1a2733;font-family:Arial,Helvetica,sans-serif;font-size:12.5px;line-height:1.4;}'
-    + '.contact-page{page-break-before:always;} .contact-page:first-child{page-break-before:avoid;}'
-    + '.ph{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #1a3a5c;padding-bottom:8px;}'
-    + '.ph .dealer{font-size:20px;font-weight:800;} .ph .contact{color:#5b6b7a;margin-top:2px;}'
-    + '.ph .rt{text-align:right;color:#5b6b7a;} .ph .rt .mo{font-size:13px;font-weight:700;color:#1a3a5c;}'
-    + '.muted{color:#5b6b7a;font-size:11px;}'
-    + '.chips{margin:10px 0 4px;} .chip{display:inline-block;background:#eef3f9;color:#5b6b7a;font-size:11px;font-weight:600;padding:3px 10px;border-radius:999px;margin-right:8px;} .chip b{color:#1a2733;}'
+    + 'body{margin:0;color:#1a2733;font-family:Arial,Helvetica,sans-serif;font-size:12.5px;line-height:1.4;}'
+    + 'table{border-collapse:collapse;}'
+    + '.contact-page{page-break-before:always;}'
+    + '.dealer{font-size:20px;font-weight:800;} .contact{color:#5b6b7a;} .mo{font-size:13px;font-weight:700;color:#1a3a5c;}'
+    + '.muted{color:#5b6b7a;font-size:11px;} .var{color:#5b6b7a;font-weight:600;}'
     + '.seclabel{font-size:11px;font-weight:800;letter-spacing:.10em;text-transform:uppercase;color:#2d6a9f;margin:16px 0 6px;}'
-    + 'table.sum{width:100%;border-collapse:collapse;} .sum th{text-align:left;font-size:10.5px;text-transform:uppercase;color:#5b6b7a;border-bottom:1px solid #dce4ec;padding:5px 8px;}'
-    + '.sum td{padding:5px 8px;border-bottom:1px solid #dce4ec;} .sum tr:nth-child(even) td{background:#f6f8fa;} .sum .r{text-align:right;}'
-    + '.sum .tot td{font-weight:800;border-top:2px solid #1a3a5c;border-bottom:none;background:#fff;} .var{color:#5b6b7a;font-weight:600;}'
-    + '.deal-card{margin-top:10px;border:1px solid #dce4ec;border-left:3px solid #2d6a9f;border-radius:5px;overflow:hidden;page-break-inside:avoid;}'
-    + '.deal-card .ch{display:flex;justify-content:space-between;align-items:center;background:#eef3f9;padding:7px 12px;}'
-    + '.deal-card .ch .dt{font-weight:700;} .deal-card .ch .dt a{color:#2d6a9f;text-decoration:none;} .deal-card .ch .dv{font-weight:800;}'
-    + '.deal-card .cm{color:#5b6b7a;font-size:11px;padding:5px 12px 0;} .noprod{color:#5b6b7a;font-size:11px;padding:6px 12px 8px;}'
-    + '.lrow{display:flex;justify-content:space-between;gap:12px;padding:6px 12px;border-top:1px solid #dce4ec;}'
-    + '.lrow .ldesc{color:#5b6b7a;font-size:11px;margin-top:2px;max-width:360px;} .lrow .lqty{color:#5b6b7a;font-size:11px;} .lrow .lamt{font-weight:700;}'
-    + '.pagefoot{margin-top:14px;border-top:1px solid #dce4ec;padding-top:6px;color:#5b6b7a;font-size:10px;display:flex;justify-content:space-between;}';
+    + 'table.sum{width:100%;} .sum th{text-align:left;font-size:10.5px;text-transform:uppercase;color:#5b6b7a;border-bottom:1px solid #dce4ec;padding:5px 8px;}'
+    + '.sum td{padding:5px 8px;border-bottom:1px solid #dce4ec;} .sum tr.alt td{background-color:#f6f8fa;} .sum .r{text-align:right;}'
+    + '.sum .tot td{font-weight:800;border-top:2px solid #1a3a5c;border-bottom:none;}';
 
   var esc = eomEscHtml_, money = eomMoney_;
+  function chip(inner) {
+    return '<span style="background-color:#eef3f9;color:#5b6b7a;font-size:11px;font-weight:600;padding:3px 10px;margin-right:6px;">' + inner + '</span>';
+  }
   var pages = orgGroup.contacts.map(function (ct) {
-    var chips = '<div class="chips">'
-      + '<span class="chip"><b>' + ct.stats.orders + '</b> orders</span>'
-      + '<span class="chip"><b>' + ct.stats.duplicates + '</b> duplicates</span>'
-      + '<span class="chip">total <b>' + money(ct.stats.totalAmt) + '</b></span></div>';
+    var header = '<table width="100%"><tr>'
+      + '<td style="padding-bottom:8px;border-bottom:2px solid #1a3a5c;"><div class="dealer">' + esc(orgGroup.org)
+      + '</div><div class="contact">Contact: ' + esc(ct.contact) + '</div></td>'
+      + '<td align="right" valign="bottom" style="padding-bottom:8px;border-bottom:2px solid #1a3a5c;"><span class="mo">EOM &mdash; '
+      + esc(monthLabel) + '</span></td></tr></table>';
+
+    var chips = '<div style="margin:10px 0 4px;">'
+      + chip('<b style="color:#1a2733;">' + ct.stats.orders + '</b> orders')
+      + chip('<b style="color:#1a2733;">' + ct.stats.duplicates + '</b> duplicates')
+      + chip('total <b style="color:#1a2733;">' + money(ct.stats.totalAmt) + '</b>') + '</div>';
 
     var sum = '<div class="seclabel">Product summary</div><table class="sum">'
       + '<tr><th>Code</th><th>Product</th><th class="r">Qty</th><th class="r">Total value</th></tr>';
-    ct.summaryRows.forEach(function (p) {
-      sum += '<tr><td>' + esc(p.code) + '</td><td><b>' + esc(p.name) + '</b>'
+    ct.summaryRows.forEach(function (p, i) {
+      sum += '<tr' + (i % 2 ? ' class="alt"' : '') + '><td>' + esc(p.code) + '</td><td><b>' + esc(p.name) + '</b>'
         + (p.vari ? ' <span class="var">&middot; ' + esc(p.vari) + '</span>' : '')
         + '</td><td class="r">' + p.qty + '</td><td class="r">' + money(p.amt) + '</td></tr>';
     });
@@ -8032,30 +8036,32 @@ function eomDealerPdfHtml_(orgGroup, monthLabel, dealBase) {
     ct.deals.forEach(function (d) {
       var created = d.created ? String(d.created).substring(0, 10) : '';
       var dupTxt = d.duplicates + ' duplicate' + (d.duplicates === 1 ? '' : 's');
-      deals += '<div class="deal-card"><div class="ch"><div class="dt"><a href="' + dealBase + d.id + '">#'
-        + d.id + ' &middot; ' + esc(d.title || ('Deal ' + d.id)) + '</a></div><div class="dv">' + money(d.dealValue) + '</div></div>'
-        + '<div class="cm">' + esc(d.owner) + (created ? ' &middot; ' + created : '') + ' &middot; ' + dupTxt + '</div>';
+      var body;
       if (!d.hasProducts) {
-        deals += '<div class="noprod">No products on this deal.</div>';
+        body = '<tr><td colspan="2" style="color:#5b6b7a;font-size:11px;padding:6px 12px 8px;">No products on this deal.</td></tr>';
       } else {
-        d.lines.forEach(function (l) {
+        body = d.lines.map(function (l) {
           var name = esc(l.name || l.code) + (l.vari ? ' <span class="var">&middot; ' + esc(l.vari) + '</span>' : '');
           var descTxt = [l.desc, l.notes].filter(function (s) { return s && String(s).trim(); }).map(esc).join(' &mdash; ');
-          deals += '<div class="lrow"><div class="lname"><b>' + name + '</b>'
-            + (descTxt ? '<div class="ldesc">' + descTxt + '</div>' : '') + '</div>'
-            + '<div style="text-align:right"><div class="lqty">' + l.qty + ' &times; ' + money(l.price) + '</div>'
-            + '<div class="lamt">' + money(l.sum) + '</div></div></div>';
-        });
+          return '<tr><td style="padding:6px 12px;border-top:1px solid #dce4ec;"><b>' + name + '</b>'
+            + (descTxt ? '<div class="muted" style="max-width:360px;">' + descTxt + '</div>' : '') + '</td>'
+            + '<td align="right" valign="top" style="padding:6px 12px;border-top:1px solid #dce4ec;white-space:nowrap;">'
+            + '<span class="muted">' + l.qty + ' &times; ' + money(l.price) + '</span><br><b>' + money(l.sum) + '</b></td></tr>';
+        }).join('');
       }
-      deals += '</div>';
+      deals += '<table width="100%" style="border:1px solid #dce4ec;border-left:3px solid #2d6a9f;margin-top:10px;page-break-inside:avoid;">'
+        + '<tr><td style="background-color:#eef3f9;padding:7px 12px;font-weight:700;"><a href="' + dealBase + d.id + '" style="color:#2d6a9f;text-decoration:none;">#'
+        + d.id + ' &middot; ' + esc(d.title || ('Deal ' + d.id)) + '</a></td>'
+        + '<td align="right" style="background-color:#eef3f9;padding:7px 12px;font-weight:800;">' + money(d.dealValue) + '</td></tr>'
+        + '<tr><td colspan="2" style="color:#5b6b7a;font-size:11px;padding:5px 12px 0;">' + esc(d.owner) + (created ? ' &middot; ' + created : '') + ' &middot; ' + dupTxt + '</td></tr>'
+        + body + '</table>';
     });
 
-    return '<div class="contact-page"><div class="ph"><div><div class="dealer">' + esc(orgGroup.org)
-      + '</div><div class="contact">Contact: ' + esc(ct.contact) + '</div></div>'
-      + '<div class="rt"><div class="mo">EOM &mdash; ' + esc(monthLabel) + '</div></div></div>'
-      + chips + sum + deals
-      + '<div class="pagefoot"><span>Silver Fox Marketing &middot; EOM Billing</span><span>'
-      + esc(orgGroup.org) + ' &middot; ' + esc(ct.contact) + '</span></div></div>';
+    var foot = '<table width="100%" style="border-top:1px solid #dce4ec;margin-top:14px;"><tr>'
+      + '<td style="color:#5b6b7a;font-size:10px;padding-top:6px;">Silver Fox Marketing &middot; EOM Billing</td>'
+      + '<td align="right" style="color:#5b6b7a;font-size:10px;padding-top:6px;">' + esc(orgGroup.org) + ' &middot; ' + esc(ct.contact) + '</td></tr></table>';
+
+    return '<div class="contact-page">' + header + chips + sum + deals + foot + '</div>';
   }).join('\n');
 
   return '<!doctype html><html><head><meta charset="utf-8"><style>' + css + '</style></head><body>' + pages + '</body></html>';
