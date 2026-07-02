@@ -8061,6 +8061,39 @@ function eomDealerPdfHtml_(orgGroup, monthLabel, dealBase) {
   return '<!doctype html><html><head><meta charset="utf-8"><style>' + css + '</style></head><body>' + pages + '</body></html>';
 }
 
+/** HTML string -> named PDF Blob. */
+function eomHtmlToPdf_(html, filename) {
+  return Utilities.newBlob(html, 'text/html', filename).getAs('application/pdf').setName(filename);
+}
+
+/** TEMPORARY de-risk spike — renders one sample dealer PDF into the EOM folder.
+ *  Removed in the final task once fidelity is confirmed. Run from the Apps Script editor. */
+function eomPdfSpike_() {
+  var g = { org: 'Bommarito Automotive Group', contacts: [
+    { contact: 'Sarah Chen', stats: { orders: 3, duplicates: 2, totalQty: 60, totalAmt: 3660 },
+      summaryRows: [
+        { code: 'SCP-STD', name: 'Standard Shortcut Pack', desc: '', vari: '', qty: 45, amt: 2250, notesStr: '' },
+        { code: 'SCP-PREM', name: 'Premium Shortcut Pack', desc: '', vari: 'Large', qty: 12, amt: 960, notesStr: '' },
+        { code: 'INSTALL', name: 'Installation', desc: '', vari: '', qty: 3, amt: 450, notesStr: '' } ],
+      deals: [
+        { id: 10432, title: 'June New Vehicle Order', owner: 'Mike R.', created: '2026-06-03T10:00:00Z', duplicates: 1, dealValue: 1540, hasProducts: true,
+          lines: [
+            { code: 'SCP-STD', name: 'Standard Shortcut Pack', vari: '', qty: 20, price: 50, sum: 1000, desc: 'Front windshield banners, gloss laminate', notes: '' },
+            { code: 'SCP-PREM', name: 'Premium Shortcut Pack', vari: 'Large', qty: 6, price: 80, sum: 480, desc: 'Includes custom dealer logo + QR to VDP; extended weatherproofing for outdoor lot display', notes: '' },
+            { code: 'INSTALL', name: 'Installation', vari: '', qty: 1, price: 60, sum: 60, desc: '', notes: '' } ] },
+        { id: 10460, title: 'Empty test deal', owner: 'Ann P.', created: '2026-06-20T00:00:00Z', duplicates: 0, dealValue: 0, hasProducts: false, lines: [] } ] },
+    { contact: 'David Ruiz', stats: { orders: 1, duplicates: 0, totalQty: 10, totalAmt: 500 },
+      summaryRows: [ { code: 'SCP-STD', name: 'Standard Shortcut Pack', desc: '', vari: '', qty: 10, amt: 500, notesStr: '' } ],
+      deals: [ { id: 10501, title: 'June Fleet', owner: 'Mike R.', created: '2026-06-11T00:00:00Z', duplicates: 0, dealValue: 500, hasProducts: true,
+        lines: [ { code: 'SCP-STD', name: 'Standard Shortcut Pack', vari: '', qty: 10, price: 50, sum: 500, desc: '', notes: '' } ] } ] }
+  ] };
+  var html = eomDealerPdfHtml_(g, 'June 2026', 'https://silverfoxmarketing.pipedrive.com/deal/');
+  var pdf = eomHtmlToPdf_(html, 'EOM PDF SPIKE.pdf');
+  var file = eomGetReportsFolder_().createFile(pdf);
+  Logger.log('SPIKE PDF: ' + file.getUrl());
+  return file.getUrl();
+}
+
 function eomColIndex_() {
   var m = {};
   EOM_COLUMNS.forEach(function (c, i) { m[c] = i; });
