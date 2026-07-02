@@ -1,49 +1,56 @@
 <!-- ════════════════════════════════════════════════════════════════════════════
      EOM REPORT RENDERER — shared, self-contained fragment.
      Pure client renderer of a report.json payload (the eomGroupForReport_ output
-     + meta) into interactive HTML: per org → per contact (stat chips + product
-     summary + TOTAL always visible; each deal a COLLAPSIBLE <details>, collapsed
-     by default). Same content as the per-dealer PDF. All symbols prefixed `eomr`
-     (one shared JS scope). Self-contained (own esc + money) so it byte-copies
-     unchanged into eom-viewer/. KEEP THE TWO COPIES IDENTICAL (a checksum drift
-     check guards this in the Node self-checks).
+     + meta) into interactive HTML: per org (stat chips + product summary + TOTAL
+     always visible; each deal a COLLAPSIBLE <details>, collapsed by default).
+     eomrRenderReport(group, meta, opts): opts.splitContacts=true restores the
+     per-contact sections; default is MERGED per org (contact shown on each deal
+     card) — merging happens here at render time so report.json keeps the split
+     shape forever (old files stay valid). Colors are design tokens WITH hex
+     fallbacks, so the report follows the host's theme when tokens exist and
+     still renders standalone. All symbols prefixed `eomr` (one shared JS scope).
+     Self-contained (own esc + money) so it byte-copies unchanged into
+     eom-viewer/. KEEP THE TWO COPIES IDENTICAL (a checksum drift check guards
+     this in the Node self-checks).
 ════════════════════════════════════════════════════════════════════════════ -->
 <style>
-  .eomr-report { color: #1a2733; font: 13px/1.45 Arial, Helvetica, sans-serif; }
+  .eomr-report { color: var(--text, #1a2733); font: var(--fs-body, 13px)/1.45 var(--font-body, Arial, Helvetica, sans-serif); }
   .eomr-org { margin-bottom: 20px; }
-  .eomr-contact { border: 1px solid #dce4ec; border-radius: 8px; padding: 14px 16px; margin-bottom: 14px; background: #fff; }
-  .eomr-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; border-bottom: 2px solid #1a3a5c; padding-bottom: 8px; }
+  .eomr-contact { border: 1px solid var(--border, #dce4ec); border-radius: var(--radius, 8px); padding: 14px 16px; margin-bottom: 14px; background: var(--surface, #fff); }
+  .eomr-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; border-bottom: 2px solid var(--text, #1a3a5c); padding-bottom: 8px; }
   .eomr-dealer { font-size: 18px; font-weight: 800; letter-spacing: -0.2px; }
-  .eomr-contact-name { color: #5b6b7a; margin-top: 2px; }
-  .eomr-month { color: #1a3a5c; font-weight: 700; white-space: nowrap; }
+  .eomr-contact-name { color: var(--text-2, #5b6b7a); margin-top: 2px; }
+  .eomr-month { color: var(--accent, #1a3a5c); font-weight: 700; white-space: nowrap; }
   .eomr-chips { margin: 10px 0 4px; }
-  .eomr-chip { display: inline-block; background: #eef3f9; color: #5b6b7a; font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 999px; margin-right: 6px; }
-  .eomr-chip b { color: #1a2733; }
-  .eomr-seclabel { font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: #2d6a9f; margin: 14px 0 6px; }
+  .eomr-chip { display: inline-block; background: var(--surface-2, #eef3f9); color: var(--text-2, #5b6b7a); font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 999px; margin-right: 6px; }
+  .eomr-chip b { color: var(--text, #1a2733); }
+  .eomr-seclabel { font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--accent, #2d6a9f); margin: 14px 0 6px; }
   .eomr-sum { width: 100%; border-collapse: collapse; }
-  .eomr-sum th { text-align: left; font-size: 10.5px; text-transform: uppercase; color: #5b6b7a; border-bottom: 1px solid #dce4ec; padding: 5px 8px; }
-  .eomr-sum td { padding: 5px 8px; border-bottom: 1px solid #dce4ec; }
-  .eomr-sum tr:nth-child(even) td { background: #f6f8fa; }
+  .eomr-sum th { text-align: left; font-size: 10.5px; text-transform: uppercase; color: var(--text-2, #5b6b7a); border-bottom: 1px solid var(--border, #dce4ec); padding: 5px 8px; }
+  .eomr-sum td { padding: 5px 8px; border-bottom: 1px solid var(--border, #dce4ec); }
+  .eomr-sum tr:nth-child(even) td { background: var(--surface-2, #f6f8fa); }
   .eomr-sum .eomr-r { text-align: right; font-variant-numeric: tabular-nums; }
-  .eomr-sum .eomr-tot td { font-weight: 800; border-top: 2px solid #1a3a5c; border-bottom: none; background: #fff; }
-  .eomr-var { color: #5b6b7a; font-weight: 600; }
-  .eomr-deal { border: 1px solid #dce4ec; border-left: 3px solid #2d6a9f; border-radius: 6px; margin-top: 10px; overflow: hidden; }
-  .eomr-deal > summary { list-style: none; cursor: pointer; background: #eef3f9; padding: 8px 12px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .eomr-sum .eomr-tot td { font-weight: 800; border-top: 2px solid var(--text, #1a3a5c); border-bottom: none; background: var(--surface, #fff); }
+  .eomr-var { color: var(--text-2, #5b6b7a); font-weight: 600; }
+  .eomr-deal { border: 1px solid var(--border, #dce4ec); border-left: 3px solid var(--accent, #2d6a9f); border-radius: 6px; margin-top: 10px; overflow: hidden; }
+  .eomr-deal > summary { list-style: none; cursor: pointer; background: var(--surface-2, #eef3f9); padding: 8px 12px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .eomr-deal > summary:hover { background: var(--surface-3, #e2eaf3); }
   .eomr-deal > summary::-webkit-details-marker { display: none; }
-  .eomr-deal-title { font-weight: 700; }
-  .eomr-deal-title a { color: #2d6a9f; text-decoration: none; }
+  .eomr-deal-title { font-weight: 700; flex: 1; min-width: 0; }
   .eomr-deal-val { font-weight: 800; white-space: nowrap; }
-  .eomr-caret { color: #2d6a9f; font-size: 10px; margin-left: 8px; }
+  .eomr-caret { color: var(--accent, #2d6a9f); font-size: 15px; line-height: 1; }
   .eomr-caret::before { content: '\25B8'; }
   .eomr-deal[open] .eomr-caret::before { content: '\25BE'; }
-  .eomr-deal-meta { color: #5b6b7a; font-size: 11px; padding: 6px 12px 2px; }
-  .eomr-line { display: flex; justify-content: space-between; gap: 12px; padding: 7px 12px; border-top: 1px solid #dce4ec; }
+  .eomr-deal-meta { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--text-2, #5b6b7a); font-size: 11px; padding: 6px 12px 4px; }
+  .eomr-deal-link { display: inline-block; border: 1px solid var(--accent, #2d6a9f); color: var(--accent, #2d6a9f); border-radius: var(--radius-sm, 4px); padding: 2px 10px; font-size: 11px; font-weight: 600; text-decoration: none; white-space: nowrap; }
+  .eomr-deal-link:hover { background: var(--accent-weak, #eef3f9); }
+  .eomr-line { display: flex; justify-content: space-between; gap: 12px; padding: 7px 12px; border-top: 1px solid var(--border, #dce4ec); }
   .eomr-line-name b { font-weight: 700; }
-  .eomr-line-desc { color: #5b6b7a; font-size: 11px; margin-top: 2px; max-width: 460px; }
-  .eomr-line-qty { color: #5b6b7a; font-size: 11px; white-space: nowrap; }
+  .eomr-line-desc { color: var(--text-2, #5b6b7a); font-size: 11px; margin-top: 2px; max-width: 70ch; }
+  .eomr-line-qty { color: var(--text-2, #5b6b7a); font-size: 11px; white-space: nowrap; }
   .eomr-line-amt { font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
-  .eomr-noprod { color: #5b6b7a; font-size: 12px; padding: 8px 12px; }
-  .eomr-empty { color: #5b6b7a; padding: 20px; text-align: center; }
+  .eomr-noprod { color: var(--text-2, #5b6b7a); font-size: 12px; padding: 8px 12px; }
+  .eomr-empty { color: var(--text-2, #5b6b7a); padding: 20px; text-align: center; }
 </style>
 <script>
   // Self-contained so the fragment byte-copies into eom-viewer/ with no deps.
@@ -59,22 +66,68 @@
     return (neg ? '-$' : '$') + parts.join('.');
   }
 
-  /** group (eomGroupForReport_ output) + meta -> interactive HTML string. */
-  function eomrRenderReport(group, meta) {
+  /** Collapses each org's contact sections into ONE pseudo-contact
+   *  ({contact:'', merged:true}): deals concatenated (each attributed with its
+   *  source contact), stats summed, summary rows merged by code+variation.
+   *  MIRRORS Code.gs eomMergeContactGroups_ — keep the two in sync (a parity
+   *  test in the Node self-checks guards this). Input is never mutated. */
+  function eomrMergeGroup_(group) {
+    return (group || []).map(function (og) {
+      var stats = { orders: 0, duplicates: 0, totalQty: 0, totalAmt: 0 };
+      var deals = [], sumMap = {}, sumKeys = [];
+      (og.contacts || []).forEach(function (ct) {
+        var s = ct.stats || {};
+        stats.orders += Number(s.orders) || 0;
+        stats.duplicates += Number(s.duplicates) || 0;
+        stats.totalQty += Number(s.totalQty) || 0;
+        stats.totalAmt += Number(s.totalAmt) || 0;
+        (ct.deals || []).forEach(function (d) {
+          var copy = {}, k;
+          for (k in d) copy[k] = d[k];
+          if (!copy.contact) copy.contact = ct.contact;   // old report.json deals lack .contact
+          deals.push(copy);
+        });
+        (ct.summaryRows || []).forEach(function (p) {
+          var key = String(p.code || '') + '|||' + String(p.vari || '');
+          var row = sumMap[key];
+          if (!row) { row = { code: p.code, name: p.name, desc: p.desc, vari: p.vari, qty: 0, amt: 0, notes: [] }; sumMap[key] = row; sumKeys.push(key); }
+          row.qty += Number(p.qty) || 0;
+          row.amt += Number(p.amt) || 0;
+          String(p.notesStr || '').split(' | ').forEach(function (n) {
+            if (n && row.notes.indexOf(n) === -1) row.notes.push(n);
+          });
+        });
+      });
+      var summaryRows = sumKeys.map(function (k) {
+        var r = sumMap[k];
+        return { code: r.code, name: r.name, desc: r.desc, vari: r.vari, qty: r.qty, amt: r.amt, notesStr: r.notes.join(' | ') };
+      }).sort(function (a, b) {
+        return a.code < b.code ? -1 : a.code > b.code ? 1 : a.vari < b.vari ? -1 : a.vari > b.vari ? 1 : 0;
+      });
+      deals.sort(function (a, b) { return a.id - b.id; });
+      return { org: og.org, contacts: [{ contact: '', merged: true, stats: stats, summaryRows: summaryRows, deals: deals }] };
+    });
+  }
+
+  /** group (eomGroupForReport_ output) + meta -> interactive HTML string.
+   *  opts.splitContacts=true keeps per-contact sections; default merges them. */
+  function eomrRenderReport(group, meta, opts) {
     var esc = eomrEsc_, money = eomrMoney_;
     meta = meta || {};
     var monthLabel = meta.monthLabel || '', dealBase = meta.dealBaseUrl || '';
     if (!group || !group.length) return '<div class="eomr-report"><div class="eomr-empty">This report has no organizations.</div></div>';
+    var split = !!(opts && opts.splitContacts);
+    var g = split ? group : eomrMergeGroup_(group);
 
     var html = '<div class="eomr-report">';
-    group.forEach(function (og) {
+    g.forEach(function (og) {
       html += '<div class="eomr-org">';
       (og.contacts || []).forEach(function (ct) {
         var s = ct.stats || {};
         html += '<div class="eomr-contact">'
           + '<div class="eomr-head"><div><div class="eomr-dealer">' + esc(og.org) + '</div>'
-          + '<div class="eomr-contact-name">Contact: ' + esc(ct.contact) + '</div></div>'
-          + '<div class="eomr-month">EOM — ' + esc(monthLabel) + '</div></div>'
+          + (ct.contact ? '<div class="eomr-contact-name">Contact: ' + esc(ct.contact) + '</div>' : '')
+          + '</div><div class="eomr-month">EOM — ' + esc(monthLabel) + '</div></div>'
           + '<div class="eomr-chips">'
           + '<span class="eomr-chip"><b>' + (s.orders || 0) + '</b> orders</span>'
           + '<span class="eomr-chip"><b>' + (s.duplicates || 0) + '</b> duplicates</span>'
@@ -94,13 +147,17 @@
           var created = d.created ? String(d.created).substring(0, 10) : '';
           var dupTxt = (d.duplicates || 0) + ' duplicate' + (d.duplicates === 1 ? '' : 's');
           var titleTxt = '#' + d.id + ' · ' + (d.title || ('Deal ' + d.id));
-          var titleHtml = dealBase
-            ? '<a href="' + esc(dealBase + d.id) + '" target="_blank" rel="noopener">' + esc(titleTxt) + '</a>'
-            : esc(titleTxt);
+          var metaTxt = 'Owner: ' + esc(d.owner)
+            + (created ? ' · Created: ' + created : '')
+            + ' · ' + dupTxt
+            + (ct.merged && d.contact ? ' · Contact: ' + esc(d.contact) : '');
           html += '<details class="eomr-deal"><summary>'
-            + '<span class="eomr-deal-title">' + titleHtml + '<span class="eomr-caret"></span></span>'
+            + '<span class="eomr-caret"></span>'
+            + '<span class="eomr-deal-title">' + esc(titleTxt) + '</span>'
             + '<span class="eomr-deal-val">' + money(d.dealValue) + '</span></summary>'
-            + '<div class="eomr-deal-meta">' + esc(d.owner) + (created ? ' · ' + created : '') + ' · ' + dupTxt + '</div>';
+            + '<div class="eomr-deal-meta"><span>' + metaTxt + '</span>'
+            + (dealBase ? '<a class="eomr-deal-link" href="' + esc(dealBase + d.id) + '" target="_blank" rel="noopener">Go to deal &#8599;</a>' : '')
+            + '</div>';
           if (!d.hasProducts) {
             html += '<div class="eomr-noprod">No products on this deal.</div>';
           } else {
