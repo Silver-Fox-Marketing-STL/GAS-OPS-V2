@@ -1,8 +1,9 @@
 <!-- ════════════════════════════════════════════════════════════════════════════
      EOM REPORT RENDERER — shared, self-contained fragment.
      Pure client renderer of a report.json payload (the eomGroupForReport_ output
-     + meta) into interactive HTML: per org (stat chips + product summary + TOTAL
-     always visible; each deal a COLLAPSIBLE <details>, collapsed by default).
+     + meta) into interactive HTML: per org a COLLAPSED-BY-DEFAULT dealer card
+     (summary row = dealer + orders/duplicates/total chips; expanding reveals the
+     product summary + deals, each deal its own collapsed <details>).
      eomrRenderReport(group, meta, opts): opts.splitContacts=true restores the
      per-contact sections; default is MERGED per org (contact shown on each deal
      card) — merging happens here at render time so report.json keeps the split
@@ -15,14 +16,18 @@
 ════════════════════════════════════════════════════════════════════════════ -->
 <style>
   .eomr-report { color: var(--text, #1a2733); font: var(--fs-body, 13px)/1.45 var(--font-body, Arial, Helvetica, sans-serif); }
-  .eomr-org { margin-bottom: 20px; }
-  .eomr-contact { border: 1px solid var(--border, #dce4ec); border-radius: var(--radius, 8px); padding: 14px 16px; margin-bottom: 14px; background: var(--surface, #fff); }
-  .eomr-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; border-bottom: 2px solid var(--text, #1a3a5c); padding-bottom: 8px; }
+  .eomr-org { margin-bottom: 4px; }
+  .eomr-contact { border: 1px solid var(--border, #dce4ec); border-radius: var(--radius, 8px); margin-bottom: 14px; background: var(--surface, #fff); overflow: hidden; }
+  .eomr-contact > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 12px; padding: 12px 16px; }
+  .eomr-contact > summary:hover { background: var(--surface-2, #f6f8fa); }
+  .eomr-contact > summary::-webkit-details-marker { display: none; }
+  .eomr-contact[open] > summary { border-bottom: 2px solid var(--text, #1a3a5c); }
+  .eomr-card-title { display: flex; flex-direction: column; min-width: 0; }
   .eomr-dealer { font-size: 18px; font-weight: 800; letter-spacing: -0.2px; }
   .eomr-contact-name { color: var(--text-2, #5b6b7a); margin-top: 2px; }
-  .eomr-month { color: var(--accent, #1a3a5c); font-weight: 700; white-space: nowrap; }
-  .eomr-chips { margin: 10px 0 4px; }
-  .eomr-chip { display: inline-block; background: var(--surface-2, #eef3f9); color: var(--text-2, #5b6b7a); font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 999px; margin-right: 6px; }
+  .eomr-card-body { padding: 4px 16px 14px; }
+  .eomr-chips { margin-left: auto; display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+  .eomr-chip { display: inline-block; background: var(--surface-2, #eef3f9); color: var(--text-2, #5b6b7a); font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 999px; white-space: nowrap; }
   .eomr-chip b { color: var(--text, #1a2733); }
   .eomr-seclabel { font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--accent, #2d6a9f); margin: 14px 0 6px; }
   .eomr-sum { width: 100%; border-collapse: collapse; }
@@ -40,7 +45,7 @@
   .eomr-deal-val { font-weight: 800; white-space: nowrap; }
   .eomr-caret { color: var(--accent, #2d6a9f); font-size: 15px; line-height: 1; }
   .eomr-caret::before { content: '\25B8'; }
-  .eomr-deal[open] .eomr-caret::before { content: '\25BE'; }
+  details[open] > summary .eomr-caret::before { content: '\25BE'; }   /* .eomr-caret only exists in report summaries */
   .eomr-deal-meta { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--text-2, #5b6b7a); font-size: 11px; padding: 6px 12px 4px; }
   .eomr-deal-link { display: inline-block; border: 1px solid var(--accent, #2d6a9f); color: var(--accent, #2d6a9f); border-radius: var(--radius-sm, 4px); padding: 2px 10px; font-size: 11px; font-weight: 600; text-decoration: none; white-space: nowrap; }
   .eomr-deal-link:hover { background: var(--accent-weak, #eef3f9); }
@@ -114,7 +119,7 @@
   function eomrRenderReport(group, meta, opts) {
     var esc = eomrEsc_, money = eomrMoney_;
     meta = meta || {};
-    var monthLabel = meta.monthLabel || '', dealBase = meta.dealBaseUrl || '';
+    var dealBase = meta.dealBaseUrl || '';   // (the month is shown by the host's title, not per card)
     if (!group || !group.length) return '<div class="eomr-report"><div class="eomr-empty">This report has no organizations.</div></div>';
     var split = !!(opts && opts.splitContacts);
     var g = split ? group : eomrMergeGroup_(group);
@@ -124,14 +129,19 @@
       html += '<div class="eomr-org">';
       (og.contacts || []).forEach(function (ct) {
         var s = ct.stats || {};
-        html += '<div class="eomr-contact">'
-          + '<div class="eomr-head"><div><div class="eomr-dealer">' + esc(og.org) + '</div>'
-          + (ct.contact ? '<div class="eomr-contact-name">Contact: ' + esc(ct.contact) + '</div>' : '')
-          + '</div><div class="eomr-month">EOM — ' + esc(monthLabel) + '</div></div>'
-          + '<div class="eomr-chips">'
+        // Dealer card: a collapsed-by-default <details> whose summary IS the
+        // small card (dealer + orders/duplicates/total chips); expanding shows
+        // the product summary and deals.
+        html += '<details class="eomr-contact"><summary>'
+          + '<span class="eomr-caret"></span>'
+          + '<span class="eomr-card-title"><span class="eomr-dealer">' + esc(og.org) + '</span>'
+          + (ct.contact ? '<span class="eomr-contact-name">Contact: ' + esc(ct.contact) + '</span>' : '')
+          + '</span>'
+          + '<span class="eomr-chips">'
           + '<span class="eomr-chip"><b>' + (s.orders || 0) + '</b> orders</span>'
           + '<span class="eomr-chip"><b>' + (s.duplicates || 0) + '</b> duplicates</span>'
-          + '<span class="eomr-chip">total <b>' + money(s.totalAmt) + '</b></span></div>';
+          + '<span class="eomr-chip">total <b>' + money(s.totalAmt) + '</b></span></span>'
+          + '</summary><div class="eomr-card-body">';
 
         html += '<div class="eomr-seclabel">Product summary</div><table class="eomr-sum">'
           + '<tr><th>Code</th><th>Product</th><th class="eomr-r">Qty</th><th class="eomr-r">Total value</th></tr>';
@@ -172,9 +182,9 @@
           }
           html += '</details>';
         });
-        html += '</div>';   // .eomr-contact
+        html += '</div></details>';   // .eomr-card-body, .eomr-contact
       });
-      html += '</div>';     // .eomr-org
+      html += '</div>';               // .eomr-org
     });
     return html + '</div>';
   }

@@ -1323,9 +1323,11 @@ so what the invoice team sees changes only on a deliberate re-finalize.
 ### Viewers
 - **Shared renderer** `EomReportRenderer.html` — pure `eomrRenderReport(group, meta,
   opts)` (`eomr*`, self-contained esc/money + `eomrMergeGroup_`): per org (merged
-  default) or per contact (`opts.splitContacts`), product summary always visible,
-  each deal a collapsible `<details>` (collapsed; 15px left-side caret, hover
-  affordance). The deal title is PLAIN TEXT — the Pipedrive link is a **"Go to
+  default) or per contact (`opts.splitContacts`), each dealer a COLLAPSED-BY-DEFAULT
+  `<details>` card (summary row = dealer name + orders/duplicates/total chips;
+  expanding reveals the product summary + deals, each deal its own collapsed
+  `<details>`; 15px left-side carets, hover affordance). The month is shown by the
+  host's title, not per card. The deal title is PLAIN TEXT — the Pipedrive link is a **"Go to
   deal"** button in the expanded meta row (`Owner: … · Created: … · N duplicates
   [· Contact: …]`), rendered only when `meta.dealBaseUrl` is set. CSS is **design
   tokens with hex fallbacks** (`var(--text, #1a2733)` …) so the report follows the
