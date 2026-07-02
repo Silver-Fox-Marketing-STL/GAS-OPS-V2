@@ -8155,41 +8155,6 @@ function eomPdfSpike() {
   return file.getUrl();
 }
 
-/** TEMPORARY — one-page fill-mechanism probe for the RAW HTML->PDF converter
- *  (Utilities blob getAs, the engine whose typography we liked). Run from the
- *  editor, open the logged URL, and report which letters show a BLUE band.
- *  Uses a saturated blue (#bcd6f0) so a faint render can't pass for white.
- *  Removed once the PDF engine decision is settled. */
-function eomFillProbe() {
-  var PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGPYc+0DAATUAoOrobdtAAAAAElFTkSuQmCC';
-  var SVG = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMDAiIGhlaWdodD0iMjQiPjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iMjQiIGZpbGw9IiNiY2Q2ZjAiLz48dGV4dCB4PSI4IiB5PSIxNiIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjEyIiBmb250LXdlaWdodD0iYm9sZCIgZmlsbD0iIzFhM2E1YyI+SyAtIHN2ZyBiYW5kIHRleHQ8L3RleHQ+PC9zdmc+';
-  var rows = [
-    ['A', 'td bgcolor attribute',            '<table width="300" cellspacing="0"><tr><td bgcolor="#bcd6f0" style="padding:6px;">A - band text</td></tr></table>'],
-    ['B', 'td CSS background-color',         '<table width="300" cellspacing="0"><tr><td style="background-color:#bcd6f0;padding:6px;">B - band text</td></tr></table>'],
-    ['C', 'td CSS background shorthand',     '<table width="300" cellspacing="0"><tr><td style="background:#bcd6f0;padding:6px;">C - band text</td></tr></table>'],
-    ['D', 'tr bgcolor attribute',            '<table width="300" cellspacing="0"><tr bgcolor="#bcd6f0"><td style="padding:6px;">D - band text</td></tr></table>'],
-    ['E', 'table bgcolor attribute',         '<table width="300" cellspacing="0" bgcolor="#bcd6f0"><tr><td style="padding:6px;">E - band text</td></tr></table>'],
-    ['F', 'td background attr (data URI)',   '<table width="300" cellspacing="0"><tr><td background="' + PNG + '" style="padding:6px;">F - band text</td></tr></table>'],
-    ['G', 'td CSS background-image',         '<table width="300" cellspacing="0"><tr><td style="background-image:url(' + PNG + ');padding:6px;">G - band text</td></tr></table>'],
-    ['H', 'stretched img (PNG data URI)',    '<img src="' + PNG + '" width="300" height="20">'],
-    ['I', 'span CSS background',             '<span style="background-color:#bcd6f0;padding:4px;">I - band text</span>'],
-    ['J', 'mark element',                    '<mark>J - band text</mark>'],
-    ['K', 'svg img (band + text baked in)',  '<img src="' + SVG + '" width="300" height="24">'],
-    ['L', 'thick colored border (control)',  '<div style="width:300px;border-top:14px solid #2d6a9f;font-size:1px;">&nbsp;</div>']
-  ];
-  var html = '<!doctype html><html><body style="font-family:Arial,Helvetica,sans-serif;font-size:12px;">'
-    + '<h3>Fill probe - raw HTML to PDF converter</h3>'
-    + rows.map(function (r) { return '<p style="margin:10px 0 2px;"><b>' + r[0] + '</b> - ' + r[1] + '</p>' + r[2]; }).join('')
-    + '</body></html>';
-  var pdf = Utilities.newBlob(html, 'text/html', 'EOM FILL PROBE.pdf').getAs('application/pdf').setName('EOM FILL PROBE.pdf');
-  var folder = eomGetReportsFolder_();
-  var old = folder.getFilesByName('EOM FILL PROBE.pdf');
-  while (old.hasNext()) old.next().setTrashed(true);
-  var file = folder.createFile(pdf);
-  Logger.log('FILL PROBE (open THIS url): ' + file.getUrl());
-  return file.getUrl();
-}
-
 function eomColIndex_() {
   var m = {};
   EOM_COLUMNS.forEach(function (c, i) { m[c] = i; });

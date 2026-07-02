@@ -1245,6 +1245,83 @@ V3's PostgreSQL migration eliminates this problem class entirely — IMPORT_STAT
 
 ---
 
+## End of Month Billing Report + Viewer *(branch `feature/eom-billing-report`)*
+
+`Code.gs` **Section 33**. Pulls billing deals from Pipedrive **by pipeline stage**
+(not date — staff move deals into *EOM Merge*, then run), flattens products to a
+28-col schema (`EOM_COLUMNS`), groups via **`eomGroupForReport_(rows)`**
+(`[{org, contacts:[{contact, stats, summaryRows, deals}]}]` — the single source of
+truth for both spreadsheet tabs and PDFs), and writes a per-month bundle.
+
+### Outputs (all in one month folder)
+`eomWriteReport_` lands everything in `"<Month Year> EOM Reports"` (find/create via
+`eomGetMonthFolder_`, nested under the auto-made *EOM Reports* folder;
+`eomPutFile_` = replace-by-name):
+- **Spreadsheet** — flat `DATA` audit tab + one formatted tab per org (`eomBuildOrgTabs_`).
+- **One PDF per dealer** (`<Dealer> — <Month> EOM.pdf`) — each contact its own page.
+- **`report.json`** — `{meta, group}` (grouped data + meta, NO flat rows) for the viewers.
+
+Config in `PIPEDRIVE_SETTINGS`: `eom_billing_pipeline_id` (4), `eom_default_stage_id`
+(44), `eom_reports_folder_id`. Run-time **stage picker** + **Report month** picker
+in `ViewEndOfMonth.html`. `generateEomReport(scope, stageId, runId, monthLabel)`;
+progress via `eom_progress_<runId>` ScriptProperty.
+
+### PDF engine — invariant (do not "fix" back to CSS fills)
+Rendered by the raw `Utilities.newBlob(html,'text/html').getAs('application/pdf')`
+converter. **That converter paints NO background fills** behind HTML text — CSS
+`background`, inline `background-color`, and the `bgcolor` attribute ALL fail
+(proven by a live probe); it renders borders, text, and **images** only. So the
+light-blue deal-header bands + stat pills are **baked SVG images** (`eomSvgUri_` —
+band rect + title/value/meta text baked in, wrapped in the deal link); line items
+stay selectable HTML. (HTML→Google-Doc→PDF was tried and rejected — boxy importer
+borders.) `eomDealerPdfHtml_` is table-based (converter also drops `display:flex`).
+
+### Report index — `SF_EOM_REPORTS` (own spreadsheet; never SF_SYSTEM_MASTER)
+One-time `setupEomReportsIndex()` logs the id → paste into `EOM_INDEX_SHEET_ID`
+(Code.gs) **and** `eom-viewer/Code.gs`. One row per month, upsert key `month_key`
+(`yyyy-MM`, from `eomMonthKey_`). Columns: `month_key | month_label | scope |
+stage_id | generated_at | json_file_id | folder_url | ss_url | org_count |
+deal_count | status(generated|published) | published_at | published_by |
+published_json_file_id`. **All cells `@`-formatted + `String()` writes** — Sheets
+date-parses `"2026-07"`/`"July 2026"`, and `google.script.run` can't serialize the
+resulting Date objects (`EOMIDX` = the 0-based column map; must match the viewer's `IDX`).
+
+### Snapshot invariant (load-bearing)
+`eomPutFile_` trashes-and-recreates (new file id). So **finalize = snapshot**:
+`finalizeEomReport(monthLabel)` copies `report.json` → **`published.json`** (a
+separate file) and stores that id in `published_json_file_id`, flipping `status`
+to `published`. A later re-generation (incl. test-stage runs) overwrites
+`report.json` and reverts `status` to `generated` via `eomIndexUpsert_` (which
+writes only the generation columns) but **never touches** the published_* columns —
+so what the invoice team sees changes only on a deliberate re-finalize.
+
+### Viewers
+- **Shared renderer** `EomReportRenderer.html` — pure `eomrRenderReport(group, meta)`
+  (`eomr*`, self-contained esc/money): per org → per contact, product summary always
+  visible, each deal a collapsible `<details>` (collapsed). **Byte-copied** into
+  `eom-viewer/` (keep identical — verify with `cmp`).
+- **In-app** (`ViewEndOfMonth.html`, `eomv*`): a **Reports** card lists index rows
+  with **View** (`getEomReportJson` → the report.json STRING → `JSON.parse` →
+  `eomrRenderReport`) and **Finalize & publish**. Handlers pass a row **index**, not
+  the label (inline-handler apostrophe trap). Reports card shows even when Pipedrive
+  is disconnected (`getEomBootstrap` returns `reports` in both branches).
+- **Standalone `eom-viewer/`** — a SEPARATE Apps Script web app (own `.clasp.json`,
+  excluded from the main push via `.claspignore`; flat namespace). Deployed
+  **`executeAs: USER_DEPLOYING` + `access: DOMAIN`** so the invoice team bookmarks one
+  `/exec` URL with zero file access. **Security boundary:** public surface is EXACTLY
+  `doGet` / `getViewerBootstrap` / `getReportJson` (execute-as-owner ⇒ any domain user
+  can call any public fn with the owner's authority); both data endpoints serve
+  **published rows + display fields only** (never file ids or URLs); optional
+  `EOM_VIEWER_ALLOWED` email allowlist. Connects by the `SF_EOM_REPORTS` id only.
+  **Deploy:** paste Script ID into `eom-viewer/.clasp.json`, `clasp push` from inside
+  `eom-viewer/`, Deploy → web app (Execute as **Me**, access **domain**); update via
+  *edit deployment → new version* to keep the URL (never "New deployment").
+
+Temporary `eomPdfSpike` (editor-run sample PDF) is retained until PDF layout
+fine-tuning is done; `eomFillProbe` was removed once the fill mechanism was settled.
+
+---
+
 ## Spreadsheet ID Quick Reference
 
 | Name | ID |
