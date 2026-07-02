@@ -7971,6 +7971,15 @@ function eomBuildRows_(deal, products) {
 
 // ── Report writing (ports SheetWriter + BillingDashboard) ───────────────────
 
+// ── PDF output (per-dealer, one page per contact) ───────────────────────────
+
+/** HTML-escape dynamic text for the PDF builder. */
+function eomEscHtml_(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 function eomColIndex_() {
   var m = {};
   EOM_COLUMNS.forEach(function (c, i) { m[c] = i; });
