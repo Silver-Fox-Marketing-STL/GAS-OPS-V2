@@ -8013,7 +8013,7 @@ function eomDealerPdfHtml_(orgGroup, monthLabel, dealBase) {
   function chip(inner) {
     return '<td bgcolor="#eef3f9" style="background-color:#eef3f9;color:#5b6b7a;font-size:11px;font-weight:600;padding:4px 10px;">' + inner + '</td><td width="7"></td>';
   }
-  var pages = orgGroup.contacts.map(function (ct) {
+  var pages = orgGroup.contacts.map(function (ct, i) {
     var header = '<table width="100%"><tr>'
       + '<td style="padding-bottom:8px;border-bottom:2px solid #1a3a5c;"><div class="dealer">' + esc(orgGroup.org)
       + '</div><div class="contact">Contact: ' + esc(ct.contact) + '</div></td>'
@@ -8066,15 +8066,50 @@ function eomDealerPdfHtml_(orgGroup, monthLabel, dealBase) {
       + '<td style="color:#5b6b7a;font-size:10px;padding-top:6px;">Silver Fox Marketing &middot; EOM Billing</td>'
       + '<td align="right" style="color:#5b6b7a;font-size:10px;padding-top:6px;">' + esc(orgGroup.org) + ' &middot; ' + esc(ct.contact) + '</td></tr></table>';
 
-    return '<div class="contact-page">' + header + chips + sum + deals + foot + '</div>';
+    return '<div class="contact-page"' + (i > 0 ? ' style="page-break-before:always;"' : '') + '>'
+      + header + chips + sum + deals + foot + '</div>';
   }).join('\n');
 
   return '<!doctype html><html><head><meta charset="utf-8"><style>' + css + '</style></head><body>' + pages + '</body></html>';
 }
 
-/** HTML string -> named PDF Blob. */
+/** Uploads HTML to Drive, converting it to a Google Doc; returns the Doc id.
+ *  Uses the Drive REST API with the script's OAuth token (same mechanism as the
+ *  QR-code uploads) — no advanced service, no new scope. */
+function eomHtmlToDocId_(html, name) {
+  var boundary = '----eom' + Utilities.getUuid();
+  var body = '--' + boundary + '\r\n'
+    + 'Content-Type: application/json; charset=UTF-8\r\n\r\n'
+    + JSON.stringify({ name: name, mimeType: 'application/vnd.google-apps.document' }) + '\r\n'
+    + '--' + boundary + '\r\n'
+    + 'Content-Type: text/html; charset=UTF-8\r\n\r\n'
+    + html + '\r\n'
+    + '--' + boundary + '--';
+  var resp = UrlFetchApp.fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
+    method: 'post',
+    contentType: 'multipart/related; boundary=' + boundary,
+    payload: Utilities.newBlob(body).getBytes(),
+    headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
+    muteHttpExceptions: true
+  });
+  if (resp.getResponseCode() >= 300) throw new Error('HTML->Doc convert HTTP ' + resp.getResponseCode() + ': ' + resp.getContentText().slice(0, 300));
+  var j = JSON.parse(resp.getContentText());
+  if (!j || !j.id) throw new Error('HTML->Doc convert returned no id');
+  return j.id;
+}
+
+/** HTML -> Google Doc -> PDF Blob. The Docs renderer paints table cell shading
+ *  (bgcolor) and page breaks, which the raw HTML->PDF converter does not. The
+ *  temp Doc is always trashed. */
 function eomHtmlToPdf_(html, filename) {
-  return Utilities.newBlob(html, 'text/html', filename).getAs('application/pdf').setName(filename);
+  var docId = eomHtmlToDocId_(html, filename.replace(/\.pdf$/i, ''));
+  var pdf;
+  try {
+    pdf = DriveApp.getFileById(docId).getAs('application/pdf').setName(filename);
+  } finally {
+    try { DriveApp.getFileById(docId).setTrashed(true); } catch (e) {}
+  }
+  return pdf;
 }
 
 /** TEMPORARY de-risk spike — renders one sample dealer PDF into the EOM folder.
