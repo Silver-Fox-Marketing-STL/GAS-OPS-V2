@@ -8376,6 +8376,18 @@ function eomIndexList_() {
   return out;
 }
 
+/** Raw index row for a month key: {sheet, rowNum (1-based), row}, or null.
+ *  Used by the review/finalize endpoints which need the file-id columns. */
+function eomIndexGetRow_(monthKey) {
+  var sh = eomOpenIndex_();
+  if (!sh) return null;
+  var data = sh.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][EOMIDX.MONTH_KEY]) === String(monthKey)) return { sheet: sh, rowNum: i + 1, row: data[i] };
+  }
+  return null;
+}
+
 /** Orchestrates the whole report bundle into the month folder: the spreadsheet
  *  (flat audit tab + per-org tabs, unchanged content) plus one PDF per dealer,
  *  plus report.json (grouped data + meta) for the viewers. A single dealer's PDF
@@ -8618,16 +8630,20 @@ function clearEomProgress(runId) {
 
 // ── Client-callable entry points ────────────────────────────────────────────
 
-/** Bootstrap for the EOM view: connection state, pipeline, default stage, stages. */
+/** Bootstrap for the EOM view: connection state, pipeline, default stage, stages,
+ *  and the reports index list. The reports list is present even when Pipedrive
+ *  isn't configured (viewing/finalizing existing reports needs no Pipedrive). */
 function getEomBootstrap() {
+  var reports = eomIndexList_();
   var status = getPipedriveStatus();
-  if (!status.configured) return { configured: false };
+  if (!status.configured) return { configured: false, reports: reports };
   var pipelineId = eomGetPipelineId_();
   return {
     configured: true,
     pipelineId: pipelineId,
     defaultStageId: eomGetDefaultStageId_(),
-    stages: pdEomListStages_(pipelineId)
+    stages: pdEomListStages_(pipelineId),
+    reports: reports
   };
 }
 
@@ -8638,6 +8654,50 @@ function saveEomSettings(pipelineId, defaultStageId) {
   setPipedriveSettingValue_(PD_EOM_PIPELINE_KEY, isNaN(pid) ? '' : String(pid));
   setPipedriveSettingValue_(PD_EOM_STAGE_KEY, isNaN(sid) ? '' : String(sid));
   return { ok: true, pipelineId: eomGetPipelineId_(), defaultStageId: eomGetDefaultStageId_(), stages: pdEomListStages_(eomGetPipelineId_()) };
+}
+
+/** Client-callable: the reports index (newest month first) for the in-app card. */
+function getEomReportsList() { return eomIndexList_(); }
+
+/** Client-callable: the report.json payload for a month, as a STRING (client
+ *  JSON.parses it — dodges Date-serialization; faster for large payloads). This
+ *  is the MAIN-APP review endpoint (any generated report); the standalone viewer
+ *  has its own published-only reader. */
+function getEomReportJson(monthLabel) {
+  var found = eomIndexGetRow_(eomMonthKey_(monthLabel));
+  if (!found) return { ok: false, error: 'No report found for ' + monthLabel + '.' };
+  var fileId = String(found.row[EOMIDX.JSON_FILE_ID] || '');
+  if (!fileId) return { ok: false, error: 'That report has no data file.' };
+  try { return { ok: true, json: DriveApp.getFileById(fileId).getBlob().getDataAsString() }; }
+  catch (e) { return { ok: false, error: 'Could not read report data: ' + e.message }; }
+}
+
+/** Client-callable: publish a month. Snapshots report.json -> published.json in
+ *  the month folder (a SEPARATE file — invariant 1: later re-runs overwrite
+ *  report.json but never the snapshot) and flips the index row to published. */
+function finalizeEomReport(monthLabel) {
+  var found = eomIndexGetRow_(eomMonthKey_(monthLabel));
+  if (!found) return { ok: false, error: 'No report found for ' + monthLabel + '.' };
+  var fileId = String(found.row[EOMIDX.JSON_FILE_ID] || '');
+  if (!fileId) return { ok: false, error: 'Nothing generated to publish yet.' };
+
+  var pubId;
+  try {
+    var src = DriveApp.getFileById(fileId);
+    var parents = src.getParents(), folder = parents.hasNext() ? parents.next() : null;
+    var blob = Utilities.newBlob(src.getBlob().getDataAsString(), 'application/json', 'published.json');
+    pubId = (folder ? eomPutFile_(folder, blob, 'published.json') : DriveApp.createFile(blob)).getId();
+  } catch (e) { return { ok: false, error: 'Snapshot failed: ' + e.message }; }
+
+  var tz = Session.getScriptTimeZone() || 'America/Chicago';
+  var at = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm:ss');
+  var by = ''; try { by = Session.getActiveUser().getEmail() || ''; } catch (e) {}
+  var sh = found.sheet, rowNum = found.rowNum;
+  sh.getRange(rowNum, EOMIDX.STATUS + 1, 1, 1).setNumberFormat('@');
+  sh.getRange(rowNum, EOMIDX.STATUS + 1, 1, 1).setValue('published');
+  sh.getRange(rowNum, EOMIDX.PUBLISHED_AT + 1, 1, 3).setNumberFormat('@');
+  sh.getRange(rowNum, EOMIDX.PUBLISHED_AT + 1, 1, 3).setValues([[at, String(by), String(pubId)]]);
+  return { ok: true, monthLabel: monthLabel, publishedAt: at, publishedBy: by };
 }
 
 /**
