@@ -1326,8 +1326,10 @@ so what the invoice team sees changes only on a deliberate re-finalize.
   default) or per contact (`opts.splitContacts`), each dealer a COLLAPSED-BY-DEFAULT
   `<details>` card (summary row = dealer name + orders/duplicates/total chips;
   expanding reveals the product summary + deals, each deal its own collapsed
-  `<details>`; 15px left-side carets, hover affordance). The month is shown by the
-  host's title, not per card. The deal title is PLAIN TEXT — the Pipedrive link is a **"Go to
+  `<details>`; 15px left-side carets, hover affordance; per-dealer **Expand all /
+  Collapse all** pill buttons in the Deals header). Expanded content indents
+  treeview-style (card body 34px, deal meta 32px, product lines 56px) so deal
+  headers read as dividers. The month is shown by the host's title, not per card. The deal title is PLAIN TEXT — the Pipedrive link is a **"Go to
   deal"** button in the expanded meta row (`Owner: … · Created: … · N duplicates
   [· Contact: …]`), rendered only when `meta.dealBaseUrl` is set. CSS is **design
   tokens with hex fallbacks** (`var(--text, #1a2733)` …) so the report follows the
@@ -1348,10 +1350,12 @@ so what the invoice team sees changes only on a deliberate re-finalize.
   excluded from the main push via `.claspignore`; flat namespace). Deployed
   **`executeAs: USER_DEPLOYING` + `access: DOMAIN`** so the invoice team bookmarks one
   `/exec` URL with zero file access. **Security boundary:** public surface is EXACTLY
-  `doGet` / `getViewerBootstrap` / `getReportJson` (execute-as-owner ⇒ any domain user
-  can call any public fn with the owner's authority); both data endpoints serve
-  **published rows + display fields only** (never file ids or URLs); optional
-  `EOM_VIEWER_ALLOWED` email allowlist. Connects by the `SF_EOM_REPORTS` id only.
+  FOUR functions — `doGet` / `getViewerBootstrap` / `getReportJson` /
+  `getCurrentReport` (execute-as-owner ⇒ any domain user can call any public fn
+  with the owner's authority); the archive endpoints serve **published rows +
+  display fields only** (never file ids or URLs), and `getCurrentReport` is
+  read-only GETs that never return the token; optional `EOM_VIEWER_ALLOWED` email
+  allowlist. Connects by the `SF_EOM_REPORTS` id only.
   **Theming:** `Viewer.html` carries a **deliberate, palette-only copy** of the
   SharedUtils token blocks (light/dark/midnight/encarta/sage/slate/gruvbox —
   structural themes + axes dropped; re-sync BY HAND, NOT checksum-guarded) plus a
@@ -1362,6 +1366,36 @@ so what the invoice team sees changes only on a deliberate re-finalize.
   **Deploy:** paste Script ID into `eom-viewer/.clasp.json`, `clasp push` from inside
   `eom-viewer/`, Deploy → web app (Execute as **Me**, access **domain**); update via
   *edit deployment → new version* to keep the URL (never "New deployment").
+  **`clasp push` alone NEVER updates the served `/exec` app** — a new version must
+  be deployed to the existing deployment id (`clasp version` + `clasp deploy -i
+  <deployment id> -V <n>`); and a push from the repo ROOT silently does nothing to
+  the viewer (`.claspignore` excludes it) — always push from inside `eom-viewer/`.
+
+### Standalone viewer "Current — EOM Merge" section (live pull)
+A sidebar entry above the archive that pulls stage **44** (`CURRENT_STAGE_ID` in
+`eom-viewer/Code.gs`) straight from Pipedrive on click and renders it exactly like
+an archived month — so the invoice team can spot deals parked in *EOM Merge*
+mid-month that should be billed immediately. Nothing is written anywhere (no Drive
+file, no index row) — rendered and thrown away.
+- **`getCurrentReport()`** (the 4th public fn): probes `/users/me` first so a
+  rejected token is distinguishable from an empty stage (the `cv*` fetch layer
+  never throws), and the probe's own try/catch splits a **missing OAuth grant**
+  ("script not authorized for external requests — run getCurrentReport once in
+  the editor") from a genuine credential rejection. An empty pull echoes the
+  actual stage NAME (id 44 might stop being EOM Merge). Returns the same
+  `{group, meta}` JSON string shape as report.json (`meta.current: true`).
+- **Config:** `PD_API_TOKEN` + `PD_COMPANY_DOMAIN` in the VIEWER project's Script
+  Properties (same values as the main app's; secrets never in repo/sheet). The
+  section auto-hides until both are set (`getViewerBootstrap` returns a boolean
+  `current` flag only — never the token). First `UrlFetchApp` use adds the
+  external-request scope ⇒ the OWNER must re-authorize once (run any function in
+  the editor) — until then failures masquerade as credential errors.
+- **Pipeline-mirror invariant:** the viewer's row/group pipeline is a VERBATIM
+  copy of main `Code.gs` Section 33 (`eomCleanHtml_` / `eomGroupForReport_` /
+  `EOM_COLUMNS`; `cvBuildRows_` = `eomBuildRows_` with two documented deviations —
+  dupKey as a parameter, pipeline/stage names blanked to save two API calls). The
+  fetch layer (`cvGetJson_`/`cvListAllV1_`/`cvFetchProductsForDeals_`) mirrors the
+  main app's Pipedrive helpers. **If Section 33 changes, re-sync these copies.**
 
 Temporary `eomPdfSpike` (editor-run sample PDF) is retained until PDF layout
 fine-tuning is done; `eomFillProbe` was removed once the fill mechanism was settled.
