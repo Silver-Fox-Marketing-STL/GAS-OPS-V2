@@ -33,6 +33,8 @@
   .eomr-chip { display: inline-block; background: var(--surface-2, #eef3f9); color: var(--text-2, #5b6b7a); font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 999px; white-space: nowrap; }
   .eomr-chip b { color: var(--text, #1a2733); }
   .eomr-seclabel { font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--accent, #2d6a9f); margin: 14px 0 6px; }
+  .eomr-expand-btn { margin-left: 10px; border: 1px solid var(--border, #dce4ec); background: var(--surface, #fff); color: var(--accent, #2d6a9f); border-radius: 999px; font: inherit; font-size: 10px; letter-spacing: normal; text-transform: none; padding: 1px 10px; cursor: pointer; }
+  .eomr-expand-btn:hover { background: var(--accent-weak, #eef3f9); }
   .eomr-sum { width: 100%; border-collapse: collapse; }
   .eomr-sum th { text-align: left; font-size: 10.5px; text-transform: uppercase; color: var(--text-2, #5b6b7a); border-bottom: 1px solid var(--border, #dce4ec); padding: 5px 8px; }
   .eomr-sum td { padding: 5px 8px; border-bottom: 1px solid var(--border, #dce4ec); }
@@ -119,6 +121,12 @@
     });
   }
 
+  /** Opens or closes every deal <details> of ONE dealer card. */
+  function eomrSetDeals_(btn, open) {
+    var deals = btn.closest('.eomr-card-body').querySelectorAll('details.eomr-deal');
+    for (var i = 0; i < deals.length; i++) deals[i].open = open;
+  }
+
   /** group (eomGroupForReport_ output) + meta -> interactive HTML string.
    *  opts.splitContacts=true keeps per-contact sections; default merges them. */
   function eomrRenderReport(group, meta, opts) {
@@ -157,7 +165,12 @@
         });
         html += '<tr class="eomr-tot"><td></td><td>TOTAL</td><td class="eomr-r">' + (s.totalQty || 0) + '</td><td class="eomr-r">' + money(s.totalAmt) + '</td></tr></table>';
 
-        html += '<div class="eomr-seclabel">Deals</div>';
+        html += '<div class="eomr-seclabel">Deals'
+          + ((ct.deals || []).length
+            ? '<button type="button" class="eomr-expand-btn" onclick="eomrSetDeals_(this,true)">Expand all</button>'
+              + '<button type="button" class="eomr-expand-btn" onclick="eomrSetDeals_(this,false)">Collapse all</button>'
+            : '')
+          + '</div>';
         (ct.deals || []).forEach(function (d) {
           var created = d.created ? String(d.created).substring(0, 10) : '';
           var dupTxt = (d.duplicates || 0) + ' duplicate' + (d.duplicates === 1 ? '' : 's');
