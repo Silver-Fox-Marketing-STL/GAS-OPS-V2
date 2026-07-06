@@ -34,8 +34,9 @@ batched / native / one-line tool first.
   formula-free tables that port 1:1 to SQL; reference a user-entered label by
   cell, never inline it into a formula.
 
-**Canon — lean on it, don't re-derive:** `docs/LEARNINGS.md` (required reading —
-every gotcha below with the real incident), the Invariants section, and
+**Canon — lean on it, don't re-derive:** the Invariants and Recurring-traps
+sections below; `docs/LEARNINGS.md` (the full incident record behind every trap —
+Read on demand before deep work in an unfamiliar subsystem); and
 `docs/GAS_ShortCut_OPS_Bridge_System.md` (canonical reference; Read on demand for
 exact schemas/mechanism/history — NOT in context).
 
@@ -66,7 +67,7 @@ exact schemas/mechanism/history — NOT in context).
 
 - Repo: `Silver-Fox-Marketing-STL/GAS-OPS-V2`. `Code.gs` (~7,160 lines; Section 31
   = Pipedrive). Local checkout path varies per machine (this PC:
-  `C:\Users\newvi\Documents\GAS-OPS-V2`).
+  `C:\Users\Nick_Workstation\Documents\SilverFox-V2`).
 - clasp script ID: `1E5aTcofzWzJZssOikaf6lFytS92vRHmj-k1NDV0C_Xu7NoJk7VUEjtNO`.
   Bound to SF_SYSTEM_MASTER. In-code Apps Script menu label is still **SilverFox V2**
   (unchanged; the system is now GAS ShortCut OPS).
@@ -150,33 +151,104 @@ previously-hit failure — don't relax without reading the matching Bridge secti
   `refreshDashboard_`) are non-fatal try/catch — keep it that way.
 
 **Pipedrive** (v2.12; activates per dealer once live config is filled in)
-- All mappings key on stable IDs/keys; names are display-only (rename-safe).
-  `product_id`/`variation_id`, `org_id`, deal/org fields by 40-char key, enum values
-  by option id, deals by numeric `deal_id`. Persist by id/key, never by name.
+- Persist every mapping by stable id/key (product/variation/org ids, 40-char field
+  keys, enum option ids, numeric deal ids); names are display-only (rename-safe).
+  Secrets (`PD_API_TOKEN` etc.) live in ScriptProperties only — never repo/sheet.
 - `PIPEDRIVE` tab (SF_DEALER_CONFIG) is cols A–L, one row per `(dealer_key, group)`:
-  col E `product_map`, col J `field_overrides`, col L `source_product_map`. Secrets
-  (`PD_API_TOKEN` etc.) live in ScriptProperties only — never in repo/sheet.
-- Deal-field mapping is GLOBAL in `PIPEDRIVE_SETTINGS` (`deal_field_rules`): modes
-  copy / conditional / constant, with an `if_empty` fail-safe (on link, set only if
-  empty; skip — never overwrite — when the current value can't be read). Resolver:
-  `pdResolveDealFields_`.
-- Idempotency: the deal ID is written to RUN_LOG col D the instant the API returns
-  it, and a numeric col D is the dup guard (a retry never makes a second deal).
-  `pdFetch_` never throws — a Pipedrive failure can never fail a run. New-Deal
-  finalize creates the deal before the row, made retry-safe by the
-  `pd_new_<outputDocId|group>` token cache; keep both anchors.
-- Line-item quantity is GROSS (a re-printed VIN is still produced and billed — no
-  dupe subtraction). Line-item tax must be sent explicitly (`tax` + `tax_method:
-  'exclusive'`) — the API does not copy a product's catalog Tax % onto a deal line.
-- Fail-safe + isolated: the org-condition engine (`pdOrgConditionMatches_`) is a
-  parallel mirror of the targeting engine — never touch
-  `conditionMatches_`/`groupMatches_`/`ruleMatches_`. Product↔org scoping,
-  deactivated-product preemption (`is_linkable===false`), install-cost/Design
-  variation, and billing-PDF attach are best-effort/idempotent. Bridge: "Pipedrive
-  Integration".
-- Two partition axes, both config-driven from `filtering_rules`: `billing_split` =
-  separate deals/orgs/product_maps (MBCC); `source_split` = one deal, separate
-  products per source via `source_product_map` (Frank Leta).
+  col E `product_map`, col J `field_overrides`, col L `source_product_map`.
+- Deal-field mapping is GLOBAL in `PIPEDRIVE_SETTINGS` (`deal_field_rules`), modes
+  copy / conditional / constant with the `if_empty` fail-safe: on link set only if
+  empty; when the current value can't be read, SKIP — never overwrite.
+- Idempotency: deal ID → RUN_LOG col D the instant the API returns it (numeric
+  col D = dup guard); the `pd_new_<outputDocId|group>` token cache covers the
+  create-before-row window — keep both anchors. `pdFetch_` never throws — a
+  Pipedrive failure can never fail a run.
+- Line-item quantity is GROSS (no dupe subtraction); tax is sent explicitly
+  (`tax` + `tax_method: 'exclusive'`) — the API never copies catalog Tax %.
+- The org-condition engine (`pdOrgConditionMatches_`) is a parallel mirror of the
+  targeting engine — never touch `conditionMatches_`/`groupMatches_`/`ruleMatches_`.
+  Product↔org scoping, deactivated-product preemption (`is_linkable===false`),
+  install-cost/Design variation, and billing-PDF attach are best-effort/idempotent.
+- Two partition axes from `filtering_rules`: `billing_split` = separate deals/orgs/
+  product_maps (MBCC); `source_split` = one deal, per-source products via
+  `source_product_map` (Frank Leta). Full mechanism: Bridge "Pipedrive Integration"
+  + brain `03-Resources/pipedrive/integration-notes`.
+
+## Recurring traps — always in context
+
+The distillation of `docs/LEARNINGS.md` (no longer auto-loaded). Each line is a
+real incident; the full story + fix pattern lives there — Read it before deep work
+in an unfamiliar subsystem (Pipedrive push, Lot Scanner, theme system, import).
+
+**GAS runtime**
+- Batch everything network/Drive/Sheets-bound (`UrlFetchApp.fetchAll`, Drive REST):
+  per-file `createFile`/`setTrashed` ≈120ms each; per-row formatting is ~12× a
+  single block write (`setBackgroundObjects`). Fixed sleeps → `calcRecalcDelay_`.
+- `google.script.run` fails SILENTLY on missing/`_`-suffixed names (spinner hangs)
+  and cannot serialize Dates — stringify sheet rows before returning to a modal.
+- `SpreadsheetApp.getUi().alert()` fails in client-invoked executions — server
+  returns the message (`*Core_`/`app*` split); `toast()` works anywhere.
+- Use ONE accessor for a write+read pair — `openById` vs `getActiveSpreadsheet`
+  caches diverge even after `flush()`. `getConfigSS_()` for SF_DEALER_CONFIG.
+- Never `getRange` a full-width 5k+ row sheet from a modal — two-pass (locate the
+  span by one column, read just the span).
+- Concurrent appends lose rows unless the sheet is opened INSIDE the lock and
+  `flush()`ed before release — or better, serialize all row-writing through one
+  chunked committer and parallelize only the slow upload.
+
+**SPA / HtmlService**
+- All view fragments parse into ONE shared global JS scope — prefix per-view
+  helpers (`ps*`/`tr*`/`pd*`); a duplicate top-level function silently clobbers.
+- Include `SharedUtils` BEFORE views; element queries view-scoped
+  (`view.querySelector`); `addEventListener`, never `window.onresize =`.
+- Never interpolate a dynamic string into an inline `onclick` — pass an integer
+  index into a JS-side array (an apostrophe in the value kills the row silently).
+- CSS Grid blockifies children and defaults to `stretch` — restore each child's
+  pre-grid sizing (`justify-self:start` for content-width items). A portable
+  injected widget defends its own box model with `!important` (view `* {padding:0}`
+  resets outrank its class rules).
+- iOS: re-parenting a `<select>` fires a spurious `change` (detach the inline
+  `onchange` during DOM moves); pin `text-size-adjust:100%` on `:root` or identical
+  px text renders at different sizes; no mobile console → toast the COMPUTED style
+  on-device before theorizing. Decode big photos serially; parallelize only uploads.
+
+**Sheets values / formulas**
+- `getValues()` returns real booleans (`isTrue_`) and numbers/Dates from non-`@`
+  columns (`cellsEqual_` for tolerant compares). `PRICE_RAW` is TEXT: `+` coerces
+  but comparisons don't (text sorts above ALL numbers) — `VALUE()` first.
+- QUERY drops mixed-type minorities (the VIN/Stock `String()` + `@` rule) and
+  `MATCHES` doesn't reliably honor `(?i)`.
+- Substring ordering wherever one name can contain another: longest-match-first
+  (CPO-EL before CPO; `DUPLICATES BY TYPE` before `BY TYPE`; prefer exact-match
+  once a set is user-extensible — "Deposit" contains "po").
+- Never clear a sheet before the pipeline that refills it has fully succeeded;
+  destructive writes go LAST.
+- Volatile full-column formulas in a config sheet can make it unreachable to code
+  (~100s timeout) while the browser opens fine — that split is the tell.
+- CSV uploads: strip the leading U+FEFF BOM per file; guard mid-file headers.
+
+**Pipedrive API**
+- Coerce numeric ids to `Number` on writes — BY TYPE, never blanket (string ids
+  create the deal fine, then product-attach/field-set silently fail).
+- v1 deal custom fields are TOP-LEVEL 40-char hash keys (+ `<key>_currency` for
+  monetary) — the `{custom_fields:{…}}` wrapper is v2-only and silently no-ops.
+- Never guess a v2 shape from v1 or the docs — confirm live: v2 omits `success`;
+  deactivated = `is_linkable:false` (not `is_deleted`); variations are v2-only,
+  fetched per product; v1 GET under-reports line tax (verify via deal total or v2).
+- Line-item update = `PUT` with the deal-product ATTACHMENT id, not `product_id`.
+- Values a third-party automation owns: poll for the row, then set ONLY-IF-EMPTY;
+  when the current value can't be read, skip — never overwrite.
+
+**Git / clasp / MCP**
+- GitHub MCP: fresh SHA fetched immediately before every write; explicit `branch`;
+  `Code.gs` exceeds the push limit (local git for it); verify pushes by blob-SHA
+  compare, not content re-read. Pull fresh before editing.
+- A standalone clasp sub-project inside this repo: `clasp create` in a SIBLING temp
+  dir (it walks up and finds the parent `.clasp.json`), copy `.clasp.json` in, and
+  add the subfolder to the main `.claspignore` (clasp's namespace is flat).
+- Sheets MCP: `update_cells` rejects a leading `=` (`batch_update_cells` writes real
+  formulas); `unmergeCells` before `repeatCell`; delete columns right-to-left;
+  60 reads/min — batch and back off on 429.
 
 ## Backlog & to-do
 
@@ -188,15 +260,18 @@ Capacity Plan) are specced in the Bridge doc.
 
 ## Reference docs
 
-@docs/LEARNINGS.md  *(auto-loaded — required reading; the hard-won gotchas)*
-
 Read on demand (NOT auto-loaded):
+- `docs/LEARNINGS.md` — the full gotcha/incident record behind the Recurring-traps
+  list above. Read it before deep work in an unfamiliar subsystem. (De-auto-loaded
+  July 2026 to save ~14k tokens/session; the brain carries distilled copies in
+  `03-Resources/google-apps-script/` and `03-Resources/google-sheets/`.)
 - `docs/GAS_ShortCut_OPS_Bridge_System.md` — exhaustive system reference + full
   changelog; **canonical source of truth** for any exact invariant, schema, column
   index, or feature history. (De-auto-loaded to save ~56k tokens/session.)
 - Brain vault (`~/Documents/claude-brain/01-Projects/gas-ops-v2/`): `project-brief`,
-  `architecture` (schema quick-ref), `open-issues` (backlog); plus
-  `03-Resources/pipedrive/integration-notes`. Pull via the brain skill / `/brain-find`.
+  `architecture` (schema quick-ref), `open-issues` (backlog), `ui-patterns`
+  (SPA/theme detail); plus `03-Resources/pipedrive/integration-notes`. Pull via the
+  brain skill / `/brain-find`.
 - `GAS_ShortCut_OPS_Development_Plan.md` — roadmap incl. V3 direction.
 
 V3 (FastAPI + React + PostgreSQL) is paused; the GAS ShortCut OPS config model is
