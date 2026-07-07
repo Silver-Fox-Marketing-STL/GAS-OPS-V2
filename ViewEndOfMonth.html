@@ -115,7 +115,10 @@
 </div>
 
 <style>
-  #view-end-of-month { height: 100%; color: var(--text); }
+  /* background: var(--bg) overrides the SharedUtils .view white readability
+     guard (every tokenized view root must declare it, or the view paints white
+     in dark themes). */
+  #view-end-of-month { height: 100%; background: var(--bg); color: var(--text); }
   #view-end-of-month .eom-scroll { height: 100%; overflow-y: auto; padding: var(--space-5) var(--space-6); }
   #view-end-of-month .eom-wrap { max-width: 760px; }
   /* Report viewing gets the full data measure; form panels keep the 760px cap

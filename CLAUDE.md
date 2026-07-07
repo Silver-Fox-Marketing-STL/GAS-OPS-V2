@@ -197,6 +197,10 @@ in an unfamiliar subsystem (Pipedrive push, Lot Scanner, theme system, import).
   chunked committer and parallelize only the slow upload.
 
 **SPA / HtmlService**
+- Every view root must declare `background: var(--bg); color: var(--text)` —
+  SharedUtils pins `.view` to a HARDCODED WHITE readability guard that only an
+  ID-scoped root rule overrides; omit the background and the view paints white
+  in dark themes while its tokened content goes dark (EOM view, July 2026).
 - All view fragments parse into ONE shared global JS scope — prefix per-view
   helpers (`ps*`/`tr*`/`pd*`); a duplicate top-level function silently clobbers.
 - Include `SharedUtils` BEFORE views; element queries view-scoped

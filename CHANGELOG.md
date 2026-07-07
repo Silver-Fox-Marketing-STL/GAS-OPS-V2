@@ -10,6 +10,9 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## [Unreleased]
 
+### Fixed — EOM view white background in dark themes _(branch `feature/eom-billing-report`)_
+- `#view-end-of-month` now declares `background: var(--bg)` like every other migrated view root. It only overrode `color`, so the SharedUtils **hardcoded-white `.view` readability guard** (interim rule for unmigrated views; ID-scoped roots are meant to out-specify it) kept painting the whole view canvas white in every dark theme while the tokened panels/text went dark. Root-caused via a local headless harness (computed-style dump: `#view-end-of-month = rgb(255,255,255)` with `--bg: #121214`); trap added to CLAUDE.md.
+
 ### Added — In-app EOM view: live "Current — EOM Merge" section _(branch `feature/eom-billing-report`)_
 - The main app's **Reports** card gains a **Current (Live)** row — **View** pulls the EOM Merge stage straight from Pipedrive (new `getEomCurrentReport`, mirroring the standalone viewer's `getCurrentReport`: read-only GETs, writes nothing, same `{group, meta}` shape) and renders it through the shared renderer like an archived month, with a **Refresh** button in the viewer bar (shown only for the live view). Hidden until Pipedrive is connected. `eomvView`/`eomvViewCurrent` share the new `eomvOpenViewer_` shell helper.
 - **Dark-mode audit:** built a local static harness (App.html + fragments assembled, `google.script.run` stubbed, headless Chrome screenshots) — the EOM view and the in-app report viewer render fully dark at HEAD; no hardcoded white backgrounds found (the only literal colors are theme-scoped encarta/luna rules and `color:#fff` on the accent button).
