@@ -8698,6 +8698,38 @@ function getEomReportJson(monthLabel) {
   catch (e) { return { ok: false, error: 'Could not read report data: ' + e.message }; }
 }
 
+/** Client-callable: LIVE pull of the default EOM stage → the same {group, meta}
+ *  JSON shape as report.json, so the in-app viewer renders it exactly like an
+ *  archived month (mirrors the standalone viewer's getCurrentReport — keep the
+ *  meta shape in sync). Read-only: GETs only; writes nothing (no Drive file,
+ *  no index row). */
+function getEomCurrentReport() {
+  try {
+    if (!getPipedriveStatus().configured) return { ok: false, error: 'Pipedrive is not connected.' };
+    var stageId = eomGetDefaultStageId_();
+    var deals = eomListDeals_('stage', stageId);
+    var rows = [], CHUNK = 100;
+    for (var i = 0; i < deals.length; i += CHUNK) {
+      var batch = deals.slice(i, i + CHUNK);
+      var productsByDeal = pdEomFetchProductsForDeals_(batch.map(function (d) { return d.id; }));
+      batch.forEach(function (deal) { rows = rows.concat(eomBuildRows_(deal, productsByDeal[deal.id] || [])); });
+      if (i + CHUNK < deals.length) Utilities.sleep(800);
+    }
+    var group = eomGroupForReport_(rows);
+    var meta = {
+      current: true, stageId: String(stageId), stageName: eomStageName_(stageId),
+      monthLabel: 'Current — EOM Merge',
+      generatedAt: Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'America/Chicago', 'yyyy-MM-dd HH:mm:ss'),
+      orgCount: group.length, dealCount: deals.length,
+      dealBaseUrl: eomDealBaseUrl_(),
+      splitContacts: false
+    };
+    return { ok: true, json: JSON.stringify({ group: group, meta: meta }) };
+  } catch (e) {
+    return { ok: false, error: 'Current pull failed: ' + e.message };
+  }
+}
+
 /** Client-callable: publish a month. Snapshots report.json -> published.json in
  *  the month folder (a SEPARATE file — invariant 1: later re-runs overwrite
  *  report.json but never the snapshot) and flips the index row to published. */

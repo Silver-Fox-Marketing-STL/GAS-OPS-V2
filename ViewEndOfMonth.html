@@ -85,6 +85,17 @@
       <div id="eomReportsCard" class="eom-panel" style="display:none;">
         <div class="eom-reports-title">Reports</div>
         <div class="u-hint" style="margin-bottom:10px;">Review a generated report, then <strong>Finalize &amp; publish</strong> to make it appear in the report viewer for the invoice team.</div>
+        <!-- Live pull of the EOM Merge stage (mirrors the standalone viewer's
+             Current section); hidden until Pipedrive is configured. -->
+        <div class="eom-report-row" id="eomCurrentRow" style="display:none;">
+          <div class="eom-report-main">
+            <div class="eom-report-month">Current <span class="eom-status live">Live</span></div>
+            <div class="eom-report-sub">The EOM Merge stage as it is right now &mdash; nothing is written or published.</div>
+          </div>
+          <div class="eom-report-actions">
+            <button type="button" class="eom-btn-ghost" onclick="eomvViewCurrent()">View</button>
+          </div>
+        </div>
         <div id="eomReportsList"></div>
       </div>
 
@@ -93,6 +104,7 @@
         <div class="eom-viewer-bar">
           <button type="button" class="eom-btn-ghost" onclick="eomvClose()">&larr; Back to reports</button>
           <span id="eomViewerTitle" class="eom-viewer-title"></span>
+          <button type="button" class="eom-btn-ghost" id="eomvRefreshBtn" style="display:none;" onclick="eomvViewCurrent()">&#8635; Refresh</button>
           <label class="eom-checkline eom-viewer-opt"><input type="checkbox" id="eomvSplit" onchange="eomvRerender()"> Split by contact</label>
         </div>
         <div id="eomViewerBody"></div>
@@ -157,6 +169,7 @@
   #view-end-of-month .eom-status { font-size: 10px; font-weight: 700; padding: 1px 8px; border-radius: 999px; margin-left: 6px; vertical-align: middle; }
   #view-end-of-month .eom-status.gen { background: var(--surface-3); color: var(--text-2); }
   #view-end-of-month .eom-status.pub { background: var(--success-weak, #dcefe0); color: var(--success, #1c7a3a); }
+  #view-end-of-month .eom-status.live { background: var(--info-weak, #e7eef7); color: var(--info, #2563a8); }
 
   /* Checkbox rows (the .eom-field input width:100% rule must not stretch these) */
   #view-end-of-month label.eom-checkline { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); font-weight: 600; color: var(--text-2); cursor: pointer; margin-bottom: 0; }
@@ -222,6 +235,7 @@
     var wrap = eomWrap(); if (wrap) wrap.classList.remove('eom-wide');   // form panels back to 760px
     eomEl('eomViewer').style.display = 'none';
     eomEl('eomReportsCard').style.display = 'block';
+    eomEl('eomCurrentRow').style.display = eomLastConfigured ? 'flex' : 'none';   // live pull needs Pipedrive
     eomEl('eomNotConfigured').style.display = eomLastConfigured ? 'none' : 'block';
     eomEl('eomControls').style.display = eomLastConfigured ? 'block' : 'none';
     eomEl('eomAdvanced').style.display = eomLastConfigured ? 'block' : 'none';
@@ -262,18 +276,25 @@
       .getEomReportsList();
   }
 
-  function eomvView(i) {
-    var r = eomReportsData[i]; if (!r) return;
-    var body = eomEl('eomViewerBody');
+  // Hides the form panels and opens the viewer shell (title + full width);
+  // returns the body element the caller fills. isCurrent shows the Refresh button.
+  function eomvOpenViewer_(title, isCurrent) {
     eomvPayload = null;
-    body.innerHTML = '<p class="u-hint">Loading report&hellip;</p>';
-    eomEl('eomViewerTitle').textContent = r.monthLabel + (r.status === 'published' ? ' (published)' : ' (generated — not yet published)');
+    eomEl('eomViewerTitle').textContent = title;
+    eomEl('eomvRefreshBtn').style.display = isCurrent ? 'inline-block' : 'none';
     eomEl('eomNotConfigured').style.display = 'none';
     eomEl('eomControls').style.display = 'none';
     eomEl('eomAdvanced').style.display = 'none';
     eomEl('eomReportsCard').style.display = 'none';
     eomEl('eomViewer').style.display = 'block';
     var wrap = eomWrap(); if (wrap) wrap.classList.add('eom-wide');   // let the report use the full width
+    return eomEl('eomViewerBody');
+  }
+
+  function eomvView(i) {
+    var r = eomReportsData[i]; if (!r) return;
+    var body = eomvOpenViewer_(r.monthLabel + (r.status === 'published' ? ' (published)' : ' (generated — not yet published)'), false);
+    body.innerHTML = '<p class="u-hint">Loading report&hellip;</p>';
     google.script.run
       .withSuccessHandler(function (res) {
         if (!res || !res.ok) { body.innerHTML = '<p class="eom-viewer-err">' + escHtml((res && res.error) || 'Could not load report.') + '</p>'; return; }
@@ -285,6 +306,32 @@
       })
       .withFailureHandler(function (e) { body.innerHTML = '<p class="eom-viewer-err">' + escHtml((e && e.message) || String(e)) + '</p>'; })
       .getEomReportJson(r.monthLabel);
+  }
+
+  // Live pull of the EOM Merge stage — same render path as an archived month
+  // (mirrors the standalone viewer's Current section). Refresh re-invokes this.
+  function eomvViewCurrent() {
+    var body = eomvOpenViewer_('Current — EOM Merge (live)', true);
+    body.innerHTML = '<p class="u-hint">Pulling the EOM Merge stage from Pipedrive&hellip;</p>';
+    google.script.run
+      .withSuccessHandler(function (res) {
+        if (!res || !res.ok) { body.innerHTML = '<p class="eom-viewer-err">' + escHtml((res && res.error) || 'Could not load.') + '</p>'; return; }
+        try {
+          var p = JSON.parse(res.json);
+          var m = p.meta || {};
+          eomEl('eomViewerTitle').textContent = 'Current — ' + (m.stageName || 'EOM Merge') + ' (live · pulled ' + (m.generatedAt || '') + ')';
+          if (!p.group || !p.group.length) {
+            body.innerHTML = '<p class="u-hint">No deals are in the &ldquo;' + escHtml(m.stageName || 'EOM Merge')
+              + '&rdquo; stage (id ' + escHtml(m.stageId || '?') + ') right now.</p>';
+            return;
+          }
+          eomvPayload = p;
+          eomEl('eomvSplit').checked = false;
+          eomvRerender();
+        } catch (e) { eomvPayload = null; body.innerHTML = '<p class="eom-viewer-err">Report data could not be read.</p>'; }
+      })
+      .withFailureHandler(function (e) { body.innerHTML = '<p class="eom-viewer-err">' + escHtml((e && e.message) || String(e)) + '</p>'; })
+      .getEomCurrentReport();
   }
 
   // Re-renders the open report with the current split-by-contact choice.
