@@ -25,3 +25,7 @@ lot-scan/**
 # pushed separately from inside eom-viewer/. Excluded here so its Code.gs / Viewer.html /
 # EomReportRenderer.html copy never collides with the main project (flat namespace).
 eom-viewer/**
+
+# VDP batch pilot — local-only Illustrator/PowerShell tooling (ExtendScript .jsx +
+# .ps1 + qpdf), NOT Apps Script source. Runs on the operator's machine, never pushed.
+vdp-batch/**

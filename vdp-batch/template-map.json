@@ -1,0 +1,8 @@
+{
+  "_README": "Dealer/type -> Illustrator template path. Mirrors the OPS Pipedrive product_map pattern. These entries seed the template-picker dropdown in vdp-batch.jsx; the operator can always Browse to any .ai instead. Keys starting with _ are ignored by the loader. Use double-backslashes for Windows/NAS paths. Phase 2 moves this into OPS DEALER_CONFIG.",
+  "_EXAMPLE_DEALER": {
+    "New": "\\\\NAS\\SilverFox\\Templates\\_EXAMPLE_DEALER\\New.ai",
+    "PO": "\\\\NAS\\SilverFox\\Templates\\_EXAMPLE_DEALER\\Used.ai",
+    "CPO": "\\\\NAS\\SilverFox\\Templates\\_EXAMPLE_DEALER\\CPO.ai"
+  }
+}
