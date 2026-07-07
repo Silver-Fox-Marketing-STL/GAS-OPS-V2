@@ -63,6 +63,10 @@
   .eomr-line-amt { font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
   .eomr-noprod { color: var(--text-2, #5b6b7a); font-size: 12px; padding: 8px 12px 8px 56px; }
   .eomr-empty { color: var(--text-2, #5b6b7a); padding: 20px; text-align: center; }
+  .eomr-monthbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 10px 14px; margin-bottom: 14px; background: var(--surface, #fff); border: 1px solid var(--border, #dce4ec); border-radius: var(--radius, 8px); }
+  .eomr-monthbar-label { font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--accent, #2d6a9f); margin-right: 6px; }
+  .eomr-deal-val-stack { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
+  .eomr-deal-pre { color: var(--text-2, #5b6b7a); font-weight: 600; font-size: 11px; }
 </style>
 <script>
   // Self-contained so the fragment byte-copies into eom-viewer/ with no deps.
@@ -76,6 +80,16 @@
     var parts = v.toFixed(2).split('.');
     parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
     return (neg ? '-$' : '$') + parts.join('.');
+  }
+  /** Post-tax total of a deal's lines: each line's sum × (1 + tax%/100),
+   *  rounded to cents PER LINE (mirrors Pipedrive's per-line tax math).
+   *  Lines from pre-tax report.json files have no .tax -> post === pre. */
+  function eomrPostTax_(lines) {
+    var t = 0;
+    (lines || []).forEach(function (l) {
+      t += Math.round((Number(l.sum) || 0) * (1 + (Number(l.tax) || 0) / 100) * 100) / 100;
+    });
+    return t;
   }
 
   /** Collapses each org's contact sections into ONE pseudo-contact
@@ -137,11 +151,39 @@
     var split = !!(opts && opts.splitContacts);
     var g = split ? group : eomrMergeGroup_(group);
 
+    // Month totals: pre-tax = the stats' line-sum totals, post-tax = line sums
+    // × their tax rates. hasTax gates the whole pre/post display — lines in old
+    // report.json files carry no .tax, and echoing one number as both "pre-tax"
+    // and "w/ tax" would just be noise there.
+    var mOrders = 0, mDups = 0, mPre = 0, mPost = 0, hasTax = false;
+    g.forEach(function (og) {
+      (og.contacts || []).forEach(function (ct) {
+        var s = ct.stats || {};
+        mOrders += Number(s.orders) || 0;
+        mDups += Number(s.duplicates) || 0;
+        mPre += Number(s.totalAmt) || 0;
+        (ct.deals || []).forEach(function (d) {
+          (d.lines || []).forEach(function (l) { if (Number(l.tax)) hasTax = true; });
+          mPost += eomrPostTax_(d.lines);
+        });
+      });
+    });
+
     var html = '<div class="eomr-report">';
+    html += '<div class="eomr-monthbar"><span class="eomr-monthbar-label">Monthly summary</span>'
+      + '<span class="eomr-chip"><b>' + mOrders + '</b> orders</span>'
+      + '<span class="eomr-chip"><b>' + mDups + '</b> duplicates</span>'
+      + (hasTax
+        ? '<span class="eomr-chip">pre-tax <b>' + money(mPre) + '</b></span>'
+          + '<span class="eomr-chip">w/ tax <b>' + money(mPost) + '</b></span>'
+        : '<span class="eomr-chip">total <b>' + money(mPre) + '</b></span>')
+      + '</div>';
     g.forEach(function (og) {
       html += '<div class="eomr-org">';
       (og.contacts || []).forEach(function (ct) {
         var s = ct.stats || {};
+        var ctPost = 0;
+        (ct.deals || []).forEach(function (d) { ctPost += eomrPostTax_(d.lines); });
         // Dealer card: a collapsed-by-default <details> whose summary IS the
         // small card (dealer + orders/duplicates/total chips); expanding shows
         // the product summary and deals.
@@ -153,7 +195,10 @@
           + '<span class="eomr-chips">'
           + '<span class="eomr-chip"><b>' + (s.orders || 0) + '</b> orders</span>'
           + '<span class="eomr-chip"><b>' + (s.duplicates || 0) + '</b> duplicates</span>'
-          + '<span class="eomr-chip">total <b>' + money(s.totalAmt) + '</b></span></span>'
+          + (hasTax
+            ? '<span class="eomr-chip">pre-tax <b>' + money(s.totalAmt) + '</b></span>'
+              + '<span class="eomr-chip">w/ tax <b>' + money(ctPost) + '</b></span>'
+            : '<span class="eomr-chip">total <b>' + money(s.totalAmt) + '</b></span>') + '</span>'
           + '</summary><div class="eomr-card-body">';
 
         html += '<div class="eomr-seclabel">Product summary</div><table class="eomr-sum">'
@@ -179,10 +224,19 @@
             + (created ? ' · Created: ' + created : '')
             + ' · ' + dupTxt
             + (ct.merged && d.contact ? ' · Contact: ' + esc(d.contact) : '');
+          // Pre/post per deal from its own lines (so pre + tax always reconcile);
+          // a product-less deal falls back to the Pipedrive deal value for both.
+          var dealPre = 0;
+          (d.lines || []).forEach(function (l) { dealPre += Number(l.sum) || 0; });
+          var dealPost = d.hasProducts ? eomrPostTax_(d.lines) : (Number(d.dealValue) || 0);
+          if (!d.hasProducts) dealPre = Number(d.dealValue) || 0;
           html += '<details class="eomr-deal"><summary>'
             + '<span class="eomr-caret"></span>'
             + '<span class="eomr-deal-title">' + esc(titleTxt) + '</span>'
-            + '<span class="eomr-deal-val">' + money(d.dealValue) + '</span></summary>'
+            + (hasTax
+              ? '<span class="eomr-deal-val eomr-deal-val-stack"><span class="eomr-deal-pre">pre-tax ' + money(dealPre) + '</span><span>' + money(dealPost) + ' w/ tax</span></span>'
+              : '<span class="eomr-deal-val">' + money(d.dealValue) + '</span>')
+            + '</summary>'
             + '<div class="eomr-deal-meta"><span>' + metaTxt + '</span>'
             + (dealBase ? '<a class="eomr-deal-link" href="' + esc(dealBase + d.id) + '" target="_blank" rel="noopener">Go to deal &#8599;</a>' : '')
             + '</div>';

@@ -339,7 +339,9 @@ function eomGroupForReport_(rows) {
       cRows.forEach(function (r) {
         var id = r[C.deal_id];
         if (!dealMap[id]) dealMap[id] = { id: id, title: String(r[C.deal_title] || '').trim(), created: String(r[C.deal_created_at] || '').trim(), owner: String(r[C.deal_owner] || '').trim(), contact: contact, duplicates: Number(r[C.duplicates]) || 0, dealValue: Number(r[C.deal_value]) || 0, lines: [] };
-        dealMap[id].lines.push({ code: String(r[C.product_code] || '').trim(), name: String(r[C.product_name] || '').trim(), vari: String(r[C.variation] || '').trim(), qty: Number(r[C.quantity]) || 0, price: Number(r[C.item_price]) || 0, sum: Number(r[C.sum]) || 0, desc: String(r[C.product_description] || '').trim(), notes: String(r[C.product_notes] || '').trim() });
+        // tax = the line's actual Tax % on the deal, falling back to the product
+        // catalog rate (pre-tax-fix deals have 0 on the line but a real catalog rate)
+        dealMap[id].lines.push({ code: String(r[C.product_code] || '').trim(), name: String(r[C.product_name] || '').trim(), vari: String(r[C.variation] || '').trim(), qty: Number(r[C.quantity]) || 0, price: Number(r[C.item_price]) || 0, sum: Number(r[C.sum]) || 0, tax: Number(r[C.deal_tax_percent]) || Number(r[C.product_tax_percent]) || 0, desc: String(r[C.product_description] || '').trim(), notes: String(r[C.product_notes] || '').trim() });
       });
       var deals = Object.keys(dealMap).map(function (k) { return dealMap[k]; }).sort(function (a, b) { return a.id - b.id; });
       deals.forEach(function (d) {

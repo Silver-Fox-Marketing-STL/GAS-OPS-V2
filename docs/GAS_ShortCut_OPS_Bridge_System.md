@@ -1291,6 +1291,23 @@ notes unioned), deals sorted by id. Consumers key off `ct.merged` / empty
 and carry a `Contact` column on every deal row (both modes). `eomGroupForReport_`
 now writes `contact` onto each deal (additive).
 
+### Pre/post-tax display (viewer only)
+`eomGroupForReport_` (BOTH copies — main Code.gs + eom-viewer/Code.gs) writes
+`tax` onto each deal line: the line's actual Pipedrive Tax %
+(`deal_tax_percent`), falling back to the product catalog rate
+(`product_tax_percent`) for deals pushed before the line-tax fix (additive —
+both were already in the flat rows). The renderer computes post-tax itself
+(`eomrPostTax_`: per line `sum × (1 + tax%/100)` **rounded to cents per line**,
+mirroring Pipedrive; deal pre-tax = line sums so pre + tax reconcile) and shows:
+a **Monthly summary** bar at the top (orders · duplicates · pre-tax · w/ tax
+grand totals), **pre-tax / w/ tax** dealer chips, and a stacked pre/post value on
+each deal header. A report-wide `hasTax` flag (any line with a nonzero `tax`)
+gates ALL of it — old report.json files have no `tax` on lines and keep the old
+single-total display. The merge functions (`eomrMergeGroup_` /
+`eomMergeContactGroups_`) are untouched: lines ride through inside deals, and
+post-tax is recomputed from them at render time. PDFs and org tabs remain
+pre-tax only (deferred with the PDF fine-tuning pass).
+
 ### PDF engine — invariant (do not "fix" back to CSS fills)
 Rendered by the raw `Utilities.newBlob(html,'text/html').getAs('application/pdf')`
 converter. **That converter paints NO background fills** behind HTML text — CSS
