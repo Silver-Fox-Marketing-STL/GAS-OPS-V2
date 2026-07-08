@@ -229,7 +229,7 @@
   #view-pipedrive-settings .ps-field input[type="number"],
   #view-pipedrive-settings .ps-field select {
     padding: 6px 8px; font-size: 13px;
-    border: 1px solid var(--border-2); border-radius: 4px; width: 100%;
+    border: 1px solid var(--border-2); border-radius: var(--radius-sm); width: 100%;
     background: var(--bg); color: var(--text);
   }
   #view-pipedrive-settings .ps-field input:focus,
@@ -255,7 +255,7 @@
   #view-pipedrive-settings .ps-org-select,
   #view-pipedrive-settings .ps-mode-select {
     padding: 4px 6px; font-size: 12px; border: 1px solid var(--border-2);
-    border-radius: 4px; background: var(--bg); color: var(--text);
+    border-radius: var(--radius-sm); background: var(--bg); color: var(--text);
   }
   #view-pipedrive-settings .ps-deal-select:focus,
   #view-pipedrive-settings .ps-org-select:focus,
@@ -266,7 +266,7 @@
   }
   #view-pipedrive-settings .ps-x {
     border: none; background: var(--border); color: var(--text-3); cursor: pointer;
-    border-radius: 4px; padding: 2px 8px; font-size: 13px; line-height: 1;
+    border-radius: var(--radius-sm); padding: 2px 8px; font-size: 13px; line-height: 1;
   }
   #view-pipedrive-settings .ps-x:hover { background: var(--danger-weak); color: var(--danger); }
 
@@ -302,7 +302,7 @@
   #view-pipedrive-settings .ps-opt-table td:first-child { width: 45%; color: var(--text-2); }
   #view-pipedrive-settings .ps-opt-table select {
     padding: 4px 6px; font-size: 12px; border: 1px solid var(--border-2);
-    border-radius: 4px; width: 100%; background: var(--bg); color: var(--text);
+    border-radius: var(--radius-sm); width: 100%; background: var(--bg); color: var(--text);
   }
   #view-pipedrive-settings .ps-opt-table select:focus { outline: none; border-color: var(--accent); }
 
@@ -311,7 +311,7 @@
     display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 8px 0 4px;
   }
   #view-pipedrive-settings .pd-install-grid .ps-te-field select {
-    padding: 6px 8px; font-size: 12px; border: 1px solid var(--border-2); border-radius: 4px;
+    padding: 6px 8px; font-size: 12px; border: 1px solid var(--border-2); border-radius: var(--radius-sm);
     width: 100%; background: var(--bg); color: var(--text);
   }
   #view-pipedrive-settings .pd-install-grid .ps-te-field select:focus { outline: none; border-color: var(--accent); }
@@ -329,7 +329,7 @@
   #view-pipedrive-settings .pd-install-table td:last-child { width: 110px; }
   #view-pipedrive-settings .pd-install-table select,
   #view-pipedrive-settings .pd-install-table input {
-    padding: 4px 6px; font-size: 12px; border: 1px solid var(--border-2); border-radius: 4px;
+    padding: 4px 6px; font-size: 12px; border: 1px solid var(--border-2); border-radius: var(--radius-sm);
     width: 100%; background: var(--bg); color: var(--text);
   }
   #view-pipedrive-settings .pd-install-table select:focus,
@@ -345,14 +345,14 @@
     font-size: 12px; color: var(--text-2);
   }
   #view-pipedrive-settings .ps-match {
-    padding: 2px 5px; font-size: 11px; border: 1px solid var(--border-2); border-radius: 4px;
+    padding: 2px 5px; font-size: 11px; border: 1px solid var(--border-2); border-radius: var(--radius-sm);
     font-weight: bold; background: var(--bg); color: var(--text);
   }
   #view-pipedrive-settings .ps-children { display: flex; flex-direction: column; gap: 5px; }
   #view-pipedrive-settings .ps-cond { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
   #view-pipedrive-settings .ps-cond select,
   #view-pipedrive-settings .ps-cond input {
-    padding: 3px 5px; font-size: 12px; border: 1px solid var(--border-2); border-radius: 4px;
+    padding: 3px 5px; font-size: 12px; border: 1px solid var(--border-2); border-radius: var(--radius-sm);
     background: var(--bg); color: var(--text);
   }
   #view-pipedrive-settings .ps-cond .ps-cond-field { min-width: 130px; }
@@ -362,7 +362,7 @@
   #view-pipedrive-settings .ps-cond .ps-cond-single { padding: 5px 6px; }
   #view-pipedrive-settings .ps-cond .ps-cond-checks {
     flex: 1 1 100%; min-width: 140px; max-height: 116px; overflow-y: auto;
-    border: 1px solid var(--border-2); border-radius: 4px; background: var(--bg);
+    border: 1px solid var(--border-2); border-radius: var(--radius-sm); background: var(--bg);
     padding: 4px 6px;
   }
   #view-pipedrive-settings .ps-check-row {
@@ -378,7 +378,7 @@
   #view-pipedrive-settings .ps-group-actions { margin-top: 6px; display: flex; gap: 6px; }
   #view-pipedrive-settings .ps-add {
     border: 1px solid var(--border-2); background: var(--bg); color: var(--accent-hover); cursor: pointer;
-    border-radius: 4px; padding: 2px 8px; font-size: 11px;
+    border-radius: var(--radius-sm); padding: 2px 8px; font-size: 11px;
   }
   #view-pipedrive-settings .ps-add:hover { background: var(--accent-weak); }
 
@@ -388,7 +388,7 @@
   #view-pipedrive-settings .ps-te-field label { font-size: 11px; font-weight: bold; color: var(--text-2); }
   #view-pipedrive-settings .ps-te-field select,
   #view-pipedrive-settings .ps-te-field input {
-    padding: 6px 8px; font-size: 12px; border: 1px solid var(--border-2); border-radius: 4px;
+    padding: 6px 8px; font-size: 12px; border: 1px solid var(--border-2); border-radius: var(--radius-sm);
     width: 100%; background: var(--bg); color: var(--text);
   }
   #view-pipedrive-settings .ps-te-field select:focus,
@@ -475,12 +475,12 @@
   #view-pipedrive-settings .ps-link-org-search { position: relative; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   #view-pipedrive-settings .ps-link-org-search input[type="text"] {
     flex: 1; min-width: 160px; padding: 5px 7px; font-size: 12px;
-    border: 1px solid var(--border-2); border-radius: 4px; background: var(--bg); color: var(--text);
+    border: 1px solid var(--border-2); border-radius: var(--radius-sm); background: var(--bg); color: var(--text);
   }
   #view-pipedrive-settings .ps-link-org-search input:focus { outline: none; border-color: var(--accent); }
   #view-pipedrive-settings .ps-link-org-results {
     list-style: none; margin: 0; padding: 0; position: absolute; top: 100%; left: 0; right: 0; z-index: 5;
-    border: 1px solid var(--border-2); border-radius: 4px; background: var(--bg);
+    border: 1px solid var(--border-2); border-radius: var(--radius-sm); background: var(--bg);
     max-height: 180px; overflow-y: auto; box-shadow: var(--shadow);
   }
   #view-pipedrive-settings .ps-link-org-results li {
