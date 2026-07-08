@@ -336,8 +336,9 @@
       color: var(--text);
     }
 
-    /* ── Buttons ─────────────────────────────────────────────────────────────── */
-    #view-import .modal-footer button { flex-shrink: 0; }
+    /* ── Buttons: don't shrink next to flex:1 siblings (status-bar, bulk-label) ── */
+    #view-import .modal-footer button,
+    #view-import .bulk-bar button { flex-shrink: 0; }
 
     /* ════════════════════════════════════════════════════════════════════════════
        CONFLICT PANEL
