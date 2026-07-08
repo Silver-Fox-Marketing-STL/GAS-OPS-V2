@@ -35,7 +35,7 @@
   <div id="fcStatus" class="empty app-measure"></div>
 
   <div class="table-wrap app-measure" id="fcTableWrap">
-    <table>
+    <table class="table-u">
       <thead>
         <tr>
           <th class="col-code">Field Code</th>
@@ -99,14 +99,14 @@
   #view-fieldcodes .add-field input[type="text"] {
     padding: 6px 8px;
     font-size: 12px;
-    font-family: monospace;
+    font-family: var(--font-mono);
     color: var(--text);
     background: var(--bg);
     border: 1px solid var(--border-2);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     width: 100%;
   }
-  #view-fieldcodes .add-field input[type="text"]:focus { outline: none; border-color: var(--accent); }
+  #view-fieldcodes .add-field input[type="text"]:focus { outline: none; box-shadow: var(--focus-ring); }
   #view-fieldcodes .add-buttons { display: flex; gap: 6px; flex-shrink: 0; padding-bottom: 1px; }
 
   /* ── Status bar ────────────────────────────────────────────────────────── */
@@ -125,33 +125,20 @@
   /* Height is set by JS — overflow-y: auto enables scroll once height is fixed */
   #view-fieldcodes .table-wrap { overflow-y: auto; }
 
-  #view-fieldcodes table { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
-  #view-fieldcodes thead th {
-    background: var(--surface-2);
-    padding: 7px 12px;
-    text-align: left;
-    font-size: 11px;
-    font-weight: bold;
-    text-transform: uppercase;
-    letter-spacing: 0.3px;
-    color: var(--text-2);
-    border-bottom: 1px solid var(--border);
-    position: sticky;
-    top: 0;
-    z-index: 1;
-  }
+  /* base table/th/td recipe now owned by .table-u (SharedUtils); table-layout
+     stays view-scoped (not part of the shared spec, required for the %
+     column widths below) */
+  #view-fieldcodes table { table-layout: fixed; }
   #view-fieldcodes thead th.col-code    { width: 22%; }
   #view-fieldcodes thead th.col-col     { width: 20%; }
   #view-fieldcodes thead th.col-desc    { width: 30%; }
   #view-fieldcodes thead th.col-source  { width: 12%; }
   #view-fieldcodes thead th.col-actions { text-align: center; width: 16%; white-space: nowrap; }
 
-  #view-fieldcodes tbody tr { border-bottom: 1px solid var(--border); }
-  #view-fieldcodes tbody tr:last-child  { border-bottom: none; }
-  #view-fieldcodes tbody tr:hover { background: var(--bg); }
-  #view-fieldcodes td { padding: 5px 12px; vertical-align: middle; word-break: break-word; }
-  #view-fieldcodes td.col-code   { font-family: monospace; font-weight: bold; color: var(--text); }
-  #view-fieldcodes td.col-col    { font-family: monospace; color: var(--accent); font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+  /* word-break stays view-scoped (not part of the shared spec) */
+  #view-fieldcodes td { word-break: break-word; }
+  #view-fieldcodes td.col-code   { font-family: var(--font-mono); font-weight: bold; color: var(--text); }
+  #view-fieldcodes td.col-col    { font-family: var(--font-mono); color: var(--accent); font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
   #view-fieldcodes td.col-desc   { color: var(--text-2); }
   #view-fieldcodes td.col-desc.muted { color: var(--text-muted); font-style: italic; }
   #view-fieldcodes td.col-source { white-space: nowrap; }
@@ -180,11 +167,11 @@
     width: 100%;
     padding: 4px 6px;
     font-size: 12px;
-    font-family: monospace;
+    font-family: var(--font-mono);
     color: var(--text);
     background: var(--bg);
     border: 1px solid var(--accent);
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
   }
   #view-fieldcodes .edit-input:focus { outline: none; }
 
@@ -204,20 +191,10 @@
   #view-fieldcodes .footer .footer-note { font-size: 11px; color: var(--text-3); margin-right: auto; font-style: italic; }
 
   /* ── Buttons ───────────────────────────────────────────────────────────── */
-  #view-fieldcodes button {
-    padding: 6px 13px;
-    font-size: 12px;
-    font-weight: bold;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    white-space: nowrap;
-  }
-  #view-fieldcodes .btn-primary         { background: var(--accent); color: var(--on-accent); }
-  #view-fieldcodes .btn-primary:hover   { background: var(--accent-hover); }
-  #view-fieldcodes .btn-secondary       { background: var(--bg); color: var(--text); border: 1px solid var(--border-2); }
-  #view-fieldcodes .btn-secondary:hover { background: var(--surface-2); }
-  #view-fieldcodes .btn-icon            { padding: 3px 8px; font-size: 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 3px; color: var(--text-2); margin: 0 1px; }
+  /* .btn-primary / .btn-secondary sizing + color now owned by the unified
+     component layer (SharedUtils). .btn-icon is a distinct compact table
+     control not in that grammar — stays view-scoped. */
+  #view-fieldcodes .btn-icon            { padding: 3px 8px; font-size: 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 2px; color: var(--text-2); margin: 0 1px; }
   #view-fieldcodes .btn-icon:hover      { background: var(--border); }
   #view-fieldcodes .btn-icon.del        { background: var(--danger-weak); color: var(--danger); border-color: var(--danger); }
   #view-fieldcodes .btn-icon.del:hover  { background: var(--danger); color: var(--on-danger); }
@@ -225,7 +202,7 @@
   #view-fieldcodes .btn-icon.revert:hover { background: var(--warning); color: var(--bg); }
   #view-fieldcodes .btn-icon.save       { background: var(--success-weak); color: var(--success); border-color: var(--success); }
   #view-fieldcodes .btn-icon.save:hover { background: var(--success); color: var(--on-success); }
-  #view-fieldcodes button:disabled      { opacity: 0.4; cursor: default; }
+  #view-fieldcodes .btn-icon:disabled   { opacity: 0.4; cursor: default; }
 
   /* themed root (overrides the interim .view light guard) */
   #view-fieldcodes { background: var(--bg); color: var(--text); }
