@@ -65,6 +65,7 @@
     /* typography */
     --font-head: 'Poppins', 'Montserrat', Arial, sans-serif;
     --font-body: 'Montserrat', Arial, sans-serif;
+    --font-mono: ui-monospace, 'Cascadia Mono', Consolas, Menlo, monospace;
     --fs-h1: 22px;
     --fs-h2: 18px;
     --fs-h3: 15px;
@@ -393,6 +394,88 @@
   }
   select:hover { border-color: var(--border-2); }
   select:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+  /* ════════════════════════════════════════════════════════════════════════
+     UNIFIED COMPONENT LAYER — canonical button/pill/tag/table specs
+     (SuperDesign "variant 1", July 2026). Unscoped on purpose: per-view
+     #view-xxx dialect rules out-specify these until each view is migrated
+     (dialect CSS deleted). Keep class names in sync with the Encarta/Luna
+     override blocks in App.html (.pill, button).
+     ════════════════════════════════════════════════════════════════════════ */
+  /* Buttons — one 4-variant grammar. No .btn base class: base props live on
+     this selector list so existing class="btn-primary" markup needs no edit. */
+  .btn-primary, .btn-secondary, .btn-ghost, .btn-danger {
+    padding: 8px 16px;
+    font-family: var(--font-body); font-size: 12.5px; font-weight: 700;
+    border: none; border-radius: var(--radius-sm);
+    cursor: pointer; white-space: nowrap;
+    transition: background .15s, border-color .15s, color .15s;
+  }
+  .btn-primary:focus-visible, .btn-secondary:focus-visible,
+  .btn-ghost:focus-visible, .btn-danger:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+  .btn-primary:disabled, .btn-secondary:disabled,
+  .btn-ghost:disabled, .btn-danger:disabled { cursor: default; }
+  .btn-primary { background: var(--accent); color: var(--on-accent); }
+  .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+  .btn-primary:disabled { background: var(--text-muted); }
+  .btn-secondary { background: var(--bg); color: var(--text-2); border: 1px solid var(--border-2); }
+  .btn-secondary:hover:not(:disabled) { background: var(--surface); border-color: var(--text-muted); }
+  .btn-secondary:disabled { opacity: .5; }
+  .btn-ghost { background: var(--bg); color: var(--accent); border: 1.5px solid var(--accent); }
+  .btn-ghost:hover:not(:disabled) { background: var(--accent-weak); }
+  .btn-ghost:disabled { background: var(--surface); color: var(--text-muted); border-color: var(--border-2); }
+  .btn-danger { background: var(--bg); color: var(--danger); border: 1.5px solid var(--danger); }
+  .btn-danger:hover:not(:disabled) { background: var(--danger-weak); }
+  .btn-danger:disabled { opacity: .5; }
+
+  /* Type pills — rectangular uppercase tags. Inactive = neutral outline,
+     active = per-type saturated fill (tokens are theme-independent). */
+  .pill {
+    display: inline-block;
+    font-family: var(--font-head); font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .05em;
+    padding: 3px 10px; border-radius: 2px;
+    border: 1.5px solid var(--border-2);
+    background: var(--bg); color: var(--text-2);
+    line-height: 1.5; user-select: none;
+  }
+  .pill.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  .pill.type-new.active   { background: var(--type-new);   border-color: var(--type-new);   color: var(--on-type); }
+  .pill.type-po.active    { background: var(--type-po);    border-color: var(--type-po);    color: var(--on-type); }
+  .pill.type-cpo.active   { background: var(--type-cpo);   border-color: var(--type-cpo);   color: var(--on-type); }
+  .pill.type-cpoel.active { background: var(--type-cpoel); border-color: var(--type-cpoel); color: var(--on-type); }
+
+  /* Status tags — weak-tint semantic chips (replaces vi-badge / eom-status /
+     inline count pills). warning uses --warning-strong for contrast on the tint. */
+  .tag {
+    display: inline-block;
+    font-family: var(--font-head); font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .05em;
+    padding: 2px 8px; border-radius: 2px;
+  }
+  .tag.tone-success { background: var(--success-weak); color: var(--success); }
+  .tag.tone-danger  { background: var(--danger-weak);  color: var(--danger); }
+  .tag.tone-warning { background: var(--warning-weak); color: var(--warning-strong); }
+  .tag.tone-info    { background: var(--info-weak);    color: var(--info); }
+  .tag.tone-neutral { background: var(--surface-3);    color: var(--text-2); }
+
+  /* Data table — one recipe: inverted sticky header, hairline dividers,
+     tabular numerals, hover row. View-specific row states stay view-scoped. */
+  .table-u {
+    width: 100%; border-collapse: collapse;
+    font-size: var(--fs-sm); font-variant-numeric: tabular-nums;
+  }
+  .table-u th {
+    position: sticky; top: 0; z-index: 1;
+    background: var(--text); color: var(--bg);
+    text-align: left; padding: 7px 12px;
+    font-family: var(--font-head); font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .1em;
+  }
+  .table-u td { padding: 6px 12px; border-bottom: 1px solid var(--border); color: var(--text); }
+  .table-u tbody tr:hover td { background: var(--surface); }
+  .table-u tr.row-danger td { background: var(--danger-weak); color: var(--danger); }
+  .table-u td.mono { font-family: var(--font-mono); }
 </style>
 <script>
   // ── HTML escaping (single shared copy) ─────────────────────────────────────
