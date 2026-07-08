@@ -9,17 +9,17 @@
     <div class="util-group">
       <div class="util-group-label">Data &amp; Reference</div>
       <div class="util-list">
-        <button class="util-btn" onclick="runUtility(this, 'fillScraperDateTime')">&#8635; Update Scraper Timestamp</button>
-        <button class="util-btn" onclick="runUtility(this, 'appRefreshNormReference')">&#128270; Refresh Norm/Field Reference</button>
-        <button class="util-btn" onclick="runUtility(this, 'appOpenRunLog')">&#128202; View Run Log</button>
+        <button class="btn-secondary" onclick="runUtility(this, 'fillScraperDateTime')">&#8635; Update Scraper Timestamp</button>
+        <button class="btn-secondary" onclick="runUtility(this, 'appRefreshNormReference')">&#128270; Refresh Norm/Field Reference</button>
+        <button class="btn-secondary" onclick="runUtility(this, 'appOpenRunLog')">&#128202; View Run Log</button>
       </div>
     </div>
 
     <div class="util-group">
       <div class="util-group-label">Cleanup</div>
       <div class="util-list">
-        <button class="util-btn danger" onclick="confirmUtility(this, 'appEraseAllQRFolders', 'Clear the QR folders for ALL active dealers?')">&#129529; Clear QR Folders</button>
-        <button class="util-btn danger" onclick="confirmUtility(this, 'appCleanUpOutputDocs', 'Trash output docs older than 30 days?')">&#128465; Clean Up Old Output Docs</button>
+        <button class="btn-danger" onclick="confirmUtility(this, 'appEraseAllQRFolders', 'Clear the QR folders for ALL active dealers?')">&#129529; Clear QR Folders</button>
+        <button class="btn-danger" onclick="confirmUtility(this, 'appCleanUpOutputDocs', 'Trash output docs older than 30 days?')">&#128465; Clean Up Old Output Docs</button>
       </div>
     </div>
 
@@ -39,20 +39,6 @@
     margin-bottom: 10px;
   }
   #view-utilities .util-list { display: flex; flex-wrap: wrap; gap: 10px; }
-  #view-utilities .util-btn {
-    padding: 10px 16px;
-    background: var(--bg);
-    color: var(--text);
-    border: 1px solid var(--border-2);
-    border-radius: 5px;
-    font-size: 12.5px;
-    font-weight: bold;
-    cursor: pointer;
-  }
-  #view-utilities .util-btn:hover:not(:disabled) { background: var(--surface-2); border-color: var(--text-3); }
-  #view-utilities .util-btn:disabled { opacity: 0.45; cursor: default; }
-  #view-utilities .util-btn.danger { border-color: var(--danger); color: var(--danger); }
-  #view-utilities .util-btn.danger:hover:not(:disabled) { background: var(--danger-weak); border-color: var(--danger); }
 
     /* themed root (overrides the interim .view light guard) */
     #view-utilities { background: var(--bg); color: var(--text); }
