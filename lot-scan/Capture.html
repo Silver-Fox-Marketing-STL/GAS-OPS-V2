@@ -217,6 +217,10 @@
     });
 
     var vpOpenBatchId = '';   // batchId to auto-open in Drafts after a Finish (consumed once)
+    var vpDraftsOpenIds = {};      // batchIds expanded in the DOM at the moment of the last drafts fetch (preserved across re-render)
+    var vpDraftsHasQueued = false; // true when the last drafts render still has ocrState==='queued' rows
+    var vpDraftsTimer = null;      // single setInterval handle for the OCR-drain poll (Drafts tab only)
+    var vpDraftsFetching = false;  // in-flight guard — skip a poll tick if a fetch is already running
 
     function vpTab(which, batchId) {
       var cap = which === 'capture';
@@ -224,7 +228,8 @@
       document.getElementById('viewDrafts').hidden = cap;
       document.getElementById('tabCapture').classList.toggle('active', cap);
       document.getElementById('tabDrafts').classList.toggle('active', !cap);
-      if (!cap) { if (batchId) vpOpenBatchId = batchId; vpLoadDrafts(); }
+      if (cap) { vpStopDraftsPoll(); }
+      else { if (batchId) vpOpenBatchId = batchId; vpLoadDrafts(); }
     }
 
     function vpInitDealers(b) {
@@ -594,8 +599,29 @@
     }
 
     // ════════════════ DRAFTS ════════════════
+    function vpDraftsActive() {
+      var el = document.getElementById('viewDrafts');
+      return !!(el && !el.hidden);
+    }
+    // Snapshot which batches are currently expanded so a re-render (poll or manual refresh)
+    // doesn't collapse what the user is reading.
+    function vpCaptureOpenBatches() {
+      var ids = {}, box = document.getElementById('lsDrafts');
+      if (box) {
+        box.querySelectorAll('details.ls-dbatch[open]').forEach(function (el) {
+          ids[el.id.replace(/^dbatch_/, '')] = true;
+        });
+      }
+      return ids;
+    }
+    function vpAnyDraftInputFocused() {
+      var el = document.activeElement;
+      return !!(el && el.tagName === 'INPUT' && /^de_/.test(el.id || ''));
+    }
+
     function vpLoadDrafts() {
       var box = document.getElementById('lsDrafts');
+      vpDraftsOpenIds = vpCaptureOpenBatches();
       box.innerHTML = '<p class="ls-hint">Loading&hellip;</p>';
       google.script.run
         .withSuccessHandler(vpRenderDrafts)
@@ -603,27 +629,69 @@
         .getMyDrafts();
     }
 
+    // OCR-drain poll: while Drafts is the active tab and any rendered batch still has queued
+    // rows, re-fetch every ~12s and re-render. ONE interval handle — cleared on tab switch, once
+    // nothing is queued, and while the page is hidden (visibilitychange resumes it on return).
+    function vpStopDraftsPoll() {
+      if (vpDraftsTimer) { clearInterval(vpDraftsTimer); vpDraftsTimer = null; }
+    }
+    function vpStartDraftsPoll() {
+      if (vpDraftsTimer) return;
+      vpDraftsTimer = setInterval(vpDraftsPollTick, 12000);
+    }
+    function vpDraftsPollTick() {
+      if (!vpDraftsActive() || !vpDraftsHasQueued || document.visibilityState !== 'visible') { vpStopDraftsPoll(); return; }
+      if (vpDraftsFetching || vpAnyDraftInputFocused()) return;   // fetch in flight, or mid-edit — skip this tick only
+      vpDraftsFetching = true;
+      vpDraftsOpenIds = vpCaptureOpenBatches();
+      google.script.run
+        .withSuccessHandler(function (res) { vpDraftsFetching = false; vpRenderDrafts(res); })
+        .withFailureHandler(function () { vpDraftsFetching = false; })   // stay quiet — next tick retries
+        .getMyDrafts();
+    }
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') {
+        if (vpDraftsActive() && vpDraftsHasQueued) vpStartDraftsPoll();
+      } else {
+        vpStopDraftsPoll();
+      }
+    });
+
     function vpRenderDrafts(res) {
       var box = document.getElementById('lsDrafts');
-      if (!res || !res.ok) { box.innerHTML = '<p class="ls-hint">Error: ' + escHtml((res && res.error) || 'unknown') + '</p>'; return; }
+      if (!res || !res.ok) {
+        box.innerHTML = '<p class="ls-hint">Error: ' + escHtml((res && res.error) || 'unknown') + '</p>';
+        vpDraftsHasQueued = false; vpStopDraftsPoll();
+        return;
+      }
       var drafts = res.drafts || [];
-      if (!drafts.length) { box.innerHTML = '<p class="ls-hint">No drafts. Uploaded batches show here while they finish.</p>'; return; }
+      if (!drafts.length) {
+        box.innerHTML = '<p class="ls-hint">No drafts. Uploaded batches show here while they finish.</p>';
+        vpDraftsHasQueued = false; vpStopDraftsPoll();
+        return;
+      }
       // group by batchId
       var groups = {}, order = [];
       drafts.forEach(function (d) { var b = d.batchId || '(none)'; if (!groups[b]) { groups[b] = []; order.push(b); } groups[b].push(d); });
       var openId = vpOpenBatchId; vpOpenBatchId = '';
+      var openIds = vpDraftsOpenIds; vpDraftsOpenIds = {};
+      var anyQueued = false;
       var html = '';
       order.forEach(function (bid) {
         var rows = groups[bid], dealer = rows[0].dealerName || rows[0].dealerKey || '';
         var when = rows[0].ts || '';
         var shortId = bid.length > 12 ? bid.substr(0, 12) : bid;
         var queued = rows.filter(function (r) { return r.ocrState === 'queued'; }).length;
-        var isOpen = bid === openId;
-        // collapsed by default (<details> without `open`) — except a just-finished order
+        if (queued) anyQueued = true;
+        var doneCount = rows.length - queued;
+        var ocrChip = queued ? ' <span class="tag tone-info">' + doneCount + '/' + rows.length + ' read</span>' : '';
+        var isOpen = bid === openId || !!openIds[bid];
+        // collapsed by default (<details> without `open`) — except a just-finished order, or a
+        // batch the user already had expanded before this (poll) re-render
         html += '<details class="ls-dbatch" id="dbatch_' + escHtml(bid) + '"' + (isOpen ? ' open' : '') + '><summary class="ls-dsum">' +
           '<span class="t">' + escHtml(dealer) + '</span>' +
           '<span class="ls-hint">' + escHtml(when) + ' · ' + rows.length + ' photo' + (rows.length === 1 ? '' : 's') +
-            (queued ? (' · ' + queued + ' processing') : '') + ' · #' + escHtml(shortId) + '</span>' +
+            ' · #' + escHtml(shortId) + '</span>' + ocrChip +
           '</summary>' +
           '<div class="ls-dbtns">' +
             '<button type="button" class="ls-btn primary" onclick="vpSendBatch(\'' + escHtml(bid) + '\')">Send to office</button>' +
@@ -637,6 +705,9 @@
         var el = document.getElementById('dbatch_' + openId);
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
+      vpDraftsHasQueued = anyQueued;
+      if (anyQueued && vpDraftsActive() && document.visibilityState === 'visible') vpStartDraftsPoll();
+      else vpStopDraftsPoll();
     }
 
     function vpDraftRow(r) {
