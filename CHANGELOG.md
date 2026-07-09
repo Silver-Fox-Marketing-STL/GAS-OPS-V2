@@ -38,6 +38,7 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 - Encarta table-header override retargeted to .table-u; theme coupling audit clean
 
 ### Fixed
+- `runInboxOcr` re-verifies each row's ID immediately before writing OCR results and re-locates by ID (or skips) if it moved — the scanner project `deleteRow`s on discard and LockService can't coordinate across the two scripts, so a crew discard mid-OCR-run shifted rows under the office's cached row numbers (whole-branch review finding; same corruption class as the old trigger's orphan rows)
 - Lot Scanner: finish guards failed photos (no silent drop); idempotent batch commits (no dupes on retry); OCR-trigger + send failures surfaced; cancellable finish
 - Targeting-rule AND/OR chip suppressed by the select enhancer (data-no-cs); danger-row tint no longer lost on hover
 - Norm + Field Codes tables no longer flush against the page edge

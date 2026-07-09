@@ -7790,8 +7790,9 @@ function analyzeDriveFile_(fileId, dealerKey, vinMap) {
  * draft and submitted — this un-sticks the already-stalled batches), OCRing
  * each photo and matching it against the dealer's inventory, writing the same
  * 9 result columns + ocr_state the scanner's old drainOcrQueue wrote. No
- * LockService (matches this section's convention; writes are per-row narrow
- * ranges, not concurrent). Default limit 10, hard cap 15 — Drive OCR runs
+ * LockService (it can't coordinate with the scanner project anyway); instead
+ * each write re-verifies the row's ID first and re-locates by ID if scanner-side
+ * discards shifted rows mid-run. Default limit 10, hard cap 15 — Drive OCR runs
  * ~1-2s/photo + rate-limit retries, so this call stays well under the 6-min cap.
  * @returns {{ok:boolean, processed?:number, remaining?:number, matched?:number, failed?:number, error?:string}}
  */
@@ -7831,7 +7832,21 @@ function runInboxOcr(limit) {
 
       var out = analyzeDriveFile_(String(row[LOT_SUB.PHOTO_ID] || ''), dealerKey, vinMaps[dealerKey]);
       var v = out.vehicle || {};
+
+      // Rows can shift mid-run: the scanner project deleteRow()s on discard, and
+      // LockService can't coordinate across the two scripts. Re-verify the ID at
+      // the snapshot position right before writing; re-locate by ID if it moved,
+      // skip if it's gone (discarded while we were OCRing).
+      var id = String(row[LOT_SUB.ID]);
       var rowNum = rowIdx + 1;
+      if (String(sh.getRange(rowNum, LOT_SUB.ID + 1).getValue()) !== id) {
+        rowNum = 0;
+        var ids = sh.getRange(1, LOT_SUB.ID + 1, sh.getLastRow(), 1).getValues();
+        for (var r = 1; r < ids.length; r++) {
+          if (String(ids[r][0]) === id) { rowNum = r + 1; break; }
+        }
+        if (!rowNum) { processed++; continue; }
+      }
 
       // cols 8..16 (1-based) = vin_extracted, vin_final, vin_valid, matched, year, make, model, type, stock
       sh.getRange(rowNum, LOT_SUB.VIN_EXTRACTED + 1, 1, 9).setValues([[
