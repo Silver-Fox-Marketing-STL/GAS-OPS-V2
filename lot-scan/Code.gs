@@ -320,12 +320,14 @@ function correctSubmissionVin(submissionId, dealerKey, vin) {
 }
 
 // TEMP: deprecation stub — remove after scanner prod repoint (plan Phase 3).
-// The synchronous-OCR real-time-camera path is retired; a cached-old client that
-// still calls this must fail VISIBLY (google.script.run fails silently on a
-// missing/renamed function name — a stub with a message is the only safe way to
-// surface "reload the page" to a user on a stale cache).
+// The synchronous-OCR real-time-camera path is retired. THROWS (not {ok:false}):
+// 2 of the 3 legacy call sites never check res.ok, so a returned error object
+// produced a false "Saved."/"Updated." success. Throwing routes to each caller's
+// withFailureHandler — all three legacy paths register one (camera result panel,
+// vpCommitEdit's "Save failed" toast, vpDraftRecheck's "Failed" toast), so every
+// stale cached client gets a VISIBLE error.
 function submitVinPhoto() {
-  return { ok: false, error: 'Old app version — pull down to refresh the page.' };
+  throw new Error('Old app version — pull down to refresh the page.');
 }
 
 // Delete a submission + trash its photo (real-time "Retake", or a draft discard).
