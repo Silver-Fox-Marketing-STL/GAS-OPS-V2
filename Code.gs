@@ -7752,6 +7752,43 @@ function updateVinSubmissionStatus(submissionId, status, correctedVin) {
   }
 }
 
+/**
+ * Client-callable. Bulk status update (no VIN correction — corrections stay per-row
+ * via updateVinSubmissionStatus). Same status/timestamp/by stamping as the single-row fn.
+ * @returns {{ok:boolean, updated?:number, missing?:number, error?:string}}
+ */
+// ponytail: per-row narrow writes in one execution — batch a single setValues pass if inbox batches outgrow ~100 rows
+function updateVinSubmissionStatuses(submissionIds, status) {
+  try {
+    var sh = getLotSubmissionsSheet_();
+    if (!sh) return { ok: false, error: 'Submissions sheet not configured.' };
+    if (LOT_SUB_STATUSES.indexOf(status) === -1) return { ok: false, error: 'Invalid status.' };
+    var ids = (submissionIds || []).map(String);
+    var data = sh.getDataRange().getValues();
+    var rowById = {};
+    for (var i = 1; i < data.length; i++) rowById[String(data[i][LOT_SUB.ID])] = i + 1;
+
+    var by = '';
+    try { by = Session.getActiveUser().getEmail() || ''; } catch (e2) {}
+    var ts = (status === 'processed' || status === 'discarded')
+      ? Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'America/Chicago', 'yyyy-MM-dd HH:mm:ss')
+      : '';
+
+    var updated = 0, missing = 0;
+    ids.forEach(function (id) {
+      var rowNum = rowById[id];
+      if (!rowNum) { missing++; return; }
+      // cols 17..19 (1-based): status, processed_ts, processed_by
+      sh.getRange(rowNum, LOT_SUB.STATUS + 1, 1, 3).setValues([[status, ts, by]]);
+      updated++;
+    });
+    return { ok: true, updated: updated, missing: missing };
+  } catch (e) {
+    Logger.log('updateVinSubmissionStatuses failed: ' + e.message);
+    return { ok: false, error: e.message };
+  }
+}
+
 
 // ============================================================================
 // SECTION 33: EOM BILLING REPORT

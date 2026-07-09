@@ -11,6 +11,7 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Added
+- `updateVinSubmissionStatuses` bulk server fn (Code.gs Section 32) — VIN Inbox's "Discard batch" now issues one bulk call instead of a serial per-row loop (T2.2)
 - TEMP: live-camera (getUserMedia) probe panel in Lot Scanner — milestone A gate
 - Unified component layer in SharedUtils (canonical buttons/pills/tags/table, --font-mono token) — SuperDesign variant 1 spec
 - Visual nesting hierarchy for targeting-rule groups in Dealer Rules → Filtering Rules (rails, depth steps, AND/OR chips) — F3

@@ -226,33 +226,22 @@
     var btn = evt && evt.currentTarget;
     if (btn) btn.disabled = true;
     toast('Discarding ' + rows.length + ' submissions…', 'info');
-    viDeleteBatchStep(rows, 0, btn);
-  }
-
-  // ponytail: chains updateVinSubmissionStatus one call at a time (same status/vin as the
-  // per-card Discard) — no batch server fn exists yet; add one if batches get large.
-  function viDeleteBatchStep(rows, idx, btn) {
-    if (idx >= rows.length) {
-      if (btn) btn.disabled = false;
-      toast('Discarded ' + rows.length + ' submission' + (rows.length === 1 ? '' : 's') + '.', 'success');
-      viLoad();
-      return;
-    }
     google.script.run
       .withSuccessHandler(function (res) {
+        if (btn) btn.disabled = false;
         if (!res || !res.ok) {
-          toast('Batch discard failed on submission ' + (idx + 1) + ' of ' + rows.length + ': ' + escHtml((res && res.error) || '?'), 'error');
-          if (btn) btn.disabled = false;
+          toast('Batch discard failed: ' + escHtml((res && res.error) || '?'), 'error');
           viLoad();
           return;
         }
-        viDeleteBatchStep(rows, idx + 1, btn);
-      })
-      .withFailureHandler(function (e) {
-        toast('Batch discard failed on submission ' + (idx + 1) + ' of ' + rows.length + ': ' + escHtml((e && e.message) || String(e)), 'error');
-        if (btn) btn.disabled = false;
+        toast('Discarded ' + res.updated + ' submission' + (res.updated === 1 ? '' : 's') + '.', 'success');
         viLoad();
       })
-      .updateVinSubmissionStatus(rows[idx].id, 'discarded', '');
+      .withFailureHandler(function (e) {
+        if (btn) btn.disabled = false;
+        toast('Batch discard failed: ' + escHtml((e && e.message) || String(e)), 'error');
+        viLoad();
+      })
+      .updateVinSubmissionStatuses(rows.map(function (s) { return s.id; }), 'discarded');
   }
 </script>
