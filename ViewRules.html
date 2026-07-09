@@ -86,7 +86,7 @@
           <div class="add-type-row">
             <input type="text" id="newTypeInput" maxlength="40" placeholder="New type label (e.g. Loaner)"
                    onkeydown="if(event.key==='Enter'){event.preventDefault();addNewType();}" />
-            <button type="button" id="addTypeBtn" class="btn-add-type" onclick="addNewType()">+ Add type</button>
+            <button type="button" id="addTypeBtn" class="btn-ghost" onclick="addNewType()">+ Add type</button>
           </div>
           <div class="pill-hint" id="hintAllowedTypes" hidden>All selected = all types allowed; deselect all to allow everything. <strong>+ Add type</strong> registers a new type system-wide; the <strong>×</strong> on a custom type removes it (only if no dealer uses it). A new type catches vehicles once you map a raw value to it in <strong>Normalization</strong>.</div>
         </div>
@@ -154,7 +154,7 @@
               <tr id="seasoningEmpty"><td colspan="3" class="placeholder">No seasoning rules configured.</td></tr>
             </tbody>
           </table>
-          <button class="btn-add-season" onclick="addSeasoningRow()">+ Add Seasoning Rule</button>
+          <button class="btn-ghost" onclick="addSeasoningRow()">+ Add Seasoning Rule</button>
         </div>
 
       </div><!-- /.filter-grid-2 -->
@@ -167,7 +167,7 @@
         </div>
         <div class="pill-hint" id="hintTargeting" hidden><strong>IF</strong> a vehicle matches the conditions (combined with nested AND/OR), <strong>THEN</strong> take the action. Actions: <em>Drop on import</em> (never enters SCRAPERDATA), <em>Exclude from CAO</em> (skipped in auto-fill only), <em>Exclude from orders</em> (skipped in CAO <em>and</em> runs; the Bypass checkbox overrides per run). Make/Model are raw text — list keyword variants like <code>F-250</code> and <code>F250</code>. A rule with no conditions does nothing.</div>
         <div id="targetingRulesWrap" class="tr-wrap"></div>
-        <button class="btn-add-season" onclick="addTargetingRule()">+ Add Rule</button>
+        <button class="btn-ghost" onclick="addTargetingRule()">+ Add Rule</button>
       </div>
 
       <!-- Dual-site source split — advanced; collapsed unless this dealer has one -->
@@ -220,7 +220,7 @@
             <span>Connected to <strong id="pdConnDomain">—</strong></span>
           </div>
           <div class="pd-conn-actions">
-            <button class="btn-add-season" id="pdRefreshBtn" onclick="pdRefreshCatalog()">Refresh from Pipedrive</button>
+            <button class="btn-ghost" id="pdRefreshBtn" onclick="pdRefreshCatalog()">Refresh from Pipedrive</button>
           </div>
         </div>
 
@@ -485,7 +485,7 @@
     #view-rules #loadingOverlay {
       position: absolute;
       inset: 0;
-      background: rgba(255,255,255,0.85);
+      background: rgba(255,255,255,0.85); /* scrim — intentional literal */
       display: flex;
       align-items: center;
       justify-content: center;
@@ -525,28 +525,7 @@
       border-top: 1px solid var(--border);
       flex-shrink: 0;
     }
-    #view-rules .btn-primary {
-      padding: 8px 20px;
-      background: var(--accent);
-      color: white;
-      border: none;
-      font-size: 13px;
-      font-weight: bold;
-      cursor: pointer;
-      border-radius: 4px;
-    }
-    #view-rules .btn-primary:hover { background: var(--accent-hover); }
-    #view-rules .btn-primary:disabled { background: var(--text-muted); cursor: default; }
-    #view-rules .btn-secondary {
-      padding: 8px 16px;
-      background: var(--bg);
-      color: var(--text-2);
-      border: 1px solid var(--border-2);
-      font-size: 13px;
-      cursor: pointer;
-      border-radius: 4px;
-    }
-    #view-rules .btn-secondary:hover { background: var(--surface); }
+    /* .btn-primary / .btn-secondary: shared base in SharedUtils, no view dialect needed. */
 
     /* ════════════════════════════════════════════════════════════════════════════
        FILTERING RULES TAB
@@ -589,31 +568,15 @@
     #view-rules .toggle-label { font-size: 13px; color: var(--text); }
     #view-rules .toggle-desc { font-size: 11px; color: var(--text-muted); margin-left: auto; }
 
-    /* ── Pill buttons ────────────────────────────────────────────────────────── */
+    /* ── Pill buttons (shared .pill base in SharedUtils; these are clickable — keep only the interaction delta) ── */
     #view-rules .pill-group {
       display: flex;
       flex-wrap: wrap;
       gap: 6px;
       padding: 6px 0;
     }
-    #view-rules .pill {
-      padding: 5px 13px;
-      border: 1.5px solid var(--border-2);
-      border-radius: 20px;
-      font-size: 12px;
-      font-weight: bold;
-      cursor: pointer;
-      color: var(--text-2);
-      background: var(--bg);
-      transition: all 0.15s;
-      user-select: none;
-    }
+    #view-rules .pill { cursor: pointer; transition: border-color .15s, color .15s; }
     #view-rules .pill:hover { border-color: var(--accent); color: var(--accent); }
-    #view-rules .pill.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-    #view-rules .pill.type-new.active { background: var(--type-new); border-color: var(--type-new); color: var(--on-type); }
-    #view-rules .pill.type-po.active { background: var(--type-po); border-color: var(--type-po); color: var(--on-type); }
-    #view-rules .pill.type-cpo.active { background: var(--type-cpo); border-color: var(--type-cpo); color: var(--on-type); }
-    #view-rules .pill.type-cpoel.active { background: var(--type-cpoel); border-color: var(--type-cpoel); color: var(--on-type); }
     #view-rules .pill-hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
 
     /* ── Price range ─────────────────────────────────────────────────────────── */
@@ -668,28 +631,6 @@
     }
     #view-rules .seasoning-table select:focus,
   #view-rules .seasoning-table input[type="number"]:focus { outline: none; border-color: var(--accent); }
-    #view-rules .btn-remove-season {
-      padding: 3px 8px;
-      background: var(--bg);
-      border: 1px solid var(--border-2);
-      border-radius: 3px;
-      font-size: 11px;
-      color: var(--danger);
-      cursor: pointer;
-    }
-    #view-rules .btn-remove-season:hover { background: var(--danger-weak); border-color: var(--danger); }
-    #view-rules .btn-add-season {
-      margin-top: 8px;
-      padding: 5px 12px;
-      background: var(--bg);
-      border: 1px solid var(--accent);
-      border-radius: 4px;
-      font-size: 12px;
-      color: var(--accent);
-      cursor: pointer;
-      font-weight: bold;
-    }
-    #view-rules .btn-add-season:hover { background: var(--accent-weak); }
 
     /* ── Add / remove vehicle types ──────────────────────────────────────────── */
     #view-rules .add-type-row { display: flex; gap: 6px; margin-top: 8px; }
@@ -698,18 +639,11 @@
       border: 1px solid var(--border-2); border-radius: 4px;
       background: var(--bg); color: var(--text);
     }
-    #view-rules .btn-add-type {
-      padding: 5px 12px; background: var(--bg); border: 1px solid var(--accent);
-      border-radius: 4px; font-size: 12px; color: var(--accent); cursor: pointer;
-      font-weight: bold; white-space: nowrap;
-    }
-    #view-rules .btn-add-type:hover { background: var(--accent-weak); }
-    #view-rules .btn-add-type:disabled { opacity: 0.55; cursor: default; }
     #view-rules .pill .pill-x {
       margin-left: 6px; font-weight: bold; opacity: 0.6; cursor: pointer;
       padding: 0 2px; border-radius: 3px;
     }
-    #view-rules .pill .pill-x:hover { opacity: 1; background: rgba(0,0,0,0.18); }
+    #view-rules .pill .pill-x:hover { opacity: 1; background: rgba(0,0,0,0.18); /* scrim — intentional literal */ }
 
     /* ════════════════════════════════════════════════════════════════════════════
        PIPEDRIVE PANEL
@@ -1399,7 +1333,7 @@
         '<td><select class="season-type" onchange="markFilterDirty()">' + typeOptions + '</select></td>' +
         '<td><input type="number" class="season-days" min="0" value="' +
           (days != null ? days : 0) + '" oninput="markFilterDirty()" /></td>' +
-        '<td><button class="btn-remove-season" onclick="removeSeasoningRow(this)">Remove</button></td>';
+        '<td><button class="btn-danger" onclick="removeSeasoningRow(this)">Remove</button></td>';
 
       document.getElementById('seasoningBody').appendChild(tr);
       markFilterDirty();
