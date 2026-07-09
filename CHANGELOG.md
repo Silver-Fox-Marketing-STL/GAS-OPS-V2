@@ -11,6 +11,7 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Added
+- TEMP: live-camera (getUserMedia) probe panel in Lot Scanner — milestone A gate
 - Unified component layer in SharedUtils (canonical buttons/pills/tags/table, --font-mono token) — SuperDesign variant 1 spec
 - Visual nesting hierarchy for targeting-rule groups in Dealer Rules → Filtering Rules (rails, depth steps, AND/OR chips) — F3
 - VIN Inbox: batches collapsible via native `<details>` (collapsed by default) with a submission count in the summary, plus a "Discard batch" action that serially discards every submission in a batch and refreshes the list — F4

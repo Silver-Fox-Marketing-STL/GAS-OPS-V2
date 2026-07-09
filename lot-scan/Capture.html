@@ -132,6 +132,28 @@
 
       <div class="ls-batch" id="lsBatch"></div>
       <div class="ls-result" id="lsResult"></div>
+
+      <!-- PROBE: live-camera test — remove after milestone A gate -->
+      <details class="ls-diag" style="margin-top: var(--space-4);">
+        <summary>&#127909; Live camera test (dev probe)</summary>
+        <div style="margin-top: var(--space-2);">
+          <div class="ls-actions" style="margin-top: 0;">
+            <button type="button" class="ls-btn primary" id="probeStartBtn" onclick="probeStart()">Start camera</button>
+            <button type="button" class="ls-btn" id="probeGrabBtn" onclick="probeGrab()" hidden>Grab frame</button>
+            <button type="button" class="ls-btn" id="probeStopBtn" onclick="probeStop()" hidden>Stop</button>
+            <button type="button" class="ls-btn" id="probeRestartBtn" onclick="probeRestart()" hidden>Restart</button>
+          </div>
+          <video id="probeVideo" playsinline muted autoplay hidden
+            style="display:block; width:100%; max-height:40vh; background: var(--surface-3);
+                   border: 1px solid var(--border); border-radius: var(--radius-sm); margin-top: var(--space-2);"></video>
+          <div id="probeGrabs" style="display:flex; gap: var(--space-2); flex-wrap:wrap; margin-top: var(--space-2);"></div>
+          <div id="probeLog" style="margin-top: var(--space-2); font-family: var(--font-mono, ui-monospace, monospace);
+               font-size: var(--fs-hint); color: var(--text-2); max-height: 120px; overflow-y: auto;
+               background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+               padding: var(--space-2); white-space: pre-wrap; word-break: break-all;"></div>
+        </div>
+      </details>
+      <!-- /PROBE -->
     </div>
 
     <!-- ── DRAFTS ─────────────────────────────────────────────────── -->
@@ -615,6 +637,88 @@
       }
       return '';
     }
+
+    // ════════════════ PROBE: live-camera test (dev, TEMPORARY — remove after milestone A gate) ════════════════
+    var probeStream = null;
+    function probeTs() {
+      var d = new Date();
+      function p(n) { return (n < 10 ? '0' : '') + n; }
+      return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+    }
+    function probeLog(msg) {
+      var box = document.getElementById('probeLog');
+      if (!box) return;
+      box.textContent += '[' + probeTs() + '] ' + msg + '\n';
+      box.scrollTop = box.scrollHeight;
+    }
+    // Only noisy while a stream is actually live — backgrounding behavior is the whole point of the probe.
+    document.addEventListener('visibilitychange', function () {
+      if (probeStream) probeLog('visibilitychange -> ' + document.visibilityState);
+    });
+    function probeButtons(started) {
+      document.getElementById('probeStartBtn').hidden = started;
+      document.getElementById('probeGrabBtn').hidden = !started;
+      document.getElementById('probeStopBtn').hidden = !started;
+      document.getElementById('probeRestartBtn').hidden = !started;
+    }
+    function probeStart() {
+      var has = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+      probeLog('feature detect: getUserMedia = ' + has);
+      if (!has) { probeLog('err: getUserMedia not available in this context'); return; }
+      probeLog('requesting camera permission…');
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+        .then(function (stream) {
+          probeStream = stream;
+          var video = document.getElementById('probeVideo');
+          video.srcObject = stream;
+          video.hidden = false;
+          var track = stream.getVideoTracks()[0];
+          var settings = track ? track.getSettings() : {};
+          probeLog('stream started — track: ' + ((track && track.label) || '(no label)') +
+            ' · ' + (settings.width || '?') + 'x' + (settings.height || '?'));
+          probeButtons(true);
+        })
+        .catch(function (err) {
+          probeLog('err: ' + err.name + ': ' + err.message);
+        });
+    }
+    function probeGrab() {
+      var video = document.getElementById('probeVideo');
+      if (!video || !probeStream) { probeLog('err: no active stream to grab from'); return; }
+      var w = video.videoWidth, h = video.videoHeight;
+      if (!w || !h) { probeLog('err: video has no dimensions yet'); return; }
+      var c = document.createElement('canvas'); c.width = w; c.height = h;
+      c.getContext('2d').drawImage(video, 0, 0, w, h);
+      var img = document.createElement('img');
+      img.src = c.toDataURL('image/jpeg', 0.85);
+      img.style.cssText = 'display:block; width:140px; max-height:140px; object-fit:contain; ' +
+        'border:1px solid var(--border); border-radius: var(--radius-sm);';
+      var cap = document.createElement('div');
+      cap.style.cssText = 'font-size: var(--fs-hint); color: var(--text-3); text-align:center; margin-top:2px;';
+      cap.textContent = w + '×' + h + ' @ ' + probeTs();
+      var wrap = document.createElement('div');
+      wrap.appendChild(img); wrap.appendChild(cap);
+      var grabs = document.getElementById('probeGrabs');
+      grabs.insertBefore(wrap, grabs.firstChild);
+      while (grabs.children.length > 2) grabs.removeChild(grabs.lastChild);   // keep the last 2 grabs
+      probeLog('frame grabbed: ' + w + 'x' + h);
+    }
+    function probeStop() {
+      if (probeStream) {
+        probeStream.getTracks().forEach(function (t) { t.stop(); });
+        probeStream = null;
+        probeLog('stream stopped');
+      }
+      var video = document.getElementById('probeVideo');
+      if (video) { video.srcObject = null; video.hidden = true; }
+      probeButtons(false);
+    }
+    function probeRestart() {
+      probeLog('restarting…');
+      probeStop();
+      probeStart();
+    }
+    // ════════════════ /PROBE ════════════════
   </script>
 </body>
 </html>
