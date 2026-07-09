@@ -34,6 +34,8 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 - Norm + Field Codes tables no longer flush against the page edge
 - VIN Inbox view root now declares `background: var(--bg)` — same dark-theme white-guard trap as the EOM view (July 2026), caught this time during migration instead of after ship
 - Import's `.bulk-bar` buttons now covered by the flex-shrink survivor rule (previously only `.modal-footer button` was, so bulk-action buttons could compress next to the flex:1 status label)
+- UI Settings view root now declares `background: var(--bg)` — same dark-theme white-guard trap as the EOM/VIN Inbox views
+- `.pill` and `.btn-primary`/`.btn-secondary`/`.btn-ghost`/`.btn-danger` padding now `!important` — Dealer Rules' type/status pills rendered with no padding because `#view-rules * { padding:0 }` (specificity 1,0,0) beat the unscoped component rule (0,1,0); same reset also silently flattened buttons in Import and Pipedrive Settings
 
 ### Fixed — EOM view white background in dark themes _(branch `feature/eom-billing-report`)_
 - `#view-end-of-month` now declares `background: var(--bg)` like every other migrated view root. It only overrode `color`, so the SharedUtils **hardcoded-white `.view` readability guard** (interim rule for unmigrated views; ID-scoped roots are meant to out-specify it) kept painting the whole view canvas white in every dark theme while the tokened panels/text went dark. Root-caused via a local headless harness (computed-style dump: `#view-end-of-month = rgb(255,255,255)` with `--bg: #121214`); trap added to CLAUDE.md.

@@ -55,7 +55,11 @@
 </div>
 
 <style>
-  #view-ui-settings { height: 100%; color: var(--text); }
+  /* background + color required here: SharedUtils pins a `.view { background:#fff;
+     color:#221a14 }` interim guard that only an ID-scoped root rule overrides —
+     omit either and the view paints as the dark-theme white-guard override (EOM
+     view incident, July 2026). */
+  #view-ui-settings { height: 100%; background: var(--bg); color: var(--text); }
   #view-ui-settings .uis-scroll { height: 100%; overflow-y: auto; padding: var(--space-5) var(--space-6); }
   #view-ui-settings .uis-title { margin: 0 0 var(--space-1); }
   #view-ui-settings .uis-intro { margin: 0 0 var(--space-5); max-width: 60ch; }

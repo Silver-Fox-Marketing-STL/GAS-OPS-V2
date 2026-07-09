@@ -405,7 +405,11 @@
   /* Buttons — one 4-variant grammar. No .btn base class: base props live on
      this selector list so existing class="btn-primary" markup needs no edit. */
   .btn-primary, .btn-secondary, .btn-ghost, .btn-danger {
-    padding: 8px 16px;
+    /* !important: rendered inside views that carry a wildcard
+       `#view-xxx * { padding:0 }` reset (ViewImport, ViewPipedriveSettings,
+       ViewRules — specificity 1,0,0, beats this unscoped 0,1,0 rule). The
+       component defends its own layout (see .cs-btn above). */
+    padding: 8px 16px !important;
     font-family: var(--font-body); font-size: 12.5px; font-weight: 700;
     border: none; border-radius: var(--radius-sm);
     cursor: pointer; white-space: nowrap;
@@ -434,7 +438,11 @@
     display: inline-block;
     font-family: var(--font-head); font-size: 11px; font-weight: 700;
     text-transform: uppercase; letter-spacing: .05em;
-    padding: 6px 14px; border-radius: 2px;
+    /* !important: rendered inside ViewRules, which carries a wildcard
+       `#view-rules * { padding:0 }` reset (specificity 1,0,0) that beats this
+       unscoped .pill rule (0,1,0). The component defends its own layout
+       (see .cs-btn above). */
+    padding: 6px 14px !important; border-radius: 2px;
     border: 1.5px solid var(--border-2);
     background: var(--bg); color: var(--text-2);
     line-height: 1.5; user-select: none;
