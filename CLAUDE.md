@@ -80,6 +80,9 @@ exact schemas/mechanism/history — NOT in context).
   JS state; imports and runs are mutually exclusive via `AppBusy`; `ui.alert` fails
   via `google.script.run` — use the `*Core_`/`app*` split (server fn returns the
   message, client renders it).
+- New view UI uses the canonical SharedUtils classes (`.btn-*`, `.pill`, `.tag`,
+  `.table-u`) — never re-declare a per-view button/pill/tag/table dialect; class
+  renames must keep the App.html Encarta/Luna override selectors matching.
 
 ## Core spreadsheets
 
