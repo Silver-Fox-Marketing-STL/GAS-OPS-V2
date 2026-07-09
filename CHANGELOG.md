@@ -25,6 +25,7 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 - VIN Inbox migrated to the unified component layer (badges → tags)
 - Dealer Rules migrated to the unified component layer (pills, buttons)
 - Home + VIN Logs migrated to the unified component layer
+- Encarta table-header override retargeted to .table-u; theme coupling audit clean
 
 ### Fixed
 - Norm + Field Codes tables no longer flush against the page edge
