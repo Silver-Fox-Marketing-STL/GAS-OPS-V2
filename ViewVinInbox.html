@@ -71,7 +71,7 @@
       .withFailureHandler(function (e) {
         body.innerHTML = '<p class="vi-empty">Could not load submissions: ' + escHtml((e && e.message) || String(e)) + '</p>';
       })
-      .getVinSubmissions();   // no filter = OPEN work (draft + submitted)
+      .getVinSubmissions();   // no filter = submitted only (drafts stay field-owned until Send to office)
   }
 
   function viRender(res) {
@@ -158,7 +158,6 @@
     h += '<div class="vi-info">';
     h += '<div class="vi-vin">' + escHtml(s.vin || (queued ? '(processing…)' : '(no VIN)')) + '</div>';
     h += '<div class="vi-tags">';
-    if (s.isDraft) h += '<span class="tag tone-warning">draft — not yet sent</span>';
     if (queued) {
       h += '<span class="tag tone-neutral">still processing…</span>';
     } else {

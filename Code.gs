@@ -7786,8 +7786,8 @@ function analyzeDriveFile_(fileId, dealerKey, vinMap) {
  * Client-callable. Office-side manual OCR runner — replaces the scanner's
  * per-user drainOcrQueue trigger (field finding: batches sent to the office
  * before OCR drained left rows stuck at ocr_state='queued' forever). Processes
- * up to `limit` rows with ocr_state='queued' AND status !== 'discarded' (both
- * draft and submitted — this un-sticks the already-stalled batches), OCRing
+ * up to `limit` rows with ocr_state='queued' AND status='submitted' (drafts are
+ * OCR'd only after the crew sends the batch — a draft's queued rows wait), OCRing
  * each photo and matching it against the dealer's inventory, writing the same
  * 9 result columns + ocr_state the scanner's old drainOcrQueue wrote. No
  * LockService (it can't coordinate with the scanner project anyway); instead
@@ -7808,7 +7808,7 @@ function runInboxOcr(limit) {
     var queuedRows = [];
     for (var i = 1; i < data.length; i++) {
       if (String(data[i][LOT_SUB.OCR_STATE]) !== 'queued') continue;
-      if (String(data[i][LOT_SUB.STATUS]) === 'discarded') continue;
+      if (String(data[i][LOT_SUB.STATUS]) !== 'submitted') continue;
       queuedRows.push(i);
     }
 
@@ -7869,7 +7869,7 @@ function runInboxOcr(limit) {
 
 /**
  * Client-callable. Returns lot-scanner submission rows as objects.
- * @param {{status?:string, dealerKey?:string}} filter  no status = OPEN (draft+submitted); a status = exact match.
+ * @param {{status?:string, dealerKey?:string}} filter  no status = SENT work only (status='submitted'); a status = exact match.
  * @returns {{ok:boolean, configured:boolean, submissions:Array, error?:string}}
  */
 function getVinSubmissions(filter) {
@@ -7877,7 +7877,7 @@ function getVinSubmissions(filter) {
     var sh = getLotSubmissionsSheet_();
     if (!sh) return { ok: true, configured: false, submissions: [] };
     filter = filter || {};
-    var wantStatus = filter.status || '';      // '' = OPEN (draft + submitted); else exact match
+    var wantStatus = filter.status || '';      // '' = SENT work only (submitted); else exact match
     var wantDealer = filter.dealerKey || '';
     var CAP = 1000;
     var data = sh.getDataRange().getValues();
@@ -7887,7 +7887,7 @@ function getVinSubmissions(filter) {
       if (!r[LOT_SUB.ID]) continue;
       var status = String(r[LOT_SUB.STATUS] || 'submitted');
       if (wantStatus) { if (status !== wantStatus) continue; }
-      else if (status === 'processed' || status === 'discarded') continue;   // default: open work only
+      else if (status !== 'submitted') continue;   // default: sent work only
       if (wantDealer && String(r[LOT_SUB.DEALER_KEY]) !== wantDealer) continue;
       out.push({
         id: String(r[LOT_SUB.ID]), ts: String(r[LOT_SUB.TS] || ''), email: String(r[LOT_SUB.EMAIL] || ''),
