@@ -383,9 +383,12 @@ function uploadPhotoOnly(dealerKey, base64Image) {
 // Each item may carry a client-side (ZXing) barcode `vin` — when present it skips Drive
 // OCR entirely (validated + matched here, ocr_state='done' straight away); items without
 // a vin keep today's behavior (blank VIN cols, ocr_state='queued' for drainOcrQueue).
+// IDEMPOTENT: if a commit succeeds but the response is lost, the client retries the same
+// items — items whose fileId (unique per upload) already has a row are skipped, not
+// re-inserted. The dedupe read happens INSIDE the lock so it can't race another commit.
 function commitQueuedBatch(dealerKey, batchId, items) {
   try {
-    if (!items || !items.length) return { ok: true, committed: 0 };
+    if (!items || !items.length) return { ok: true, committed: 0, skipped: 0 };
     var config = getDealerConfig_(dealerKey);
     if (!config) return { ok: false, error: 'Unknown dealer.' };
     var dealerName = String(config[CFG.NAME] || dealerKey);
@@ -393,11 +396,11 @@ function commitQueuedBatch(dealerKey, batchId, items) {
     var email = getActiveEmail_();
     var ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'America/Chicago', 'yyyy-MM-dd HH:mm:ss');
 
-    var vinMap = null;   // built once, only if at least one item carries a barcode vin
+    var vinMap = null;   // built once (outside the lock — it's the slow part), only if needed
     var hasVin = items.some(function (it) { return it && it.vin; });
     if (hasVin) vinMap = getDealerVinMap(dealerKey);
 
-    var rows = items.map(function (it) {
+    function buildRow(it) {
       var vin = it && it.vin ? String(it.vin).toUpperCase().replace(/[^A-Z0-9]/g, '') : '';
       if (!vin) {
         return [
@@ -414,14 +417,27 @@ function commitQueuedBatch(dealerKey, batchId, items) {
         (v && v.year) || '', (v && v.make) || '', (v && v.model) || '', (v && v.type) || '', (v && v.stock) || '',
         'draft', '', '', '', batchId || '', 'done'
       ];
-    });
+    }
+
     var lock = LockService.getScriptLock();
     if (!lock.tryLock(45000)) return { ok: false, error: 'busy' };
     try {
       var sh = getOrCreateLotSubmissionsSheet_();   // fresh read of the last row
+      // Dedupe by photo_file_id — one single-column read, not the full sheet.
+      var last = sh.getLastRow();
+      var existing = {};
+      if (last > 1) {
+        sh.getRange(2, LOTC.PHOTO_ID + 1, last - 1, 1).getValues().forEach(function (r) {
+          if (r[0]) existing[String(r[0])] = true;
+        });
+      }
+      var fresh = items.filter(function (it) { return !(it && it.fileId && existing[String(it.fileId)]); });
+      var skipped = items.length - fresh.length;
+      if (!fresh.length) return { ok: true, committed: 0, skipped: skipped };
+      var rows = fresh.map(buildRow);
       sh.getRange(sh.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
       SpreadsheetApp.flush();
-      return { ok: true, committed: rows.length };
+      return { ok: true, committed: rows.length, skipped: skipped };
     } finally { try { lock.releaseLock(); } catch (eR) {} }
   } catch (e) {
     Logger.log('commitQueuedBatch failed: ' + e.message);

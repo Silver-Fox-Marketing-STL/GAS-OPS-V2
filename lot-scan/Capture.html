@@ -249,7 +249,7 @@
     }
 
     // ════════════════ ORDER-SESSION STATE MACHINE (Idle → Shooting → Finish) ════════════════
-    var vpOrder = null;       // { dealerKey, dealerName, batchId, items:[] } while an order is open
+    var vpOrder = null;       // { dealerKey, dealerName, batchId } while an order is open
     var vpFinishing = null;   // null | { send: bool } — set while Finish is draining the pipeline
 
     function vpStartOrder() {
@@ -259,12 +259,11 @@
       var dealerName = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : dealerKey;
       vpOrder = {
         dealerKey: dealerKey, dealerName: dealerName,
-        batchId: 'ord' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
-        items: []
+        batchId: 'ord' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)
       };
       vpQueue = []; vpPending = []; vpBuffer = [];
       vpEng = { decoding: false, inFlight: 0, committing: false, ocrTriggered: false };
-      vpOcrErr = '';
+      vpOcrErr = ''; vpDroppedNote = '';
       vpFinishing = null;
       sel.disabled = true;
       document.getElementById('lsIdle').hidden = true;
@@ -282,16 +281,40 @@
 
     function vpCheckFinishDrain() {
       vpUpdateFinishUI();
-      if (vpFinishing && vpPendingCount() === 0) vpCompleteFinish();
+      if (!vpFinishing || vpPendingCount() !== 0) return;
+      // DATA-LOSS GUARD: capture= photos never hit the camera roll, so finishing past a
+      // failed item silently destroys the photo. Never complete over failures without an
+      // explicit OK.
+      var failed = vpQueue.filter(function (q) { return q.state === 'failed'; }).length;
+      if (failed) {
+        if (!confirm(failed + ' photo(s) failed to save — finish WITHOUT them? (Cancel to stay and retry)')) {
+          vpFinishing = null;   // back to Shooting — failed chips stay tappable for retry
+          vpUpdateFinishUI();
+          return;
+        }
+        vpDroppedNote = failed + ' failed photo(s) dropped at finish';
+        vpRenderDiag();
+      }
+      vpCompleteFinish();
     }
 
     function vpCompleteFinish() {
       var order = vpOrder, send = vpFinishing && vpFinishing.send;
+      var savedN = vpQueue.filter(function (q) { return q.state === 'saved'; }).length;
       vpFinishing = null;
       vpEndOrder();
       if (send) {
         google.script.run
-          .withSuccessHandler(function (res) { toast((res && res.sent ? res.sent : 0) + ' sent to office.', 'success'); vpTab('drafts', order.batchId); })
+          .withSuccessHandler(function (res) {
+            if (res && res.ok) {
+              // Sent batches leave the Drafts list — confirm instead of auto-opening a gone batch.
+              toast('Batch sent to office ✓ (' + (res.sent != null ? res.sent : savedN) + ' photos)', 'success');
+              vpTab('drafts');
+            } else {
+              toast('Send failed: ' + ((res && res.error) || 'unknown'), 'error');
+              vpTab('drafts', order.batchId);   // still a draft — open it
+            }
+          })
           .withFailureHandler(function (e) { toast('Send failed: ' + ((e && e.message) || e), 'error'); vpTab('drafts', order.batchId); })
           .sendDraftBatch(order.batchId);
       } else {
@@ -338,20 +361,22 @@
     var vpEng = { decoding: false, inFlight: 0, committing: false, ocrTriggered: false };
     var vpEngPool = 5;
     var vpQNextId = 1;
-    var vpOcrErr = '';
+    var vpOcrErr = '', vpDroppedNote = '';
 
     function vpPhotoSelected(input) {
       var file = input.files && input.files[0];
       input.value = '';
       if (!file) return;
-      if (!vpOrder || vpFinishing) { toast('Start an order first.', 'info'); return; }
+      if (!vpOrder) { toast('Start an order first.', 'info'); return; }
+      if (vpFinishing) { toast('Finishing — wait a moment.', 'info'); return; }
       vpEnqueueFiles([file]);
     }
     function vpGallerySelected(input) {
       var files = input.files ? Array.prototype.slice.call(input.files) : [];
       input.value = '';
       if (!files.length) return;
-      if (!vpOrder || vpFinishing) { toast('Start an order first.', 'info'); return; }
+      if (!vpOrder) { toast('Start an order first.', 'info'); return; }
+      if (vpFinishing) { toast('Finishing — wait a moment.', 'info'); return; }
       vpEnqueueFiles(files);
     }
 
@@ -482,26 +507,39 @@
             vpRenderQueue(); vpUpdateCount(); vpCheckFinishDrain();
             vpTryCommit();   // drain anything buffered while this commit was in flight
           } else {
-            vpBuffer = chunk.concat(vpBuffer);
-            toast('Save failed: ' + ((res && res.error) || 'unknown') + ' — retrying…', 'error');
-            vpRenderQueue(); vpUpdateCount(); vpCheckFinishDrain();
-            setTimeout(vpTryCommit, 3000);   // ponytail: fixed backoff, exponential if this proves noisy
+            vpCommitFailed(chunk, (res && res.error) || 'unknown');
           }
         })
         .withFailureHandler(function (e) {
           vpEng.committing = false;
-          vpBuffer = chunk.concat(vpBuffer);
-          toast('Save failed: ' + ((e && e.message) || e) + ' — retrying…', 'error');
-          vpRenderQueue(); vpUpdateCount(); vpCheckFinishDrain();
-          setTimeout(vpTryCommit, 3000);
+          vpCommitFailed(chunk, (e && e.message) || String(e));
         })
         .commitQueuedBatch(dealerKey, batchId, payload);
+    }
+
+    // Commit failure: items go back to the buffer, the retry loop keeps running — and a
+    // failure DURING Finish also clears the finish-pending state, so the user isn't
+    // trapped behind disabled buttons while the server is down (only escape was reload
+    // = data loss). They can keep shooting / tap Finish again once saves recover.
+    function vpCommitFailed(chunk, msg) {
+      vpBuffer = chunk.concat(vpBuffer);
+      if (vpFinishing) {
+        vpFinishing = null;
+        toast('Save failed: ' + msg + ' — back to shooting; retrying in background.', 'error');
+      } else {
+        toast('Save failed: ' + msg + ' — retrying…', 'error');
+      }
+      vpRenderQueue(); vpUpdateCount(); vpUpdateFinishUI();
+      setTimeout(vpTryCommit, 3000);   // ponytail: fixed backoff, exponential if this proves noisy
     }
 
     function vpMaybeStartOcr() {
       if (vpEng.ocrTriggered) return;
       vpEng.ocrTriggered = true;
       google.script.run
+        // ensureOcrTrigger is fail-soft ({ok:false,error} — never throws), so the
+        // success handler is where a failure actually arrives.
+        .withSuccessHandler(function (res) { if (!res || !res.ok) { vpOcrErr = (res && res.error) || 'unknown'; vpRenderDiag(); } })
         .withFailureHandler(function (e) { vpOcrErr = (e && e.message) || String(e); vpRenderDiag(); })
         .ensureOcrTrigger();
     }
@@ -540,7 +578,8 @@
       vpQueue.forEach(function (q) { by[q.state] = (by[q.state] || 0) + 1; });
       box.innerHTML = 'reading=' + (by.reading || 0) + ' uploading=' + (by.uploading || 0) +
         ' saving=' + (by.saving || 0) + ' saved=' + (by.saved || 0) + ' failed=' + (by.failed || 0) +
-        '<br>ocr trigger: ' + escHtml(vpOcrErr || '(ok)');
+        '<br>ocr trigger: ' + escHtml(vpOcrErr || '(ok)') +
+        (vpDroppedNote ? '<br>' + escHtml(vpDroppedNote) : '');
     }
 
     // Draw the already-decoded <img> onto a small (64x64, cover-cropped) canvas — never

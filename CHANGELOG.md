@@ -35,6 +35,7 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 - Encarta table-header override retargeted to .table-u; theme coupling audit clean
 
 ### Fixed
+- Lot Scanner: finish guards failed photos (no silent drop); idempotent batch commits (no dupes on retry); OCR-trigger + send failures surfaced; cancellable finish
 - Targeting-rule AND/OR chip suppressed by the select enhancer (data-no-cs); danger-row tint no longer lost on hover
 - Norm + Field Codes tables no longer flush against the page edge
 - VIN Inbox view root now declares `background: var(--bg)` — same dark-theme white-guard trap as the EOM view (July 2026), caught this time during migration instead of after ship
