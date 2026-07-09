@@ -12,7 +12,7 @@
 
       <!-- Latest order number (shown after dealer loads) -->
       <div id="latestOrderRow">
-        Most recent order in log: <span id="latestOrderSpan">—</span>
+        Most recent order in log: <span id="latestOrderSpan" class="tag tone-neutral">—</span>
       </div>
 
       <!-- Runs list (shown after dealer selected) -->
@@ -144,7 +144,7 @@
   #view-vinlog textarea:focus {
       outline: none;
       border-color: var(--accent);
-      box-shadow: 0 0 0 2px rgba(253,65,13,0.15);
+      box-shadow: var(--focus-ring);
     }
     #view-vinlog textarea {
       width: 100%;
@@ -163,16 +163,7 @@
       font-size: 11px;
       color: var(--text-2);
     }
-    #view-vinlog #latestOrderRow span {
-      display: inline-block;
-      background: var(--surface-2);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 2px 9px;
-      font-weight: bold;
-      color: var(--text);
-      margin-left: 4px;
-    }
+    #view-vinlog #latestOrderSpan { margin-left: 4px; }   /* positioning only — chip styling now .tag.tone-neutral */
 
     /* ── Runs table ────────────────────────────────────────────────────────── */
     /* Fills the left column; long run lists scroll inside runsContainer. */
@@ -254,14 +245,14 @@
     /* ── VIN popup overlay ────────────────────────────────────────────────── */
     #vlVinPopup {
       display: none; position: fixed; inset: 0; z-index: 1000;
-      background: rgba(0,0,0,0.45); align-items: center; justify-content: center;
+      background: rgba(0,0,0,0.45); align-items: center; justify-content: center;   /* scrim — intentional literal */
     }
     #vlVinPopup .vl-popup-card {
       background: var(--surface); border: 1px solid var(--border);
       border-radius: var(--radius, 6px); padding: 20px;
       width: 360px; max-height: 68vh;
       display: flex; flex-direction: column; gap: 12px;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.28);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.28);   /* scrim — intentional literal */
     }
     #vlVinPopup .vl-popup-title {
       margin: 0; font-size: 13px; font-weight: bold; color: var(--text);
@@ -411,11 +402,7 @@
 
     /* ── Bottom buttons ────────────────────────────────────────────────────── */
     #view-vinlog .btn-row { display: flex; gap: 10px; margin-top: 18px; }
-    #view-vinlog .btn-secondary {
-      padding: 9px 18px; background: var(--bg); color: var(--text-2);
-      border: 1px solid var(--border-2); font-size: 13px; cursor: pointer; border-radius: 4px;
-    }
-    #view-vinlog .btn-secondary:hover { background: var(--surface); }
+    /* .btn-secondary dialect removed — shared recipe (SharedUtils) covers it */
 
     /* ── Status ────────────────────────────────────────────────────────────── */
     #view-vinlog #vinlogStatus {

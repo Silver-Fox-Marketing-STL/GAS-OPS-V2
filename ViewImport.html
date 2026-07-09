@@ -44,7 +44,7 @@
 
     <div class="modal-footer">
       <div id="importStatus" class="status-bar empty">&nbsp;</div>
-      <button class="btn-secondary" onclick="showCurrentData()">Browse Current Data</button>
+      <button class="btn-ghost" onclick="showCurrentData()">Browse Current Data</button>
       <button class="btn-primary" id="importBtn" onclick="runImport()" disabled>Import Data</button>
     </div>
 
@@ -87,7 +87,7 @@
 
     <div class="modal-footer">
       <div class="status-bar empty">&nbsp;</div>
-      <button class="btn-secondary" onclick="hideCurrentData()">&#8592; Back to Import</button>
+      <button class="btn-ghost" onclick="hideCurrentData()">&#8592; Back to Import</button>
     </div>
 
   </div>
@@ -105,15 +105,15 @@
     <div class="modal-body">
       <div class="bulk-bar">
         <span class="bulk-label" id="bulkLabel"></span>
-        <button class="btn-secondary" onclick="bulkChoice('existing')">Keep All Existing</button>
-        <button class="btn-secondary" onclick="bulkChoice('new')">Keep All New</button>
+        <button class="btn-ghost" onclick="bulkChoice('existing')">Keep All Existing</button>
+        <button class="btn-ghost" onclick="bulkChoice('new')">Keep All New</button>
       </div>
       <div id="conflictList"></div>
     </div>
 
     <div class="modal-footer">
       <div id="statusConflict" class="status-bar empty">&nbsp;</div>
-      <button class="btn-secondary" onclick="cancelConflicts()">Cancel</button>
+      <button class="btn-ghost" onclick="cancelConflicts()">Cancel</button>
       <button class="btn-primary" id="applyBtn" onclick="submitResolutions()" disabled>Apply &amp; Import</button>
     </div>
 
@@ -160,7 +160,7 @@
 
     <div class="modal-footer">
       <div id="statusReview" class="status-bar empty">&nbsp;</div>
-      <button class="btn-secondary" onclick="resetImport()">Import More Data</button>
+      <button class="btn-ghost" onclick="resetImport()">Import More Data</button>
     </div>
 
   </div>
@@ -215,7 +215,7 @@
       flex: 1;
       font-size: 12px;
       padding: 6px 8px;
-      border-radius: 4px;
+      border-radius: var(--radius-sm);
       min-height: 30px;
       line-height: 18px;
     }
@@ -336,34 +336,9 @@
       color: var(--text);
     }
 
-    /* ── Buttons ─────────────────────────────────────────────────────────────── */
-    #view-import .btn-primary {
-      padding: 9px 22px;
-      background: var(--accent);
-      color: white;
-      border: none;
-      font-size: 13px;
-      font-weight: bold;
-      cursor: pointer;
-      border-radius: 4px;
-      white-space: nowrap;
-      flex-shrink: 0;
-    }
-    #view-import .btn-primary:hover { background: var(--accent-hover); }
-    #view-import .btn-primary:disabled { background: var(--text-muted); cursor: default; }
-    #view-import .btn-secondary {
-      padding: 9px 18px;
-      background: var(--bg);
-      color: var(--accent);
-      border: 1.5px solid var(--accent);
-      font-size: 13px;
-      font-weight: bold;
-      cursor: pointer;
-      border-radius: 4px;
-      white-space: nowrap;
-      flex-shrink: 0;
-    }
-    #view-import .btn-secondary:hover { background: var(--accent-weak); }
+    /* ── Buttons: don't shrink next to flex:1 siblings (status-bar, bulk-label) ── */
+    #view-import .modal-footer button,
+    #view-import .bulk-bar button { flex-shrink: 0; }
 
     /* ════════════════════════════════════════════════════════════════════════════
        CONFLICT PANEL
@@ -467,7 +442,7 @@
       padding: 8px;
       font-size: 13px;
       border: 1px solid var(--border-2);
-      border-radius: 4px;
+      border-radius: var(--radius-sm);
       background: var(--bg);
       color: var(--text);
       max-width: 280px;
@@ -566,7 +541,7 @@
     #view-import .table-wrap {
       overflow-x: auto;
       border: 1px solid var(--border);
-      border-radius: 4px;
+      border-radius: var(--radius-sm);
     }
     #view-import table {
       width: 100%;

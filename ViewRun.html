@@ -36,7 +36,7 @@
         </div>
 
         <div class="rv-topbar-actions">
-          <button id="caoBtn" onclick="prefillFromCAO()" disabled>&#x21BA; Pre-fill from CAO</button>
+          <button id="caoBtn" class="btn-ghost" onclick="prefillFromCAO()" disabled>&#x21BA; Pre-fill from CAO</button>
           <button class="btn-primary" id="runBtn" onclick="runSelected()" disabled>Run Dealer</button>
           <button class="btn-secondary" id="cancelBtn" onclick="closeModal()">Cancel</button>
         </div>
@@ -45,7 +45,7 @@
       <div class="rv-topbar-sub">
         <!-- VIN log status row (shown after dealer selected) -->
         <div id="vinLogStatusRow">
-          <span class="log-label">Most recent order in log: <span id="vinLogOrderSpan">—</span></span>
+          <span class="log-label">Most recent order in log: <span id="vinLogOrderSpan" class="tag tone-neutral">—</span></span>
           <button id="openVinLogBtn" onclick="openVinLogUpdater()">&#x1F4CB; Update VIN Log</button>
         </div>
       </div>
@@ -69,7 +69,7 @@
       <div class="rv-tablezone">
         <div class="rv-zone-label">Inventory match</div>
         <div class="rv-table-scroll">
-          <table id="vinDataTable">
+          <table id="vinDataTable" class="table-u">
             <thead>
               <tr>
                 <th>Year</th><th>Make</th><th>Model</th><th>Type</th>
@@ -113,7 +113,7 @@
              required) or abandoned. Nothing is logged until a card is finalized. -->
         <div id="postRunActions">
           <div class="post-run-row">
-            <a id="driveFolderBtn" href="#" target="_blank">&#128194; Open Output Folder</a>
+            <a id="driveFolderBtn" class="btn-ghost" href="#" target="_blank">&#128194; Open Output Folder</a>
           </div>
           <div id="finalizeCards"></div>
           <div class="post-run-row">
@@ -164,13 +164,8 @@
 
     /* Data table — token-bound, tabular figures, like the dash/runs tables */
     #view-run .rv-table-scroll { flex: 1; min-height: 0; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); }
-    #view-run #vinDataTable { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
-    #view-run #vinDataTable th { position: sticky; top: 0; background: var(--surface-2); color: var(--text-2);
-                                 text-align: left; font-size: var(--fs-overline); text-transform: uppercase; letter-spacing: .03em;
-                                 padding: 6px 8px; border-bottom: 1px solid var(--border); }
-    #view-run #vinDataTable td { padding: 5px 8px; border-bottom: 1px solid var(--border); color: var(--text); white-space: nowrap; }
-    #view-run #vinDataTable td.rv-vin { font-family: monospace; color: var(--text-2); }
-    #view-run #vinDataTable tr.rv-notfound td { color: var(--danger); background: var(--danger-weak); }
+    #view-run #vinDataTable td { white-space: nowrap; }
+    #view-run #vinDataTable td.rv-vin { font-family: var(--font-mono); color: var(--text-2); }
     #view-run #vinDataTable tr.rv-empty-row td { color: var(--text-muted); text-align: center; padding: var(--space-4); }
     #view-run #vinDataTable td.rv-link { white-space: nowrap; }
     #view-run #vinDataTable td.rv-link a { color: var(--accent); text-decoration: none; font-size: var(--fs-sm); }
@@ -188,7 +183,7 @@
     }
     #view-run .user-select-wrap select:focus {
       outline: none;
-      box-shadow: 0 0 0 2px rgba(253,65,13,0.25);
+      box-shadow: var(--focus-ring);
     }
     #view-run select,
   #view-run textarea,
@@ -197,7 +192,7 @@
       padding: 8px;
       font-size: 13px;
       border: 1px solid var(--border-2);
-      border-radius: 4px;
+      border-radius: var(--radius-sm);
       background: var(--bg);
       color: var(--text);
     }
@@ -247,16 +242,8 @@
       color: var(--text-2);
     }
     #view-run #vinLogStatusRow .log-label { flex: 1; }
-    #view-run #vinLogStatusRow .log-label span {
-      display: inline-block;
-      background: var(--surface-2);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 2px 9px;
-      font-weight: bold;
-      color: var(--text);
-      margin-left: 4px;
-    }
+    /* positioning only — visual spec now owned by .tag.tone-neutral */
+    #view-run #vinLogStatusRow .log-label span { margin-left: 4px; }
     #view-run #openVinLogBtn {
       padding: 4px 10px;
       font-size: 11px;
@@ -264,25 +251,19 @@
       background: var(--bg);
       color: var(--accent);
       border: 1.5px solid var(--accent);
-      border-radius: 4px;
+      border-radius: var(--radius-sm);
       cursor: pointer;
       white-space: nowrap;
     }
     #view-run #openVinLogBtn:hover { background: var(--accent-weak); }
 
-    /* ── CAO button ──────────────────────────────────────────────────────── */
-    #view-run #caoBtn {
-      padding: 6px 12px; font-size: 12px; font-weight: bold;
-      background: var(--bg); color: var(--accent); border: 1.5px solid var(--accent);
-      border-radius: 4px; cursor: pointer; white-space: nowrap; width: auto; margin: 0;
-    }
-    #view-run #caoBtn:hover { background: var(--accent-weak); }
-    #view-run #caoBtn:disabled { background: var(--surface); color: var(--text-muted); border-color: var(--border-2); cursor: default; }
+    /* ── CAO button (positioning only — visual spec now owned by .btn-ghost) ── */
+    #view-run #caoBtn { width: auto; margin: 0; }
 
     /* ── CAO summary ─────────────────────────────────────────────────────── */
     #view-run #caoSummary {
       display: none; margin-bottom: var(--space-3); padding: 8px 10px;
-      background: var(--surface); border: 1px solid var(--border); border-radius: 4px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
       font-size: 11px; line-height: 1.7;
     }
     #view-run #caoSummary .summary-row { display: flex; justify-content: space-between; }
@@ -291,23 +272,10 @@
     #view-run #caoSummary .summary-net { color: var(--accent); }
     #view-run #caoSummary .rejection-detail { color: var(--text-3); font-size: 10.5px; margin-top: 2px; }
 
-    /* ── Run / Cancel buttons ────────────────────────────────────────────── */
-    #view-run .btn-primary {
-      padding: 10px 18px; background: var(--accent); color: var(--on-accent);
-      border: none; font-size: 14px; font-weight: bold; cursor: pointer; border-radius: 4px;
-    }
-    #view-run .btn-primary:hover { background: var(--accent-hover); }
-    #view-run .btn-primary:disabled { background: var(--text-muted); cursor: default; }
-    #view-run .btn-secondary {
-      padding: 10px 18px; background: var(--bg); color: var(--text-2);
-      border: 1px solid var(--border-2); font-size: 13px; cursor: pointer; border-radius: 4px;
-    }
-    #view-run .btn-secondary:hover { background: var(--surface); }
-
     /* ── Progress section ────────────────────────────────────────────────── */
     #view-run #progressSection {
       display: none; margin-bottom: var(--space-3); padding: 12px;
-      background: var(--surface); border: 1px solid var(--border); border-radius: 4px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
     }
     #view-run #progressStep {
       font-size: 12px; color: var(--text); margin-bottom: 8px;
@@ -337,23 +305,15 @@
       display: flex;
       gap: 10px;
     }
-    /* Drive folder button — styled as a link-button */
+    /* Drive folder button — an <a> styled as a button; positioning + anchor
+       resets only (visual spec now owned by .btn-ghost) */
     #view-run #driveFolderBtn {
       flex: 1;
       display: block;
-      padding: 9px 12px;
-      background: var(--bg);
-      color: var(--accent);
-      border: 1.5px solid var(--accent);
-      border-radius: 4px;
-      font-size: 13px;
-      font-weight: bold;
       text-align: center;
       text-decoration: none;
-      cursor: pointer;
       line-height: 1.4;
     }
-    #view-run #driveFolderBtn:hover { background: var(--accent-weak); }
     /* VIN log button */
     #view-run #vinLogBtn {
       flex: 1;
@@ -361,7 +321,7 @@
       background: var(--success);
       color: var(--on-success);
       border: none;
-      border-radius: 4px;
+      border-radius: var(--radius-sm);
       font-size: 13px;
       font-weight: bold;
       cursor: pointer;
@@ -378,7 +338,7 @@
     /* ── Finalization cards — one per prospective run log entry ──────────── */
     #view-run #finalizeCards { margin-top: 10px; }
     #view-run .finalize-card {
-      border: 1px solid var(--border); border-radius: 4px;
+      border: 1px solid var(--border); border-radius: var(--radius-sm);
       padding: 10px 12px; margin-bottom: 8px; background: var(--surface);
     }
     #view-run .finalize-card.finalized { border-color: var(--success); background: var(--success-weak); }
@@ -392,7 +352,7 @@
     #view-run .finalize-card-body { display: flex; gap: 8px; }
     #view-run .finalize-card-body input {
       flex: 1; min-width: 0; padding: 6px 8px; font-size: 12px;
-      border: 1px solid var(--border); border-radius: 4px;
+      border: 1px solid var(--border); border-radius: var(--radius-sm);
       background: var(--bg); color: var(--text);
     }
 
@@ -414,19 +374,19 @@
     #view-run .card-method-idrow { display: flex; flex-basis: 100%; margin-top: 2px; }
     #view-run .card-method-idrow input {
       flex: 1; min-width: 0; padding: 6px 8px; font-size: 12px;
-      border: 1px solid var(--border-2); border-radius: 4px;
+      border: 1px solid var(--border-2); border-radius: var(--radius-sm);
       background: var(--bg); color: var(--text);
     }
     #view-run .card-method-idrow input:focus { outline: none; border-color: var(--accent); }
     #view-run .finalize-card-actions { display: flex; gap: 8px; }
     #view-run .card-finalize-btn {
-      padding: 6px 12px; font-size: 12px; border: none; border-radius: 4px;
+      padding: 6px 12px; font-size: 12px; border: none; border-radius: var(--radius-sm);
       background: var(--accent); color: var(--on-accent); cursor: pointer; white-space: nowrap;
     }
     #view-run .card-finalize-btn:hover { background: var(--accent-hover); }
     #view-run .card-finalize-btn:disabled { background: var(--text-muted); cursor: default; }
     #view-run .card-abandon-btn {
-      padding: 6px 12px; font-size: 12px; border-radius: 4px;
+      padding: 6px 12px; font-size: 12px; border-radius: var(--radius-sm);
       background: var(--bg); color: var(--danger); border: 1px solid var(--danger);
       cursor: pointer; white-space: nowrap;
     }
@@ -456,11 +416,11 @@
     #view-run .card-push-row { display: flex; gap: 8px; align-items: center; }
     #view-run .card-push-row input[type="text"] {
       flex: 1; min-width: 0; padding: 6px 8px; font-size: 12px;
-      border: 1px solid var(--border); border-radius: 4px;
+      border: 1px solid var(--border); border-radius: var(--radius-sm);
       background: var(--bg); color: var(--text);
     }
     #view-run .card-push-btn {
-      padding: 6px 12px; font-size: 12px; border: none; border-radius: 4px;
+      padding: 6px 12px; font-size: 12px; border: none; border-radius: var(--radius-sm);
       background: var(--accent); color: var(--on-accent); cursor: pointer; white-space: nowrap;
     }
     #view-run .card-push-btn:hover { background: var(--accent-hover); }
@@ -472,17 +432,13 @@
       font-size: 12px; color: var(--success); font-weight: 600;
       display: flex; align-items: center; gap: 6px;
     }
-    #view-run .card-push-retry {
-      margin-top: 6px; padding: 5px 12px; font-size: 12px;
-      background: var(--bg); color: var(--accent); border: 1.5px solid var(--accent);
-      border-radius: 4px; cursor: pointer; font-weight: bold;
-    }
-    #view-run .card-push-retry:hover { background: var(--accent-weak); }
+    /* positioning only — visual spec now owned by .btn-ghost */
+    #view-run .card-push-retry { margin-top: 6px; }
 
     /* ── Status bar ──────────────────────────────────────────────────────── */
     #view-run #runStatus {
       font-size: 12px; min-height: 18px;
-      padding: 6px 8px; border-radius: 4px;
+      padding: 6px 8px; border-radius: var(--radius-sm);
     }
     #view-run #runStatus.error { background: var(--danger-weak); color: var(--danger); }
     #view-run #runStatus.success { background: var(--success-weak); color: var(--success); }
@@ -491,17 +447,6 @@
 
     /* themed root (overrides the interim .view light guard) */
     #view-run { background: var(--bg); color: var(--text); }
-
-    /* ── Type pills in the VIN data table (tokens from SharedUtils) ──────── */
-    #view-run .pill {
-      display: inline-block; padding: 2px 8px; font-size: 11px; font-weight: 600;
-      border-radius: 10px; border: 1.5px solid var(--border-2);
-      background: var(--surface-2); color: var(--text-2); line-height: 1.5;
-    }
-    #view-run .pill.type-new.active   { background: var(--type-new);   border-color: var(--type-new);   color: var(--on-type); }
-    #view-run .pill.type-po.active    { background: var(--type-po);    border-color: var(--type-po);    color: var(--on-type); }
-    #view-run .pill.type-cpo.active   { background: var(--type-cpo);   border-color: var(--type-cpo);   color: var(--on-type); }
-    #view-run .pill.type-cpoel.active { background: var(--type-cpoel); border-color: var(--type-cpoel); color: var(--on-type); }
 
     /* ── Mobile (data-viewport="mobile") — phone ≤760px ─────────────────────
        .rv-body already stacks (App.html). The topbar's main row is a
@@ -1174,7 +1119,7 @@
       var existing = document.getElementById('pushRetry' + i);
       if (existing) return;
       var btn = document.createElement('button');
-      btn.className = 'card-push-retry';
+      btn.className = 'card-push-retry btn-ghost';
       btn.id = 'pushRetry' + i;
       btn.textContent = 'Retry';
       btn.onclick = (function(idx, m, d) { return function() {
@@ -1424,7 +1369,7 @@
             '<td class="rv-link">' + urlCell + '</td>' +
           '</tr>';
         } else {
-          html += '<tr class="rv-notfound">' +
+          html += '<tr class="row-danger">' +
             '<td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>' +
             '<td class="rv-vin">' + escHtml(lines[j]) + '</td>' +
             '<td>⚠ not in this dealer</td>' +

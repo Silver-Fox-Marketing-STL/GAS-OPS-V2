@@ -10,6 +10,33 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## [Unreleased]
 
+### Added
+- Unified component layer in SharedUtils (canonical buttons/pills/tags/table, --font-mono token) — SuperDesign variant 1 spec
+- Visual nesting hierarchy for targeting-rule groups in Dealer Rules → Filtering Rules (rails, depth steps, AND/OR chips) — F3
+- VIN Inbox: batches collapsible via native `<details>` (collapsed by default) with a submission count in the summary, plus a "Discard batch" action that serially discards every submission in a batch and refreshes the list — F4
+
+### Changed
+- Unified pills sized up (11px, 6px/14px padding) per design review
+- Run Order migrated to the unified component layer (buttons, pills, table, focus ring)
+- Normalization + Field Codes migrated to the unified component layer
+- Utilities migrated to the unified component layer
+- Import migrated to the unified component layer (btn-secondary → btn-ghost)
+- Data Sources migrated to the unified component layer
+- Pipedrive Settings migrated to the unified component layer
+- End of Month migrated to the unified component layer (buttons, status tags, dead hex fallbacks removed)
+- VIN Inbox migrated to the unified component layer (badges → tags)
+- Dealer Rules migrated to the unified component layer (pills, buttons)
+- Home + VIN Logs migrated to the unified component layer
+- Encarta table-header override retargeted to .table-u; theme coupling audit clean
+
+### Fixed
+- Targeting-rule AND/OR chip suppressed by the select enhancer (data-no-cs); danger-row tint no longer lost on hover
+- Norm + Field Codes tables no longer flush against the page edge
+- VIN Inbox view root now declares `background: var(--bg)` — same dark-theme white-guard trap as the EOM view (July 2026), caught this time during migration instead of after ship
+- Import's `.bulk-bar` buttons now covered by the flex-shrink survivor rule (previously only `.modal-footer button` was, so bulk-action buttons could compress next to the flex:1 status label)
+- UI Settings view root now declares `background: var(--bg)` — same dark-theme white-guard trap as the EOM/VIN Inbox views
+- `.pill` and `.btn-primary`/`.btn-secondary`/`.btn-ghost`/`.btn-danger` padding now `!important` — Dealer Rules' type/status pills rendered with no padding because `#view-rules * { padding:0 }` (specificity 1,0,0) beat the unscoped component rule (0,1,0); same reset also silently flattened buttons in Import and Pipedrive Settings
+
 ### Fixed — EOM view white background in dark themes _(branch `feature/eom-billing-report`)_
 - `#view-end-of-month` now declares `background: var(--bg)` like every other migrated view root. It only overrode `color`, so the SharedUtils **hardcoded-white `.view` readability guard** (interim rule for unmigrated views; ID-scoped roots are meant to out-specify it) kept painting the whole view canvas white in every dark theme while the tokened panels/text went dark. Root-caused via a local headless harness (computed-style dump: `#view-end-of-month = rgb(255,255,255)` with `--bg: #121214`); trap added to CLAUDE.md.
 

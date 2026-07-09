@@ -409,9 +409,10 @@
     /* Toggle switches → squared, beveled Win95 sliders. */
     :root[data-theme="encarta"] .toggle-slider { border: 2px inset #dfdfdf !important; }
     :root[data-theme="encarta"] .toggle-slider:before { border: 2px outset #dfdfdf !important; background: var(--surface) !important; }
+    /* Every unified table header goes flat gray — Win95 has no sticky inverted headers. */
+    :root[data-theme="encarta"] .table-u th { background: var(--surface) !important; color: var(--text) !important; position: static; }
     /* Encarta — Run Order table + rail as Win95 panels */
     :root[data-theme="encarta"] #view-run .rv-table-scroll { border: 2px inset #dfdfdf !important; }
-    :root[data-theme="encarta"] #view-run #vinDataTable th { background: var(--surface) !important; }
     :root[data-theme="encarta"] #view-run .rv-rail { border-left: 2px inset #dfdfdf !important; }
 
     /* ── "Windows XP" (Luna) — window-frame reskin over the existing shell. ── */

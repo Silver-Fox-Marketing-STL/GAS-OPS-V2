@@ -37,7 +37,7 @@
   <div id="normStatus" class="empty app-measure"></div>
 
   <div class="table-wrap app-measure" id="tableWrap">
-    <table>
+    <table class="table-u">
       <thead>
         <tr>
           <th>Raw Value</th>
@@ -77,7 +77,7 @@
     padding: 8px;
     font-size: 13px;
     border: 1px solid var(--border-2);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
   }
   #view-norm select:focus { outline: none; border-color: var(--accent); }
   #view-norm #entryCount { font-size: 12px; color: var(--text-3); }
@@ -97,12 +97,12 @@
   #view-norm .add-field input[type="text"] {
     padding: 6px 8px;
     font-size: 12px;
-    font-family: monospace;
+    font-family: var(--font-mono);
     border: 1px solid var(--border-2);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     width: 100%;
   }
-  #view-norm .add-field input[type="text"]:focus { outline: none; border-color: var(--accent); }
+  #view-norm .add-field input[type="text"]:focus { outline: none; box-shadow: var(--focus-ring); }
   #view-norm .add-arrow { font-size: 16px; color: var(--text-muted); padding-bottom: 7px; flex-shrink: 0; }
   #view-norm .add-buttons { display: flex; gap: 6px; flex-shrink: 0; padding-bottom: 1px; }
 
@@ -119,33 +119,19 @@
   #view-norm #normStatus.error   { background: var(--danger-weak); color: var(--danger); }
 
   /* ── Entries table ────────────────────────────────────────────────────── */
-  /* Height is set by JS — overflow-y: auto enables scroll once height is fixed */
-  #view-norm .table-wrap { overflow-y: auto; }
+  /* Height is set by JS — overflow-y: auto enables scroll once height is fixed.
+     padding-inline matches the .top-bar/.add-bar 16px inset so the table
+     (esp. the first column) isn't flush against the view edge — the .table-u
+     header's inverted dark band makes a flush edge much more noticeable. */
+  #view-norm .table-wrap { overflow-y: auto; padding-inline: var(--space-4); }
 
-  #view-norm table { width: 100%; border-collapse: collapse; font-size: 12px; }
-  #view-norm thead th {
-    background: var(--surface-2);
-    padding: 7px 12px;
-    text-align: left;
-    font-size: 11px;
-    font-weight: bold;
-    text-transform: uppercase;
-    letter-spacing: 0.3px;
-    color: var(--text-2);
-    border-bottom: 1px solid var(--border);
-    position: sticky;
-    top: 0;
-    z-index: 1;
-  }
+  /* base table/th/td recipe now owned by .table-u (SharedUtils) — column
+     widths + row/edit states below are view-specific and stay scoped */
   #view-norm thead th.col-arrow   { width: 28px; padding: 7px 4px; }
   #view-norm thead th.col-actions { text-align: center; width: 150px; white-space: nowrap; }
-  #view-norm tbody tr { border-bottom: 1px solid var(--border); }
-  #view-norm tbody tr:last-child  { border-bottom: none; }
-  #view-norm tbody tr:hover { background: var(--bg); }
-  #view-norm td { padding: 5px 12px; vertical-align: middle; }
-  #view-norm td.col-input  { font-family: monospace; color: var(--text); }
+  #view-norm td.col-input  { font-family: var(--font-mono); color: var(--text); }
   #view-norm td.col-arrow  { color: var(--border-2); text-align: center; padding: 5px 4px; width: 28px; }
-  #view-norm td.col-output { font-family: monospace; font-weight: bold; color: var(--accent); }
+  #view-norm td.col-output { font-family: var(--font-mono); font-weight: bold; color: var(--accent); }
   #view-norm td.col-actions { text-align: center; white-space: nowrap; width: 150px; }
 
   /* Inline edit row */
@@ -154,9 +140,9 @@
     width: 100%;
     padding: 4px 6px;
     font-size: 12px;
-    font-family: monospace;
+    font-family: var(--font-mono);
     border: 1px solid var(--accent);
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
   }
   #view-norm .edit-input:focus { outline: none; }
 
@@ -173,26 +159,16 @@
   }
 
   /* ── Buttons ──────────────────────────────────────────────────────────── */
-  #view-norm button {
-    padding: 6px 13px;
-    font-size: 12px;
-    font-weight: bold;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    white-space: nowrap;
-  }
-  #view-norm .btn-primary         { background: var(--accent); color: var(--bg); }
-  #view-norm .btn-primary:hover   { background: var(--accent-hover); }
-  #view-norm .btn-secondary       { background: var(--bg); color: var(--text); border: 1px solid var(--border-2); }
-  #view-norm .btn-secondary:hover { background: var(--surface-2); }
-  #view-norm .btn-icon            { padding: 3px 8px; font-size: 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 3px; color: var(--text-2); margin: 0 1px; }
+  /* .btn-primary / .btn-secondary sizing + color now owned by the unified
+     component layer (SharedUtils). .btn-icon is a distinct compact table
+     control not in that grammar — stays view-scoped. */
+  #view-norm .btn-icon            { padding: 3px 8px; font-size: 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 2px; color: var(--text-2); margin: 0 1px; }
   #view-norm .btn-icon:hover      { background: var(--border); }
   #view-norm .btn-icon.del        { background: var(--danger-weak); color: var(--danger); border-color: var(--danger); }
   #view-norm .btn-icon.del:hover  { background: var(--danger); }
   #view-norm .btn-icon.save       { background: var(--success-weak); color: var(--success); border-color: var(--success); }
   #view-norm .btn-icon.save:hover { background: var(--success); }
-  #view-norm button:disabled      { opacity: 0.4; cursor: default; }
+  #view-norm .btn-icon:disabled   { opacity: 0.4; cursor: default; }
 
     /* themed root (overrides the interim .view light guard) */
     #view-norm { background: var(--bg); color: var(--text); }

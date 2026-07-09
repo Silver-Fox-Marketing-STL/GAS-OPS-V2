@@ -17,34 +17,35 @@
 </div>
 
 <style>
-  #view-vin-inbox { height: 100%; color: var(--text); }
+  #view-vin-inbox { height: 100%; background: var(--bg); color: var(--text); }
   #view-vin-inbox .vi-scroll { height: 100%; overflow-y: auto; padding: var(--space-5) var(--space-6); }
   #view-vin-inbox .vi-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
   #view-vin-inbox .vi-refresh { padding: 6px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); cursor: pointer; }
 
-  #view-vin-inbox .vi-group { margin-top: var(--space-5); }
+  #view-vin-inbox .vi-batch { margin-top: var(--space-5); border: none; }
+  #view-vin-inbox .vi-batch > summary { list-style: none; cursor: pointer; }
+  #view-vin-inbox .vi-batch > summary::-webkit-details-marker { display: none; }
   #view-vin-inbox .vi-group-head { display: flex; align-items: center; gap: var(--space-2); font-family: var(--font-head); font-weight: 700; font-size: var(--fs-lg); margin-bottom: var(--space-2); }
+  #view-vin-inbox .vi-caret { display: inline-block; flex-shrink: 0; color: var(--text-3); font-size: var(--fs-sm); transition: transform .15s ease; }
+  #view-vin-inbox .vi-batch[open] > summary .vi-caret { transform: rotate(90deg); }
+  #view-vin-inbox .vi-batch-title { min-width: 0; }
   #view-vin-inbox .vi-count { font-size: var(--fs-hint); color: var(--text-3); font-weight: 600; }
-  #view-vin-inbox .vi-copy { margin-left: auto; padding: 5px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); cursor: pointer; font-size: var(--fs-sm); }
+  #view-vin-inbox .vi-batch-actions { margin-left: auto; display: flex; gap: var(--space-2); flex-shrink: 0; }
+  #view-vin-inbox .vi-copy { padding: 5px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); cursor: pointer; font-size: var(--fs-sm); }
 
   #view-vin-inbox .vi-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--space-3); }
   #view-vin-inbox .vi-card { display: flex; gap: var(--space-3); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-3); }
-  #view-vin-inbox .vi-card.miss { border-color: var(--warning, #c87f00); }
+  #view-vin-inbox .vi-card.miss { border-color: var(--warning); }
   #view-vin-inbox .vi-thumb { width: 92px; height: 92px; flex-shrink: 0; border-radius: var(--radius-sm); object-fit: cover; background: var(--surface-3); border: 1px solid var(--border); }
   #view-vin-inbox .vi-info { flex: 1; min-width: 0; }
   #view-vin-inbox .vi-vin { font-family: var(--font-mono, ui-monospace, monospace); font-weight: 700; word-break: break-all; }
-  #view-vin-inbox .vi-badges { display: flex; gap: var(--space-2); margin: var(--space-1) 0; flex-wrap: wrap; }
-  #view-vin-inbox .vi-badge { font-size: var(--fs-hint); font-weight: 700; padding: 1px 8px; border-radius: 999px; }
-  #view-vin-inbox .vi-badge.ok { background: var(--success-weak, #dcefe0); color: var(--success, #1c7a3a); }
-  #view-vin-inbox .vi-badge.bad { background: var(--danger-weak, #f6dcdc); color: var(--danger, #b3261e); }
-  #view-vin-inbox .vi-badge.draft { background: var(--warning-weak, #fbe7cf); color: var(--warning, #c87f00); }
-  #view-vin-inbox .vi-badge.wait { background: var(--surface-3); color: var(--text-2); }
+  #view-vin-inbox .vi-tags { display: flex; gap: var(--space-2); margin: var(--space-1) 0; flex-wrap: wrap; }
   #view-vin-inbox .vi-veh { font-size: var(--fs-sm); color: var(--text-2); }
   #view-vin-inbox .vi-meta { font-size: var(--fs-hint); color: var(--text-3); margin-top: 2px; }
   #view-vin-inbox .vi-actions { display: flex; gap: var(--space-2); margin-top: var(--space-2); flex-wrap: wrap; }
   #view-vin-inbox .vi-actions input { flex: 1; min-width: 130px; padding: 6px; font-family: var(--font-mono, ui-monospace, monospace); text-transform: uppercase; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); }
-  #view-vin-inbox .vi-actions button { padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); cursor: pointer; font-size: var(--fs-sm); }
-  #view-vin-inbox .vi-actions button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  /* Buttons: don't shrink next to the flex:1 VIN input. */
+  #view-vin-inbox .vi-actions button { flex-shrink: 0; }
   #view-vin-inbox .vi-empty { color: var(--text-3); margin-top: var(--space-5); }
 </style>
 
@@ -90,13 +91,20 @@
     var html = '';
     viGroupNames.forEach(function (name, gi) {
       var rows = groups[name];
-      html += '<div class="vi-group">';
-      html += '<div class="vi-group-head">' + escHtml(name) +
-              ' <span class="vi-count">' + rows.length + ' pending</span>' +
-              '<button type="button" class="vi-copy" onclick="viCopy(' + gi + ')">Copy valid VINs</button></div>';
+      // Collapsed by default (no `open` attr) — native <details> = no JS toggle state to manage.
+      html += '<details class="vi-batch">';
+      html += '<summary class="vi-group-head">';
+      html += '<span class="vi-caret">&#9656;</span>';
+      html += '<span class="vi-batch-title">' + escHtml(name) + '</span>';
+      html += '<span class="vi-count">' + rows.length + ' submission' + (rows.length === 1 ? '' : 's') + '</span>';
+      html += '<span class="vi-batch-actions">';
+      html += '<button type="button" class="vi-copy" onclick="viCopy(' + gi + ', event)">Copy valid VINs</button>';
+      html += '<button type="button" class="btn-danger" onclick="viDeleteBatch(' + gi + ', event)">Discard batch</button>';
+      html += '</span>';
+      html += '</summary>';
       html += '<div class="vi-cards">';
       rows.forEach(function (s) { html += viCard(s); });
-      html += '</div></div>';
+      html += '</div></details>';
     });
     body.innerHTML = html;
   }
@@ -121,29 +129,31 @@
     h += thumb;
     h += '<div class="vi-info">';
     h += '<div class="vi-vin">' + escHtml(s.vin || (queued ? '(processing…)' : '(no VIN)')) + '</div>';
-    h += '<div class="vi-badges">';
-    if (s.isDraft) h += '<span class="vi-badge draft">draft — not yet sent</span>';
+    h += '<div class="vi-tags">';
+    if (s.isDraft) h += '<span class="tag tone-warning">draft — not yet sent</span>';
     if (queued) {
-      h += '<span class="vi-badge wait">still processing…</span>';
+      h += '<span class="tag tone-neutral">still processing…</span>';
     } else {
-      h += '<span class="vi-badge ' + (s.valid ? 'ok' : 'bad') + '">' + (s.valid ? 'valid VIN' : 'invalid VIN') + '</span>';
-      h += '<span class="vi-badge ' + (s.matched ? 'ok' : 'bad') + '">' + (s.matched ? 'in inventory' : 'not in inventory') + '</span>';
+      h += '<span class="tag ' + (s.valid ? 'tone-success' : 'tone-danger') + '">' + (s.valid ? 'valid VIN' : 'invalid VIN') + '</span>';
+      h += '<span class="tag ' + (s.matched ? 'tone-success' : 'tone-danger') + '">' + (s.matched ? 'in inventory' : 'not in inventory') + '</span>';
     }
     h += '</div>';
     h += veh + meta;
     if (!queued) {
       h += '<div class="vi-actions">';
       h += '<input id="vivin_' + s.id + '" type="text" maxlength="17" value="' + escHtml(s.vin || '') + '" placeholder="Correct VIN…">';
-      h += '<button type="button" onclick="viRecheck(\'' + s.id + '\')">Re-check</button>';
-      h += '<button type="button" class="primary" onclick="viProcess(\'' + s.id + '\')">Processed</button>';
-      h += '<button type="button" onclick="viDiscard(\'' + s.id + '\')">Discard</button>';
+      h += '<button type="button" class="btn-secondary" onclick="viRecheck(\'' + s.id + '\')">Re-check</button>';
+      h += '<button type="button" class="btn-primary" onclick="viProcess(\'' + s.id + '\')">Processed</button>';
+      h += '<button type="button" class="btn-secondary" onclick="viDiscard(\'' + s.id + '\')">Discard</button>';
       h += '</div>';
     }
     h += '</div></div>';
     return h;
   }
 
-  function viCopy(gi) {
+  function viCopy(gi, evt) {
+    // Copy button lives inside <summary> — a bare click would also toggle the batch open/closed.
+    if (evt) { evt.preventDefault(); evt.stopPropagation(); }
     var name = viGroupNames[gi];
     var seen = {}, vins = [];
     viSubs.forEach(function (s) {
@@ -182,4 +192,44 @@
   }
   function viProcess(sid) { viAction(sid, 'processed', '', 'Marked processed.'); }
   function viDiscard(sid) { if (confirm('Discard this submission?')) viAction(sid, 'discarded', '', 'Discarded.'); }
+
+  function viDeleteBatch(gi, evt) {
+    // Button lives inside <summary> — prevent the click from also toggling the batch open/closed.
+    if (evt) { evt.preventDefault(); evt.stopPropagation(); }
+    var name = viGroupNames[gi];
+    var rows = viSubs.filter(function (s) { return (s.dealerName || s.dealerKey || '(unknown dealer)') === name; });
+    if (!rows.length) return;
+    if (!confirm('Discard all ' + rows.length + ' submissions in this batch?')) return;
+    var btn = evt && evt.currentTarget;
+    if (btn) btn.disabled = true;
+    toast('Discarding ' + rows.length + ' submissions…', 'info');
+    viDeleteBatchStep(rows, 0, btn);
+  }
+
+  // ponytail: chains updateVinSubmissionStatus one call at a time (same status/vin as the
+  // per-card Discard) — no batch server fn exists yet; add one if batches get large.
+  function viDeleteBatchStep(rows, idx, btn) {
+    if (idx >= rows.length) {
+      if (btn) btn.disabled = false;
+      toast('Discarded ' + rows.length + ' submission' + (rows.length === 1 ? '' : 's') + '.', 'success');
+      viLoad();
+      return;
+    }
+    google.script.run
+      .withSuccessHandler(function (res) {
+        if (!res || !res.ok) {
+          toast('Batch discard failed on submission ' + (idx + 1) + ' of ' + rows.length + ': ' + escHtml((res && res.error) || '?'), 'error');
+          if (btn) btn.disabled = false;
+          viLoad();
+          return;
+        }
+        viDeleteBatchStep(rows, idx + 1, btn);
+      })
+      .withFailureHandler(function (e) {
+        toast('Batch discard failed on submission ' + (idx + 1) + ' of ' + rows.length + ': ' + escHtml((e && e.message) || String(e)), 'error');
+        if (btn) btn.disabled = false;
+        viLoad();
+      })
+      .updateVinSubmissionStatus(rows[idx].id, 'discarded', '');
+  }
 </script>

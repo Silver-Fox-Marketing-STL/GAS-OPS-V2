@@ -173,6 +173,27 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   portable widget **self-defends** — it sets its own padding `!important`. Same family as the
   Encarta `!important` "legitimate top layer of intent" note: a self-contained component that
   must look right inside any host owns its own box model, loudly.
+- **Per-view CSS dialects for the same UI primitive drift silently — the fix is
+  ONE unscoped canonical layer + a delete-the-dialect migration, not a linter rule.**
+  By July 2026 the 12 views had accreted **6 different button-class dialects**
+  (`util-btn`, `ds-btn`, `ps-btn-*`, `eom-btn-*`, `vi-badge`, ad hoc), **3 pill
+  border-radii**, **4 table header recipes**, and **3 focus-ring variants** — every
+  view had independently reinvented the same primitive because each one was
+  `#view-xxx`-scoped and therefore invisible to the others; nothing *broke*, so
+  nothing forced convergence. Fix pattern: (1) define ONE **unscoped** class layer
+  in `SharedUtils.html` (`.btn-primary/-secondary/-ghost/-danger`, `.pill`, `.tag` +
+  `.tone-*`, `.table-u`) — unscoped is load-bearing, an `#view-xxx` dialect rule
+  always out-specifies a bare class, so the shared layer is a no-op until each
+  view's dialect CSS is **deleted**, not just left alongside it; (2) migrate view by
+  view, renaming markup classes and **removing** the old scoped block in the same
+  commit (a leftover dialect rule silently wins by specificity and the migration
+  looks done but isn't); (3) run a **theme-coupling audit** as the last step — any
+  hardcoded theme override (Encarta/Luna in `App.html`) that targeted an old class
+  name by string (`.pill`, `#view-run #vinDataTable th`) now points at nothing and
+  silently stops reskinning that element. A theme's `!important` override block is
+  a **second, independent coupling point to the same class name** that a class
+  rename must update in the same change — grep `App.html` for the renamed selector
+  before calling a rename done.
 - **iOS Safari fires a `change` event when a `<select>` is RE-PARENTED** — so a progressive
   enhancer that moves the select into a wrapper trips its own inline `onchange` mid-surgery.
   `CustomSelect.enhance()` does `insert wrapper → move select into it`; on iOS that DOM move
