@@ -1,5 +1,5 @@
 // ============================================================================
-// SILVERFOX LOT SCANNER — standalone on-lot VIN photo → OCR → submission tool
+// SILVERFOX LOT SCANNER — standalone on-lot VIN photo capture/batch/send tool
 // ----------------------------------------------------------------------------
 // A SEPARATE Apps Script project (its own web-app deployment + scopes). It does
 // NOT share code with the main SilverFox app at runtime — it CONNECTS by sharing
@@ -8,19 +8,21 @@
 // that the main app's "VIN Inbox" view reads. The reused helpers below are
 // deliberate copies (Apps Script has no good cross-project import).
 //
-// One capture path (deferred pipeline): uploadPhotoOnly (parallel, Drive only) +
-// commitQueuedBatch (serial, chunked row writes), then a per-user time trigger
-// (drainOcrQueue) OCRs in the background + emails when it drains. Client-side
-// barcode scanning (ZXing) rides along per item in commitQueuedBatch — a photo
-// whose barcode already decoded a VIN skips Drive OCR entirely (ocr_state='done'
-// straight away); everything else still queues for background OCR. The old
+// SCOPE: capture / upload / batch / dealer / send ONLY. OCR is office-side —
+// the main app's VIN Inbox runs it on demand (runInboxOcr, Code.gs Section 32).
+// This project used to run OCR itself via a per-user time trigger
+// (drainOcrQueue); that stalled in the field (batches sent to the office before
+// OCR drained sat at ocr_state='queued' forever) and installed per-user
+// triggers/scopes, so the trigger machinery was removed. Client-side barcode
+// scanning (ZXing) still rides along per item in commitQueuedBatch — a photo
+// whose barcode already decoded a VIN skips OCR entirely (ocr_state='done'
+// straight away, field-proven); everything else lands ocr_state='queued', which
+// is now simply the office's signal to run OCR after the batch is sent. The old
 // synchronous-OCR real-time-camera path (submitVinPhoto) is retired behind a
 // deprecation stub so a stale cached client fails LOUDLY instead of silently.
 //
 // FIRST-TIME SETUP: run setupLotScannerResources() once from the editor, paste the
-// two logged IDs into the constants below (+ the sheet id into the main app), and
-// enable the Drive API service. Adding the batch engine introduces Mail + Trigger
-// scopes, so the next open will re-prompt for authorization.
+// two logged IDs into the constants below (+ the sheet id into the main app).
 // ============================================================================
 
 
@@ -186,121 +188,6 @@ function isValidVin_(vin) {
   return cd !== null && vin.charAt(8) === cd;
 }
 
-// Bidirectional OCR-confusion map within the VIN-legal charset (bounded common
-// pairs). ponytail: the check digit filters false hits, so a small set suffices.
-var VIN_CONFUSE = {
-  '0': ['D', '8'], 'D': ['0'], '8': ['B', '0'], 'B': ['8'],
-  '5': ['S'], 'S': ['5'], '2': ['Z'], 'Z': ['2'],
-  '6': ['G'], 'G': ['6'], '1': ['7'], '7': ['1', 'T'], 'T': ['7'],
-  '4': ['A'], 'A': ['4']
-};
-
-// Returns valid VIN candidates from raw OCR text, best-first. Forces the
-// VIN-illegal O/I/Q to their look-alikes (0/1/0), scans 17-char windows, and for
-// windows that fail the check digit tries single-character confusion repairs.
-// Falls back to the longest raw window so the human always has something to fix.
-function extractVinCandidates_(ocrText) {
-  if (!ocrText) return [];
-  // O/I/Q are illegal in VINs → force them to their numeric look-alikes first.
-  var forced = String(ocrText).toUpperCase().replace(/O/g, '0').replace(/I/g, '1').replace(/Q/g, '0');
-  var seen = {}, results = [];
-  function add(v) { if (v && !seen[v]) { seen[v] = 1; results.push(v); } }
-
-  var tokens = forced.match(/[A-Z0-9]+/g) || [];
-
-  // Pass A/B — exact-valid 17-char tokens (the strong signal: a VIN is normally its
-  // own token), then exact-valid windows inside longer tokens. The check digit gates.
-  for (var t = 0; t < tokens.length; t++) {
-    var tok = tokens[t];
-    if (tok.length === 17) { if (isValidVin_(tok)) add(tok); }
-    else if (tok.length > 17) {
-      for (var s = 0; s + 17 <= tok.length; s++) { var w = tok.substr(s, 17); if (isValidVin_(w)) add(w); }
-    }
-  }
-  if (results.length) return results;
-
-  // Pass C (last resort — VIN was split across tokens / a char was misread). De-space
-  // the whole string, then try exact windows, then bounded single-char confusion repairs.
-  // ponytail: noisier (a stray window can pass the check digit ~1/11), so it ONLY runs
-  // when no clean token matched — and the human confirms the result anyway.
-  var flat = forced.replace(/[^A-Z0-9]/g, '');
-  for (var i = 0; i + 17 <= flat.length; i++) { var win = flat.substr(i, 17); if (isValidVin_(win)) add(win); }
-  if (!results.length) {
-    for (var j = 0; j + 17 <= flat.length && results.length < 8; j++) {
-      var ww = flat.substr(j, 17);
-      for (var p = 0; p < 17; p++) {
-        var alts = VIN_CONFUSE[ww.charAt(p)];
-        if (!alts) continue;
-        for (var a = 0; a < alts.length; a++) {
-          var cand = ww.substr(0, p) + alts[a] + ww.substr(p + 1);
-          if (isValidVin_(cand)) add(cand);
-        }
-      }
-    }
-  }
-  if (results.length) return results;
-
-  // Fallback — surface the longest token (clipped to 17) so the human always has
-  // something to correct, even when nothing passed the check digit.
-  var longest = '';
-  for (var k = 0; k < tokens.length; k++) if (tokens[k].length > longest.length) longest = tokens[k];
-  return longest.length >= 17 ? [longest.substr(0, 17)] : [];
-}
-
-
-// ============================================================================
-// OCR — native Google Drive OCR (Advanced Drive Service v2). Never throws.
-// Returns { text, error }. Inserts the image with OCR, reads the resulting Google
-// Doc, trashes it. The resource mimeType is the IMAGE content-type (the established
-// Drive v2 OCR recipe) — `ocr:true` converts it to a Doc holding the recognized text.
-// ============================================================================
-function extractVinFromImage_(blob) {
-  if (typeof Drive === 'undefined' || !Drive.Files) {
-    return { text: '', error: 'Drive advanced service not enabled' };
-  }
-  // Drive OCR has a low per-user rate limit; on a burst, back off and retry.
-  for (var attempt = 0; attempt < 3; attempt++) {
-    var fileId = null;
-    try {
-      var res = Drive.Files.insert(
-        { title: '_vinocr_' + new Date().getTime(), mimeType: blob.getContentType() },
-        blob,
-        { ocr: true, ocrLanguage: 'en' }
-      );
-      fileId = res && res.id;
-      if (!fileId) return { text: '', error: 'insert returned no file id' };
-      var text = DocumentApp.openById(fileId).getBody().getText() || '';
-      try { Drive.Files.remove(fileId); } catch (e2) {}
-      return { text: text, error: '' };
-    } catch (e) {
-      var msg = String((e && e.message) || e);
-      if (fileId) { try { Drive.Files.remove(fileId); } catch (e3) {} }
-      if (attempt < 2 && /rate limit/i.test(msg)) { Utilities.sleep(2000 * (attempt + 1)); continue; }
-      Logger.log('extractVinFromImage_ failed: ' + msg);
-      return { text: '', error: msg };
-    }
-  }
-  return { text: '', error: 'OCR rate limit (after retries)' };
-}
-
-// Analyze an already-stored Drive photo: OCR → candidate VIN → match. Pass a
-// pre-built vinMap to avoid re-reading SCRAPERDATA per row in a batch.
-function analyzeDriveFile_(fileId, dealerKey, vinMap) {
-  var ocrText = '';
-  if (fileId) {
-    var blob = null;
-    try { blob = DriveApp.getFileById(fileId).getBlob(); } catch (e) { Logger.log('analyze get blob: ' + e.message); }
-    if (blob) { ocrText = extractVinFromImage_(blob).text; }
-  }
-  var cands = extractVinCandidates_(ocrText);
-  var vin = cands.length ? cands[0] : '';
-  var valid = isValidVin_(vin);
-  var map = vinMap || getDealerVinMap(dealerKey);
-  var vehicle = vin ? (map[vin.toUpperCase()] || null) : null;
-  return { vin: vin, valid: valid, matched: !!vehicle, vehicle: vehicle, ocrText: ocrText };
-}
-
-
 // ============================================================================
 // VIN CORRECTION — re-validate + re-match a human-typed VIN against an existing
 // submission row (drafts "Re-check" and any future VIN Inbox correction UI).
@@ -352,7 +239,9 @@ function discardSubmission(submissionId) {
 
 
 // ============================================================================
-// BATCH — fast upload (no OCR) + background OCR via a per-user time trigger.
+// BATCH — fast parallel upload + serial chunked commit. No OCR here — rows
+// without a barcode VIN land ocr_state='queued', which is the office's signal
+// to run OCR (VIN Inbox → runInboxOcr, main Code.gs Section 32) after send.
 // ============================================================================
 
 // Batch step 1 (PARALLEL): save the photo to Drive only — NO sheet write, NO OCR.
@@ -380,9 +269,9 @@ function uploadPhotoOnly(dealerKey, base64Image) {
 // concurrent appends — this is what makes a 50-photo batch land EVERY row (no loss).
 // Sheet is opened INSIDE the lock so it reads the CURRENT last row (opening outside the
 // lock cached a stale last row → concurrent appends overwrote each other → lost rows).
-// Each item may carry a client-side (ZXing) barcode `vin` — when present it skips Drive
+// Each item may carry a client-side (ZXing) barcode `vin` — when present it skips
 // OCR entirely (validated + matched here, ocr_state='done' straight away); items without
-// a vin keep today's behavior (blank VIN cols, ocr_state='queued' for drainOcrQueue).
+// a vin keep today's behavior (blank VIN cols, ocr_state='queued' — office runs OCR later).
 // IDEMPOTENT: if a commit succeeds but the response is lost, the client retries the same
 // items — items whose fileId (unique per upload) already has a row are skipped, not
 // re-inserted. The dedupe read happens INSIDE the lock so it can't race another commit.
@@ -444,106 +333,6 @@ function commitQueuedBatch(dealerKey, batchId, items) {
     return { ok: false, error: e.message };
   }
 }
-
-// Ensure a background OCR worker exists for THIS user (owned by + runs as them, so
-// OCR uses their own quota). One self-deleting trigger per user; recreated per batch.
-function ensureOcrTrigger() {
-  try {
-    var ts = ScriptApp.getProjectTriggers();
-    for (var i = 0; i < ts.length; i++) {
-      if (ts[i].getHandlerFunction() === 'drainOcrQueue') return { ok: true, existing: true };
-    }
-    ScriptApp.newTrigger('drainOcrQueue').timeBased().everyMinutes(1).create();
-    return { ok: true, existing: false };
-  } catch (e) {
-    Logger.log('ensureOcrTrigger failed: ' + e.message);
-    return { ok: false, error: e.message };
-  }
-}
-
-// Time-trigger handler — runs as the trigger owner. OCRs that user's queued rows a
-// few at a time (rate-limit-bounded), accumulates a count, and when the queue is
-// empty emails a summary + deletes its own trigger.
-function drainOcrQueue() {
-  var me = getActiveEmail_();
-  var sh, data;
-  try { sh = getOrCreateLotSubmissionsSheet_(); data = sh.getDataRange().getValues(); }
-  catch (e) { Logger.log('drainOcrQueue read failed: ' + e.message); return; }
-
-  var MAX_PER_RUN = 8;
-  var processed = 0, overflow = 0;
-  var counts = { matched: 0, review: 0, failed: 0 };
-  var vinMaps = {};   // per-dealer cache for this run
-
-  for (var i = 1; i < data.length; i++) {
-    var row = data[i];
-    if (String(row[LOTC.EMAIL]) !== me) continue;
-    if (String(row[LOTC.OCR_STATE]) !== 'queued') continue;
-    if (processed >= MAX_PER_RUN) { overflow++; continue; }
-
-    var dealerKey = String(row[LOTC.DEALER_KEY]);
-    if (!vinMaps[dealerKey]) vinMaps[dealerKey] = getDealerVinMap(dealerKey);
-    var out = analyzeDriveFile_(String(row[LOTC.PHOTO_ID] || ''), dealerKey, vinMaps[dealerKey]);
-    var v = out.vehicle || {};
-
-    // cols 8..16 (1-based) = vin_extracted, vin_final, vin_valid, matched, year, make, model, type, stock
-    sh.getRange(i + 1, LOTC.VIN_EXTRACTED + 1, 1, 9).setValues([[
-      out.vin, out.vin, out.valid ? 'TRUE' : 'FALSE', out.matched ? 'TRUE' : 'FALSE',
-      v.year || '', v.make || '', v.model || '', v.type || '', v.stock || ''
-    ]]);
-    sh.getRange(i + 1, LOTC.OCR_STATE + 1).setValue(out.valid ? 'done' : 'failed');
-
-    if (!out.valid) counts.failed++;
-    else if (out.matched) counts.matched++;
-    else counts.review++;
-    processed++;
-  }
-
-  if (processed > 0) {
-    var props = PropertiesService.getUserProperties();
-    var acc = {};
-    try { acc = JSON.parse(props.getProperty('lot_ocr_acc') || '{}'); } catch (e) { acc = {}; }
-    acc.matched = (acc.matched || 0) + counts.matched;
-    acc.review  = (acc.review  || 0) + counts.review;
-    acc.failed  = (acc.failed  || 0) + counts.failed;
-    acc.total   = (acc.total   || 0) + processed;
-    props.setProperty('lot_ocr_acc', JSON.stringify(acc));
-  }
-
-  // Queue drained? (overflow>0 means rows remain for the next run.)
-  if (overflow === 0) {
-    if (processed > 0) notifyBatchDone_(me);   // we finished the last of the queue this run
-    deleteOcrTrigger_();                         // idle or drained → remove the trigger
-  }
-}
-
-function notifyBatchDone_(me) {
-  var props = PropertiesService.getUserProperties();
-  var acc = {};
-  try { acc = JSON.parse(props.getProperty('lot_ocr_acc') || '{}'); } catch (e) { acc = {}; }
-  props.deleteProperty('lot_ocr_acc');
-  if (!me || !acc.total) return;
-  try {
-    var url = ''; try { url = ScriptApp.getService().getUrl() || ''; } catch (e0) {}
-    MailApp.sendEmail(me, 'Lot Scan — ' + acc.total + ' photo' + (acc.total === 1 ? '' : 's') + ' processed',
-      acc.total + ' photo' + (acc.total === 1 ? '' : 's') + ' finished processing:\n\n' +
-      '  • ' + (acc.matched || 0) + ' matched to inventory\n' +
-      '  • ' + (acc.review || 0) + ' valid VIN, not in this dealer’s stock (verify)\n' +
-      '  • ' + (acc.failed || 0) + ' no VIN read (needs manual transcription)\n\n' +
-      (url ? ('Open the scanner: ' + url + '\n\n') : '') +
-      'Finish them in the scanner’s Drafts, or the office can in the VIN Inbox.');
-  } catch (e) { Logger.log('notifyBatchDone_ email failed: ' + e.message); }
-}
-
-function deleteOcrTrigger_() {
-  try {
-    var ts = ScriptApp.getProjectTriggers();
-    for (var i = 0; i < ts.length; i++) {
-      if (ts[i].getHandlerFunction() === 'drainOcrQueue') ScriptApp.deleteTrigger(ts[i]);
-    }
-  } catch (e) { Logger.log('deleteOcrTrigger_ failed: ' + e.message); }
-}
-
 
 // ============================================================================
 // DRAFTS — the submitter's own un-sent (status=draft) rows, grouped by batch.
