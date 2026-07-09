@@ -90,6 +90,9 @@
     .ls-badge.ok { background: var(--success-weak, #dcefe0); color: var(--success, #1c7a3a); }
     .ls-badge.bad { background: var(--danger-weak, #f6dcdc); color: var(--danger, #b3261e); }
     .ls-badge.wait { background: var(--surface-3); color: var(--text-2); }
+    /* batch OCR-progress chip (this project's SharedUtils copy predates the main app's .tag layer) */
+    .ls-chip { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 2px;
+      background: var(--info-weak); color: var(--info); }
 
     /* drafts */
     .ls-dbatch { margin-top: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
@@ -620,12 +623,14 @@
     }
 
     function vpLoadDrafts() {
+      if (vpDraftsFetching) return;   // single-flight: an in-flight fetch (poll or load) renders when it resolves
       var box = document.getElementById('lsDrafts');
       vpDraftsOpenIds = vpCaptureOpenBatches();
       box.innerHTML = '<p class="ls-hint">Loading&hellip;</p>';
+      vpDraftsFetching = true;
       google.script.run
-        .withSuccessHandler(vpRenderDrafts)
-        .withFailureHandler(function (e) { box.innerHTML = '<p class="ls-hint">Could not load: ' + escHtml((e && e.message) || e) + '</p>'; })
+        .withSuccessHandler(function (res) { vpDraftsFetching = false; vpRenderDrafts(res); })
+        .withFailureHandler(function (e) { vpDraftsFetching = false; box.innerHTML = '<p class="ls-hint">Could not load: ' + escHtml((e && e.message) || e) + '</p>'; })
         .getMyDrafts();
     }
 
@@ -651,7 +656,7 @@
     }
     document.addEventListener('visibilitychange', function () {
       if (document.visibilityState === 'visible') {
-        if (vpDraftsActive() && vpDraftsHasQueued) vpStartDraftsPoll();
+        if (vpDraftsActive() && vpDraftsHasQueued) { vpStartDraftsPoll(); vpDraftsPollTick(); }   // immediate refresh, don't wait a full interval
       } else {
         vpStopDraftsPoll();
       }
@@ -684,7 +689,7 @@
         var queued = rows.filter(function (r) { return r.ocrState === 'queued'; }).length;
         if (queued) anyQueued = true;
         var doneCount = rows.length - queued;
-        var ocrChip = queued ? ' <span class="tag tone-info">' + doneCount + '/' + rows.length + ' read</span>' : '';
+        var ocrChip = queued ? ' <span class="ls-chip">' + doneCount + '/' + rows.length + ' read</span>' : '';
         var isOpen = bid === openId || !!openIds[bid];
         // collapsed by default (<details> without `open`) — except a just-finished order, or a
         // batch the user already had expanded before this (poll) re-render
