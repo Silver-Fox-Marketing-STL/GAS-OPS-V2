@@ -17,6 +17,7 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 - VIN Inbox: batches collapsible via native `<details>` (collapsed by default) with a submission count in the summary, plus a "Discard batch" action that serially discards every submission in a batch and refreshes the list — F4
 
 ### Changed
+- Lot Scanner server: barcode VINs ride batch commits (skip OCR); correction extracted to correctSubmissionVin; synchronous-OCR capture path retired behind a deprecation stub
 - Unified pills sized up (11px, 6px/14px padding) per design review
 - Run Order migrated to the unified component layer (buttons, pills, table, focus ring)
 - Normalization + Field Codes migrated to the unified component layer

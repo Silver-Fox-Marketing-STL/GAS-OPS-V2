@@ -8,11 +8,14 @@
 // that the main app's "VIN Inbox" view reads. The reused helpers below are
 // deliberate copies (Apps Script has no good cross-project import).
 //
-// Two capture paths:
-//   • Real-time camera  → submitVinPhoto (synchronous OCR + match, status=submitted)
-//   • Gallery batch      → uploadPhotoOnly (parallel, Drive only) + commitQueuedBatch
-//                          (serial, chunked row writes), then a per-user time trigger
-//                          (drainOcrQueue) OCRs in the background + emails when it drains.
+// One capture path (deferred pipeline): uploadPhotoOnly (parallel, Drive only) +
+// commitQueuedBatch (serial, chunked row writes), then a per-user time trigger
+// (drainOcrQueue) OCRs in the background + emails when it drains. Client-side
+// barcode scanning (ZXing) rides along per item in commitQueuedBatch — a photo
+// whose barcode already decoded a VIN skips Drive OCR entirely (ocr_state='done'
+// straight away); everything else still queues for background OCR. The old
+// synchronous-OCR real-time-camera path (submitVinPhoto) is retired behind a
+// deprecation stub so a stale cached client fails LOUDLY instead of silently.
 //
 // FIRST-TIME SETUP: run setupLotScannerResources() once from the editor, paste the
 // two logged IDs into the constants below (+ the sheet id into the main app), and
@@ -299,56 +302,30 @@ function analyzeDriveFile_(fileId, dealerKey, vinMap) {
 
 
 // ============================================================================
-// REAL-TIME CAMERA — submitVinPhoto: synchronous OCR + match, writes a
-// status=submitted row. Fail-soft (returns a result object, never throws).
-//   submissionId given → correction of an existing row (no new photo / OCR).
-//   else               → new submission (photo + OCR + match + append).
+// VIN CORRECTION — re-validate + re-match a human-typed VIN against an existing
+// submission row (drafts "Re-check" and any future VIN Inbox correction UI).
+// Fail-soft (returns a result object, never throws).
 // ============================================================================
-function submitVinPhoto(dealerKey, base64Image, userCorrectedVin, submissionId, batchId) {
+function correctSubmissionVin(submissionId, dealerKey, vin) {
   try {
-    var config = getDealerConfig_(dealerKey);
-    if (!config) return { ok: false, error: 'Unknown dealer.' };
-    var dealerName = String(config[CFG.NAME] || dealerKey);
-    saveLastSelectedDealer(dealerKey);
-    var corrected = String(userCorrectedVin || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-
-    // ── Correction of an existing submission ──
-    if (submissionId) {
-      var validC = isValidVin_(corrected);
-      var vehC = corrected ? (getDealerVinMap(dealerKey)[corrected] || null) : null;
-      updateLotSubmissionVin_(submissionId, corrected, validC, !!vehC, vehC);
-      return { ok: true, submissionId: submissionId, vin: corrected, valid: validC, matched: !!vehC, vehicle: vehC };
-    }
-
-    // ── New submission ──
-    var b64 = String(base64Image || '').replace(/^data:[^,]*,/, '');
-    if (!b64) return { ok: false, error: 'No image received.' };
-    var blob = Utilities.newBlob(Utilities.base64Decode(b64), 'image/jpeg',
-                 'lotvin_' + dealerKey + '_' + new Date().getTime() + '.jpg');
-
-    var saved = saveBlobToDrive_(dealerName, blob);   // own try/catch; never blocks OCR + match
-    var ocrRes = extractVinFromImage_(blob);
-    var ocrText = ocrRes.text;
-    var cands = extractVinCandidates_(ocrText);
-    var vin = cands.length ? cands[0] : '';
-    var valid = isValidVin_(vin);
-    var vehicle = vin ? (getDealerVinMap(dealerKey)[vin.toUpperCase()] || null) : null;
-
-    var sid = Utilities.getUuid();
-    appendVinSubmission_({
-      submissionId: sid, submitterEmail: getActiveEmail_(),
-      dealerKey: dealerKey, dealerName: dealerName,
-      photoFileId: saved.fileId, photoUrl: saved.url,
-      vinExtracted: vin, vinFinal: vin, valid: valid, matched: !!vehicle, vehicle: vehicle,
-      status: 'submitted', ocrState: valid ? 'done' : 'failed', batchId: batchId || ''
-    });
-
-    return { ok: true, submissionId: sid, vin: vin, valid: valid, matched: !!vehicle,
-             vehicle: vehicle, photoUrl: saved.url, ocrText: ocrText, ocrErr: ocrRes.error };
+    var corrected = String(vin || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    var validC = isValidVin_(corrected);
+    var vehC = corrected ? (getDealerVinMap(dealerKey)[corrected] || null) : null;
+    updateLotSubmissionVin_(submissionId, corrected, validC, !!vehC, vehC);
+    return { ok: true, submissionId: submissionId, vin: corrected, valid: validC, matched: !!vehC, vehicle: vehC };
   } catch (e) {
-    Logger.log('submitVinPhoto failed: ' + e.message);
+    Logger.log('correctSubmissionVin failed: ' + e.message);
     return { ok: false, error: e.message };
   }
+}
+
+// TEMP: deprecation stub — remove after scanner prod repoint (plan Phase 3).
+// The synchronous-OCR real-time-camera path is retired; a cached-old client that
+// still calls this must fail VISIBLY (google.script.run fails silently on a
+// missing/renamed function name — a stub with a message is the only safe way to
+// surface "reload the page" to a user on a stale cache).
+function submitVinPhoto() {
+  return { ok: false, error: 'Old app version — pull down to refresh the page.' };
 }
 
 // Delete a submission + trash its photo (real-time "Retake", or a draft discard).
@@ -399,6 +376,11 @@ function uploadPhotoOnly(dealerKey, base64Image) {
 // Batch step 2 (SERIAL, chunked): write N queued draft rows in ONE execution via a single
 // setValues under a brief lock. The client sends chunks one-at-a-time, so there are no
 // concurrent appends — this is what makes a 50-photo batch land EVERY row (no loss).
+// Sheet is opened INSIDE the lock so it reads the CURRENT last row (opening outside the
+// lock cached a stale last row → concurrent appends overwrote each other → lost rows).
+// Each item may carry a client-side (ZXing) barcode `vin` — when present it skips Drive
+// OCR entirely (validated + matched here, ocr_state='done' straight away); items without
+// a vin keep today's behavior (blank VIN cols, ocr_state='queued' for drainOcrQueue).
 function commitQueuedBatch(dealerKey, batchId, items) {
   try {
     if (!items || !items.length) return { ok: true, committed: 0 };
@@ -408,17 +390,33 @@ function commitQueuedBatch(dealerKey, batchId, items) {
     saveLastSelectedDealer(dealerKey);
     var email = getActiveEmail_();
     var ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'America/Chicago', 'yyyy-MM-dd HH:mm:ss');
+
+    var vinMap = null;   // built once, only if at least one item carries a barcode vin
+    var hasVin = items.some(function (it) { return it && it.vin; });
+    if (hasVin) vinMap = getDealerVinMap(dealerKey);
+
     var rows = items.map(function (it) {
+      var vin = it && it.vin ? String(it.vin).toUpperCase().replace(/[^A-Z0-9]/g, '') : '';
+      if (!vin) {
+        return [
+          Utilities.getUuid(), ts, email, dealerKey, dealerName,
+          (it && it.fileId) || '', (it && it.url) || '', '', '', 'FALSE', 'FALSE',
+          '', '', '', '', '', 'draft', '', '', '', batchId || '', 'queued'
+        ];
+      }
+      var valid = isValidVin_(vin);
+      var v = valid ? (vinMap[vin] || null) : null;
       return [
         Utilities.getUuid(), ts, email, dealerKey, dealerName,
-        (it && it.fileId) || '', (it && it.url) || '', '', '', 'FALSE', 'FALSE',
-        '', '', '', '', '', 'draft', '', '', '', batchId || '', 'queued'
+        (it && it.fileId) || '', (it && it.url) || '', vin, vin, valid ? 'TRUE' : 'FALSE', v ? 'TRUE' : 'FALSE',
+        (v && v.year) || '', (v && v.make) || '', (v && v.model) || '', (v && v.type) || '', (v && v.stock) || '',
+        'draft', '', '', '', batchId || '', 'done'
       ];
     });
     var lock = LockService.getScriptLock();
     if (!lock.tryLock(45000)) return { ok: false, error: 'busy' };
     try {
-      var sh = getOrCreateLotSubmissionsSheet_();
+      var sh = getOrCreateLotSubmissionsSheet_();   // fresh read of the last row
       sh.getRange(sh.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
       SpreadsheetApp.flush();
       return { ok: true, committed: rows.length };
@@ -652,39 +650,6 @@ function getOrCreateLotSubmissionsSheet_() {
     sh.getRange(1, 1, 1, LOT_SUBMISSION_COLS.length).setValues([LOT_SUBMISSION_COLS]);
   }
   return sh;
-}
-
-// Returns true on success, false on failure. Used by the real-time single submit.
-// Opens the sheet INSIDE the lock so it reads the CURRENT last row (opening outside the
-// lock cached a stale last row → concurrent appends overwrote each other → lost rows).
-function appendVinSubmission_(s) {
-  var row;
-  try {
-    var v = s.vehicle || {};
-    var ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'America/Chicago', 'yyyy-MM-dd HH:mm:ss');
-    row = [
-      s.submissionId, ts, s.submitterEmail || '', s.dealerKey || '', s.dealerName || '',
-      s.photoFileId || '', s.photoUrl || '', s.vinExtracted || '', s.vinFinal || '',
-      s.valid ? 'TRUE' : 'FALSE', s.matched ? 'TRUE' : 'FALSE',
-      v.year || '', v.make || '', v.model || '', v.type || '', v.stock || '',
-      s.status || 'submitted', '', '', '',
-      s.batchId || '', s.ocrState || 'done'
-    ];
-  } catch (e) { Logger.log('appendVinSubmission_ build failed: ' + e.message); return false; }
-
-  var lock = LockService.getScriptLock();
-  if (!lock.tryLock(45000)) { Logger.log('appendVinSubmission_ lock timeout'); return false; }
-  try {
-    var sh = getOrCreateLotSubmissionsSheet_();   // fresh read of the last row
-    sh.appendRow(row);
-    SpreadsheetApp.flush();
-    return true;
-  } catch (e) {
-    Logger.log('appendVinSubmission_ append failed: ' + e.message);
-    return false;
-  } finally {
-    try { lock.releaseLock(); } catch (eR) {}
-  }
 }
 
 // Returns a submission photo as a data URL — bytes fetched server-side, which is reliable
