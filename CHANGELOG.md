@@ -18,6 +18,7 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 - VIN Inbox: batches collapsible via native `<details>` (collapsed by default) with a submission count in the summary, plus a "Discard batch" action that serially discards every submission in a batch and refreshes the list — F4
 
 ### Changed
+- Lot Scanner: order-session capture flow (tap-loop camera, background upload queue, incremental draft commits) replaces the real-time OCR flow; gallery upload folded into orders
 - VIN Inbox: groups by order batch (`batchId`) instead of dealer name, with an OCR-progress "N/M read" chip while a batch is still processing; legacy/blank-batch rows still fall back to one group per dealer; groups sort newest-first (T2.1)
 - Lot Scanner server: barcode VINs ride batch commits (skip OCR); correction extracted to correctSubmissionVin; synchronous-OCR capture path retired behind a deprecation stub
 - Unified pills sized up (11px, 6px/14px padding) per design review
