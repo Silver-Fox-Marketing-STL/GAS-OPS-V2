@@ -14,6 +14,7 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 - Unified component layer in SharedUtils (canonical buttons/pills/tags/table, --font-mono token) — SuperDesign variant 1 spec
 
 ### Changed
+- Unified pills sized up (11px, 6px/14px padding) per design review
 - Run Order migrated to the unified component layer (buttons, pills, table, focus ring)
 - Normalization + Field Codes migrated to the unified component layer
 - Utilities migrated to the unified component layer
