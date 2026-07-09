@@ -7808,7 +7808,7 @@ function runInboxOcr(limit) {
     var queuedRows = [];
     for (var i = 1; i < data.length; i++) {
       if (String(data[i][LOT_SUB.OCR_STATE]) !== 'queued') continue;
-      if (String(data[i][LOT_SUB.STATUS]) !== 'submitted') continue;
+      if (String(data[i][LOT_SUB.STATUS] || 'submitted') !== 'submitted') continue;   // blank = legacy submitted (mirror getVinSubmissions default) so client count and this pass agree
       queuedRows.push(i);
     }
 
