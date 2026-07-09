@@ -1542,7 +1542,7 @@
       '</div>';
     }
     function renderGroup_(group, isRoot) {
-      var matchSel = '<select class="tr-match" onchange="setGroupMatch(\'' + group.id + '\', this.value)">' +
+      var matchSel = '<select class="tr-match" data-no-cs onchange="setGroupMatch(\'' + group.id + '\', this.value)">' +
         '<option value="all"' + (group.match !== 'any' ? ' selected' : '') + '>ALL (AND)</option>' +
         '<option value="any"' + (group.match === 'any' ? ' selected' : '') + '>ANY (OR)</option>' +
         '</select>';
