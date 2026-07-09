@@ -29,22 +29,17 @@
 
   #view-vin-inbox .vi-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--space-3); }
   #view-vin-inbox .vi-card { display: flex; gap: var(--space-3); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-3); }
-  #view-vin-inbox .vi-card.miss { border-color: var(--warning, #c87f00); }
+  #view-vin-inbox .vi-card.miss { border-color: var(--warning); }
   #view-vin-inbox .vi-thumb { width: 92px; height: 92px; flex-shrink: 0; border-radius: var(--radius-sm); object-fit: cover; background: var(--surface-3); border: 1px solid var(--border); }
   #view-vin-inbox .vi-info { flex: 1; min-width: 0; }
   #view-vin-inbox .vi-vin { font-family: var(--font-mono, ui-monospace, monospace); font-weight: 700; word-break: break-all; }
-  #view-vin-inbox .vi-badges { display: flex; gap: var(--space-2); margin: var(--space-1) 0; flex-wrap: wrap; }
-  #view-vin-inbox .vi-badge { font-size: var(--fs-hint); font-weight: 700; padding: 1px 8px; border-radius: 999px; }
-  #view-vin-inbox .vi-badge.ok { background: var(--success-weak, #dcefe0); color: var(--success, #1c7a3a); }
-  #view-vin-inbox .vi-badge.bad { background: var(--danger-weak, #f6dcdc); color: var(--danger, #b3261e); }
-  #view-vin-inbox .vi-badge.draft { background: var(--warning-weak, #fbe7cf); color: var(--warning, #c87f00); }
-  #view-vin-inbox .vi-badge.wait { background: var(--surface-3); color: var(--text-2); }
+  #view-vin-inbox .vi-tags { display: flex; gap: var(--space-2); margin: var(--space-1) 0; flex-wrap: wrap; }
   #view-vin-inbox .vi-veh { font-size: var(--fs-sm); color: var(--text-2); }
   #view-vin-inbox .vi-meta { font-size: var(--fs-hint); color: var(--text-3); margin-top: 2px; }
   #view-vin-inbox .vi-actions { display: flex; gap: var(--space-2); margin-top: var(--space-2); flex-wrap: wrap; }
   #view-vin-inbox .vi-actions input { flex: 1; min-width: 130px; padding: 6px; font-family: var(--font-mono, ui-monospace, monospace); text-transform: uppercase; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); }
-  #view-vin-inbox .vi-actions button { padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); cursor: pointer; font-size: var(--fs-sm); }
-  #view-vin-inbox .vi-actions button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  /* Buttons: don't shrink next to the flex:1 VIN input. */
+  #view-vin-inbox .vi-actions button { flex-shrink: 0; }
   #view-vin-inbox .vi-empty { color: var(--text-3); margin-top: var(--space-5); }
 </style>
 
@@ -121,22 +116,22 @@
     h += thumb;
     h += '<div class="vi-info">';
     h += '<div class="vi-vin">' + escHtml(s.vin || (queued ? '(processing…)' : '(no VIN)')) + '</div>';
-    h += '<div class="vi-badges">';
-    if (s.isDraft) h += '<span class="vi-badge draft">draft — not yet sent</span>';
+    h += '<div class="vi-tags">';
+    if (s.isDraft) h += '<span class="tag tone-warning">draft — not yet sent</span>';
     if (queued) {
-      h += '<span class="vi-badge wait">still processing…</span>';
+      h += '<span class="tag tone-neutral">still processing…</span>';
     } else {
-      h += '<span class="vi-badge ' + (s.valid ? 'ok' : 'bad') + '">' + (s.valid ? 'valid VIN' : 'invalid VIN') + '</span>';
-      h += '<span class="vi-badge ' + (s.matched ? 'ok' : 'bad') + '">' + (s.matched ? 'in inventory' : 'not in inventory') + '</span>';
+      h += '<span class="tag ' + (s.valid ? 'tone-success' : 'tone-danger') + '">' + (s.valid ? 'valid VIN' : 'invalid VIN') + '</span>';
+      h += '<span class="tag ' + (s.matched ? 'tone-success' : 'tone-danger') + '">' + (s.matched ? 'in inventory' : 'not in inventory') + '</span>';
     }
     h += '</div>';
     h += veh + meta;
     if (!queued) {
       h += '<div class="vi-actions">';
       h += '<input id="vivin_' + s.id + '" type="text" maxlength="17" value="' + escHtml(s.vin || '') + '" placeholder="Correct VIN…">';
-      h += '<button type="button" onclick="viRecheck(\'' + s.id + '\')">Re-check</button>';
-      h += '<button type="button" class="primary" onclick="viProcess(\'' + s.id + '\')">Processed</button>';
-      h += '<button type="button" onclick="viDiscard(\'' + s.id + '\')">Discard</button>';
+      h += '<button type="button" class="btn-secondary" onclick="viRecheck(\'' + s.id + '\')">Re-check</button>';
+      h += '<button type="button" class="btn-primary" onclick="viProcess(\'' + s.id + '\')">Processed</button>';
+      h += '<button type="button" class="btn-secondary" onclick="viDiscard(\'' + s.id + '\')">Discard</button>';
       h += '</div>';
     }
     h += '</div></div>';
