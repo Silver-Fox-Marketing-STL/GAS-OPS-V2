@@ -290,18 +290,40 @@
       border-radius: 4px; background: var(--bg); font-weight: bold; color: var(--accent-hover);
     }
     #view-rules .tr-rule-body { padding: 8px 10px; }
+
+    /* Nesting hierarchy (F3): each .tr-group depth gets its own left rail color
+       + an alternating background so the AND/OR condition tree reads at a
+       glance. Pure DOM-nesting selectors — no JS depth bookkeeping needed.
+       Rail cycle: accent (root) → info (1 nested) → border-2 (2+ nested).
+       Background steps: surface (root) → bg (1 nested) → surface (2+ nested),
+       stepping against the enclosing .filter-card's own var(--surface). */
     #view-rules .tr-group {
-      border: 1px dashed var(--border-2); border-radius: 5px; padding: 6px 8px;
-      background: var(--bg);
+      border: 1px solid var(--border); border-left: 3px solid var(--accent);
+      border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3);
+      background: var(--surface);
     }
-    #view-rules .tr-group .tr-group { background: var(--surface-2); margin-top: 4px; }
+    #view-rules .tr-group .tr-group {
+      border-left-color: var(--info); background: var(--bg);
+      margin-top: var(--space-2); margin-left: var(--space-3);
+    }
+    #view-rules .tr-group .tr-group .tr-group {
+      border-left-color: var(--border-2); background: var(--surface);
+    }
     #view-rules .tr-group-head {
       display: flex; align-items: center; gap: 6px; margin-bottom: 6px;
       font-size: 12px; color: var(--text-2);
     }
+    /* AND/OR joiner as a compact chip on the select's closed state — the
+       control stays a native <select> (no custom widget); :has() reads the
+       live selected <option> so the tint tracks the value with zero JS. */
     #view-rules .tr-match {
-      padding: 2px 5px; font-size: 11px; border: 1px solid var(--border-2); border-radius: 4px;
-      font-weight: bold;
+      padding: 3px 8px; font-family: var(--font-head); font-size: 10px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .05em;
+      border: 1px solid var(--accent); border-radius: var(--radius-sm);
+      background: var(--accent-weak); color: var(--accent); cursor: pointer;
+    }
+    #view-rules .tr-match:has(option[value="any"]:checked) {
+      border-color: var(--info); background: var(--info-weak); color: var(--info);
     }
     #view-rules .tr-children { display: flex; flex-direction: column; gap: 5px; }
     #view-rules .tr-cond {
