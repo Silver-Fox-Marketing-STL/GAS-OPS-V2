@@ -111,7 +111,6 @@
   }
   #view-home .home-card:hover {
     border-color: var(--accent);
-    box-shadow: 0 1px 6px rgba(253,65,13,0.18);
   }
   #view-home .card-icon { font-size: 20px; margin-bottom: 8px; color: var(--accent); font-weight: bold; }
   #view-home .card-title { font-size: 14px; font-weight: bold; margin-bottom: 5px; }
@@ -152,32 +151,17 @@
     margin-top: 18px;
   }
   #view-home .dash-section:first-child { margin-top: 0; }
+  /* base table/th/td recipe now owned by .table-u (SharedUtils) — spacing
+     + zebra/totals row states below are view-specific and stay scoped */
   #view-home .dash-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 11.5px;
     margin-bottom: 4px;
-    font-variant-numeric: tabular-nums;   /* inventory/run counts align down each column */
     /* NB: intentionally NOT table-layout:fixed — these sections have dynamic
        column counts and unknown content widths (location names, counts), so
        forcing fixed columns risks truncating real dashboard data. The
        --measure-data cap (App.html) already tames edge-to-edge stretch at
        1920/2560, which is the actual problem here. */
   }
-  #view-home .dash-table td, #view-home .dash-table th {
-    padding: 5px 10px;
-    border-bottom: 1px solid var(--border);
-    white-space: nowrap;
-  }
-  #view-home .dash-table tr.dash-hdr th {
-    background: var(--bg);
-    color: var(--text-3);
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.3px;
-    font-weight: bold;
-    border-bottom: 1px solid var(--border);
-  }
+  #view-home .dash-table td, #view-home .dash-table th { white-space: nowrap; }
   #view-home .dash-table tr:not(.dash-hdr):nth-child(even) td { background: var(--surface); }
   #view-home .dash-table tr.dash-totals td {
     background: var(--text);
@@ -290,7 +274,7 @@
         continue;
       }
 
-      if (!inTable) { html += '<table class="dash-table"><tbody>'; inTable = true; }
+      if (!inTable) { html += '<table class="table-u dash-table"><tbody>'; inTable = true; }
 
       var isHeader = expectHeader;
       if (isHeader) { expectHeader = false; sectionCols = filled; }

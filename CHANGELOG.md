@@ -24,6 +24,7 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 - End of Month migrated to the unified component layer (buttons, status tags, dead hex fallbacks removed)
 - VIN Inbox migrated to the unified component layer (badges → tags)
 - Dealer Rules migrated to the unified component layer (pills, buttons)
+- Home + VIN Logs migrated to the unified component layer
 
 ### Fixed
 - Norm + Field Codes tables no longer flush against the page edge
