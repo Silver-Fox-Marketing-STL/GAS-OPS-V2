@@ -10,7 +10,10 @@
   <div class="vi-scroll">
     <div class="vi-head">
       <h2 class="u-h2" style="margin:0;">VIN Inbox</h2>
-      <button type="button" class="vi-refresh" onclick="viLoad()">&#8635; Refresh</button>
+      <div class="vi-head-actions">
+        <button type="button" class="btn-ghost" id="viOcrBtn" onclick="viRunOcr()" hidden>Run OCR (<span id="viOcrCount">0</span> queued)</button>
+        <button type="button" class="vi-refresh" onclick="viLoad()">&#8635; Refresh</button>
+      </div>
     </div>
     <p class="u-hint" style="max-width:70ch;">Photos submitted from the Lot Scanner, grouped by dealer. Review/correct the read VIN, mark each <strong>Processed</strong> or <strong>Discard</strong> — or copy a dealer's valid VINs to paste into Run Order.</p>
     <div id="viBody"><p class="u-hint">Loading&hellip;</p></div>
@@ -21,6 +24,7 @@
   #view-vin-inbox { height: 100%; background: var(--bg); color: var(--text); }
   #view-vin-inbox .vi-scroll { height: 100%; overflow-y: auto; padding: var(--space-5) var(--space-6); }
   #view-vin-inbox .vi-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+  #view-vin-inbox .vi-head-actions { display: flex; align-items: center; gap: var(--space-2); }
   #view-vin-inbox .vi-refresh { padding: 6px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); cursor: pointer; }
 
   #view-vin-inbox .vi-batch { margin-top: var(--space-5); border: none; }
@@ -72,12 +76,14 @@
 
   function viRender(res) {
     var body = document.getElementById('viBody');
-    if (!res || !res.ok) { body.innerHTML = '<p class="vi-empty">Error: ' + escHtml((res && res.error) || 'unknown') + '</p>'; return; }
+    if (!res || !res.ok) { body.innerHTML = '<p class="vi-empty">Error: ' + escHtml((res && res.error) || 'unknown') + '</p>'; viSubs = []; viRefreshOcrBtn(); return; }
     if (!res.configured) {
       body.innerHTML = '<p class="vi-empty">The submissions sheet isn’t linked yet. Set <code>LOT_SUBMISSIONS_SHEET_ID</code> in Code.gs (run the Lot Scanner’s <code>setupLotScannerResources()</code> once to create it).</p>';
+      viSubs = []; viRefreshOcrBtn();
       return;
     }
     viSubs = res.submissions || [];
+    viRefreshOcrBtn();
     if (!viSubs.length) { body.innerHTML = '<p class="vi-empty">No open submissions.</p>'; return; }
 
     // Group by order batch (field app); legacy/blank-batch rows fall back to one group per dealer.
@@ -243,5 +249,48 @@
         viLoad();
       })
       .updateVinSubmissionStatuses(rows.map(function (s) { return s.id; }), 'discarded');
+  }
+
+  // ── Run OCR — office-side manual trigger (scanner no longer OCRs its own queue) ──
+  function viRefreshOcrBtn() {
+    var btn = document.getElementById('viOcrBtn');
+    if (!btn) return;
+    var n = viSubs.filter(function (s) { return s.ocrState === 'queued'; }).length;
+    var countEl = document.getElementById('viOcrCount');
+    if (countEl) countEl.textContent = n;
+    btn.hidden = (n === 0);
+  }
+
+  function viRunOcr() {
+    var btn = document.getElementById('viOcrBtn');
+    if (btn) btn.disabled = true;
+    viOcrStep(0);
+  }
+
+  function viOcrStep(doneSoFar) {
+    google.script.run
+      .withSuccessHandler(function (res) {
+        var btn = document.getElementById('viOcrBtn');
+        if (!res || !res.ok) {
+          toast('OCR failed: ' + escHtml((res && res.error) || '?'), 'error');
+          if (btn) btn.disabled = false;
+          return;
+        }
+        var total = doneSoFar + res.processed;
+        toast('OCR: ' + total + ' done, ' + res.remaining + ' remaining…', 'info');
+        if (res.remaining > 0 && res.processed > 0) {
+          viOcrStep(total);
+        } else {
+          if (btn) btn.disabled = false;
+          toast('OCR finished — ' + total + ' processed.', 'success');
+          viLoad();
+        }
+      })
+      .withFailureHandler(function (e) {
+        toast('OCR failed: ' + escHtml((e && e.message) || String(e)), 'error');
+        var btn = document.getElementById('viOcrBtn');
+        if (btn) btn.disabled = false;
+      })
+      .runInboxOcr(10);
   }
 </script>

@@ -11,6 +11,7 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Added
+- Office-side manual OCR runner (Code.gs Section 32: `extractVinFromImage_`, `extractVinCandidates_`, `analyzeDriveFile_`, `runInboxOcr`) + VIN Inbox "Run OCR (N queued)" button — replaces the Lot Scanner's per-user `drainOcrQueue` trigger, which stalled in the field (batches sent to the office before OCR drained sat at `ocr_state='queued'` forever). Processes both draft and submitted rows, so already-stalled batches un-stick themselves once the office runs it. Main app gains the Drive v2 advanced service (T3.1)
 - Lot Scanner Drafts: OCR progress chips + auto-refresh while OCR drains (visibility-gated), edit-safe re-renders
 - `updateVinSubmissionStatuses` bulk server fn (Code.gs Section 32) — VIN Inbox's "Discard batch" now issues one bulk call instead of a serial per-row loop (T2.2)
 - TEMP: live-camera (getUserMedia) probe panel in Lot Scanner — milestone A gate
