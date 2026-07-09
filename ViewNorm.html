@@ -119,8 +119,11 @@
   #view-norm #normStatus.error   { background: var(--danger-weak); color: var(--danger); }
 
   /* ── Entries table ────────────────────────────────────────────────────── */
-  /* Height is set by JS — overflow-y: auto enables scroll once height is fixed */
-  #view-norm .table-wrap { overflow-y: auto; }
+  /* Height is set by JS — overflow-y: auto enables scroll once height is fixed.
+     padding-inline matches the .top-bar/.add-bar 16px inset so the table
+     (esp. the first column) isn't flush against the view edge — the .table-u
+     header's inverted dark band makes a flush edge much more noticeable. */
+  #view-norm .table-wrap { overflow-y: auto; padding-inline: var(--space-4); }
 
   /* base table/th/td recipe now owned by .table-u (SharedUtils) — column
      widths + row/edit states below are view-specific and stay scoped */

@@ -122,8 +122,11 @@
   #view-fieldcodes #fcStatus.error   { background: var(--danger-weak); color: var(--danger); }
 
   /* ── Table ─────────────────────────────────────────────────────────────── */
-  /* Height is set by JS — overflow-y: auto enables scroll once height is fixed */
-  #view-fieldcodes .table-wrap { overflow-y: auto; }
+  /* Height is set by JS — overflow-y: auto enables scroll once height is fixed.
+     padding-inline matches the .top-bar/.add-bar 16px inset so the table
+     (esp. the first column) isn't flush against the view edge — the .table-u
+     header's inverted dark band makes a flush edge much more noticeable. */
+  #view-fieldcodes .table-wrap { overflow-y: auto; padding-inline: var(--space-4); }
 
   /* base table/th/td recipe now owned by .table-u (SharedUtils); table-layout
      stays view-scoped (not part of the shared spec, required for the %
