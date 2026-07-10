@@ -33,7 +33,7 @@ var CONFIG_SHEET_ID = '1csQdjcNey_mgcVqY99GOJ2PNCGRTyoZTbaUyJ3IZkJ8';  // SF_DEA
 // ── Lot-scanner-owned data (created by setupLotScannerResources()). Paste the
 //    logged IDs here; also paste LOT_SUBMISSIONS_SHEET_ID into the MAIN app. ──
 var LOT_SUBMISSIONS_SHEET_ID = '1zs-Ycj64LTwIYJt84kC_-qY_EhsWgB1Pa5pQlsG-N1M';   // SF_LOT_SUBMISSIONS spreadsheet
-var LOT_PHOTOS_FOLDER_ID     = '190dyWuBX8pf3ldP7iGwMnbqZJSllIYKH';   // "SF Lot Submissions" Drive folder
+var LOT_PHOTOS_FOLDER_ID     = '1Gmw3fQ6tiPLL76tE374646huuYIVHxHf';   // "SF Lot Submissions" folder on the Shared Drive (org-owned files — role-based trash; all app users need Content Manager)
 
 var LOT_SUBMISSIONS_TAB = 'SUBMISSIONS';
 // One row per photo. Flat / long / SQL-portable. KEEP IN SYNC with the main app reader.
