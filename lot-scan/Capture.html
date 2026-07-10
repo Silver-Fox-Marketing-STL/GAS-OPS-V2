@@ -302,6 +302,7 @@
       document.getElementById('lsShooting').hidden = true;
       document.getElementById('lsIdle').hidden = false;
       document.getElementById('lsDealer').disabled = false;
+      if (window.CustomSelect) CustomSelect.refresh(document.getElementById('lsDealer'));   // repaint facade after re-enable: syncs label to native value + clears aria-disabled (resume may have changed the dealer)
       vpUpdateFinishUI();
     }
 
