@@ -399,7 +399,20 @@ function getDealerPhotoFolder_(dealerName) {
   var root = DriveApp.getFolderById(lotPhotosFolderId_());
   var safe = String(dealerName).replace(/[\/\\:*?"<>|]/g, '_').trim() || 'Unknown';
   var it = root.getFoldersByName(safe);
-  return it.hasNext() ? it.next() : root.createFolder(safe);
+  if (it.hasNext()) return it.next();   // fast path — no lock once the folder exists
+
+  // First photo for this dealer: the client uploads 5-wide, so concurrent
+  // executions all see "no folder" and each create one (field-hit: one order,
+  // two folders). Serialize just the create with a re-check inside the lock.
+  var lock = LockService.getScriptLock();
+  var locked = false;
+  try { lock.waitLock(10000); locked = true; } catch (e) {}   // best-effort: an upload must never fail on lock contention
+  try {
+    it = root.getFoldersByName(safe);
+    return it.hasNext() ? it.next() : root.createFolder(safe);
+  } finally {
+    if (locked) { try { lock.releaseLock(); } catch (e2) {} }
+  }
 }
 
 // Save an image blob to the dealer's subfolder. Own try/catch — never blocks OCR.

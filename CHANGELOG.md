@@ -45,6 +45,7 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 - Lot Scanner Drafts — OCR-era field UI (`processing…` badge, `(no VIN)` text, per-row Re-check + now-dead server `correctSubmissionVin`/`updateLotSubmissionVin_`) and the debug + live-camera PROBE dev panels (incl. `.ls-diag` CSS). A no-barcode draft row now shows a neutral "office reads VIN" badge
 
 ### Fixed
+- `getDealerPhotoFolder_` no longer creates duplicate dealer subfolders when a dealer's first-ever photos upload through the 5-wide parallel pool (field-hit on the fresh Shared-Drive folder: one order → two subfolders). Fast path stays lock-free; the create path takes a script lock and re-checks inside it. An upload never fails on lock contention (best-effort wait)
 - `runInboxOcr` re-verifies each row's ID immediately before writing OCR results and re-locates by ID (or skips) if it moved — the scanner project `deleteRow`s on discard and LockService can't coordinate across the two scripts, so a crew discard mid-OCR-run shifted rows under the office's cached row numbers (whole-branch review finding; same corruption class as the old trigger's orphan rows)
 - Lot Scanner: finish guards failed photos (no silent drop); idempotent batch commits (no dupes on retry); OCR-trigger + send failures surfaced; cancellable finish
 - Targeting-rule AND/OR chip suppressed by the select enhancer (data-no-cs); danger-row tint no longer lost on hover
