@@ -11,6 +11,8 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Added
+- "Icon Rail" nav layout in UI Settings (`ui_nav_layout='icons'` → `data-nav="icons"`) — the collapsed hover-expanding sidebar, formerly reachable only via the Slate theme or Auto-hide
+- `--fs-lg` (16px) added to the base type scale in both SharedUtils copies — referenced by VIN Inbox / End of Month / lot-scan Capture but never defined (tokens debt)
 - `sweepLotPhotos()` editor utility (Code.gs Section 32) trashes the Drive photos of already-discarded/processed backlog rows; logs and returns `sweepLotPhotos: scanned=N trashed=N failed=N`. Idempotent (`setTrashed` on an already-trashed file is a no-op); crew-owned files the office can't trash just log/count. Rows are still retained (T5.2)
 - Office-side manual OCR runner (Code.gs Section 32: `extractVinFromImage_`, `extractVinCandidates_`, `analyzeDriveFile_`, `runInboxOcr`) + VIN Inbox "Run OCR (N queued)" button — replaces the Lot Scanner's per-user `drainOcrQueue` trigger, which stalled in the field (batches sent to the office before OCR drained sat at `ocr_state='queued'` forever). Processes submitted rows (drafts are OCR'd only after the crew sends the batch to the office). Main app gains the Drive v2 advanced service (T3.1)
 - Lot Scanner Drafts — "Add more photos" resumes a draft batch into the capture flow (shared `vpBeginShooting`); appended photos commit under the same batchId and fold into the same batch card (T5.4)
@@ -21,6 +23,7 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 - VIN Inbox: batches collapsible via native `<details>` (collapsed by default) with a submission count in the summary, plus a "Discard batch" action that serially discards every submission in a batch and refreshes the list — F4
 
 ### Changed
+- Themes are palette-only — nav layout now lives solely in UI Settings. "Top Rail" / "Top Rail — Dark" themes removed (saved prefs remap to Light/Dark at read time in `getThemePreference`, no write-back); "Gruvbox Rail" → **Gruvbox** and "Slate — Icon Rail" → **Slate**, demoted to pure recolors (ids `gruvbox-rail`/`slate-icons` kept — they're persistence keys). The "Auto — follow the theme" nav option is gone; a stale saved `'auto'` falls back to Sidebar via the `UI_NAV_LAYOUTS_` allow-list check
 - Lot Scanner photos now land on a Shared Drive — `LOT_PHOTOS_FOLDER_ID` swapped to the new "SF Lot Submissions" Shared-Drive folder. Files there are org-owned, so office discard/processed photo-trash works regardless of which crew member shot the photo (My-Drive files were owner-trashable only; all app users need Content Manager). Dealer subfolders auto-recreate; old-folder photos still read fine (fileId-based) and trashing them fails soft
 - VIN Inbox discard AND processed now best-effort-trash the submission's Drive photo (single `updateVinSubmissionStatus` + bulk `updateVinSubmissionStatuses` paths, via `trashLotPhoto_`), with untrashable files (e.g. crew-owned My-Drive photos the office can't trash) counted and surfaced in the toast. Rows are still retained; PHOTO_ID is not blanked (keeps the sweep idempotent) (T5.2)
 - VIN Inbox now shows SENT submissions only — `getVinSubmissions` default filter and `runInboxOcr` both exclude `status='draft'` (were draft+submitted) so the client Run-OCR count and the server OCR pass agree; drafts stay field-owned until "Send to office"
@@ -42,6 +45,8 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 - Encarta table-header override retargeted to .table-u; theme coupling audit clean
 
 ### Removed
+- Auto-Hide Navigation — UI Settings toggle, `ui_autohide` UserProperty read/write, `UiPrefs.autohide`/`setAutohide` (both SharedUtils copies), and the `initialAutohide` template var (removed from `openApp`/`doGet` and App.html together — a one-sided removal 500s the app)
+- Orphaned `data-shell="right-rail"` CSS block in App.html — no registry theme ever declared it
 - Lot Scanner Drafts — OCR-era field UI (`processing…` badge, `(no VIN)` text, per-row Re-check + now-dead server `correctSubmissionVin`/`updateLotSubmissionVin_`) and the debug + live-camera PROBE dev panels (incl. `.ls-diag` CSS). A no-barcode draft row now shows a neutral "office reads VIN" badge
 
 ### Fixed
