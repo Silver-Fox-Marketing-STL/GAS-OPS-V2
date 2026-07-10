@@ -65,10 +65,6 @@
     .ls-vin { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-lg); font-weight: 700;
               letter-spacing: .04em; word-break: break-all; }
     .ls-veh { font-size: var(--fs-sm); color: var(--text-2); margin-top: 2px; }
-    .ls-edit { display: flex; gap: var(--space-2); margin-top: var(--space-3); }
-    .ls-edit input { flex: 1; min-width: 0; padding: 10px; font-family: var(--font-mono, ui-monospace, monospace);
-      text-transform: uppercase; border: 1px solid var(--border); border-radius: var(--radius-sm);
-      background: var(--surface); color: var(--text); }
     .ls-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
     .ls-btn { flex: 1 1 130px; padding: 12px; text-align: center; cursor: pointer; font-weight: 700; font-size: var(--fs-sm);
       border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); }
@@ -190,6 +186,7 @@
     var vpOpenBatchId = '';   // batchId to auto-open in Drafts after a Finish (consumed once)
     var vpDraftsOpenIds = {};      // batchIds expanded in the DOM at the moment of the last drafts fetch (preserved across re-render)
     var vpDraftsFetching = false;  // single-flight guard — skip a load if a fetch is already running
+    var vpDraftMeta = {};          // batchId → {dealerKey, dealerName} from the last drafts render (never inlined — "Add more photos" resume reads it here)
 
     function vpTab(which, batchId) {
       var cap = which === 'capture';
@@ -230,17 +227,22 @@
       var dealerKey = sel.value || '';
       if (!dealerKey) { toast('Pick a dealer first.', 'info'); return; }
       var dealerName = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : dealerKey;
-      vpOrder = {
-        dealerKey: dealerKey, dealerName: dealerName,
-        batchId: 'ord' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)
-      };
+      var batchId = 'ord' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+      vpBeginShooting(dealerKey, dealerName, batchId, dealerName + ' — new order');
+    }
+
+    // Enter the Shooting pane for a dealer + batchId — fresh pipeline, dealer lock. Shared by
+    // vpStartOrder (new batchId) and vpResumeOrder (an existing draft's batchId).
+    function vpBeginShooting(dealerKey, dealerName, batchId, label) {
+      vpOrder = { dealerKey: dealerKey, dealerName: dealerName, batchId: batchId };
       vpQueue = []; vpPending = []; vpBuffer = [];
       vpEng = { decoding: false, inFlight: 0, committing: false };
       vpFinishing = null;
-      sel.disabled = true;
+      var sel = document.getElementById('lsDealer');
+      sel.value = dealerKey; sel.disabled = true;   // native value is the source of truth; CustomSelect self-heals its label on next open (_rebuild)
       document.getElementById('lsIdle').hidden = true;
       document.getElementById('lsShooting').hidden = false;
-      document.getElementById('lsOrderDealer').textContent = dealerName + ' — new order';
+      document.getElementById('lsOrderDealer').textContent = label;
       vpRenderQueue(); vpUpdateCount(); vpUpdateFinishUI();
     }
 
@@ -579,9 +581,11 @@
       drafts.forEach(function (d) { var b = d.batchId || '(none)'; if (!groups[b]) { groups[b] = []; order.push(b); } groups[b].push(d); });
       var openId = vpOpenBatchId; vpOpenBatchId = '';
       var openIds = vpDraftsOpenIds; vpDraftsOpenIds = {};
+      vpDraftMeta = {};   // rebuilt from this render; only the system bid is ever inlined (dealerName carries apostrophes)
       var html = '';
       order.forEach(function (bid) {
         var rows = groups[bid], dealer = rows[0].dealerName || rows[0].dealerKey || '';
+        vpDraftMeta[bid] = { dealerKey: rows[0].dealerKey || '', dealerName: dealer };
         var when = rows[0].ts || '';
         var shortId = bid.length > 12 ? bid.substr(0, 12) : bid;
         var isOpen = bid === openId || !!openIds[bid];
@@ -594,6 +598,7 @@
           '</summary>' +
           '<div class="ls-dbtns">' +
             '<button type="button" class="ls-btn primary" onclick="vpSendBatch(\'' + escHtml(bid) + '\')">Send to office</button>' +
+            '<button type="button" class="ls-btn" onclick="vpResumeOrder(\'' + escHtml(bid) + '\')">Add more photos</button>' +
             '<button type="button" class="ls-btn" onclick="vpDeleteBatch(\'' + escHtml(bid) + '\')">Delete batch</button>' +
           '</div>';
         rows.forEach(function (r) { html += vpDraftRow(r); });
@@ -622,6 +627,19 @@
       }
       h += '</div>';
       return h;
+    }
+
+    // Drafts → Capture: reopen a draft batch's capture flow so more photos append under the SAME
+    // batchId (server dedupes by photo_file_id and folds them into the same batch card).
+    function vpResumeOrder(bid) {
+      if (vpOrder || vpFinishing) { toast('Finish the current order first.', 'info'); return; }
+      var meta = vpDraftMeta[bid];
+      if (!meta) { toast('Refresh Drafts and try again.', 'info'); return; }
+      // Mirror vpDealerChange for meta.dealerKey (instant client match chips), then shoot into this batch.
+      vpDealerKey = meta.dealerKey; vpVinMap = {}; vpSetStart();
+      google.script.run.withSuccessHandler(function (m) { vpVinMap = m || {}; }).getDealerVinMap(meta.dealerKey);
+      vpTab('capture');
+      vpBeginShooting(meta.dealerKey, meta.dealerName, bid, meta.dealerName + ' — adding to batch');
     }
 
     function vpSendBatch(bid) {

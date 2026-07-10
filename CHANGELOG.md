@@ -13,9 +13,9 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ### Added
 - `sweepLotPhotos()` editor utility (Code.gs Section 32) trashes the Drive photos of already-discarded/processed backlog rows; logs and returns `sweepLotPhotos: scanned=N trashed=N failed=N`. Idempotent (`setTrashed` on an already-trashed file is a no-op); crew-owned files the office can't trash just log/count. Rows are still retained (T5.2)
 - Office-side manual OCR runner (Code.gs Section 32: `extractVinFromImage_`, `extractVinCandidates_`, `analyzeDriveFile_`, `runInboxOcr`) + VIN Inbox "Run OCR (N queued)" button — replaces the Lot Scanner's per-user `drainOcrQueue` trigger, which stalled in the field (batches sent to the office before OCR drained sat at `ocr_state='queued'` forever). Processes submitted rows (drafts are OCR'd only after the crew sends the batch to the office). Main app gains the Drive v2 advanced service (T3.1)
+- Lot Scanner Drafts — "Add more photos" resumes a draft batch into the capture flow (shared `vpBeginShooting`); appended photos commit under the same batchId and fold into the same batch card (T5.4)
 - Lot Scanner Drafts: OCR progress chips + auto-refresh while OCR drains (visibility-gated), edit-safe re-renders
 - `updateVinSubmissionStatuses` bulk server fn (Code.gs Section 32) — VIN Inbox's "Discard batch" now issues one bulk call instead of a serial per-row loop (T2.2)
-- TEMP: live-camera (getUserMedia) probe panel in Lot Scanner — milestone A gate
 - Unified component layer in SharedUtils (canonical buttons/pills/tags/table, --font-mono token) — SuperDesign variant 1 spec
 - Visual nesting hierarchy for targeting-rule groups in Dealer Rules → Filtering Rules (rails, depth steps, AND/OR chips) — F3
 - VIN Inbox: batches collapsible via native `<details>` (collapsed by default) with a submission count in the summary, plus a "Discard batch" action that serially discards every submission in a batch and refreshes the list — F4
