@@ -14,7 +14,7 @@
     <div class="modal-body">
       <div class="import-cols">
 
-        <!-- Left: mode + file picker -->
+        <!-- Left: mode + file cards + picker + actions -->
         <div class="import-left">
           <div class="mode-selector">
             <div class="mode-option active" id="modeReplace" onclick="setMode('replace')">
@@ -27,17 +27,23 @@
             </div>
           </div>
 
-          <label class="field-label" for="fileInput">Select CSV File(s)</label>
-          <input type="file" id="fileInput" accept=".csv" multiple onchange="handleFilesSelect()" />
-          <div class="totals-line" id="totalsLine" style="display:none;"></div>
-        </div>
-
-        <!-- Right: per-file parse results -->
-        <div class="import-right">
           <div id="fileCards">
             <div class="files-placeholder">Selected files will appear here with their column mapping.</div>
           </div>
-          <!-- Inventory snapshot fills the idle right column; hidden while file cards are shown -->
+
+          <label class="field-label" for="fileInput">Select CSV File(s)</label>
+          <input type="file" id="fileInput" accept=".csv" multiple onchange="handleFilesSelect()" />
+          <div class="totals-line" id="totalsLine" style="display:none;"></div>
+
+          <div class="import-actions">
+            <div id="importStatus" class="status-bar empty">&nbsp;</div>
+            <button class="btn-ghost" onclick="showCurrentData()">Browse Current Data</button>
+            <button class="btn-primary" id="importBtn" onclick="runImport()" disabled>Import Data</button>
+          </div>
+        </div>
+
+        <!-- Right: inventory snapshot (always visible) -->
+        <div class="import-right">
           <div id="invSnapshot">
             <div class="review-section-title">Inventory Snapshot &mdash; last import</div>
             <div id="invSnapBody"><div class="u-hint">Loading&hellip;</div></div>
@@ -45,12 +51,6 @@
         </div>
 
       </div>
-    </div>
-
-    <div class="modal-footer">
-      <div id="importStatus" class="status-bar empty">&nbsp;</div>
-      <button class="btn-ghost" onclick="showCurrentData()">Browse Current Data</button>
-      <button class="btn-primary" id="importBtn" onclick="runImport()" disabled>Import Data</button>
     </div>
 
   </div>
@@ -230,16 +230,24 @@
     #view-import .status-bar.error { background: var(--danger-weak); color: var(--danger); }
 
     /* ── Two-column import form (wide modal) ───────────────────────────────────
-       Grid skeleton (default = the original left / right row, no-op): named areas
-       let a theme swap columns or restyle widths with no markup change. */
-    #view-import .import-cols { display: grid; grid-template-columns: 460px 1fr;
-                               grid-template-areas: "left right"; gap: 20px; align-items: start; }
+       Grid skeleton (named areas let a theme swap columns with no markup change).
+       The form's modal-body is overflow:hidden; each COLUMN owns its own scroll:
+       left scrolls its stacked controls, right flexes the snapshot to fill. */
+    #view-import #importForm .modal-body { overflow: hidden; min-height: 0; }
+    #view-import .import-cols { display: grid; grid-template-columns: 500px 1fr;
+                               grid-template-rows: minmax(0, 1fr);
+                               grid-template-areas: "left right"; gap: 20px; height: 100%; }
     #view-import .import-left {
       grid-area: left;
+      min-height: 0;
+      overflow-y: auto;
     }
     #view-import .import-right {
       grid-area: right;
       min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
     }
     #view-import .files-placeholder {
       border: 1px dashed var(--border);
@@ -250,10 +258,23 @@
       font-size: 12px;
     }
 
-    /* ── Inventory snapshot (idle right column) ──────────────────────────────── */
-    #view-import #invSnapshot { margin-top: 14px; }
+    /* ── Inventory snapshot (right column, always visible) ───────────────────
+       Flex chain down to the scroll box: basis=auto + shrink lets a short table
+       hug its content while a tall one caps at the column height and scrolls. */
+    #view-import #invSnapshot {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    #view-import #invSnapBody {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
     #view-import .inv-snap-scroll {
-      max-height: 380px;           /* ponytail: fixed cap; modal-body scrolls if a theme shrinks the modal */
+      min-height: 0;
       overflow: auto;
       border: 1px solid var(--border);
       border-radius: var(--radius-sm);
@@ -325,8 +346,8 @@
       padding: 4px 0;
     }
 
-    /* ── Per-file cards (right column) ───────────────────────────────────────── */
-    #view-import #fileCards { margin-top: 0; }
+    /* ── Per-file cards (left column, between mode picker and file input) ────── */
+    #view-import #fileCards { margin-bottom: 14px; }
     #view-import .file-card {
       border: 1px solid var(--border);
       border-radius: 5px;
@@ -343,7 +364,8 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 10px;
+      gap: 4px 10px;
+      flex-wrap: wrap;             /* narrow left column: meta drops below a long filename */
     }
     #view-import .file-card.invalid .file-card-header { background: var(--danger-weak); color: var(--danger); }
     #view-import .file-card-header .file-meta {
@@ -370,8 +392,20 @@
       color: var(--text);
     }
 
+    /* ── Action row: anchored under the left column's content (replaces the old
+       full-width modal-footer for this panel only — the other panels keep theirs) */
+    #view-import .import-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 14px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+    }
+
     /* ── Buttons: don't shrink next to flex:1 siblings (status-bar, bulk-label) ── */
     #view-import .modal-footer button,
+    #view-import .import-actions button,
     #view-import .bulk-bar button { flex-shrink: 0; }
 
     /* ════════════════════════════════════════════════════════════════════════════
@@ -665,6 +699,14 @@
     :root[data-viewport="mobile"] #view-import .modal-footer { flex-wrap: wrap; }
     :root[data-viewport="mobile"] #view-import .modal-footer .status-bar { flex: 1 1 100%; order: -1; }
     :root[data-viewport="mobile"] #view-import #cdTable { min-width: 700px; }
+    /* Stacked columns (App.html collapses .import-cols to one column): release the
+       desktop per-column height lock and let the whole form scroll in modal-body. */
+    :root[data-viewport="mobile"] #view-import #importForm .modal-body { overflow-y: auto; }
+    :root[data-viewport="mobile"] #view-import .import-cols { height: auto; grid-template-rows: none; }
+    :root[data-viewport="mobile"] #view-import .import-left { overflow-y: visible; }
+    :root[data-viewport="mobile"] #view-import .inv-snap-scroll { max-height: 60vh; }
+    :root[data-viewport="mobile"] #view-import .import-actions { flex-wrap: wrap; }
+    :root[data-viewport="mobile"] #view-import .import-actions .status-bar { flex: 1 1 100%; order: -1; }
 </style>
 
 <script>
@@ -844,7 +886,6 @@
       });
 
       container.innerHTML = html;
-      impToggleSnapshot_(false);   // file cards claim the right column
 
       var totals = document.getElementById('totalsLine');
       totals.style.display = 'block';
@@ -1167,7 +1208,6 @@
 
       document.getElementById('fileCards').innerHTML       =
         '<div class="files-placeholder">Selected files will appear here with their column mapping.</div>';
-      impToggleSnapshot_(true);    // placeholder state — snapshot reclaims the idle space
       impLoadSnapshot_();          // refetch: an import just rewrote the DASHBOARD snapshot
       document.getElementById('totalsLine').style.display  = 'none';
       document.getElementById('importBtn').disabled        = true;
@@ -1285,8 +1325,8 @@
       impLoadSnapshot_();
     }
 
-    /* ── Inventory snapshot (idle right column) ─────────────────────────────── */
-    var impSnapData = null;   // cached last response; re-rendered without refetch on file clear
+    /* ── Inventory snapshot (right column, always visible) ──────────────────── */
+    var impSnapData = null;   // cached last response
 
     function impLoadSnapshot_() {
       google.script.run.withSuccessHandler(function(snap) {
@@ -1317,12 +1357,6 @@
       if (s.totals) html += tr(s.totals, 'row-total');
       html += '</tbody></table></div>';
       body.innerHTML = html;
-    }
-
-    // Show/hide alongside the file-card placeholder: hidden while cards render,
-    // back when the form resets to the placeholder state.
-    function impToggleSnapshot_(show) {
-      document.getElementById('invSnapshot').style.display = show ? '' : 'none';
     }
 
     /* ── Current Data panel ─────────────────────────────────────────────────── */

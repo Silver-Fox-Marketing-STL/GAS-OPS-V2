@@ -9349,11 +9349,13 @@ function getInventorySnapshot() {
     if (!sh || sh.getLastRow() < 1) return empty();
     var grid = sh.getDataRange().getDisplayValues();
 
-    // Banner row = exactly one filled cell reading 'INVENTORY SNAPSHOT'.
+    // Banner row = exactly one filled cell STARTING WITH 'INVENTORY SNAPSHOT'
+    // (the live sheet reads 'INVENTORY SNAPSHOT — BREAKDOWN BY LOCATION';
+    // exact-match missed it — the sheet-resident banner text can drift).
     var banner = -1;
     for (var i = 0; i < grid.length; i++) {
       var filled = grid[i].filter(function(c) { return String(c).trim() !== ''; });
-      if (filled.length === 1 && filled[0].trim().toUpperCase() === 'INVENTORY SNAPSHOT') { banner = i; break; }
+      if (filled.length === 1 && filled[0].trim().toUpperCase().indexOf('INVENTORY SNAPSHOT') === 0) { banner = i; break; }
     }
     if (banner === -1 || banner + 2 >= grid.length) return empty();
 
