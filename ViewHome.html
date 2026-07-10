@@ -41,27 +41,41 @@
 
     <div class="home-hud" id="homeHud">
 
-      <div class="home-hud-head">
-        <div class="home-section-label" style="margin:0;">All Time</div>
-        <button class="btn-secondary" id="homeRefresh" onclick="loadHomeHud()">&#8635; Refresh</button>
-      </div>
-      <div class="home-tiles" id="homeAllTime">
-        <div class="home-muted">Loading stats&hellip;</div>
-      </div>
-
-      <div class="home-section-label">Today</div>
-      <div class="home-tiles" id="homeToday"></div>
-
-      <div class="home-section-label">This Week</div>
-      <div class="home-tiles" id="homeWeek"></div>
-
-      <div class="home-section-label">Dealer Focus</div>
-      <div class="home-focus">
-        <div class="home-focus-pick">
-          <select id="homeDealerSelect"><option value="">-- Select a dealer --</option></select>
+      <div class="home-hud-col">
+        <div class="home-hud-head">
+          <div class="home-hud-title">System Stats</div>
+          <button class="btn-secondary" id="homeRefresh" onclick="loadHomeHud()">&#8635; Refresh</button>
         </div>
-        <div class="home-focus-body" id="homeDealerBody">
-          <div class="home-muted">Pick a dealer to see inventory, run stats, and open orders.</div>
+
+        <div class="home-statgroup hero">
+          <div class="home-sub-label">Today</div>
+          <div class="home-tiles" id="homeToday">
+            <div class="home-muted">Loading stats&hellip;</div>
+          </div>
+        </div>
+
+        <div class="home-statgroup">
+          <div class="home-sub-label">This Week</div>
+          <div class="home-tiles" id="homeWeek"></div>
+        </div>
+
+        <div class="home-statgroup quiet">
+          <div class="home-sub-label">All Time</div>
+          <div class="home-tiles" id="homeAllTime"></div>
+        </div>
+      </div>
+
+      <div class="home-hud-col">
+        <div class="home-hud-head">
+          <div class="home-hud-title">Dealer Focus</div>
+        </div>
+        <div class="home-focus">
+          <div class="home-focus-pick">
+            <select id="homeDealerSelect"><option value="">-- Select a dealer --</option></select>
+          </div>
+          <div class="home-focus-body" id="homeDealerBody">
+            <div class="home-muted">Pick a dealer to see inventory, run stats, and open orders.</div>
+          </div>
         </div>
       </div>
 
@@ -136,25 +150,65 @@
   #view-home .card-title { font-size: 14px; font-weight: bold; margin-bottom: 5px; }
   #view-home .card-desc { font-size: 11.5px; color: var(--text-2); line-height: 1.5; }
 
-  /* ── HUD ────────────────────────────────────────────────────────────────── */
-  #view-home .home-hud { padding-bottom: 10px; }
+  /* ── HUD: two columns wide (System Stats | Dealer Focus), one when narrow ──
+     auto-fit + minmax measures the CONTAINER (not the viewport — HtmlService
+     rule), so the split point tracks the actual view width (~2 cols above a
+     ~1150px window with the sidebar open). min(440px,100%) keeps the single
+     column from forcing horizontal scroll on narrow/mobile widths. */
+  #view-home .home-hud {
+    padding-bottom: 10px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(440px, 100%), 1fr));
+    gap: 22px;
+    align-items: start;
+  }
   #view-home .home-hud-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    min-height: 30px;      /* the Refresh button exists on one side only — keep both column headers level */
     margin-bottom: 10px;
   }
+  #view-home .home-hud-title {      /* top-level accent seclabel (eomr-seclabel idiom) */
+    font-family: var(--font-head);
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
   #view-home .home-muted { font-size: 12px; color: var(--text-3); }
+
+  /* Stat groups: surface panels that visibly separate from the page (border +
+     shadow; tiles inside step up again to --surface-2). One accent left edge
+     on the hero GROUP, not 14 accent tiles. */
+  #view-home .home-statgroup {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--border);   /* same width on all groups so left edges align */
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 12px 14px;
+    margin-bottom: 14px;
+  }
+  #view-home .home-statgroup.hero { border-left-color: var(--accent); }
+  #view-home .home-sub-label {
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--text-3);
+    margin-bottom: 8px;
+  }
 
   /* Stat tiles: big numeral over a small uppercase label. Zero counts mute. */
   #view-home .home-tiles {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(130px, 170px));   /* content-width tiles that wrap at narrow widths */
     gap: 10px;
-    margin-bottom: 24px;
   }
   #view-home .home-tile {
-    background: var(--surface);
+    background: var(--surface-2);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: 12px 14px;
@@ -176,27 +230,40 @@
     letter-spacing: 0.05em;
     color: var(--text-3);
   }
+  /* Priority gradient: Today hero (biggest, accent non-zero numerals) →
+     This Week standard → All Time ambient (smallest, muted). Zeros stay muted. */
+  #view-home .home-statgroup.hero .home-tile .num { font-size: 30px; }
+  #view-home .home-statgroup.hero .home-tile:not(.zero) .num { color: var(--accent); }
+  #view-home .home-statgroup.quiet .home-tile .num { font-size: 19px; font-weight: 700; color: var(--text-2); }
+  #view-home .home-statgroup.quiet .home-tile.zero .num { color: var(--text-muted); }
 
-  /* Dealer Focus card */
+  /* Dealer Focus card — the interactive centerpiece: accent-topped surface
+     card, inner sections step to --surface-2 (.eomr-contact presence). */
   #view-home .home-focus {
     background: var(--surface);
     border: 1px solid var(--border);
+    border-top: 3px solid var(--accent);
     border-radius: var(--radius);
+    box-shadow: var(--shadow);
     padding: 14px 16px;
-    max-width: 760px;
-    justify-self: start;   /* content-width card, not a full-bleed stretch (grid default) */
     width: 100%;
     box-sizing: border-box;
   }
   #view-home .home-focus-pick { max-width: 320px; margin-bottom: 4px; }
   #view-home .home-focus-pick select { width: 100%; }
-  #view-home .home-focus-sec { margin-top: 14px; }
-  #view-home .home-focus-h {
+  #view-home .home-focus-sec {
+    margin-top: 12px;
+    background: var(--surface-2);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+  }
+  #view-home .home-focus-sec .eomr-chip { background: var(--surface-3); }   /* chips default to --surface-2 — invisible on a --surface-2 panel */
+  #view-home .home-focus-h {      /* accent seclabel idiom, small tier */
     font-size: 10px;
-    font-weight: 700;
+    font-weight: 800;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--text-3);
+    letter-spacing: .08em;
+    color: var(--accent);
     margin-bottom: 6px;
   }
   #view-home .home-chipline { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
@@ -239,9 +306,9 @@
         if (btn) btn.disabled = false;
         document.getElementById('homeStatusText').textContent = 'Could not load dashboard: ' + e.message;
         document.getElementById('homeStatus').className = 'home-status stale';
-        document.getElementById('homeAllTime').innerHTML =
+        document.getElementById('homeToday').innerHTML =   /* Today is now the first stat group on screen */
           '<div class="home-muted">Could not load stats: ' + escHtml(e.message) + '</div>';
-        document.getElementById('homeToday').innerHTML = '';
+        document.getElementById('homeAllTime').innerHTML = '';
         document.getElementById('homeWeek').innerHTML = '';
       })
       .getHomeHud();
