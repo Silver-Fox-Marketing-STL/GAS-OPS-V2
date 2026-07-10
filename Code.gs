@@ -7896,8 +7896,13 @@ function getVinSubmissions(filter) {
       if (wantStatus) { if (status !== wantStatus) continue; }
       else if (status !== 'submitted') continue;   // default: sent work only
       if (wantDealer && String(r[LOT_SUB.DEALER_KEY]) !== wantDealer) continue;
+      var tsCell = r[LOT_SUB.TS];
+      var tsIsDate = tsCell instanceof Date;   // Sheets coerces the scanner's timestamp strings to Dates
       out.push({
-        id: String(r[LOT_SUB.ID]), ts: String(r[LOT_SUB.TS] || ''), email: String(r[LOT_SUB.EMAIL] || ''),
+        id: String(r[LOT_SUB.ID]),
+        ts: tsIsDate ? Utilities.formatDate(tsCell, Session.getScriptTimeZone(), 'EEE MMM dd yyyy h:mm a') : String(tsCell || ''),
+        tsMs: tsIsDate ? tsCell.getTime() : 0,   // client sorts on this, not on parsing ts
+        email: String(r[LOT_SUB.EMAIL] || ''),
         dealerKey: String(r[LOT_SUB.DEALER_KEY] || ''), dealerName: String(r[LOT_SUB.DEALER_NAME] || ''),
         photoFileId: String(r[LOT_SUB.PHOTO_ID] || ''), photoUrl: String(r[LOT_SUB.PHOTO_URL] || ''),
         vinExtracted: String(r[LOT_SUB.VIN_EXTRACTED] || ''), vin: String(r[LOT_SUB.VIN_FINAL] || ''),

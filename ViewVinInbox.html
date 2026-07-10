@@ -3,8 +3,9 @@
      Reads the shared SF_LOT_SUBMISSIONS sheet via getVinSubmissions; groups
      pending submissions by order batch (legacy/blank-batch rows fall back to
      one group per dealer); lets the processor correct the OCR'd VIN
-     (updateVinSubmissionStatus), mark processed/discarded, and copy a dealer's
-     confirmed VINs to paste into Run Order. (escHtml/toast from SharedUtils.)
+     (updateVinSubmissionStatus), discard bad reads, and copy a batch's valid
+     VINs to paste into Run Order. (escHtml/toast from SharedUtils; batch
+     styling mirrors EomReportRenderer's .eomr-contact idiom.)
 ════════════════════════════════════════════════════════════════════════════ -->
 <div class="view" id="view-vin-inbox" hidden>
   <div class="vi-scroll">
@@ -12,10 +13,10 @@
       <h2 class="u-h2" style="margin:0;">VIN Inbox</h2>
       <div class="vi-head-actions">
         <button type="button" class="btn-ghost" id="viOcrBtn" onclick="viRunOcr()" hidden>Run OCR (<span id="viOcrCount">0</span> queued)</button>
-        <button type="button" class="vi-refresh" onclick="viLoad()">&#8635; Refresh</button>
+        <button type="button" class="btn-ghost" onclick="viLoad()">&#8635; Refresh</button>
       </div>
     </div>
-    <p class="u-hint" style="max-width:70ch;">Photos submitted from the Lot Scanner, grouped by dealer. Review/correct the read VIN, mark each <strong>Processed</strong> or <strong>Discard</strong> — or copy a dealer's valid VINs to paste into Run Order.</p>
+    <p class="u-hint" style="max-width:70ch;">Photos submitted from the Lot Scanner, grouped by dealer. Review/correct the read VIN, <strong>Discard</strong> bad reads — or copy a batch's valid VINs to paste into Run Order.</p>
     <div id="viBody"><p class="u-hint">Loading&hellip;</p></div>
   </div>
 </div>
@@ -25,24 +26,28 @@
   #view-vin-inbox .vi-scroll { height: 100%; overflow-y: auto; padding: var(--space-5) var(--space-6); }
   #view-vin-inbox .vi-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
   #view-vin-inbox .vi-head-actions { display: flex; align-items: center; gap: var(--space-2); }
-  #view-vin-inbox .vi-refresh { padding: 6px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); cursor: pointer; }
 
-  #view-vin-inbox .vi-batch { margin-top: var(--space-5); border: none; }
-  #view-vin-inbox .vi-batch > summary { list-style: none; cursor: pointer; }
+  /* ponytail: .vi-batch deliberately mirrors EomReportRenderer's .eomr-contact
+     (border/radius/summary hover/[open] rule/indented body) and the summary
+     reuses the live .eomr-chips/.eomr-chip classes directly — EOM report
+     restyles should propagate here by intent. */
+  #view-vin-inbox .vi-batch { margin-top: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
+  #view-vin-inbox .vi-batch > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: var(--space-3); padding: 12px 16px; }
+  #view-vin-inbox .vi-batch > summary:hover { background: var(--surface-2); }
   #view-vin-inbox .vi-batch > summary::-webkit-details-marker { display: none; }
-  #view-vin-inbox .vi-group-head { display: flex; align-items: center; gap: var(--space-2); font-family: var(--font-head); font-weight: 700; font-size: var(--fs-lg); margin-bottom: var(--space-2); }
+  #view-vin-inbox .vi-batch[open] > summary { border-bottom: 2px solid var(--text); }
   #view-vin-inbox .vi-caret { display: inline-block; flex-shrink: 0; color: var(--text-3); font-size: var(--fs-sm); transition: transform .15s ease; }
   #view-vin-inbox .vi-batch[open] > summary .vi-caret { transform: rotate(90deg); }
-  #view-vin-inbox .vi-batch-title { min-width: 0; }
-  #view-vin-inbox .vi-group-sub { font-weight: 400; font-size: var(--fs-hint); color: var(--text-3); margin-left: var(--space-2); }
-  #view-vin-inbox .vi-count { font-size: var(--fs-hint); color: var(--text-3); font-weight: 600; }
-  #view-vin-inbox .vi-batch-actions { margin-left: auto; display: flex; gap: var(--space-2); flex-shrink: 0; }
-  #view-vin-inbox .vi-copy { padding: 5px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); cursor: pointer; font-size: var(--fs-sm); }
+  #view-vin-inbox .vi-batch-title { display: flex; flex-direction: column; min-width: 0; }
+  #view-vin-inbox .vi-dealer { font-family: var(--font-head); font-weight: 800; font-size: var(--fs-lg); letter-spacing: -0.2px; }
+  #view-vin-inbox .vi-group-sub { font-weight: 400; font-size: var(--fs-hint); color: var(--text-3); margin-top: 2px; }
+  #view-vin-inbox .vi-batch-actions { display: flex; gap: var(--space-2); flex-shrink: 0; }
+  #view-vin-inbox .vi-batch-body { padding: var(--space-2) var(--space-4) var(--space-4) 34px; }
 
-  #view-vin-inbox .vi-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--space-3); }
-  #view-vin-inbox .vi-card { display: flex; gap: var(--space-3); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-3); }
+  #view-vin-inbox .vi-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: var(--space-2); }
+  #view-vin-inbox .vi-card { display: flex; gap: var(--space-2); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: var(--space-2); }
   #view-vin-inbox .vi-card.miss { border-color: var(--warning); }
-  #view-vin-inbox .vi-thumb { width: 92px; height: 92px; flex-shrink: 0; border-radius: var(--radius-sm); object-fit: cover; background: var(--surface-3); border: 1px solid var(--border); }
+  #view-vin-inbox .vi-thumb { width: 72px; height: 72px; flex-shrink: 0; border-radius: var(--radius-sm); object-fit: cover; background: var(--surface-3); border: 1px solid var(--border); }
   #view-vin-inbox .vi-info { flex: 1; min-width: 0; }
   #view-vin-inbox .vi-vin { font-family: var(--font-mono, ui-monospace, monospace); font-weight: 700; word-break: break-all; }
   #view-vin-inbox .vi-tags { display: flex; gap: var(--space-2); margin: var(--space-1) 0; flex-wrap: wrap; }
@@ -103,27 +108,31 @@
       var isBatch = !!rows[0].batchId;
       var name = rows[0].dealerName || rows[0].dealerKey || '(unknown dealer)';
       var doneCount = rows.filter(function (r) { return r.ocrState !== 'queued'; }).length;
+      var validCount = rows.filter(function (r) { return r.valid; }).length;
       // Collapsed by default (no `open` attr) — native <details> = no JS toggle state to manage.
       html += '<details class="vi-batch">';
-      html += '<summary class="vi-group-head">';
+      html += '<summary>';
       html += '<span class="vi-caret">&#9656;</span>';
-      html += '<span class="vi-batch-title">' + escHtml(name);
+      html += '<span class="vi-batch-title"><span class="vi-dealer">' + escHtml(name) + '</span>';
       if (isBatch) {
         html += '<span class="vi-group-sub">' + escHtml(rows[0].email || '') + (rows[0].ts ? (' · ' + escHtml(rows[0].ts)) : '') + '</span>';
       }
       html += '</span>';
-      html += '<span class="vi-count">' + rows.length + ' submission' + (rows.length === 1 ? '' : 's') + '</span>';
+      html += '<span class="eomr-chips">';
+      html += '<span class="eomr-chip"><b>' + rows.length + '</b> submission' + (rows.length === 1 ? '' : 's') + '</span>';
       if (isBatch && doneCount < rows.length) {
         html += '<span class="tag tone-info">' + doneCount + '/' + rows.length + ' read</span>';
       }
+      html += '<span class="eomr-chip"><b>' + validCount + '</b> valid</span>';
+      html += '</span>';
       html += '<span class="vi-batch-actions">';
-      html += '<button type="button" class="vi-copy" onclick="viCopy(' + gi + ', event)">Copy valid VINs</button>';
+      html += '<button type="button" class="btn-secondary" onclick="viCopy(' + gi + ', event)">Copy valid VINs</button>';
       html += '<button type="button" class="btn-danger" onclick="viDeleteBatch(' + gi + ', event)">Discard batch</button>';
       html += '</span>';
       html += '</summary>';
-      html += '<div class="vi-cards">';
+      html += '<div class="vi-batch-body"><div class="vi-cards">';
       rows.forEach(function (s) { html += viCard(s); });
-      html += '</div></details>';
+      html += '</div></div></details>';
     });
     body.innerHTML = html;
   }
@@ -133,8 +142,7 @@
     return s.batchId || ('dealer:' + (s.dealerName || s.dealerKey));
   }
   function viGroupTime_(s) {
-    var t = Date.parse(s.ts);
-    return isNaN(t) ? 0 : t;
+    return s.tsMs || 0;   // server sends epoch millis; s.ts is a pre-formatted display string
   }
 
   function viCard(s) {
@@ -170,7 +178,6 @@
       h += '<div class="vi-actions">';
       h += '<input id="vivin_' + s.id + '" type="text" maxlength="17" value="' + escHtml(s.vin || '') + '" placeholder="Correct VIN…">';
       h += '<button type="button" class="btn-secondary" onclick="viRecheck(\'' + s.id + '\')">Re-check</button>';
-      h += '<button type="button" class="btn-primary" onclick="viProcess(\'' + s.id + '\')">Processed</button>';
       h += '<button type="button" class="btn-secondary" onclick="viDiscard(\'' + s.id + '\')">Discard</button>';
       h += '</div>';
     }
@@ -225,7 +232,6 @@
     var el = document.getElementById('vivin_' + sid);
     viAction(sid, 'submitted', el ? el.value : '', 'VIN updated.');   // keep it open in the queue
   }
-  function viProcess(sid) { viAction(sid, 'processed', '', 'Marked processed.'); }
   function viDiscard(sid) { if (confirm('Discard this submission?')) viAction(sid, 'discarded', '', 'Discarded.'); }
 
   function viDeleteBatch(gi, evt) {
