@@ -212,6 +212,21 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   a **second, independent coupling point to the same class name** that a class
   rename must update in the same change — grep `App.html` for the renamed selector
   before calling a rename done.
+- **A per-view ELEMENT-selector dialect (`#view-xxx table/th/td`) out-specifies the
+  canonical CLASS layer just as badly as a per-view class dialect does — dropping
+  `.table-u` into a view with one of these needs an explicit restore, not just the
+  class.** ViewImport's new Inventory Snapshot table (July 10, 2026 HUD rework) used
+  `.table-u`, but the view already carried a **generic `#view-import th`/`td` header
+  recipe** left over from the file-card tables (specificity 1,0,1 beats `.table-u
+  th`'s 0,1,1), which silently stripped the sticky inverted header. Fix pattern
+  (same shape as the CSS-dialect entry above, but for tag selectors instead of
+  classes): an **ID-scoped restore block** — `#view-import #invSnapshot .table-u th
+  { … }` — re-asserts the canonical look for just that table, rather than trying to
+  narrow the view's older element-selector dialect (other tables in the same view
+  still rely on it). General trap: before dropping a canonical `.table-u`/`.tag`/
+  `.pill`/etc into an existing view, grep that view's `<style>` block for bare
+  element selectors scoped to the view id — they silently outrank the unscoped
+  canonical class.
 - **iOS Safari fires a `change` event when a `<select>` is RE-PARENTED** — so a progressive
   enhancer that moves the select into a wrapper trips its own inline `onchange` mid-surgery.
   `CustomSelect.enhance()` does `insert wrapper → move select into it`; on iOS that DOM move

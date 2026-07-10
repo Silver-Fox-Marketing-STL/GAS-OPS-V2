@@ -14,7 +14,7 @@ Ranked biggest cut first.
 | 4 | `delete:` | `saveDealerTypeRules` (24 L) | Zero callers; Type Rules editor tab was removed (col O dormant). | `Code.gs:4025` |
 | 5 | `delete:` | `auditConfigPlaceholders` (27 L) | Defined, never called, not menu-wired. | `Code.gs` |
 | 6 | `delete:` | `addCommittedAtHeaders` (22 L) | One-time SF_VIN_LOGS header setup, already done. | `Code.gs` |
-| 7 | `delete:` | `getAppHomeStatus` (10 L) | Superseded on Home by `getDashboardView`; kept only for the Classic path (finding #2). | `Code.gs` |
+| 7 | ~~`delete:`~~ | ~~`getAppHomeStatus` (10 L)~~ | **Stale as of July 10, 2026.** `getDashboardView` (the function this was "superseded by") was itself retired in the Home→HUD rework — `getAppHomeStatus` is now load-bearing, called directly from `getHomeHud()` (Code.gs Section 34) for the `lastImport` field, plus still used by the Classic path (finding #2). Not a cut. | `Code.gs` |
 | 8 | `delete:` | `getTypeRules_` (9 L) | Only caller is finding #3's migration; dies with it. **Keep `matchRule_`** — still used by the live run path. | `Code.gs` |
 | 9 | `delete:` | `getActiveDealerKeys_` (8 L) | Private helper, zero callers. | `Code.gs` |
 | 10 | `delete:` | `getPipedriveProductFields` (4 L) | Client-callable, zero references in any view. | `Code.gs` |
@@ -29,10 +29,10 @@ Ranked biggest cut first.
 
 ## Net
 
-**-~320 lines, -2 files, -1 committed zip (54 KB), -2 dead config keys possible. -0 deps** (GAS repo; no npm runtime deps).
+**-~310 lines, -2 files, -1 committed zip (54 KB), -2 dead config keys possible. -0 deps** (GAS repo; no npm runtime deps). *(Finding #7 struck July 10, 2026 — not a cut; totals revised down ~10 lines.)*
 
 ## If applying
 
-- Findings **3–10, 13** are zero-risk deletions — grep-confirmed no references. Findings **1, 13** are file removes (`git rm`).
+- Findings **3–6, 8–10, 13** are zero-risk deletions — grep-confirmed no references. Findings **1, 13** are file removes (`git rm`).
 - Findings **2, 11, 12** touch live paths / config — apply **last, one at a time**, with a `clasp push` + smoke test (open App, run a dealer) between each, per the repo's verify-after rule.
 - The audit itself applies nothing; this file is the backlog.
