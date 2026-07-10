@@ -446,20 +446,10 @@ function getAppHomeStatus() {
   return { lastImportDate: ts.date, lastImportTime: ts.time };
 }
 
-// Returns the DASHBOARD tab as a 2D array of display strings for the Home
-// view to render. getDisplayValues keeps it serializable (no Date objects) and
-// reflects whatever refreshDashboard_ wrote plus the live formula-driven run
-// sections (Run Log Summary / Most Recent Run / Runs By Dealer), so revisiting
-// Home after finalizing a run shows current numbers without re-importing.
-function getDashboardView() {
-  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('DASHBOARD');
-  if (!sh) return { rows: [], error: 'DASHBOARD sheet not found.' };
-  var lastRow = sh.getLastRow();
-  if (lastRow < 1) return { rows: [] };
-  var lastCol = Math.min(sh.getLastColumn() || 1, 10);
-  return { rows: sh.getRange(1, 1, lastRow, lastCol).getDisplayValues() };
-}
-
+// getDashboardView (whole-DASHBOARD-grid read for the old Home renderer) was
+// retired when Home became a HUD (Section 34 endpoints); the DASHBOARD sheet
+// itself remains — refreshDashboard_ still writes it (human-viewable in Sheets,
+// and getInventorySnapshot slices its inventory block for the Import view).
 
 // Classic fallback: serves the converted App fragment standalone.
 function promptRunDealer() {
@@ -9112,7 +9102,7 @@ function generateEomReport(scope, stageId, runId, monthLabel, splitContacts) {
 // (google.script.run surface) + tiny private helpers. No writes anywhere.
 // Pipedrive/EOM lookups are best-effort and can never throw into the caller
 // (pdFetch_ philosophy). NEVER SpreadsheetApp.getUi() here — client-invoked.
-// The old Home keeps calling getDashboardView(); nothing here replaces it.
+// These replaced the old whole-grid getDashboardView() read (retired).
 // ============================================================================
 
 /** RUN_LOG rows (23 cols A–W) minus test runs, in append order. ONE read. */

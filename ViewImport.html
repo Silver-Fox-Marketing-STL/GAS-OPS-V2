@@ -37,6 +37,11 @@
           <div id="fileCards">
             <div class="files-placeholder">Selected files will appear here with their column mapping.</div>
           </div>
+          <!-- Inventory snapshot fills the idle right column; hidden while file cards are shown -->
+          <div id="invSnapshot">
+            <div class="review-section-title">Inventory Snapshot &mdash; last import</div>
+            <div id="invSnapBody"><div class="u-hint">Loading&hellip;</div></div>
+          </div>
         </div>
 
       </div>
@@ -243,6 +248,35 @@
       text-align: center;
       color: var(--text-muted);
       font-size: 12px;
+    }
+
+    /* ── Inventory snapshot (idle right column) ──────────────────────────────── */
+    #view-import #invSnapshot { margin-top: 14px; }
+    #view-import .inv-snap-scroll {
+      max-height: 380px;           /* ponytail: fixed cap; modal-body scrolls if a theme shrinks the modal */
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+    }
+    /* The generic #view-import th dialect rules above outrank .table-u —
+       restore the canonical inverted sticky header for this table only.
+       (Dialect alignment — th/td right, first-child left — is kept: it's
+       exactly what a numeric snapshot wants.) */
+    #view-import #invSnapshot .table-u th {
+      background: var(--text);
+      color: var(--bg);
+      font-family: var(--font-head);
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .1em;
+      padding: 7px 12px;
+      border-bottom: none;
+    }
+    #view-import #invSnapshot .table-u td { padding: 6px 12px; }
+    #view-import #invSnapshot tr.row-total td {
+      font-weight: bold;
+      border-top: 2px solid var(--border-2);
     }
 
     /* ── Mode selector (stacked in the left column) ──────────────────────────── */
@@ -810,6 +844,7 @@
       });
 
       container.innerHTML = html;
+      impToggleSnapshot_(false);   // file cards claim the right column
 
       var totals = document.getElementById('totalsLine');
       totals.style.display = 'block';
@@ -1132,6 +1167,8 @@
 
       document.getElementById('fileCards').innerHTML       =
         '<div class="files-placeholder">Selected files will appear here with their column mapping.</div>';
+      impToggleSnapshot_(true);    // placeholder state — snapshot reclaims the idle space
+      impLoadSnapshot_();          // refetch: an import just rewrote the DASHBOARD snapshot
       document.getElementById('totalsLine').style.display  = 'none';
       document.getElementById('importBtn').disabled        = true;
       document.getElementById('importBtn').textContent     = 'Import Data';
@@ -1240,7 +1277,53 @@
       }).getVehicleTypes();
     }
     VIEW_INITS['view-import'] = initImportView_;
-    VIEW_SHOWN['view-import'] = loadImportSchema_;
+    VIEW_SHOWN['view-import'] = shownImportView_;
+
+    // On-show hook (every visit): schema/alias refresh + inventory snapshot.
+    function shownImportView_() {
+      loadImportSchema_();
+      impLoadSnapshot_();
+    }
+
+    /* ── Inventory snapshot (idle right column) ─────────────────────────────── */
+    var impSnapData = null;   // cached last response; re-rendered without refetch on file clear
+
+    function impLoadSnapshot_() {
+      google.script.run.withSuccessHandler(function(snap) {
+        impSnapData = snap;
+        impRenderSnapshot_();
+      }).withFailureHandler(function() {
+        impSnapData = { headers: [], rows: [], totals: null, error: 'Snapshot unavailable.' };
+        impRenderSnapshot_();
+      }).getInventorySnapshot();
+    }
+
+    function impRenderSnapshot_() {
+      var body = document.getElementById('invSnapBody');
+      if (!impSnapData) return;   // still loading — keep the hint
+      var s = impSnapData;
+      if (s.error || !s.headers || !s.headers.length) {
+        body.innerHTML = '<div class="u-hint">' + escHtml(s.error || 'No snapshot — run an import') + '</div>';
+        return;
+      }
+      var html = '<div class="inv-snap-scroll"><table class="table-u"><thead><tr>';
+      s.headers.forEach(function(h) { html += '<th>' + escHtml(h) + '</th>'; });
+      html += '</tr></thead><tbody>';
+      function tr(row, cls) {
+        return '<tr' + (cls ? ' class="' + cls + '"' : '') + '>' +
+               row.map(function(c) { return '<td>' + escHtml(c) + '</td>'; }).join('') + '</tr>';
+      }
+      s.rows.forEach(function(row) { html += tr(row, ''); });
+      if (s.totals) html += tr(s.totals, 'row-total');
+      html += '</tbody></table></div>';
+      body.innerHTML = html;
+    }
+
+    // Show/hide alongside the file-card placeholder: hidden while cards render,
+    // back when the form resets to the placeholder state.
+    function impToggleSnapshot_(show) {
+      document.getElementById('invSnapshot').style.display = show ? '' : 'none';
+    }
 
     /* ── Current Data panel ─────────────────────────────────────────────────── */
     var _cdFirstLoad = true;
