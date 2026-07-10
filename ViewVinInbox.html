@@ -3,9 +3,11 @@
      Reads the shared SF_LOT_SUBMISSIONS sheet via getVinSubmissions; groups
      pending submissions by order batch (legacy/blank-batch rows fall back to
      one group per dealer); lets the processor correct the OCR'd VIN
-     (updateVinSubmissionStatus), discard bad reads, and copy a batch's valid
-     VINs to paste into Run Order. (escHtml/toast from SharedUtils; batch
-     styling mirrors EomReportRenderer's .eomr-contact idiom.)
+     (updateVinSubmissionStatus), discard bad reads, or jump a batch's valid
+     VINs straight into Run Order ("Create order" → runPrefillFromInbox; the
+     batch is offered for discard once that order finalizes). (escHtml/toast
+     from SharedUtils; batch styling mirrors EomReportRenderer's .eomr-contact
+     idiom.)
 ════════════════════════════════════════════════════════════════════════════ -->
 <div class="view" id="view-vin-inbox" hidden>
   <div class="vi-scroll">
@@ -16,7 +18,7 @@
         <button type="button" class="btn-ghost" onclick="viLoad()">&#8635; Refresh</button>
       </div>
     </div>
-    <p class="u-hint" style="max-width:70ch;">Photos submitted from the Lot Scanner, grouped by dealer. Review/correct the read VIN, <strong>Discard</strong> bad reads — or copy a batch's valid VINs to paste into Run Order.</p>
+    <p class="u-hint" style="max-width:70ch;">Photos submitted from the Lot Scanner, grouped by dealer. Review/correct the read VIN, <strong>Discard</strong> bad reads — or <strong>Create order</strong> to jump the batch's valid VINs into Run Order.</p>
     <div id="viBody"><p class="u-hint">Loading&hellip;</p></div>
   </div>
 </div>
@@ -126,7 +128,7 @@
       html += '<span class="eomr-chip"><b>' + validCount + '</b> valid</span>';
       html += '</span>';
       html += '<span class="vi-batch-actions">';
-      html += '<button type="button" class="btn-secondary" onclick="viCopy(' + gi + ', event)">Copy valid VINs</button>';
+      html += '<button type="button" class="btn-secondary" onclick="viCreateOrder(' + gi + ', event)">Create order</button>';
       html += '<button type="button" class="btn-danger" onclick="viDeleteBatch(' + gi + ', event)">Discard batch</button>';
       html += '</span>';
       html += '</summary>';
@@ -185,30 +187,50 @@
     return h;
   }
 
-  function viCopy(gi, evt) {
-    // Copy button lives inside <summary> — a bare click would also toggle the batch open/closed.
+  function viCreateOrder(gi, evt) {
+    // Button lives inside <summary> — a bare click would also toggle the batch open/closed.
     if (evt) { evt.preventDefault(); evt.stopPropagation(); }
     var key = viGroupNames[gi];
     var rows = viSubs.filter(function (s) { return viGroupKey(s) === key; });
-    var label = rows.length ? (rows[0].dealerName || rows[0].dealerKey || '(unknown dealer)') : '';
+    if (!rows.length) return;
+    var label = rows[0].dealerName || rows[0].dealerKey || '(unknown dealer)';
     var seen = {}, vins = [];
     rows.forEach(function (s) {
       if (s.vin && s.valid && !seen[s.vin]) { seen[s.vin] = 1; vins.push(s.vin); }
     });
-    if (!vins.length) { toast('No valid VINs to copy for ' + label + '.', 'info'); return; }
-    viClip(vins.join('\n'));
-    toast(vins.length + ' VIN' + (vins.length === 1 ? '' : 's') + ' copied — paste into Run Order.', 'success');
+    if (!vins.length) { toast('No valid VINs in this batch', 'info'); return; }
+    // window.* property (never a bare var) so `typeof`/truthy checks are safe when
+    // Classic loads fragments standalone. ViewRun clears it on dealer switch;
+    // viMaybeDiscardBatch consumes it when the order finalizes.
+    window.viPendingBatch = {
+      ids: rows.map(function (s) { return s.id; }),
+      dealerKey: rows[0].dealerKey,
+      label: label,
+      count: rows.length
+    };
+    navTo('view-run');
+    if (typeof runPrefillFromInbox === 'function') runPrefillFromInbox(rows[0].dealerKey, vins);
   }
 
-  function viClip(text) {
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text); return; }
-    } catch (e) {}
-    var ta = document.createElement('textarea');
-    ta.value = text; ta.style.position = 'fixed'; ta.style.left = '-9999px';
-    document.body.appendChild(ta); ta.select();
-    try { document.execCommand('copy'); } catch (e2) {}
-    document.body.removeChild(ta);
+  // Called from ViewRun once the batch's run is fully resolved (≥1 card
+  // finalized, none pending). Clears the pending link FIRST so the prompt can
+  // fire at most once even if invoked twice.
+  function viMaybeDiscardBatch() {
+    var b = window.viPendingBatch;
+    if (!b) return;
+    window.viPendingBatch = null;
+    if (!confirm('Order generated from batch — discard the batch (' + b.count + ' submissions)?')) return;
+    toast('Discarding ' + b.count + ' submissions…', 'info');
+    google.script.run
+      .withSuccessHandler(function (res) {
+        if (!res || !res.ok) { toast('Batch discard failed: ' + escHtml((res && res.error) || '?'), 'error'); return; }
+        var msg = 'Discarded ' + res.updated + ' submission' + (res.updated === 1 ? '' : 's') + '.';
+        if (res.photosFailed > 0) msg += ' (' + res.photosFailed + ' photo(s) couldn\'t be deleted)';
+        toast(msg, 'success');
+        // No viLoad() here — VIEW_SHOWN['view-vin-inbox'] refreshes on next visit.
+      })
+      .withFailureHandler(function (e) { toast('Batch discard failed: ' + escHtml((e && e.message) || String(e)), 'error'); })
+      .updateVinSubmissionStatuses(b.ids, 'discarded');
   }
 
   function viAction(sid, status, vin, okMsg) {

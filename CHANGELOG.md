@@ -11,6 +11,7 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Added
+- VIN Inbox "Create order" batch action (replaces "Copy valid VINs") — jumps to Run Order with the batch's dealer preselected and its valid VINs appended (`runPrefillFromInbox`, mirroring the VIN Log jump precedent, + `CustomSelect.refresh` so the styled dropdown facade updates); once every result card is resolved with at least one finalized, prompts once to discard the source batch via the bulk endpoint. Cancelling the dealer-switch guard, switching dealers, or an all-abandoned run kills the pending link (fail-safe: batch rows stay in the inbox)
 - "Icon Rail" nav layout in UI Settings (`ui_nav_layout='icons'` → `data-nav="icons"`) — the collapsed hover-expanding sidebar, formerly reachable only via the Slate theme or Auto-hide
 - `--fs-lg` (16px) added to the base type scale in both SharedUtils copies — referenced by VIN Inbox / End of Month / lot-scan Capture but never defined (tokens debt)
 - `sweepLotPhotos()` editor utility (Code.gs Section 32) trashes the Drive photos of already-discarded/processed backlog rows; logs and returns `sweepLotPhotos: scanned=N trashed=N failed=N`. Idempotent (`setTrashed` on an already-trashed file is a no-op); crew-owned files the office can't trash just log/count. Rows are still retained (T5.2)

@@ -564,6 +564,9 @@
       }
       var key = this.value;
       lastConfirmedDealer = key;
+      // Switching dealers abandons any pending VIN-Inbox batch link (the inbox
+      // prefill itself passes this check — same key).
+      if (window.viPendingBatch && window.viPendingBatch.dealerKey !== key) window.viPendingBatch = null;
       updateSplitDealRow(key);
       updateButtons(); hideCaoSummary();
       document.getElementById('vinInput').value = '';
@@ -617,6 +620,20 @@
       ta.value = (cur === '' ? '' : cur + '\n') + list.join('\n');
       updateRunVinCount(); updateButtons();
       rvRenderTable();   // a programmatic .value set does NOT fire the input event, so render the table explicitly (CAO pre-fill)
+    }
+
+    // Cross-view jump support (VIN Inbox → "Create order"): select the batch's
+    // dealer through the normal change flow, then append its valid VINs.
+    // Mirrors vinlogPreselectDealer (ViewVinLog).
+    function runPrefillFromInbox(dealerKey, vins) {
+      var sel = document.getElementById('runDealerSelect');
+      sel.value = dealerKey;
+      sel.dispatchEvent(new Event('change'));   // full handler: un-finalized guard, clears textarea, loads dealer data
+      if (window.CustomSelect) CustomSelect.refresh(sel);   // sync the enhanced facade to the programmatic value
+      // Guard cancelled → the handler reverted the select (also catches a
+      // dealerKey with no matching option, which leaves sel.value = '').
+      if (sel.value !== dealerKey) { window.viPendingBatch = null; return; }
+      appendVins(vins);   // AFTER the change handler cleared the textarea
     }
 
     // Case-insensitive, order-preserving de-dup of a VIN list.
@@ -937,6 +954,18 @@
       document.getElementById('cardAbandon' + i).style.display = 'none';
       var statusEl = document.getElementById('cardStatus' + i);
       if (!statusEl.textContent) statusEl.textContent = 'Abandoned — not logged.';
+      runNotifyBatchIfDone_();   // covers finalize-one-then-abandon-one split runs
+    }
+
+    // VIN-Inbox batch link: once every card is resolved AND at least one was
+    // finalized, offer to discard the source batch. viMaybeDiscardBatch
+    // self-clears window.viPendingBatch, so this fires at most once per batch;
+    // an all-abandoned run (no finalized card) never prompts.
+    function runNotifyBatchIfDone_() {
+      if (!window.viPendingBatch) return;
+      if (hasUnfinalizedCards()) return;
+      if (!cardStates.some(function(s) { return s.state === 'finalized'; })) return;
+      if (typeof viMaybeDiscardBatch === 'function') viMaybeDiscardBatch();
     }
 
     function hasUnfinalizedCards() {
@@ -1027,7 +1056,7 @@
       statusEl.className = 'finalize-card-status ok';
       updateVinLogBtn();
 
-      if (method === 'test') return;   // never touches Pipedrive
+      if (method === 'test') { runNotifyBatchIfDone_(); return; }   // never touches Pipedrive
 
       // New/Existing: reflect the push outcome in the push sub-block.
       var wrap = document.getElementById('cardPush' + i);
@@ -1051,6 +1080,7 @@
           if (res.retryable) renderPushRetry(i, pushMode, existingDealId);
         } catch (e) {}
       }
+      runNotifyBatchIfDone_();   // after the push block renders, so the confirm doesn't block a half-drawn card
     }
 
     // Lock a finalized card's method controls (kept visible, read-only) and hide
