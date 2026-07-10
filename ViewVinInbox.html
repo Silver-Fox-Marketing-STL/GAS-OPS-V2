@@ -1,7 +1,8 @@
 <!-- ════════════════════════════════════════════════════════════════════════════
      VIN INBOX VIEW — office-side processing of Lot Scanner submissions.
      Reads the shared SF_LOT_SUBMISSIONS sheet via getVinSubmissions; groups
-     pending submissions by dealer; lets the processor correct the OCR'd VIN
+     pending submissions by order batch (legacy/blank-batch rows fall back to
+     one group per dealer); lets the processor correct the OCR'd VIN
      (updateVinSubmissionStatus), mark processed/discarded, and copy a dealer's
      confirmed VINs to paste into Run Order. (escHtml/toast from SharedUtils.)
 ════════════════════════════════════════════════════════════════════════════ -->
@@ -9,7 +10,10 @@
   <div class="vi-scroll">
     <div class="vi-head">
       <h2 class="u-h2" style="margin:0;">VIN Inbox</h2>
-      <button type="button" class="vi-refresh" onclick="viLoad()">&#8635; Refresh</button>
+      <div class="vi-head-actions">
+        <button type="button" class="btn-ghost" id="viOcrBtn" onclick="viRunOcr()" hidden>Run OCR (<span id="viOcrCount">0</span> queued)</button>
+        <button type="button" class="vi-refresh" onclick="viLoad()">&#8635; Refresh</button>
+      </div>
     </div>
     <p class="u-hint" style="max-width:70ch;">Photos submitted from the Lot Scanner, grouped by dealer. Review/correct the read VIN, mark each <strong>Processed</strong> or <strong>Discard</strong> — or copy a dealer's valid VINs to paste into Run Order.</p>
     <div id="viBody"><p class="u-hint">Loading&hellip;</p></div>
@@ -20,6 +24,7 @@
   #view-vin-inbox { height: 100%; background: var(--bg); color: var(--text); }
   #view-vin-inbox .vi-scroll { height: 100%; overflow-y: auto; padding: var(--space-5) var(--space-6); }
   #view-vin-inbox .vi-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+  #view-vin-inbox .vi-head-actions { display: flex; align-items: center; gap: var(--space-2); }
   #view-vin-inbox .vi-refresh { padding: 6px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); cursor: pointer; }
 
   #view-vin-inbox .vi-batch { margin-top: var(--space-5); border: none; }
@@ -29,6 +34,7 @@
   #view-vin-inbox .vi-caret { display: inline-block; flex-shrink: 0; color: var(--text-3); font-size: var(--fs-sm); transition: transform .15s ease; }
   #view-vin-inbox .vi-batch[open] > summary .vi-caret { transform: rotate(90deg); }
   #view-vin-inbox .vi-batch-title { min-width: 0; }
+  #view-vin-inbox .vi-group-sub { font-weight: 400; font-size: var(--fs-hint); color: var(--text-3); margin-left: var(--space-2); }
   #view-vin-inbox .vi-count { font-size: var(--fs-hint); color: var(--text-3); font-weight: 600; }
   #view-vin-inbox .vi-batch-actions { margin-left: auto; display: flex; gap: var(--space-2); flex-shrink: 0; }
   #view-vin-inbox .vi-copy { padding: 5px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); cursor: pointer; font-size: var(--fs-sm); }
@@ -65,38 +71,51 @@
       .withFailureHandler(function (e) {
         body.innerHTML = '<p class="vi-empty">Could not load submissions: ' + escHtml((e && e.message) || String(e)) + '</p>';
       })
-      .getVinSubmissions();   // no filter = OPEN work (draft + submitted)
+      .getVinSubmissions();   // no filter = submitted only (drafts stay field-owned until Send to office)
   }
 
   function viRender(res) {
     var body = document.getElementById('viBody');
-    if (!res || !res.ok) { body.innerHTML = '<p class="vi-empty">Error: ' + escHtml((res && res.error) || 'unknown') + '</p>'; return; }
+    if (!res || !res.ok) { body.innerHTML = '<p class="vi-empty">Error: ' + escHtml((res && res.error) || 'unknown') + '</p>'; viSubs = []; viRefreshOcrBtn(); return; }
     if (!res.configured) {
       body.innerHTML = '<p class="vi-empty">The submissions sheet isn’t linked yet. Set <code>LOT_SUBMISSIONS_SHEET_ID</code> in Code.gs (run the Lot Scanner’s <code>setupLotScannerResources()</code> once to create it).</p>';
+      viSubs = []; viRefreshOcrBtn();
       return;
     }
     viSubs = res.submissions || [];
+    viRefreshOcrBtn();
     if (!viSubs.length) { body.innerHTML = '<p class="vi-empty">No open submissions.</p>'; return; }
 
-    // Group by dealer name.
+    // Group by order batch (field app); legacy/blank-batch rows fall back to one group per dealer.
     var groups = {};
     viGroupNames = [];
     viSubs.forEach(function (s) {
-      var name = s.dealerName || s.dealerKey || '(unknown dealer)';
-      if (!groups[name]) { groups[name] = []; viGroupNames.push(name); }
-      groups[name].push(s);
+      var key = viGroupKey(s);
+      if (!groups[key]) { groups[key] = []; viGroupNames.push(key); }
+      groups[key].push(s);
     });
-    viGroupNames.sort();
+    // Newest-first by the group's first row submission time.
+    viGroupNames.sort(function (a, b) { return viGroupTime_(groups[b][0]) - viGroupTime_(groups[a][0]); });
 
     var html = '';
-    viGroupNames.forEach(function (name, gi) {
-      var rows = groups[name];
+    viGroupNames.forEach(function (key, gi) {
+      var rows = groups[key];
+      var isBatch = !!rows[0].batchId;
+      var name = rows[0].dealerName || rows[0].dealerKey || '(unknown dealer)';
+      var doneCount = rows.filter(function (r) { return r.ocrState !== 'queued'; }).length;
       // Collapsed by default (no `open` attr) — native <details> = no JS toggle state to manage.
       html += '<details class="vi-batch">';
       html += '<summary class="vi-group-head">';
       html += '<span class="vi-caret">&#9656;</span>';
-      html += '<span class="vi-batch-title">' + escHtml(name) + '</span>';
+      html += '<span class="vi-batch-title">' + escHtml(name);
+      if (isBatch) {
+        html += '<span class="vi-group-sub">' + escHtml(rows[0].email || '') + (rows[0].ts ? (' · ' + escHtml(rows[0].ts)) : '') + '</span>';
+      }
+      html += '</span>';
       html += '<span class="vi-count">' + rows.length + ' submission' + (rows.length === 1 ? '' : 's') + '</span>';
+      if (isBatch && doneCount < rows.length) {
+        html += '<span class="tag tone-info">' + doneCount + '/' + rows.length + ' read</span>';
+      }
       html += '<span class="vi-batch-actions">';
       html += '<button type="button" class="vi-copy" onclick="viCopy(' + gi + ', event)">Copy valid VINs</button>';
       html += '<button type="button" class="btn-danger" onclick="viDeleteBatch(' + gi + ', event)">Discard batch</button>';
@@ -107,6 +126,15 @@
       html += '</div></details>';
     });
     body.innerHTML = html;
+  }
+
+  // Grouping key: batch id when present, else one bucket per dealer (legacy/blank-batch rows).
+  function viGroupKey(s) {
+    return s.batchId || ('dealer:' + (s.dealerName || s.dealerKey));
+  }
+  function viGroupTime_(s) {
+    var t = Date.parse(s.ts);
+    return isNaN(t) ? 0 : t;
   }
 
   function viCard(s) {
@@ -130,7 +158,6 @@
     h += '<div class="vi-info">';
     h += '<div class="vi-vin">' + escHtml(s.vin || (queued ? '(processing…)' : '(no VIN)')) + '</div>';
     h += '<div class="vi-tags">';
-    if (s.isDraft) h += '<span class="tag tone-warning">draft — not yet sent</span>';
     if (queued) {
       h += '<span class="tag tone-neutral">still processing…</span>';
     } else {
@@ -154,13 +181,14 @@
   function viCopy(gi, evt) {
     // Copy button lives inside <summary> — a bare click would also toggle the batch open/closed.
     if (evt) { evt.preventDefault(); evt.stopPropagation(); }
-    var name = viGroupNames[gi];
+    var key = viGroupNames[gi];
+    var rows = viSubs.filter(function (s) { return viGroupKey(s) === key; });
+    var label = rows.length ? (rows[0].dealerName || rows[0].dealerKey || '(unknown dealer)') : '';
     var seen = {}, vins = [];
-    viSubs.forEach(function (s) {
-      var n = s.dealerName || s.dealerKey || '(unknown dealer)';
-      if (n === name && s.vin && s.valid && !seen[s.vin]) { seen[s.vin] = 1; vins.push(s.vin); }
+    rows.forEach(function (s) {
+      if (s.vin && s.valid && !seen[s.vin]) { seen[s.vin] = 1; vins.push(s.vin); }
     });
-    if (!vins.length) { toast('No valid VINs to copy for ' + name + '.', 'info'); return; }
+    if (!vins.length) { toast('No valid VINs to copy for ' + label + '.', 'info'); return; }
     viClip(vins.join('\n'));
     toast(vins.length + ' VIN' + (vins.length === 1 ? '' : 's') + ' copied — paste into Run Order.', 'success');
   }
@@ -179,7 +207,14 @@
   function viAction(sid, status, vin, okMsg) {
     google.script.run
       .withSuccessHandler(function (res) {
-        if (res && res.ok) { if (okMsg) toast(okMsg, 'success'); viLoad(); }
+        if (res && res.ok) {
+          if (okMsg) {
+            var msg = okMsg, tone = 'success';
+            if (res.photoTrashed === false) { msg += ' (photo not deleted)'; tone = 'info'; }
+            toast(msg, tone);
+          }
+          viLoad();
+        }
         else { toast('Failed: ' + escHtml((res && res.error) || '?'), 'error'); }
       })
       .withFailureHandler(function (e) { toast('Failed: ' + escHtml((e && e.message) || String(e)), 'error'); })
@@ -196,40 +231,74 @@
   function viDeleteBatch(gi, evt) {
     // Button lives inside <summary> — prevent the click from also toggling the batch open/closed.
     if (evt) { evt.preventDefault(); evt.stopPropagation(); }
-    var name = viGroupNames[gi];
-    var rows = viSubs.filter(function (s) { return (s.dealerName || s.dealerKey || '(unknown dealer)') === name; });
+    var key = viGroupNames[gi];
+    var rows = viSubs.filter(function (s) { return viGroupKey(s) === key; });
     if (!rows.length) return;
     if (!confirm('Discard all ' + rows.length + ' submissions in this batch?')) return;
     var btn = evt && evt.currentTarget;
     if (btn) btn.disabled = true;
     toast('Discarding ' + rows.length + ' submissions…', 'info');
-    viDeleteBatchStep(rows, 0, btn);
-  }
-
-  // ponytail: chains updateVinSubmissionStatus one call at a time (same status/vin as the
-  // per-card Discard) — no batch server fn exists yet; add one if batches get large.
-  function viDeleteBatchStep(rows, idx, btn) {
-    if (idx >= rows.length) {
-      if (btn) btn.disabled = false;
-      toast('Discarded ' + rows.length + ' submission' + (rows.length === 1 ? '' : 's') + '.', 'success');
-      viLoad();
-      return;
-    }
     google.script.run
       .withSuccessHandler(function (res) {
+        if (btn) btn.disabled = false;
         if (!res || !res.ok) {
-          toast('Batch discard failed on submission ' + (idx + 1) + ' of ' + rows.length + ': ' + escHtml((res && res.error) || '?'), 'error');
-          if (btn) btn.disabled = false;
+          toast('Batch discard failed: ' + escHtml((res && res.error) || '?'), 'error');
           viLoad();
           return;
         }
-        viDeleteBatchStep(rows, idx + 1, btn);
-      })
-      .withFailureHandler(function (e) {
-        toast('Batch discard failed on submission ' + (idx + 1) + ' of ' + rows.length + ': ' + escHtml((e && e.message) || String(e)), 'error');
-        if (btn) btn.disabled = false;
+        var msg = 'Discarded ' + res.updated + ' submission' + (res.updated === 1 ? '' : 's') + '.';
+        if (res.photosFailed > 0) msg += ' (' + res.photosFailed + ' photo(s) couldn\'t be deleted)';
+        toast(msg, 'success');
         viLoad();
       })
-      .updateVinSubmissionStatus(rows[idx].id, 'discarded', '');
+      .withFailureHandler(function (e) {
+        if (btn) btn.disabled = false;
+        toast('Batch discard failed: ' + escHtml((e && e.message) || String(e)), 'error');
+        viLoad();
+      })
+      .updateVinSubmissionStatuses(rows.map(function (s) { return s.id; }), 'discarded');
+  }
+
+  // ── Run OCR — office-side manual trigger (scanner no longer OCRs its own queue) ──
+  function viRefreshOcrBtn() {
+    var btn = document.getElementById('viOcrBtn');
+    if (!btn) return;
+    var n = viSubs.filter(function (s) { return s.ocrState === 'queued'; }).length;
+    var countEl = document.getElementById('viOcrCount');
+    if (countEl) countEl.textContent = n;
+    btn.hidden = (n === 0);
+  }
+
+  function viRunOcr() {
+    var btn = document.getElementById('viOcrBtn');
+    if (btn) btn.disabled = true;
+    viOcrStep(0);
+  }
+
+  function viOcrStep(doneSoFar) {
+    google.script.run
+      .withSuccessHandler(function (res) {
+        var btn = document.getElementById('viOcrBtn');
+        if (!res || !res.ok) {
+          toast('OCR failed: ' + escHtml((res && res.error) || '?'), 'error');
+          if (btn) btn.disabled = false;
+          return;
+        }
+        var total = doneSoFar + res.processed;
+        toast('OCR: ' + total + ' done, ' + res.remaining + ' remaining…', 'info');
+        if (res.remaining > 0 && res.processed > 0) {
+          viOcrStep(total);
+        } else {
+          if (btn) btn.disabled = false;
+          toast('OCR finished — ' + total + ' processed.', 'success');
+          viLoad();
+        }
+      })
+      .withFailureHandler(function (e) {
+        toast('OCR failed: ' + escHtml((e && e.message) || String(e)), 'error');
+        var btn = document.getElementById('viOcrBtn');
+        if (btn) btn.disabled = false;
+      })
+      .runInboxOcr(10);
   }
 </script>

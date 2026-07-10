@@ -198,6 +198,14 @@ in an unfamiliar subsystem (Pipedrive push, Lot Scanner, theme system, import).
 - Concurrent appends lose rows unless the sheet is opened INSIDE the lock and
   `flush()`ed before release — or better, serialize all row-writing through one
   chunked committer and parallelize only the slow upload.
+- `LockService` is per-SCRIPT-PROJECT — two scripts sharing a sheet can't lock each
+  other out; a slow cross-project loop must carry a stable row id and re-verify it
+  (re-locate/skip) before each write, else a sibling project's `deleteRow` shifts rows
+  under cached row numbers (office `runInboxOcr` vs the scanner).
+- Drive trash is owner-only for *My-Drive* files (a `USER_ACCESSING` upload makes the
+  uploader the owner) — a Shared Drive makes files org-owned with role-based trash (crew
+  needs Content Manager); find-or-create of a shared folder under a parallel upload pool
+  needs double-checked locking (raced → two subfolders).
 
 **SPA / HtmlService**
 - Every view root must declare `background: var(--bg); color: var(--text)` —
@@ -208,6 +216,9 @@ in an unfamiliar subsystem (Pipedrive push, Lot Scanner, theme system, import).
   helpers (`ps*`/`tr*`/`pd*`); a duplicate top-level function silently clobbers.
 - Include `SharedUtils` BEFORE views; element queries view-scoped
   (`view.querySelector`); `addEventListener`, never `window.onresize =`.
+- `lot-scan/SharedUtils.html` is an OLD divergent copy (pre-unified-component-layer — no
+  `.tag`/`.tone-*`); a class emitted in lot-scan HTML must exist in lot-scan's OWN files,
+  not just the main app's.
 - Never interpolate a dynamic string into an inline `onclick` — pass an integer
   index into a JS-side array (an apostrophe in the value kills the row silently).
 - CSS Grid blockifies children and defaults to `stretch` — restore each child's

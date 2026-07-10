@@ -11,11 +11,23 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Added
+- `sweepLotPhotos()` editor utility (Code.gs Section 32) trashes the Drive photos of already-discarded/processed backlog rows; logs and returns `sweepLotPhotos: scanned=N trashed=N failed=N`. Idempotent (`setTrashed` on an already-trashed file is a no-op); crew-owned files the office can't trash just log/count. Rows are still retained (T5.2)
+- Office-side manual OCR runner (Code.gs Section 32: `extractVinFromImage_`, `extractVinCandidates_`, `analyzeDriveFile_`, `runInboxOcr`) + VIN Inbox "Run OCR (N queued)" button — replaces the Lot Scanner's per-user `drainOcrQueue` trigger, which stalled in the field (batches sent to the office before OCR drained sat at `ocr_state='queued'` forever). Processes submitted rows (drafts are OCR'd only after the crew sends the batch to the office). Main app gains the Drive v2 advanced service (T3.1)
+- Lot Scanner Drafts — "Add more photos" resumes a draft batch into the capture flow (shared `vpBeginShooting`); appended photos commit under the same batchId and fold into the same batch card (T5.4)
+- Lot Scanner Drafts: OCR progress chips + auto-refresh while OCR drains (visibility-gated), edit-safe re-renders
+- `updateVinSubmissionStatuses` bulk server fn (Code.gs Section 32) — VIN Inbox's "Discard batch" now issues one bulk call instead of a serial per-row loop (T2.2)
 - Unified component layer in SharedUtils (canonical buttons/pills/tags/table, --font-mono token) — SuperDesign variant 1 spec
 - Visual nesting hierarchy for targeting-rule groups in Dealer Rules → Filtering Rules (rails, depth steps, AND/OR chips) — F3
 - VIN Inbox: batches collapsible via native `<details>` (collapsed by default) with a submission count in the summary, plus a "Discard batch" action that serially discards every submission in a batch and refreshes the list — F4
 
 ### Changed
+- Lot Scanner photos now land on a Shared Drive — `LOT_PHOTOS_FOLDER_ID` swapped to the new "SF Lot Submissions" Shared-Drive folder. Files there are org-owned, so office discard/processed photo-trash works regardless of which crew member shot the photo (My-Drive files were owner-trashable only; all app users need Content Manager). Dealer subfolders auto-recreate; old-folder photos still read fine (fileId-based) and trashing them fails soft
+- VIN Inbox discard AND processed now best-effort-trash the submission's Drive photo (single `updateVinSubmissionStatus` + bulk `updateVinSubmissionStatuses` paths, via `trashLotPhoto_`), with untrashable files (e.g. crew-owned My-Drive photos the office can't trash) counted and surfaced in the toast. Rows are still retained; PHOTO_ID is not blanked (keeps the sweep idempotent) (T5.2)
+- VIN Inbox now shows SENT submissions only — `getVinSubmissions` default filter and `runInboxOcr` both exclude `status='draft'` (were draft+submitted) so the client Run-OCR count and the server OCR pass agree; drafts stay field-owned until "Send to office"
+- Lot Scanner is capture/upload/batch/dealer/send only — OCR (`drainOcrQueue`/`ensureOcrTrigger` + the per-user time trigger) is stripped now that the office runs it manually from VIN Inbox (T3.2). Drafts loses its OCR-drain poll (interval + visibilitychange listener) and the "N/M read" chip; a draft's rows still land `ocr_state='queued'` when no barcode matched, which is now simply the office's signal. `lot-scan/appsscript.json` drops the Drive v2 advanced service (no remaining `Drive.` call — `uploadPhotoOnly`/`saveBlobToDrive_` use plain `DriveApp`)
+- Lot Scanner: order-session capture flow (tap-loop camera, background upload queue, incremental draft commits) replaces the real-time OCR flow; gallery upload folded into orders
+- VIN Inbox: groups by order batch (`batchId`) instead of dealer name, with an OCR-progress "N/M read" chip while a batch is still processing; legacy/blank-batch rows still fall back to one group per dealer; groups sort newest-first (T2.1)
+- Lot Scanner server: barcode VINs ride batch commits (skip OCR); correction extracted to correctSubmissionVin; synchronous-OCR capture path retired behind a deprecation stub
 - Unified pills sized up (11px, 6px/14px padding) per design review
 - Run Order migrated to the unified component layer (buttons, pills, table, focus ring)
 - Normalization + Field Codes migrated to the unified component layer
@@ -29,7 +41,13 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 - Home + VIN Logs migrated to the unified component layer
 - Encarta table-header override retargeted to .table-u; theme coupling audit clean
 
+### Removed
+- Lot Scanner Drafts — OCR-era field UI (`processing…` badge, `(no VIN)` text, per-row Re-check + now-dead server `correctSubmissionVin`/`updateLotSubmissionVin_`) and the debug + live-camera PROBE dev panels (incl. `.ls-diag` CSS). A no-barcode draft row now shows a neutral "office reads VIN" badge
+
 ### Fixed
+- `getDealerPhotoFolder_` no longer creates duplicate dealer subfolders when a dealer's first-ever photos upload through the 5-wide parallel pool (field-hit on the fresh Shared-Drive folder: one order → two subfolders). Fast path stays lock-free; the create path takes a script lock and re-checks inside it. An upload never fails on lock contention (best-effort wait)
+- `runInboxOcr` re-verifies each row's ID immediately before writing OCR results and re-locates by ID (or skips) if it moved — the scanner project `deleteRow`s on discard and LockService can't coordinate across the two scripts, so a crew discard mid-OCR-run shifted rows under the office's cached row numbers (whole-branch review finding; same corruption class as the old trigger's orphan rows)
+- Lot Scanner: finish guards failed photos (no silent drop); idempotent batch commits (no dupes on retry); OCR-trigger + send failures surfaced; cancellable finish
 - Targeting-rule AND/OR chip suppressed by the select enhancer (data-no-cs); danger-row tint no longer lost on hover
 - Norm + Field Codes tables no longer flush against the page edge
 - VIN Inbox view root now declares `background: var(--bg)` — same dark-theme white-guard trap as the EOM view (July 2026), caught this time during migration instead of after ship

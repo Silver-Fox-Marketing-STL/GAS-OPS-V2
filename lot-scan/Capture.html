@@ -47,40 +47,39 @@
     .ls-shoot-btn-alt { background: var(--surface-2); color: var(--accent); border: 1px solid var(--border); }
     .ls-count { font-size: var(--fs-hint); color: var(--text-3); margin: var(--space-1) 0 var(--space-3); }
 
-    /* result panel (camera) + draft rows */
-    .ls-result, .ls-batch { margin-top: var(--space-2); }
+    /* queue strip (order-session capture pipeline) */
+    .ls-qstrip { display: flex; gap: var(--space-2); overflow-x: auto; -webkit-overflow-scrolling: touch;
+      padding: var(--space-1) 0 var(--space-2); }
+    .ls-qitem { flex: 0 0 auto; width: 64px; }
+    .ls-qthumb { width: 64px; height: 64px; border-radius: var(--radius-sm); overflow: hidden;
+      border: 1px solid var(--border); background: var(--surface-2); }
+    .ls-qthumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+    .ls-qchip { display: block; margin-top: 2px; font-size: var(--fs-hint); font-weight: 700; text-align: center;
+      padding: 1px 2px; border-radius: var(--radius-sm); background: var(--surface-3); color: var(--text-2);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ls-qchip.uploading, .ls-qchip.saving { background: var(--warning-weak); color: var(--warning); }
+    .ls-qchip.saved { background: var(--success-weak); color: var(--success); }
+    .ls-qchip.failed { background: var(--danger-weak); color: var(--danger); cursor: pointer; text-decoration: underline; }
+
     .ls-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-4); }
-    .ls-card.pass   { border-left: 5px solid var(--success, #1c7a3a); }
-    .ls-card.verify { border-left: 5px solid var(--warning, #c87f00); }
-    .ls-card.fail   { border-left: 5px solid var(--danger,  #b3261e); }
-    .ls-status { font-family: var(--font-head); font-weight: 800; font-size: var(--fs-lg); margin: 0 0 var(--space-2); }
-    .ls-status.pass { color: var(--success, #1c7a3a); }
-    .ls-status.verify { color: var(--warning, #c87f00); }
-    .ls-status.fail { color: var(--danger, #b3261e); }
     .ls-vin { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-lg); font-weight: 700;
               letter-spacing: .04em; word-break: break-all; }
     .ls-veh { font-size: var(--fs-sm); color: var(--text-2); margin-top: 2px; }
-    .ls-edit { display: flex; gap: var(--space-2); margin-top: var(--space-3); }
-    .ls-edit input { flex: 1; min-width: 0; padding: 10px; font-family: var(--font-mono, ui-monospace, monospace);
-      text-transform: uppercase; border: 1px solid var(--border); border-radius: var(--radius-sm);
-      background: var(--surface); color: var(--text); }
     .ls-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
     .ls-btn { flex: 1 1 130px; padding: 12px; text-align: center; cursor: pointer; font-weight: 700; font-size: var(--fs-sm);
       border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); }
     .ls-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-    .ls-scanning { color: var(--text-3); font-style: italic; padding: var(--space-3) 0; }
+    .ls-btn.disabled { opacity: .5; pointer-events: none; }
     .ls-hint { color: var(--text-3); font-size: var(--fs-sm); }
     .ls-view { display: inline-block; margin-top: var(--space-2); padding: 6px 12px; border: 1px solid var(--border);
       border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); text-decoration: none; font-size: var(--fs-sm); }
-    /* inline photo (camera = local capture, drafts = Drive thumbnail) + tap-to-enlarge lightbox */
+    /* inline photo (drafts = Drive thumbnail) + tap-to-enlarge lightbox */
     .ls-photo { display: block; width: 100%; max-height: 42vh; object-fit: contain; margin-top: var(--space-2);
       border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); cursor: zoom-in; }
     .ls-lightbox { position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,.9);
       display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
     .ls-lightbox[hidden] { display: none; }
     .ls-lightbox img { max-width: 96vw; max-height: 96vh; object-fit: contain; }
-    .ls-diag { margin-top: var(--space-2); font-size: var(--fs-hint); color: var(--text-3); word-break: break-all; }
-    .ls-diag summary { cursor: pointer; }
     .ls-badge { font-size: var(--fs-hint); font-weight: 700; padding: 1px 8px; border-radius: 999px; }
     .ls-badge.ok { background: var(--success-weak, #dcefe0); color: var(--success, #1c7a3a); }
     .ls-badge.bad { background: var(--danger-weak, #f6dcdc); color: var(--danger, #b3261e); }
@@ -113,25 +112,39 @@
 
     <!-- ── CAPTURE ────────────────────────────────────────────────── -->
     <div id="viewCapture">
-      <div class="ls-row">
-        <span class="ls-label">Dealer</span>
-        <select id="lsDealer" onchange="vpDealerChange()"><option value="">Loading&hellip;</option></select>
+
+      <!-- IDLE: pick a dealer, start an order -->
+      <div id="lsIdle">
+        <div class="ls-row">
+          <span class="ls-label">Dealer</span>
+          <select id="lsDealer" onchange="vpDealerChange()"><option value="">Loading&hellip;</option></select>
+        </div>
+        <button type="button" class="ls-shoot-btn" id="lsStartBtn" onclick="vpStartOrder()">&#9654;&nbsp; Start New Order</button>
       </div>
 
-      <div class="ls-shoot-row">
-        <label class="ls-shoot">
-          <input type="file" id="lsPhoto" accept="image/*" capture="environment" onchange="vpCameraSelected(this)">
-          <span class="ls-shoot-btn" id="lsShootBtn">&#128247;&nbsp; Scan a VIN</span>
-        </label>
-        <label class="ls-shoot">
-          <input type="file" id="lsGallery" accept="image/*" multiple onchange="vpGallerySelected(this)">
-          <span class="ls-shoot-btn ls-shoot-btn-alt" id="lsGalleryBtn">&#11014;&nbsp; Upload batch</span>
-        </label>
-      </div>
-      <div class="ls-count" id="lsCount"></div>
+      <!-- SHOOTING: one order = one dealer, until Finish -->
+      <div id="lsShooting" hidden>
+        <div class="ls-hint" id="lsOrderDealer" style="margin-bottom: var(--space-2);"></div>
 
-      <div class="ls-batch" id="lsBatch"></div>
-      <div class="ls-result" id="lsResult"></div>
+        <div class="ls-shoot-row">
+          <label class="ls-shoot">
+            <input type="file" id="lsPhoto" accept="image/*" capture="environment" onchange="vpPhotoSelected(this)">
+            <span class="ls-shoot-btn" id="lsShootBtn">&#128247;&nbsp; Take photo</span>
+          </label>
+          <label class="ls-shoot">
+            <input type="file" id="lsGallery" accept="image/*" multiple onchange="vpGallerySelected(this)">
+            <span class="ls-shoot-btn ls-shoot-btn-alt" id="lsGalleryBtn">&#128444;&nbsp; Add from gallery</span>
+          </label>
+        </div>
+        <div class="ls-count" id="lsCount">0 photos &middot; 0 saved</div>
+
+        <div class="ls-qstrip" id="lsQueue"></div>
+
+        <div class="ls-actions">
+          <button type="button" class="ls-btn" id="lsFinishBtn" onclick="vpFinishOrder(false)">Finish order</button>
+          <button type="button" class="ls-btn primary" id="lsFinishSendBtn" onclick="vpFinishOrder(true)">Finish &amp; Send</button>
+        </div>
+      </div>
     </div>
 
     <!-- ── DRAFTS ─────────────────────────────────────────────────── -->
@@ -149,9 +162,6 @@
   <script>
     // (Standalone page — symbols prefixed `vp`. escHtml/toast/CustomSelect from SharedUtils.)
     var vpVinMap = {}, vpDealerKey = '';
-    var vpSessionBatch = 'cam' + Date.now();   // groups a camera session in the office inbox
-    var vpSessionCount = 0, vpFail = 0;         // consecutive OCR-fail counter (real-time)
-    var vpLastSid = '', vpLastPhotoUrl = '', vpLastDiag = {}, vpLastB64 = '';
 
     // ── Client VIN check (mirror of the server isValidVin_) ──
     var VP_TRANSLIT = { A:1,B:2,C:3,D:4,E:5,F:6,G:7,H:8,J:1,K:2,L:3,M:4,N:5,P:7,R:9,S:2,T:3,U:4,V:5,W:6,X:7,Y:8,Z:9,
@@ -173,13 +183,18 @@
         .getCaptureBootstrap();
     });
 
-    function vpTab(which) {
+    var vpOpenBatchId = '';   // batchId to auto-open in Drafts after a Finish (consumed once)
+    var vpDraftsOpenIds = {};      // batchIds expanded in the DOM at the moment of the last drafts fetch (preserved across re-render)
+    var vpDraftsFetching = false;  // single-flight guard — skip a load if a fetch is already running
+    var vpDraftMeta = {};          // batchId → {dealerKey, dealerName} from the last drafts render (never inlined — "Add more photos" resume reads it here)
+
+    function vpTab(which, batchId) {
       var cap = which === 'capture';
       document.getElementById('viewCapture').hidden = !cap;
       document.getElementById('viewDrafts').hidden = cap;
       document.getElementById('tabCapture').classList.toggle('active', cap);
       document.getElementById('tabDrafts').classList.toggle('active', !cap);
-      if (!cap) vpLoadDrafts();
+      if (!cap) { if (batchId) vpOpenBatchId = batchId; vpLoadDrafts(); }
     }
 
     function vpInitDealers(b) {
@@ -195,345 +210,437 @@
     function vpDealerChange() {
       vpDealerKey = document.getElementById('lsDealer').value || '';
       vpVinMap = {};
-      vpSetShoot();
+      vpSetStart();
       if (!vpDealerKey) return;
       google.script.run.withSuccessHandler(function (m) { vpVinMap = m || {}; }).getDealerVinMap(vpDealerKey);
     }
-    function vpSetShoot() {
-      var off = !vpDealerKey;
-      document.getElementById('lsShootBtn').classList.toggle('disabled', off);
-      document.getElementById('lsGalleryBtn').classList.toggle('disabled', off);
+    function vpSetStart() {
+      document.getElementById('lsStartBtn').classList.toggle('disabled', !vpDealerKey);
     }
 
-    // ════════════════ REAL-TIME CAMERA (guided) ════════════════
-    function vpCameraSelected(input) {
+    // ════════════════ ORDER-SESSION STATE MACHINE (Idle → Shooting → Finish) ════════════════
+    var vpOrder = null;       // { dealerKey, dealerName, batchId } while an order is open
+    var vpFinishing = null;   // null | { send: bool } — set while Finish is draining the pipeline
+
+    function vpStartOrder() {
+      var sel = document.getElementById('lsDealer');
+      var dealerKey = sel.value || '';
+      if (!dealerKey) { toast('Pick a dealer first.', 'info'); return; }
+      var dealerName = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : dealerKey;
+      var batchId = 'ord' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+      vpBeginShooting(dealerKey, dealerName, batchId, dealerName + ' — new order');
+    }
+
+    // Enter the Shooting pane for a dealer + batchId — fresh pipeline, dealer lock. Shared by
+    // vpStartOrder (new batchId) and vpResumeOrder (an existing draft's batchId).
+    function vpBeginShooting(dealerKey, dealerName, batchId, label) {
+      vpOrder = { dealerKey: dealerKey, dealerName: dealerName, batchId: batchId };
+      vpQueue = []; vpPending = []; vpBuffer = [];
+      vpEng = { decoding: false, inFlight: 0, committing: false };
+      vpFinishing = null;
+      var sel = document.getElementById('lsDealer');
+      sel.value = dealerKey; sel.disabled = true;   // native value is the source of truth; CustomSelect self-heals its label on next open (_rebuild)
+      document.getElementById('lsIdle').hidden = true;
+      document.getElementById('lsShooting').hidden = false;
+      document.getElementById('lsOrderDealer').textContent = label;
+      vpRenderQueue(); vpUpdateCount(); vpUpdateFinishUI();
+    }
+
+    function vpFinishOrder(send) {
+      if (!vpOrder || vpFinishing) return;
+      vpFinishing = { send: !!send };
+      vpUpdateFinishUI();
+      vpCheckFinishDrain();
+    }
+
+    function vpCheckFinishDrain() {
+      vpUpdateFinishUI();
+      if (!vpFinishing || vpPendingCount() !== 0) return;
+      // DATA-LOSS GUARD: capture= photos never hit the camera roll, so finishing past a
+      // failed item silently destroys the photo. Never complete over failures without an
+      // explicit OK.
+      var failed = vpQueue.filter(function (q) { return q.state === 'failed'; }).length;
+      if (failed) {
+        if (!confirm(failed + ' photo(s) failed to save — finish WITHOUT them? (Cancel to stay and retry)')) {
+          vpFinishing = null;   // back to Shooting — failed chips stay tappable for retry
+          vpUpdateFinishUI();
+          return;
+        }
+      }
+      vpCompleteFinish();
+    }
+
+    function vpCompleteFinish() {
+      var order = vpOrder, send = vpFinishing && vpFinishing.send;
+      var savedN = vpQueue.filter(function (q) { return q.state === 'saved'; }).length;
+      vpFinishing = null;
+      vpEndOrder();
+      if (send) {
+        google.script.run
+          .withSuccessHandler(function (res) {
+            if (res && res.ok) {
+              // Sent batches leave the Drafts list — confirm instead of auto-opening a gone batch.
+              toast('Batch sent to office ✓ (' + (res.sent != null ? res.sent : savedN) + ' photos)', 'success');
+              vpTab('drafts');
+            } else {
+              toast('Send failed: ' + ((res && res.error) || 'unknown'), 'error');
+              vpTab('drafts', order.batchId);   // still a draft — open it
+            }
+          })
+          .withFailureHandler(function (e) { toast('Send failed: ' + ((e && e.message) || e), 'error'); vpTab('drafts', order.batchId); })
+          .sendDraftBatch(order.batchId);
+      } else {
+        vpTab('drafts', order.batchId);
+      }
+    }
+
+    function vpEndOrder() {
+      vpOrder = null; vpQueue = []; vpPending = []; vpBuffer = [];
+      vpEng = { decoding: false, inFlight: 0, committing: false };
+      vpFinishing = null;
+      document.getElementById('lsQueue').innerHTML = '';
+      document.getElementById('lsShooting').hidden = true;
+      document.getElementById('lsIdle').hidden = false;
+      document.getElementById('lsDealer').disabled = false;
+      if (window.CustomSelect) CustomSelect.refresh(document.getElementById('lsDealer'));   // repaint facade after re-enable: syncs label to native value + clears aria-disabled (resume may have changed the dealer)
+      vpUpdateFinishUI();
+    }
+
+    function vpUpdateFinishUI() {
+      var fb = document.getElementById('lsFinishBtn'), fsb = document.getElementById('lsFinishSendBtn');
+      var shoot = document.getElementById('lsShootBtn'), gal = document.getElementById('lsGalleryBtn');
+      if (!fb || !fsb || !shoot || !gal) return;
+      if (vpFinishing) {
+        var label = 'Saving ' + vpPendingCount() + '…';
+        fb.textContent = vpFinishing.send ? 'Finish order' : label;
+        fsb.textContent = vpFinishing.send ? label : 'Finish & Send';
+        fb.classList.add('disabled'); fsb.classList.add('disabled');
+        shoot.classList.add('disabled'); gal.classList.add('disabled');
+      } else {
+        fb.textContent = 'Finish order'; fsb.textContent = 'Finish & Send';
+        fb.classList.remove('disabled'); fsb.classList.remove('disabled');
+        shoot.classList.remove('disabled'); gal.classList.remove('disabled');
+      }
+    }
+
+    // ════════════════ CAPTURE PIPELINE ENGINE (per open order) ════════════════
+    // reading (decode, one at a time) → uploading (join a 5-wide pool) → saving
+    // (uploaded, buffered) → saved (COMMITTED — a row exists in the sheet), or
+    // failed [tap to retry from the in-memory file/b64]. One commit call in
+    // flight ever (server-side no-lost-rows lock discipline).
+    var vpQueue = [];      // {id, file, state, thumb, b64, vin, fileId, url, error}
+    var vpPending = [];    // items still waiting to decode (FIFO)
+    var vpBuffer = [];     // uploaded, not yet committed
+    var vpEng = { decoding: false, inFlight: 0, committing: false };
+    var vpEngPool = 5;
+    var vpQNextId = 1;
+
+    function vpPhotoSelected(input) {
       var file = input.files && input.files[0];
       input.value = '';
       if (!file) return;
-      if (!vpDealerKey) { toast('Pick a dealer first.', 'info'); return; }
-      document.getElementById('lsBatch').innerHTML = '';
-      vpResultHtml('<div class="ls-card"><div class="ls-scanning">Reading VIN&hellip;</div></div>');
-      var url = URL.createObjectURL(file);
-      var img = new Image();
-      img.onload = function () {
-        vpTryBarcode(img, function (barcodeVin) {
-          var b64 = vpToBase64(img);
-          vpLastB64 = b64;   // keep the local capture to show inline in the result panel
-          URL.revokeObjectURL(url);
-          vpLastDiag = { zxing: !!window.ZXing, barcode: barcodeVin || '(none)' };
-          google.script.run
-            .withSuccessHandler(vpCameraResult)
-            .withFailureHandler(function (e) { vpResultHtml('<div class="ls-card fail"><div class="ls-veh">Failed: ' + escHtml((e && e.message) || String(e)) + '</div></div>'); })
-            .submitVinPhoto(vpDealerKey, b64, barcodeVin || '', '', vpSessionBatch);
-        });
-      };
-      img.onerror = function () { URL.revokeObjectURL(url); toast('Could not read that image.', 'error'); };
-      img.src = url;
+      if (!vpOrder) { toast('Start an order first.', 'info'); return; }
+      if (vpFinishing) { toast('Finishing — wait a moment.', 'info'); return; }
+      vpEnqueueFiles([file]);
     }
-
-    function vpCameraResult(res) {
-      if (!res || !res.ok) { vpResultHtml('<div class="ls-card fail"><div class="ls-veh">Failed: ' + escHtml((res && res.error) || 'unknown') + '</div></div>'); return; }
-      vpSessionCount++;
-      document.getElementById('lsCount').textContent = vpSessionCount + ' captured this session';
-      vpLastSid = res.submissionId || '';
-      vpLastPhotoUrl = res.photoUrl || '';
-      if (res.valid && res.matched) { vpFail = 0; vpRenderPass(res); }
-      else if (res.valid)           { vpFail = 0; vpRenderVerify(res); }
-      else                          { vpFail++;   vpRenderFail(res); }
-    }
-
-    function vpRenderPass(res) {
-      var veh = res.vehicle || {};
-      var line = [veh.year, veh.make, veh.model, veh.type].filter(Boolean).join(' ') + (veh.stock ? (' · Stock ' + veh.stock) : '');
-      vpResultHtml(
-        '<div class="ls-card pass">' +
-          '<div class="ls-status pass">&#10003; Got it &mdash; in inventory</div>' +
-          '<div class="ls-vin">' + escHtml(res.vin) + '</div>' +
-          '<div class="ls-veh">' + escHtml(line) + '</div>' +
-          '<div class="ls-actions"><button type="button" class="ls-btn primary" onclick="vpCamera()">&#128247; Take another</button></div>' +
-          vpViewHtml() + vpDebugHtml(res) +
-        '</div>');
-    }
-
-    function vpRenderVerify(res) {
-      vpResultHtml(
-        '<div class="ls-card verify">' +
-          '<div class="ls-status verify">&#9888; Not in this dealer&rsquo;s stock</div>' +
-          '<div class="ls-hint">Check the VIN against the photo, then add it (it still prints) or retake.</div>' +
-          '<div class="ls-edit"><input id="lsEdit" type="text" maxlength="17" value="' + escHtml(res.vin) + '"></div>' +
-          '<div class="ls-actions">' +
-            '<button type="button" class="ls-btn primary" onclick="vpKeepNext()">&#10003; Add &amp; next</button>' +
-            '<button type="button" class="ls-btn" onclick="vpDiscardNext()">&#128247; Retake</button>' +
-          '</div>' + vpViewHtml() + vpDebugHtml(res) +
-        '</div>');
-    }
-
-    function vpRenderFail(res) {
-      var photoOnly = vpFail >= 2
-        ? '<button type="button" class="ls-btn" onclick="vpSubmitPhotoOnly()">&#128228; Submit photo only</button>' : '';
-      vpResultHtml(
-        '<div class="ls-card fail">' +
-          '<div class="ls-status fail">&#10007; Couldn&rsquo;t read a VIN</div>' +
-          '<div class="ls-hint">' + (vpFail >= 2
-            ? 'Still no luck. Retake (fill the frame, kill glare), type it in, or submit the photo for the office to transcribe.'
-            : 'Retake &mdash; get closer, fill the frame, avoid glare. Or type the VIN if you can read it.') + '</div>' +
-          '<div class="ls-edit"><input id="lsEdit" type="text" maxlength="17" placeholder="Type VIN&hellip;"></div>' +
-          '<div class="ls-actions">' +
-            '<button type="button" class="ls-btn primary" onclick="vpCamera()">&#128247; Retake</button>' +
-            '<button type="button" class="ls-btn" onclick="vpUseManual()">Use typed VIN</button>' +
-            photoOnly +
-          '</div>' + vpViewHtml() + vpDebugHtml(res) +
-        '</div>');
-      // Retake from a fail discards the just-saved (no-VIN) row unless they submit-photo-only.
-      // We discard lazily: vpCamera() leaves the row; vpSubmitPhotoOnly keeps it; an explicit
-      // retake that abandons it is handled by the office (a stray failed row) — keep it simple.
-    }
-
-    // result-panel actions
-    function vpCamera() { document.getElementById('lsPhoto').click(); }   // reopen camera (within click gesture)
-
-    function vpKeepNext() {
-      var v = vpEditVal();
-      if (v && v !== '') { vpCommitEdit(v, function () { toast('Added.', 'success'); vpCamera(); }); }
-      else { toast('Added.', 'success'); vpCamera(); }   // keep as-is (already saved)
-    }
-    function vpDiscardNext() {
-      if (vpLastSid) google.script.run.discardSubmission(vpLastSid);
-      vpCamera();
-    }
-    function vpUseManual() {
-      var v = vpEditVal();
-      if (v.length !== 17) { toast('A VIN is 17 characters.', 'info'); return; }
-      vpFail = 0;
-      vpCommitEdit(v, function () { toast('Saved.', 'success'); vpCamera(); });
-    }
-    function vpSubmitPhotoOnly() { vpFail = 0; toast('Photo submitted for transcription.', 'success'); vpCamera(); }
-
-    function vpEditVal() { var e = document.getElementById('lsEdit'); return e ? String(e.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '') : ''; }
-    function vpCommitEdit(vin, done) {
-      google.script.run.withSuccessHandler(function () { done && done(); })
-        .withFailureHandler(function (e) { toast('Save failed: ' + ((e && e.message) || e), 'error'); })
-        .submitVinPhoto(vpDealerKey, '', vin, vpLastSid, vpSessionBatch);
-    }
-
-    function vpResultHtml(h) { document.getElementById('lsResult').innerHTML = h; }
-    // Show the just-captured photo inline (the local downscaled image — instant, no fetch)
-    // so the VIN and the photo are visible together; tap to enlarge.
-    function vpViewHtml() { return vpLastB64 ? '<img class="ls-photo" src="' + vpLastB64 + '" alt="captured photo" onclick="vpLightbox(this.src)">' : ''; }
-    function vpLightbox(src) { document.getElementById('lsLightboxImg').src = src; document.getElementById('lsLightbox').hidden = false; }
-    function vpCloseLightbox() { document.getElementById('lsLightbox').hidden = true; document.getElementById('lsLightboxImg').src = ''; }
-    function vpDebugHtml(res) {
-      var d = vpLastDiag || {};
-      var ocr = (res && res.ocrText != null) ? res.ocrText : '';
-      return '<details class="ls-diag"><summary>debug</summary>' +
-        'ZXing: ' + (d.zxing ? 'loaded' : 'NOT loaded') + ' &middot; barcode: ' + escHtml(d.barcode || '') +
-        '<br>OCR err: ' + escHtml((res && res.ocrErr) || '(none)') +
-        '<br>OCR text: ' + escHtml((ocr || '(empty)').substring(0, 280)) + '</details>';
-    }
-
-    // ════════════════ BATCH UPLOAD (async background) ════════════════
     function vpGallerySelected(input) {
       var files = input.files ? Array.prototype.slice.call(input.files) : [];
       input.value = '';
       if (!files.length) return;
-      if (!vpDealerKey) { toast('Pick a dealer first.', 'info'); return; }
-      vpResultHtml('');
-      vpBatchUpload(files);
+      if (!vpOrder) { toast('Start an order first.', 'info'); return; }
+      if (vpFinishing) { toast('Finishing — wait a moment.', 'info'); return; }
+      vpEnqueueFiles(files);
     }
 
-    // Batch = PARALLEL uploads (Drive only) + a SERIAL, chunked committer. Uploads run POOL
-    // at a time; uploaded ids are buffered and committed in chunks ONE call at a time, so
-    // rows are written by a single execution — no concurrent appends, so no lost rows.
-    function vpBatchUpload(files) {
-      var batchId = 'b' + Date.now() + '-' + Math.floor(Math.random() * 1e6);
-      var total = files.length, idx = 0, inFlight = 0, finished = 0;
-      var UPLOAD_POOL = 5, CHUNK = 10;
-      var buffer = [], committing = false, decoding = false;
-      var stats = { upOk: 0, upFail: 0, cmOk: 0, cmFail: 0, upErr: '', cmErr: '' };
-      vpBatchProgress(0, total);
+    function vpEnqueueFiles(files) {
+      files.forEach(function (file) {
+        vpQueue.push({ id: vpQNextId++, file: file, state: 'reading', thumb: null, b64: null, vin: '', fileId: '', url: '', error: '' });
+      });
+      vpPending = vpPending.concat(vpQueue.slice(-files.length));
+      vpRenderQueue(); vpUpdateCount();
+      vpDecodeNext();
+    }
 
-      function bump(n) { finished += n; vpBatchProgress(finished, total); if (finished >= total) vpBatchDone(stats, total); }
+    function vpRetryItem(i) {
+      var item = vpQueue[i];
+      if (!item || item.state !== 'failed') return;
+      if (item.b64) { item.state = 'uploading'; vpRenderQueue(); vpUpdateCount(); vpFireUpload(item); }
+      else { item.state = 'reading'; vpPending.push(item); vpRenderQueue(); vpUpdateCount(); vpDecodeNext(); }
+    }
 
-      // Decode ONE image at a time (mobile Safari OOMs decoding several 12MP photos at once
-      // → the "image decode failed" losses). Uploads still run UPLOAD_POOL in parallel.
-      function decodeNext() {
-        if (decoding || idx >= total || inFlight >= UPLOAD_POOL) return;
-        decoding = true;
-        var file = files[idx++];
-        var url = URL.createObjectURL(file);
-        var img = new Image();
-        img.onload = function () {
-          var b64 = null;
-          try { b64 = vpToBase64(img); } catch (e) {}
-          URL.revokeObjectURL(url);
-          decoding = false;
-          if (b64) { fireUpload(b64); }
-          else { stats.upFail++; if (!stats.upErr) stats.upErr = 'canvas failed [' + (file.type || '?') + ']'; bump(1); }
-          decodeNext();
-        };
-        // Desktop browsers can't decode HEIC in <img> — fall back to converting it to JPEG.
-        img.onerror = function () { URL.revokeObjectURL(url); vpHeicFallback(file); };
-        img.src = url;
-      }
+    // Decode ONE image at a time (mobile Safari OOMs decoding several 12MP photos at once).
+    // Uploads still run vpEngPool in parallel.
+    function vpDecodeNext() {
+      if (vpEng.decoding || !vpPending.length || vpEng.inFlight >= vpEngPool) return;
+      vpEng.decoding = true;
+      var item = vpPending.shift();
+      var url = URL.createObjectURL(item.file);
+      var img = new Image();
+      img.onload = function () { vpDecodeLoaded(item, img, url); };
+      // Desktop browsers can't decode HEIC in <img> — fall back to converting it to JPEG.
+      img.onerror = function () { URL.revokeObjectURL(url); vpHeicFallbackQ(item); };
+      img.src = url;
+    }
 
-      // Lazy-load heic2any only when a HEIC decode actually fails (iOS Safari decodes HEIC
-      // natively, so the phone path never downloads it).
-      function vpEnsureHeic(cb) {
-        if (window.heic2any) { cb(true); return; }
-        if (window._vpHeicQ) { window._vpHeicQ.push(cb); return; }
-        window._vpHeicQ = [cb];
-        var s = document.createElement('script');
-        s.src = 'https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js';
-        s.onload = function () { var q = window._vpHeicQ || []; window._vpHeicQ = null; q.forEach(function (f) { f(true); }); };
-        s.onerror = function () { var q = window._vpHeicQ || []; window._vpHeicQ = null; q.forEach(function (f) { f(false); }); };
-        document.head.appendChild(s);
-      }
+    function vpDecodeLoaded(item, img, url) {
+      item.thumb = vpMakeThumb(img);
+      vpTryBarcode(img, function (barcodeVin) {
+        var b64 = null;
+        try { b64 = vpToBase64(img); } catch (e) {}
+        URL.revokeObjectURL(url);
+        vpEng.decoding = false;
+        if (!b64) {
+          item.state = 'failed'; item.error = 'canvas failed [' + (item.file.type || '?') + ']';
+          vpRenderQueue(); vpUpdateCount(); vpDecodeNext(); vpCheckFinishDrain(); return;
+        }
+        item.b64 = b64; item.vin = barcodeVin || '';
+        item.state = 'uploading';
+        vpRenderQueue(); vpUpdateCount();
+        vpFireUpload(item);
+        vpDecodeNext();
+      });
+    }
 
-      function vpHeicFallback(file) {
-        vpEnsureHeic(function (ok) {
-          if (!ok || !window.heic2any) {
-            decoding = false; stats.upFail++;
-            if (!stats.upErr) stats.upErr = 'decode failed [' + (file.type || '?') + '] ' + (file.name || '');
-            bump(1); decodeNext(); return;
-          }
-          heic2any({ blob: file, toType: 'image/jpeg', quality: 0.85 }).then(function (out) {
-            var jpeg = (out && out.length) ? out[0] : out;   // heic2any returns a Blob or [Blob]
-            var u2 = URL.createObjectURL(jpeg);
-            var img2 = new Image();
-            img2.onload = function () {
-              var b64 = null; try { b64 = vpToBase64(img2); } catch (e) {}
-              URL.revokeObjectURL(u2); decoding = false;
-              if (b64) fireUpload(b64);
-              else { stats.upFail++; if (!stats.upErr) stats.upErr = 'heic→jpeg decode failed'; bump(1); }
-              decodeNext();
-            };
-            img2.onerror = function () { URL.revokeObjectURL(u2); decoding = false; stats.upFail++; if (!stats.upErr) stats.upErr = 'heic→jpeg load failed'; bump(1); decodeNext(); };
-            img2.src = u2;
-          }).catch(function (e) {
-            decoding = false; stats.upFail++; if (!stats.upErr) stats.upErr = 'heic convert failed: ' + ((e && e.message) || e); bump(1); decodeNext();
-          });
+    // Lazy-load heic2any only when a HEIC decode actually fails (iOS Safari decodes HEIC
+    // natively, so the phone path never downloads it).
+    function vpEnsureHeic(cb) {
+      if (window.heic2any) { cb(true); return; }
+      if (window._vpHeicQ) { window._vpHeicQ.push(cb); return; }
+      window._vpHeicQ = [cb];
+      var s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js';
+      s.onload = function () { var q = window._vpHeicQ || []; window._vpHeicQ = null; q.forEach(function (f) { f(true); }); };
+      s.onerror = function () { var q = window._vpHeicQ || []; window._vpHeicQ = null; q.forEach(function (f) { f(false); }); };
+      document.head.appendChild(s);
+    }
+
+    function vpHeicFallbackQ(item) {
+      vpEnsureHeic(function (ok) {
+        if (!ok || !window.heic2any) {
+          vpEng.decoding = false; item.state = 'failed'; item.error = 'decode failed [' + (item.file.type || '?') + '] ' + (item.file.name || '');
+          vpRenderQueue(); vpUpdateCount(); vpDecodeNext(); vpCheckFinishDrain(); return;
+        }
+        heic2any({ blob: item.file, toType: 'image/jpeg', quality: 0.85 }).then(function (out) {
+          var jpeg = (out && out.length) ? out[0] : out;   // heic2any returns a Blob or [Blob]
+          var u2 = URL.createObjectURL(jpeg);
+          var img2 = new Image();
+          img2.onload = function () { vpDecodeLoaded(item, img2, u2); };
+          img2.onerror = function () {
+            URL.revokeObjectURL(u2); vpEng.decoding = false; item.state = 'failed'; item.error = 'heic→jpeg load failed';
+            vpRenderQueue(); vpUpdateCount(); vpDecodeNext(); vpCheckFinishDrain();
+          };
+          img2.src = u2;
+        }).catch(function (e) {
+          vpEng.decoding = false; item.state = 'failed'; item.error = 'heic convert failed: ' + ((e && e.message) || e);
+          vpRenderQueue(); vpUpdateCount(); vpDecodeNext(); vpCheckFinishDrain();
         });
-      }
-
-      function fireUpload(b64) {
-        inFlight++;
-        google.script.run
-          .withSuccessHandler(function (res) {
-            inFlight--;
-            if (res && res.ok) { stats.upOk++; buffer.push({ fileId: res.fileId, url: res.url }); }
-            else { stats.upFail++; if (!stats.upErr) stats.upErr = (res && res.error) || 'upload not ok'; bump(1); }
-            pump(); decodeNext();
-          })
-          .withFailureHandler(function (e) {
-            inFlight--; stats.upFail++; if (!stats.upErr) stats.upErr = (e && e.message) || String(e);
-            bump(1); pump(); decodeNext();
-          })
-          .uploadPhotoOnly(vpDealerKey, b64);
-      }
-
-      function pump() {
-        if (committing || !buffer.length) return;
-        var allUploadsDone = (idx >= total && inFlight === 0);
-        if (buffer.length < CHUNK && !allUploadsDone) return;
-        committing = true;
-        var chunk = buffer.splice(0, CHUNK);
-        google.script.run
-          .withSuccessHandler(function (res) {
-            committing = false;
-            if (res && res.ok) stats.cmOk += (res.committed || chunk.length);
-            else { stats.cmFail += chunk.length; if (!stats.cmErr) stats.cmErr = (res && res.error) || 'commit not ok'; }
-            bump(chunk.length); pump();
-          })
-          .withFailureHandler(function (e) {
-            committing = false;
-            stats.cmFail += chunk.length; if (!stats.cmErr) stats.cmErr = (e && e.message) || String(e);
-            bump(chunk.length); pump();
-          })
-          .commitQueuedBatch(vpDealerKey, batchId, chunk);
-      }
-
-      decodeNext();   // single kick — the serial decode cascade fills the upload pool
+      });
     }
-    function vpBatchProgress(done, total) { vpBatchHtml('<div class="ls-card"><div class="ls-scanning">Uploading ' + done + ' / ' + total + '&hellip;</div></div>'); }
-    function vpBatchDone(stats, total) {
-      google.script.run.ensureOcrTrigger();   // kick off background OCR
-      var landed = stats.cmOk;
-      vpBatchHtml(
-        '<div class="ls-card ' + (landed >= total ? 'pass' : 'verify') + '">' +
-          '<div class="ls-status ' + (landed >= total ? 'pass' : 'verify') + '">' + (landed >= total ? '&#10003; ' : '&#9888; ') + landed + ' / ' + total + ' photos queued</div>' +
-          '<div class="ls-hint">Processing in the background &mdash; you can close the app. We&rsquo;ll email you when it&rsquo;s done.</div>' +
-          '<details class="ls-diag"' + (landed >= total ? '' : ' open') + '><summary>debug</summary>' +
-            'uploads: ok=' + stats.upOk + ' fail=' + stats.upFail + '<br>' +
-            'commits: ok=' + stats.cmOk + ' fail=' + stats.cmFail + '<br>' +
-            'upErr: ' + escHtml(stats.upErr || '(none)') + '<br>' +
-            'cmErr: ' + escHtml(stats.cmErr || '(none)') +
-          '</details>' +
-          '<div class="ls-actions"><button type="button" class="ls-btn primary" onclick="vpTab(\'drafts\')">View Drafts</button></div>' +
-        '</div>');
+
+    function vpFireUpload(item) {
+      if (!vpOrder) return;
+      vpEng.inFlight++;
+      google.script.run
+        .withSuccessHandler(function (res) {
+          vpEng.inFlight--;
+          if (res && res.ok) {
+            item.fileId = res.fileId; item.url = res.url; item.state = 'saving';
+            vpBuffer.push(item);
+          } else {
+            item.state = 'failed'; item.error = (res && res.error) || 'upload not ok';
+          }
+          vpRenderQueue(); vpUpdateCount(); vpTryCommit(); vpDecodeNext(); vpCheckFinishDrain();
+        })
+        .withFailureHandler(function (e) {
+          vpEng.inFlight--;
+          item.state = 'failed'; item.error = (e && e.message) || String(e);
+          vpRenderQueue(); vpUpdateCount(); vpDecodeNext(); vpCheckFinishDrain();
+        })
+        .uploadPhotoOnly(vpOrder.dealerKey, item.b64);
     }
-    function vpBatchHtml(h) { document.getElementById('lsBatch').innerHTML = h; }
+
+    // Opportunistic SERIAL committer — one commitQueuedBatch call in flight EVER (the
+    // server opens the sheet inside its lock; concurrent commits would still be safe,
+    // but serializing here matches the write pattern the server is tuned for). A
+    // buffered item is 'saving' until this returns ok=true, which is when it becomes
+    // 'saved' — i.e. when a row actually exists in the sheet.
+    function vpTryCommit() {
+      if (!vpOrder || vpEng.committing || !vpBuffer.length) return;
+      vpEng.committing = true;
+      var chunk = vpBuffer.splice(0);
+      var payload = chunk.map(function (it) { return { fileId: it.fileId, url: it.url, vin: it.vin }; });
+      var dealerKey = vpOrder.dealerKey, batchId = vpOrder.batchId;
+      google.script.run
+        .withSuccessHandler(function (res) {
+          vpEng.committing = false;
+          if (res && res.ok) {
+            chunk.forEach(function (it) { it.state = 'saved'; it.b64 = null; });   // retry window ends at saved
+            vpRenderQueue(); vpUpdateCount(); vpCheckFinishDrain();
+            vpTryCommit();   // drain anything buffered while this commit was in flight
+          } else {
+            vpCommitFailed(chunk, (res && res.error) || 'unknown');
+          }
+        })
+        .withFailureHandler(function (e) {
+          vpEng.committing = false;
+          vpCommitFailed(chunk, (e && e.message) || String(e));
+        })
+        .commitQueuedBatch(dealerKey, batchId, payload);
+    }
+
+    // Commit failure: items go back to the buffer, the retry loop keeps running — and a
+    // failure DURING Finish also clears the finish-pending state, so the user isn't
+    // trapped behind disabled buttons while the server is down (only escape was reload
+    // = data loss). They can keep shooting / tap Finish again once saves recover.
+    function vpCommitFailed(chunk, msg) {
+      vpBuffer = chunk.concat(vpBuffer);
+      if (vpFinishing) {
+        vpFinishing = null;
+        toast('Save failed: ' + msg + ' — back to shooting; retrying in background.', 'error');
+      } else {
+        toast('Save failed: ' + msg + ' — retrying…', 'error');
+      }
+      vpRenderQueue(); vpUpdateCount(); vpUpdateFinishUI();
+      setTimeout(vpTryCommit, 3000);   // ponytail: fixed backoff, exponential if this proves noisy
+    }
+
+    function vpPendingCount() {
+      return vpQueue.filter(function (q) { return q.state === 'reading' || q.state === 'uploading' || q.state === 'saving'; }).length;
+    }
+
+    function vpRenderQueue() {
+      var strip = document.getElementById('lsQueue');
+      if (!strip) return;
+      var html = '';
+      vpQueue.forEach(function (q, i) {
+        var chipText = { reading: 'reading…', uploading: 'uploading…', saving: 'saving…', saved: 'saved', failed: 'retry ↻' }[q.state] || q.state;
+        var onclick = q.state === 'failed' ? ' onclick="vpRetryItem(' + i + ')"' : '';
+        html += '<div class="ls-qitem">' +
+          '<div class="ls-qthumb">' + (q.thumb ? '<img src="' + q.thumb + '" alt="">' : '') + '</div>' +
+          '<span class="ls-qchip ' + q.state + '"' + onclick + '>' + chipText + '</span>' +
+          '</div>';
+      });
+      strip.innerHTML = html;
+    }
+
+    function vpUpdateCount() {
+      var total = vpQueue.length;
+      var saved = vpQueue.filter(function (q) { return q.state === 'saved'; }).length;
+      var el = document.getElementById('lsCount');
+      if (el) el.textContent = total + ' photo' + (total === 1 ? '' : 's') + ' · ' + saved + ' saved';
+    }
+
+    // Draw the already-decoded <img> onto a small (64x64, cover-cropped) canvas — never
+    // keep a full-size objectURL alive per queue item.
+    function vpMakeThumb(img) {
+      var size = 64, w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+      var scale = Math.max(size / w, size / h);
+      var cw = Math.max(1, Math.round(w * scale)), ch = Math.max(1, Math.round(h * scale));
+      var c = document.createElement('canvas'); c.width = size; c.height = size;
+      c.getContext('2d').drawImage(img, (size - cw) / 2, (size - ch) / 2, cw, ch);
+      return c.toDataURL('image/jpeg', 0.7);
+    }
 
     // ════════════════ DRAFTS ════════════════
+    // Snapshot which batches are currently expanded so a manual refresh doesn't
+    // collapse what the user is reading.
+    function vpCaptureOpenBatches() {
+      var ids = {}, box = document.getElementById('lsDrafts');
+      if (box) {
+        box.querySelectorAll('details.ls-dbatch[open]').forEach(function (el) {
+          ids[el.id.replace(/^dbatch_/, '')] = true;
+        });
+      }
+      return ids;
+    }
+
     function vpLoadDrafts() {
+      if (vpDraftsFetching) return;   // single-flight: an in-flight load renders when it resolves
       var box = document.getElementById('lsDrafts');
+      vpDraftsOpenIds = vpCaptureOpenBatches();
       box.innerHTML = '<p class="ls-hint">Loading&hellip;</p>';
+      vpDraftsFetching = true;
       google.script.run
-        .withSuccessHandler(vpRenderDrafts)
-        .withFailureHandler(function (e) { box.innerHTML = '<p class="ls-hint">Could not load: ' + escHtml((e && e.message) || e) + '</p>'; })
+        .withSuccessHandler(function (res) { vpDraftsFetching = false; vpRenderDrafts(res); })
+        .withFailureHandler(function (e) { vpDraftsFetching = false; box.innerHTML = '<p class="ls-hint">Could not load: ' + escHtml((e && e.message) || e) + '</p>'; })
         .getMyDrafts();
     }
 
     function vpRenderDrafts(res) {
       var box = document.getElementById('lsDrafts');
-      if (!res || !res.ok) { box.innerHTML = '<p class="ls-hint">Error: ' + escHtml((res && res.error) || 'unknown') + '</p>'; return; }
+      if (!res || !res.ok) {
+        box.innerHTML = '<p class="ls-hint">Error: ' + escHtml((res && res.error) || 'unknown') + '</p>';
+        return;
+      }
       var drafts = res.drafts || [];
-      if (!drafts.length) { box.innerHTML = '<p class="ls-hint">No drafts. Uploaded batches show here while they finish.</p>'; return; }
+      if (!drafts.length) {
+        box.innerHTML = '<p class="ls-hint">No drafts. Uploaded batches show here while they finish.</p>';
+        return;
+      }
       // group by batchId
       var groups = {}, order = [];
       drafts.forEach(function (d) { var b = d.batchId || '(none)'; if (!groups[b]) { groups[b] = []; order.push(b); } groups[b].push(d); });
+      var openId = vpOpenBatchId; vpOpenBatchId = '';
+      var openIds = vpDraftsOpenIds; vpDraftsOpenIds = {};
+      vpDraftMeta = {};   // rebuilt from this render; only the system bid is ever inlined (dealerName carries apostrophes)
       var html = '';
       order.forEach(function (bid) {
         var rows = groups[bid], dealer = rows[0].dealerName || rows[0].dealerKey || '';
+        vpDraftMeta[bid] = { dealerKey: rows[0].dealerKey || '', dealerName: dealer };
         var when = rows[0].ts || '';
         var shortId = bid.length > 12 ? bid.substr(0, 12) : bid;
-        var queued = rows.filter(function (r) { return r.ocrState === 'queued'; }).length;
-        // collapsed by default (<details> without `open`)
-        html += '<details class="ls-dbatch"><summary class="ls-dsum">' +
+        var isOpen = bid === openId || !!openIds[bid];
+        // collapsed by default (<details> without `open`) — except a just-finished order, or a
+        // batch the user already had expanded before this (manual) re-render
+        html += '<details class="ls-dbatch" id="dbatch_' + escHtml(bid) + '"' + (isOpen ? ' open' : '') + '><summary class="ls-dsum">' +
           '<span class="t">' + escHtml(dealer) + '</span>' +
           '<span class="ls-hint">' + escHtml(when) + ' · ' + rows.length + ' photo' + (rows.length === 1 ? '' : 's') +
-            (queued ? (' · ' + queued + ' processing') : '') + ' · #' + escHtml(shortId) + '</span>' +
+            ' · #' + escHtml(shortId) + '</span>' +
           '</summary>' +
           '<div class="ls-dbtns">' +
             '<button type="button" class="ls-btn primary" onclick="vpSendBatch(\'' + escHtml(bid) + '\')">Send to office</button>' +
+            '<button type="button" class="ls-btn" onclick="vpResumeOrder(\'' + escHtml(bid) + '\')">Add more photos</button>' +
             '<button type="button" class="ls-btn" onclick="vpDeleteBatch(\'' + escHtml(bid) + '\')">Delete batch</button>' +
           '</div>';
         rows.forEach(function (r) { html += vpDraftRow(r); });
         html += '</details>';
       });
       box.innerHTML = html;
+      if (openId) {
+        var el = document.getElementById('dbatch_' + openId);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
     }
 
     function vpDraftRow(r) {
       var badge;
-      if (r.ocrState === 'queued') badge = '<span class="ls-badge wait">processing…</span>';
-      else if (r.matched) badge = '<span class="ls-badge ok">in stock</span>';
+      if (r.matched) badge = '<span class="ls-badge ok">in stock</span>';
       else if (r.valid) badge = '<span class="ls-badge bad">verify</span>';
-      else badge = '<span class="ls-badge bad">needs VIN</span>';
+      else badge = '<span class="ls-badge wait">office reads VIN</span>';
       var veh = [r.year, r.make, r.model].filter(Boolean).join(' ');
       var h = '<div class="ls-drow" data-sid="' + r.id + '">' +
-        '<div class="top"><span class="ls-vin">' + escHtml(r.vin || '(no VIN)') + '</span> ' + badge +
+        '<div class="top"><span class="ls-vin">' + (r.vin ? escHtml(r.vin) : '<span class="ls-hint">Photo</span>') + '</span> ' + badge +
         '<button type="button" class="x" title="Discard" onclick="vpDraftDiscard(\'' + r.id + '\')">&times;</button></div>';
       if (veh) h += '<div class="ls-veh">' + escHtml(veh) + (r.stock ? (' · Stock ' + escHtml(r.stock)) : '') + '</div>';
-      if (r.ocrState !== 'queued') {
-        h += '<div class="ls-edit"><input id="de_' + r.id + '" type="text" maxlength="17" value="' + escHtml(r.vin || '') + '" placeholder="Correct VIN…">' +
-             '<button type="button" class="ls-btn" style="flex:0 0 auto;" onclick="vpDraftRecheck(\'' + r.id + '\',\'' + escHtml(r.dealerKey) + '\')">Re-check</button></div>';
-      }
       if (r.photoFileId) {
         h += '<div class="ls-actions"><button type="button" class="ls-btn" onclick="vpShowDraftPhoto(\'' + r.id + '\',\'' + r.photoFileId + '\')">&#128247; Show / hide photo</button></div>';
         h += '<div id="ph_' + r.id + '"></div>';
       }
       h += '</div>';
       return h;
+    }
+
+    // Drafts → Capture: reopen a draft batch's capture flow so more photos append under the SAME
+    // batchId (server dedupes by photo_file_id and folds them into the same batch card).
+    function vpResumeOrder(bid) {
+      if (vpOrder || vpFinishing) { toast('Finish the current order first.', 'info'); return; }
+      var meta = vpDraftMeta[bid];
+      if (!meta) { toast('Refresh Drafts and try again.', 'info'); return; }
+      // Mirror vpDealerChange for meta.dealerKey (instant client match chips), then shoot into this batch.
+      vpDealerKey = meta.dealerKey; vpVinMap = {}; vpSetStart();
+      google.script.run.withSuccessHandler(function (m) { vpVinMap = m || {}; }).getDealerVinMap(meta.dealerKey);
+      vpTab('capture');
+      vpBeginShooting(meta.dealerKey, meta.dealerName, bid, meta.dealerName + ' — adding to batch');
     }
 
     function vpSendBatch(bid) {
@@ -569,15 +676,9 @@
       if (!confirm('Discard this photo?')) return;
       google.script.run.withSuccessHandler(function () { vpLoadDrafts(); }).discardSubmission(sid);
     }
-    function vpDraftRecheck(sid, dealerKey) {
-      var el = document.getElementById('de_' + sid);
-      var vin = el ? String(el.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '') : '';
-      if (vin.length !== 17) { toast('A VIN is 17 characters.', 'info'); return; }
-      google.script.run
-        .withSuccessHandler(function () { toast('Updated.', 'success'); vpLoadDrafts(); })
-        .withFailureHandler(function (e) { toast('Failed: ' + ((e && e.message) || e), 'error'); })
-        .submitVinPhoto(dealerKey, '', vin, sid, '');
-    }
+
+    function vpLightbox(src) { document.getElementById('lsLightboxImg').src = src; document.getElementById('lsLightbox').hidden = false; }
+    function vpCloseLightbox() { document.getElementById('lsLightbox').hidden = true; document.getElementById('lsLightboxImg').src = ''; }
 
     // ════════════════ shared image helpers ════════════════
     function vpToBase64(img) {

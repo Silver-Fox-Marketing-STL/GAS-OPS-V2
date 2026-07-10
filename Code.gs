@@ -7630,6 +7630,16 @@ function getLotSubmissionsSheet_() {
   return SpreadsheetApp.openById(LOT_SUBMISSIONS_SHEET_ID).getSheetByName(LOT_SUBMISSIONS_TAB);
 }
 
+// Best-effort trash of a submission's Drive photo. Deliberately swallows errors:
+// a crew-owned My-Drive file can't be trashed by the office user (only the owner
+// can), so a failure here surfaces a role/membership mistake instead of failing
+// the discard. No new OAuth scope — DriveApp is already used in this file.
+function trashLotPhoto_(fileId) {
+  if (!fileId) return false;
+  try { DriveApp.getFileById(String(fileId)).setTrashed(true); return true; }
+  catch (e) { Logger.log('trashLotPhoto_ ' + fileId + ': ' + e.message); return false; }
+}
+
 // ── VIN validation (ISO 3779) — re-validates a corrected VIN in the inbox ──
 var VIN_TRANSLIT = {
   A:1, B:2, C:3, D:4, E:5, F:6, G:7, H:8, J:1, K:2, L:3, M:4, N:5, P:7, R:9,
@@ -7657,9 +7667,219 @@ function isValidVin_(vin) {
   return cd !== null && vin.charAt(8) === cd;
 }
 
+// ============================================================================
+// OCR (office-side manual runner) — COPIED from the standalone Lot Scanner's
+// lot-scan/Code.gs (that project's per-user drainOcrQueue trigger stalled in the
+// field: batches sent to the office before OCR drained sat at ocr_state='queued'
+// forever). The scanner still uploads/batches/sends and does client-side barcode
+// (ZXing) matching; anything without a barcode lands here queued for the office
+// to OCR on demand via runInboxOcr. Logic below is byte-faithful to the scanner
+// version except: isValidVin_ is NOT duplicated (already defined above), and the
+// vinMap fallback reuses this file's getDealerConfig_ / getDealerScraperData_ /
+// buildVinDataMap_ (the same trio updateVinSubmissionStatus's correction path
+// uses below) instead of the scanner's own getDealerVinMap.
+// ============================================================================
+
+// Bidirectional OCR-confusion map within the VIN-legal charset (bounded common
+// pairs). ponytail: the check digit filters false hits, so a small set suffices.
+var VIN_CONFUSE = {
+  '0': ['D', '8'], 'D': ['0'], '8': ['B', '0'], 'B': ['8'],
+  '5': ['S'], 'S': ['5'], '2': ['Z'], 'Z': ['2'],
+  '6': ['G'], 'G': ['6'], '1': ['7'], '7': ['1', 'T'], 'T': ['7'],
+  '4': ['A'], 'A': ['4']
+};
+
+// Returns valid VIN candidates from raw OCR text, best-first. Forces the
+// VIN-illegal O/I/Q to their look-alikes (0/1/0), scans 17-char windows, and for
+// windows that fail the check digit tries single-character confusion repairs.
+// Falls back to the longest raw window so the human always has something to fix.
+function extractVinCandidates_(ocrText) {
+  if (!ocrText) return [];
+  // O/I/Q are illegal in VINs → force them to their numeric look-alikes first.
+  var forced = String(ocrText).toUpperCase().replace(/O/g, '0').replace(/I/g, '1').replace(/Q/g, '0');
+  var seen = {}, results = [];
+  function add(v) { if (v && !seen[v]) { seen[v] = 1; results.push(v); } }
+
+  var tokens = forced.match(/[A-Z0-9]+/g) || [];
+
+  // Pass A/B — exact-valid 17-char tokens (the strong signal: a VIN is normally its
+  // own token), then exact-valid windows inside longer tokens. The check digit gates.
+  for (var t = 0; t < tokens.length; t++) {
+    var tok = tokens[t];
+    if (tok.length === 17) { if (isValidVin_(tok)) add(tok); }
+    else if (tok.length > 17) {
+      for (var s = 0; s + 17 <= tok.length; s++) { var w = tok.substr(s, 17); if (isValidVin_(w)) add(w); }
+    }
+  }
+  if (results.length) return results;
+
+  // Pass C (last resort — VIN was split across tokens / a char was misread). De-space
+  // the whole string, then try exact windows, then bounded single-char confusion repairs.
+  // ponytail: noisier (a stray window can pass the check digit ~1/11), so it ONLY runs
+  // when no clean token matched — and the human confirms the result anyway.
+  var flat = forced.replace(/[^A-Z0-9]/g, '');
+  for (var i = 0; i + 17 <= flat.length; i++) { var win = flat.substr(i, 17); if (isValidVin_(win)) add(win); }
+  if (!results.length) {
+    for (var j = 0; j + 17 <= flat.length && results.length < 8; j++) {
+      var ww = flat.substr(j, 17);
+      for (var p = 0; p < 17; p++) {
+        var alts = VIN_CONFUSE[ww.charAt(p)];
+        if (!alts) continue;
+        for (var a = 0; a < alts.length; a++) {
+          var cand = ww.substr(0, p) + alts[a] + ww.substr(p + 1);
+          if (isValidVin_(cand)) add(cand);
+        }
+      }
+    }
+  }
+  if (results.length) return results;
+
+  // Fallback — surface the longest token (clipped to 17) so the human always has
+  // something to correct, even when nothing passed the check digit.
+  var longest = '';
+  for (var k = 0; k < tokens.length; k++) if (tokens[k].length > longest.length) longest = tokens[k];
+  return longest.length >= 17 ? [longest.substr(0, 17)] : [];
+}
+
+// OCR — native Google Drive OCR (Advanced Drive Service v2). Never throws.
+// Returns { text, error }. Inserts the image with OCR, reads the resulting Google
+// Doc, trashes it. The resource mimeType is the IMAGE content-type (the established
+// Drive v2 OCR recipe) — `ocr:true` converts it to a Doc holding the recognized text.
+function extractVinFromImage_(blob) {
+  if (typeof Drive === 'undefined' || !Drive.Files) {
+    return { text: '', error: 'Drive advanced service not enabled' };
+  }
+  // Drive OCR has a low per-user rate limit; on a burst, back off and retry.
+  for (var attempt = 0; attempt < 3; attempt++) {
+    var fileId = null;
+    try {
+      var res = Drive.Files.insert(
+        { title: '_vinocr_' + new Date().getTime(), mimeType: blob.getContentType() },
+        blob,
+        { ocr: true, ocrLanguage: 'en' }
+      );
+      fileId = res && res.id;
+      if (!fileId) return { text: '', error: 'insert returned no file id' };
+      var text = DocumentApp.openById(fileId).getBody().getText() || '';
+      try { Drive.Files.remove(fileId); } catch (e2) {}
+      return { text: text, error: '' };
+    } catch (e) {
+      var msg = String((e && e.message) || e);
+      if (fileId) { try { Drive.Files.remove(fileId); } catch (e3) {} }
+      if (attempt < 2 && /rate limit/i.test(msg)) { Utilities.sleep(2000 * (attempt + 1)); continue; }
+      Logger.log('extractVinFromImage_ failed: ' + msg);
+      return { text: '', error: msg };
+    }
+  }
+  return { text: '', error: 'OCR rate limit (after retries)' };
+}
+
+// Analyze an already-stored Drive photo: OCR → candidate VIN → match. Pass a
+// pre-built vinMap to avoid re-reading SCRAPERDATA per row in a batch (vinMap
+// defaults to {} — every caller here builds one per dealer before looping).
+function analyzeDriveFile_(fileId, dealerKey, vinMap) {
+  var ocrText = '';
+  if (fileId) {
+    var blob = null;
+    try { blob = DriveApp.getFileById(fileId).getBlob(); } catch (e) { Logger.log('analyze get blob: ' + e.message); }
+    if (blob) { ocrText = extractVinFromImage_(blob).text; }
+  }
+  var cands = extractVinCandidates_(ocrText);
+  var vin = cands.length ? cands[0] : '';
+  var valid = isValidVin_(vin);
+  var map = vinMap || {};
+  var vehicle = vin ? (map[vin.toUpperCase()] || null) : null;
+  return { vin: vin, valid: valid, matched: !!vehicle, vehicle: vehicle, ocrText: ocrText };
+}
+
+/**
+ * Client-callable. Office-side manual OCR runner — replaces the scanner's
+ * per-user drainOcrQueue trigger (field finding: batches sent to the office
+ * before OCR drained left rows stuck at ocr_state='queued' forever). Processes
+ * up to `limit` rows with ocr_state='queued' AND status='submitted' (drafts are
+ * OCR'd only after the crew sends the batch — a draft's queued rows wait), OCRing
+ * each photo and matching it against the dealer's inventory, writing the same
+ * 9 result columns + ocr_state the scanner's old drainOcrQueue wrote. No
+ * LockService (it can't coordinate with the scanner project anyway); instead
+ * each write re-verifies the row's ID first and re-locates by ID if scanner-side
+ * discards shifted rows mid-run. Default limit 10, hard cap 15 — Drive OCR runs
+ * ~1-2s/photo + rate-limit retries, so this call stays well under the 6-min cap.
+ * @returns {{ok:boolean, processed?:number, remaining?:number, matched?:number, failed?:number, error?:string}}
+ */
+function runInboxOcr(limit) {
+  try {
+    var sh = getLotSubmissionsSheet_();
+    if (!sh) return { ok: false, error: 'Submissions sheet not configured.' };
+    var n = parseInt(limit, 10);
+    if (isNaN(n) || n < 1) n = 10;
+    if (n > 15) n = 15;
+
+    var data = sh.getDataRange().getValues();
+    var queuedRows = [];
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][LOT_SUB.OCR_STATE]) !== 'queued') continue;
+      if (String(data[i][LOT_SUB.STATUS] || 'submitted') !== 'submitted') continue;   // blank = legacy submitted (mirror getVinSubmissions default) so client count and this pass agree
+      queuedRows.push(i);
+    }
+
+    var vinMaps = {};   // per-dealer cache for this run
+    var processed = 0, matched = 0, failed = 0;
+
+    for (var q = 0; q < queuedRows.length && processed < n; q++) {
+      var rowIdx = queuedRows[q];
+      var row = data[rowIdx];
+      var dealerKey = String(row[LOT_SUB.DEALER_KEY] || '');
+      if (!vinMaps.hasOwnProperty(dealerKey)) {
+        var map = {};
+        try {
+          var cfg = getDealerConfig_(dealerKey);
+          if (cfg && cfg[CFG.SCRAPER_LOCATION]) {
+            map = buildVinDataMap_(getDealerScraperData_(cfg[CFG.SCRAPER_LOCATION]) || []);
+          }
+        } catch (eMap) { Logger.log('runInboxOcr vin map failed for ' + dealerKey + ': ' + eMap.message); }
+        vinMaps[dealerKey] = map;
+      }
+
+      var out = analyzeDriveFile_(String(row[LOT_SUB.PHOTO_ID] || ''), dealerKey, vinMaps[dealerKey]);
+      var v = out.vehicle || {};
+
+      // Rows can shift mid-run: the scanner project deleteRow()s on discard, and
+      // LockService can't coordinate across the two scripts. Re-verify the ID at
+      // the snapshot position right before writing; re-locate by ID if it moved,
+      // skip if it's gone (discarded while we were OCRing).
+      var id = String(row[LOT_SUB.ID]);
+      var rowNum = rowIdx + 1;
+      if (String(sh.getRange(rowNum, LOT_SUB.ID + 1).getValue()) !== id) {
+        rowNum = 0;
+        var ids = sh.getRange(1, LOT_SUB.ID + 1, sh.getLastRow(), 1).getValues();
+        for (var r = 1; r < ids.length; r++) {
+          if (String(ids[r][0]) === id) { rowNum = r + 1; break; }
+        }
+        if (!rowNum) { processed++; continue; }
+      }
+
+      // cols 8..16 (1-based) = vin_extracted, vin_final, vin_valid, matched, year, make, model, type, stock
+      sh.getRange(rowNum, LOT_SUB.VIN_EXTRACTED + 1, 1, 9).setValues([[
+        out.vin, out.vin, out.valid ? 'TRUE' : 'FALSE', out.matched ? 'TRUE' : 'FALSE',
+        v.year || '', v.make || '', v.model || '', v.type || '', v.stock || ''
+      ]]);
+      sh.getRange(rowNum, LOT_SUB.OCR_STATE + 1).setValue(out.valid ? 'done' : 'failed');
+
+      if (!out.valid) failed++;
+      else if (out.matched) matched++;
+      processed++;
+    }
+
+    return { ok: true, processed: processed, remaining: queuedRows.length - processed, matched: matched, failed: failed };
+  } catch (e) {
+    Logger.log('runInboxOcr failed: ' + e.message);
+    return { ok: false, error: e.message };
+  }
+}
+
 /**
  * Client-callable. Returns lot-scanner submission rows as objects.
- * @param {{status?:string, dealerKey?:string}} filter  no status = OPEN (draft+submitted); a status = exact match.
+ * @param {{status?:string, dealerKey?:string}} filter  no status = SENT work only (status='submitted'); a status = exact match.
  * @returns {{ok:boolean, configured:boolean, submissions:Array, error?:string}}
  */
 function getVinSubmissions(filter) {
@@ -7667,7 +7887,7 @@ function getVinSubmissions(filter) {
     var sh = getLotSubmissionsSheet_();
     if (!sh) return { ok: true, configured: false, submissions: [] };
     filter = filter || {};
-    var wantStatus = filter.status || '';      // '' = OPEN (draft + submitted); else exact match
+    var wantStatus = filter.status || '';      // '' = SENT work only (submitted); else exact match
     var wantDealer = filter.dealerKey || '';
     var CAP = 1000;
     var data = sh.getDataRange().getValues();
@@ -7677,7 +7897,7 @@ function getVinSubmissions(filter) {
       if (!r[LOT_SUB.ID]) continue;
       var status = String(r[LOT_SUB.STATUS] || 'submitted');
       if (wantStatus) { if (status !== wantStatus) continue; }
-      else if (status === 'processed' || status === 'discarded') continue;   // default: open work only
+      else if (status !== 'submitted') continue;   // default: sent work only
       if (wantDealer && String(r[LOT_SUB.DEALER_KEY]) !== wantDealer) continue;
       out.push({
         id: String(r[LOT_SUB.ID]), ts: String(r[LOT_SUB.TS] || ''), email: String(r[LOT_SUB.EMAIL] || ''),
@@ -7703,7 +7923,7 @@ function getVinSubmissions(filter) {
  * Client-callable. Updates one submission's status (allow-listed) and, if a
  * corrected VIN is supplied, re-validates + re-matches it against the dealer's
  * inventory and rewrites the VIN/vehicle columns.
- * @returns {{ok:boolean, valid?:boolean, matched?:boolean, error?:string}}
+ * @returns {{ok:boolean, valid?:boolean, matched?:boolean, photoTrashed?:boolean, error?:string}}
  */
 function updateVinSubmissionStatus(submissionId, status, correctedVin) {
   try {
@@ -7743,13 +7963,85 @@ function updateVinSubmissionStatus(submissionId, status, correctedVin) {
         : '';
       // cols 17..19 (1-based): status, processed_ts, processed_by
       sh.getRange(rowNum, LOT_SUB.STATUS + 1, 1, 3).setValues([[status, ts, by]]);
-      return { ok: true, valid: resultValid, matched: resultMatched };
+      // Discard/processed rows render nowhere again — trash the photo (best-effort).
+      var photoTrashed = null;
+      if (status === 'discarded' || status === 'processed') {
+        photoTrashed = trashLotPhoto_(data[i][LOT_SUB.PHOTO_ID]);
+      }
+      return { ok: true, valid: resultValid, matched: resultMatched, photoTrashed: photoTrashed };
     }
     return { ok: false, error: 'Submission not found.' };
   } catch (e) {
     Logger.log('updateVinSubmissionStatus failed: ' + e.message);
     return { ok: false, error: e.message };
   }
+}
+
+/**
+ * Client-callable. Bulk status update (no VIN correction — corrections stay per-row
+ * via updateVinSubmissionStatus). Same status/timestamp/by stamping as the single-row fn.
+ * @returns {{ok:boolean, updated?:number, missing?:number, photosTrashed?:number, photosFailed?:number, error?:string}}
+ */
+// ponytail: per-row narrow writes in one execution — batch a single setValues pass if inbox batches outgrow ~100 rows
+function updateVinSubmissionStatuses(submissionIds, status) {
+  try {
+    var sh = getLotSubmissionsSheet_();
+    if (!sh) return { ok: false, error: 'Submissions sheet not configured.' };
+    if (LOT_SUB_STATUSES.indexOf(status) === -1) return { ok: false, error: 'Invalid status.' };
+    var ids = (submissionIds || []).map(String);
+    var data = sh.getDataRange().getValues();
+    var rowById = {};
+    for (var i = 1; i < data.length; i++) rowById[String(data[i][LOT_SUB.ID])] = i + 1;
+
+    var by = '';
+    try { by = Session.getActiveUser().getEmail() || ''; } catch (e2) {}
+    var ts = (status === 'processed' || status === 'discarded')
+      ? Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'America/Chicago', 'yyyy-MM-dd HH:mm:ss')
+      : '';
+
+    var doTrash = (status === 'discarded' || status === 'processed');
+    var updated = 0, missing = 0, photosTrashed = 0, photosFailed = 0;
+    ids.forEach(function (id) {
+      var rowNum = rowById[id];
+      if (!rowNum) { missing++; return; }
+      // cols 17..19 (1-based): status, processed_ts, processed_by
+      sh.getRange(rowNum, LOT_SUB.STATUS + 1, 1, 3).setValues([[status, ts, by]]);
+      updated++;
+      // ponytail: per-file trash in the loop — fine to ~100 rows; batch/queue if it outgrows that
+      if (doTrash) {
+        if (trashLotPhoto_(data[rowNum - 1][LOT_SUB.PHOTO_ID])) photosTrashed++;
+        else photosFailed++;
+      }
+    });
+    return { ok: true, updated: updated, missing: missing, photosTrashed: photosTrashed, photosFailed: photosFailed };
+  } catch (e) {
+    Logger.log('updateVinSubmissionStatuses failed: ' + e.message);
+    return { ok: false, error: e.message };
+  }
+}
+
+/**
+ * Editor-run backlog sweep (NOT client-callable). Trashes the Drive photo of
+ * every row already marked discarded/processed. Idempotent — setTrashed on an
+ * already-trashed file is a no-op; crew-owned files the office can't trash just
+ * log/count as failed. Rows are retained (never deleteRow'd).
+ * @returns {string} 'sweepLotPhotos: scanned=N trashed=N failed=N'
+ */
+function sweepLotPhotos() {
+  var sh = getLotSubmissionsSheet_();
+  if (!sh) { var m0 = 'sweepLotPhotos: submissions sheet not configured.'; Logger.log(m0); return m0; }
+  var data = sh.getDataRange().getValues();
+  var scanned = 0, trashed = 0, failed = 0;
+  for (var i = 1; i < data.length; i++) {
+    var st = String(data[i][LOT_SUB.STATUS] || '');
+    if (st !== 'discarded' && st !== 'processed') continue;
+    scanned++;
+    if (trashLotPhoto_(data[i][LOT_SUB.PHOTO_ID])) trashed++;
+    else failed++;
+  }
+  var msg = 'sweepLotPhotos: scanned=' + scanned + ' trashed=' + trashed + ' failed=' + failed;
+  Logger.log(msg);
+  return msg;
 }
 
 

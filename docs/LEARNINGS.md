@@ -269,6 +269,77 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   (0↔O, 8↔B, 5↔S, 2↔Z, …) — the check digit rejects almost all of the noise (a stray window passes
   it only ~1/11, and the human confirms anyway). (`isValidVin_`/`extractVinCandidates_`, Lot
   Scanner.)
+- **`getUserMedia` is policy-blocked inside a GAS HtmlService iframe — there is no live-camera
+  preview.** A web app served by `HtmlService` runs in a sandboxed cross-origin iframe whose
+  Permissions-Policy denies `camera`; `navigator.mediaDevices.getUserMedia` rejects (or is
+  absent) with **no permission prompt** — so a scan-through-a-viewfinder UI is simply not
+  attainable there. The ceiling is a **`<label>` wrapping
+  `<input type="file" accept="image/*" capture="environment">`** — the OS camera opens as a
+  native picker and hands back a still. Don't spend time on a getUserMedia gate/probe in a GAS
+  iframe; go straight to the file-input tap-loop. (Lot Scanner capture.)
+- **A programmatic `.click()` on a file input from *async* JS is silently ignored on iOS
+  Safari.** iOS opens the file/camera picker only when the `.click()` (or native label
+  activation) fires **synchronously inside the user-gesture task**; calling `input.click()` from
+  a `.then()`/`await`/`setTimeout` continuation (e.g. "decode this photo, THEN auto-open the
+  camera for the next") does nothing — **no error, no picker**. The reliable pattern is a plain
+  wrapping **`<label>`** the user taps for every shot (the tap itself is the gesture) — no
+  JS-driven advance to the next capture. (Lot Scanner tap-loop.)
+- **A `USER_ACCESSING` web app writes as the *accessing* user — every resource it touches needs
+  THAT user granted write, and "works for the owner" is the tell it doesn't.** Deployed
+  `executeAs: USER_ACCESSING`, all Drive/Sheets calls run under the caller's identity, not the
+  deploying owner's. A folder/sheet the owner can write but a crew member only reads → the crew
+  member's write throws (or the file lands in *their* Drive instead). If a flow works when you
+  (the owner) test it but fails for a field user, suspect a **missing per-user grant** on a
+  sheet/folder before you suspect the code. Grant every user editor / Content-Manager on each
+  written resource. (Lot Scanner submissions sheet + photos folder.)
+- **A retired `google.script.run` server function must be stubbed to THROW, not to return
+  `{ok:false}`.** A soft-failure object reads as **success** in any caller that doesn't inspect
+  `.ok` — a stale client pinned to the old endpoint would silently "submit" into a black hole.
+  Replace the body with `throw new Error('Old app version — pull down to refresh.')` so a stale
+  client fails **loudly**. (Don't fully delete the name while a deployed client still calls it —
+  `google.script.run` fails silently on a *missing* name too, so a throwing stub is the louder
+  interim state.) (`submitVinPhoto` deprecation stub, Lot Scanner.)
+- **`LockService` is per-SCRIPT-PROJECT — two Apps Script projects sharing one sheet can't lock
+  each other out, so a slow loop must re-verify row identity before every write.** The office
+  OCR runner (main app) reads N queued rows, then writes results back by **row number** over
+  several seconds; meanwhile the scanner (a *separate* script project) can `deleteRow` a
+  discarded submission, **shifting every row below it up by one** — and no lock the office takes
+  is visible to the scanner. Cached row numbers then point at the **wrong** rows (orphan-row
+  corruption). Fix: carry a **stable id** (`submission_id`) and, immediately before each write,
+  **re-read the id cell at the cached row and re-locate by id (or skip) if it moved**. Any
+  cross-project row-index write over a nonzero window needs this. (`runInboxOcr`.)
+- **Drive trash is OWNER-ONLY for a *My Drive* file — an editor can't trash what someone else
+  owns; a Shared Drive (org-owned, role-based trash) is the fix.** The office couldn't trash a
+  discarded/processed photo because a `USER_ACCESSING` upload had made the **crew member** the
+  owner (My-Drive semantics), and `setTrashed(true)` from a non-owner throws. Moving the photos
+  folder to a **Shared Drive** makes files **org-owned**, where trash is **role-based** — anyone
+  with **Content Manager** can trash regardless of who uploaded. (Keep the trash
+  best-effort/counted anyway: legacy My-Drive photos from before the move still can't be
+  office-trashed.) (`LOT_PHOTOS_FOLDER_ID` → Shared Drive; `trashLotPhoto_`/`sweepLotPhotos`.)
+- **A find-or-create of a shared Drive folder RACES under a parallel upload pool — one order
+  created two subfolders.** The client uploads 5-wide; on a dealer's first-ever photos every one
+  of the 5 concurrent executions saw "no subfolder" and each ran `createFolder`, so one order
+  produced two identically-named subfolders. Fix = **double-checked locking**: a **lock-free fast
+  path** (`getFoldersByName().hasNext()` → return it) for the common case, and only on the create
+  path take a **script lock and re-check inside it** before creating — with a best-effort
+  `waitLock` so an upload never *fails* on lock contention. (`getDealerPhotoFolder_`.)
+- **A custom-select facade over a native `<select>` does NOT repaint when code changes the
+  select's `.value` — its `MutationObserver` is childList-only, and the refresh must run AFTER
+  re-enabling.** The `CustomSelect` widget mirrors the native value into its own button/label
+  DOM, but it observes only option **childList** changes, not a programmatic `.value` assignment
+  — so `sel.value = dealerKey` (resuming an order into a locked dealer) left the facade showing
+  the *old* label. Fix: call the facade's explicit **`refresh()`** after the value write — and do
+  it **after** you re-enable the select, so the same call also clears the stale `aria-disabled`.
+  Any thin facade over a native control needs a manual repaint on model-side value writes.
+  (`CustomSelect.refresh` in `vpBeginShooting` / order-end, Lot Scanner.)
+- **`lot-scan/SharedUtils.html` is an OLD, DIVERGENT copy of the main app's — a class you emit in
+  lot-scan HTML must exist in *lot-scan's own* files.** The scanner's `SharedUtils.html` was
+  copied before the July 2026 unified-component layer, so it has **no `.tag` / `.tone-*`**
+  classes; markup written from muscle memory against the main app's current SharedUtils renders
+  unstyled in the scanner. A drafts status chip written as `.tag` showed as plain text until it
+  was reworked to a **local `ls-chip`** class defined in the scanner's own files. Grep the
+  *lot-scan* copy for any class before using it there — the two SharedUtils are not kept in sync.
+  (Lot Scanner drafts chip.)
 
 ## External APIs (Pipedrive)
 
