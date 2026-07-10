@@ -9105,5 +9105,289 @@ function generateEomReport(scope, stageId, runId, monthLabel, splitContacts) {
 
 
 // ============================================================================
+// SECTION 34: HOME DASHBOARD ENDPOINTS
+// ============================================================================
+//
+// Read-only feeds for the reworked Home view. Three client-invoked endpoints
+// (google.script.run surface) + tiny private helpers. No writes anywhere.
+// Pipedrive/EOM lookups are best-effort and can never throw into the caller
+// (pdFetch_ philosophy). NEVER SpreadsheetApp.getUi() here — client-invoked.
+// The old Home keeps calling getDashboardView(); nothing here replaces it.
+// ============================================================================
+
+/** RUN_LOG rows (23 cols A–W) minus test runs, in append order. ONE read. */
+function readRunLog_() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('RUN_LOG');
+  if (!sheet) return [];
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  return sheet.getRange(2, 1, lastRow - 1, 23).getValues()
+    .filter(function(r) { return String(r[3]).trim().toLowerCase() !== 'test'; });
+}
+
+/** Log-sheet timestamp cell → 'yyyy-MM-dd HH:mm:ss' string (cells occasionally
+ *  coerce to Date; same idiom as getRunsForDealer). */
+function runLogTs_(v) {
+  return v instanceof Date
+    ? Utilities.formatDate(v, 'America/Chicago', 'yyyy-MM-dd HH:mm:ss')
+    : String(v || '').trim();
+}
+
+/** 'yyyy-MM-dd HH:mm[:ss]' → 'EEE MMM dd yyyy h:mm a' (VIN Inbox display
+ *  convention); malformed input passes through unchanged. */
+function homeDisplayTs_(ts) {
+  var m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/.exec(String(ts || ''));
+  if (!m) return String(ts || '');
+  // new Date(parts) builds in the script timezone (America/Chicago) — same zone
+  // the RUN_LOG/IMPORT_STATS strings were written in.
+  var d = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
+  return Utilities.formatDate(d, Session.getScriptTimeZone() || 'America/Chicago', 'EEE MMM dd yyyy h:mm a');
+}
+
+/**
+ * Client-callable. Home HUD stats from ONE RUN_LOG read (test runs excluded).
+ * Rows with malformed/blank timestamps are skipped from today/week but still
+ * count all-time.
+ * @returns {{lastImport:{date:string,time:string},
+ *            today:{runs:number,vins:number,dealers:number,dupes:number},
+ *            week:{runs:number,vins:number,dealers:number,dupes:number},
+ *            allTime:{runs:number,vins:number,avgVinsPerRun:number,
+ *                     committed:number,pending:number,rolledBack:number}}}
+ */
+function getHomeHud() {
+  var rows = readRunLog_();
+  var tz = 'America/Chicago';
+  var now = new Date();
+  var todayStr = Utilities.formatDate(now, tz, 'yyyy-MM-dd');
+  var DOW = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };   // days since Monday
+  var offset = DOW[Utilities.formatDate(now, tz, 'EEE')] || 0;
+  // ponytail: minus N*24h drifts an hour across a DST boundary — only wrong
+  // within an hour of midnight, and only for the week bucket. Fine for a HUD.
+  var mondayStr = Utilities.formatDate(new Date(now.getTime() - offset * 86400000), tz, 'yyyy-MM-dd');
+
+  function bucket() { return { runs: 0, vins: 0, dupes: 0, _dealers: {} }; }
+  function add(b, r) {
+    b.runs++;
+    b.vins  += Number(r[15]) || 0;   // P: total_produced
+    b.dupes += Number(r[14]) || 0;   // O: total_dupes
+    b._dealers[String(r[1])] = true;
+  }
+  function pack(b) { return { runs: b.runs, vins: b.vins, dealers: Object.keys(b._dealers).length, dupes: b.dupes }; }
+
+  var today = bucket(), week = bucket();
+  var allTime = { runs: rows.length, vins: 0, avgVinsPerRun: 0, committed: 0, pending: 0, rolledBack: 0 };
+
+  rows.forEach(function(r) {
+    allTime.vins += Number(r[15]) || 0;
+    var st = String(r[22]).trim();                 // W: vin_log_status
+    if (st === 'committed') allTime.committed++;
+    else if (st === 'rolled_back') allTime.rolledBack++;
+    else allTime.pending++;
+
+    var day = runLogTs_(r[0]).slice(0, 10);        // string prefix compare is safe
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return;  // malformed ts → all-time only
+    if (day === todayStr) add(today, r);
+    if (day >= mondayStr && day <= todayStr) add(week, r);
+  });
+
+  allTime.avgVinsPerRun = allTime.runs ? Math.round(allTime.vins / allTime.runs * 10) / 10 : 0;
+
+  var st = getAppHomeStatus();
+  return {
+    lastImport: { date: st.lastImportDate, time: st.lastImportTime },
+    today:      pack(today),
+    week:       pack(week),
+    allTime:    allTime
+  };
+}
+
+/**
+ * {orgId → deal count} for the default EOM stage, cached 10 min in the script
+ * cache (key 'eom_org_counts_v1'). GET requests only. Returns null on ANY
+ * failure or when Pipedrive isn't configured — an EOM/Pipedrive problem can
+ * never break getDealerSummary (pdFetch_ philosophy).
+ */
+function getEomOrgCountsCached_() {
+  try {
+    if (!getPipedriveStatus().configured) return null;
+    var cache = CacheService.getScriptCache();
+    var hit = cache.get('eom_org_counts_v1');
+    if (hit) return JSON.parse(hit);
+
+    // Same stage resolution as getEomCurrentReport: configured default EOM stage.
+    var deals = eomListDeals_('stage', eomGetDefaultStageId_());
+    var counts = {};
+    deals.forEach(function(d) {
+      var o = d.org_id;   // v1 list shape: object {name, value, …} (or a bare id)
+      var id = Number(o && typeof o === 'object' ? o.value : o);
+      if (!id) return;
+      counts[id] = (counts[id] || 0) + 1;
+    });
+    try { cache.put('eom_org_counts_v1', JSON.stringify(counts), 600); } catch (e) {}
+    return counts;
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * Client-callable. Per-dealer roll-up for the Home dashboard drill-in.
+ * inventory is null when the dealer's scraper location is absent from the
+ * newest import; eomOrders is null when Pipedrive is unconfigured/unreachable
+ * or the dealer has no linked org.
+ * @param {string} dealerKey
+ * @returns {{dealerName:string,
+ *            inventory:?{byType:Object<string,number>,total:number,onlot:number,
+ *                        offlot:number,noPrice:number,noStock:number,asOf:string},
+ *            runStats:{runs:number,vinsOrdered:number,vinsProduced:number,
+ *                      avgMatchPct:number,byType:{new:number,po:number,cpo:number,cpoEl:number}},
+ *            lastRun:?{ts:string,orderId:string,ordered:number,produced:number,
+ *                      durationSec:number,vinLogStatus:string},
+ *            eomOrders:?number} | {error:string}}
+ */
+function getDealerSummary(dealerKey) {
+  var config = getDealerConfig_(dealerKey);
+  if (!config) return { error: 'Unknown dealer' };
+
+  // ── Inventory: this dealer's row in the NEWEST import (IMPORT_STATS tail) ──
+  var inventory = null;
+  try {
+    var loc = String(config[CFG.SCRAPER_LOCATION] || '').trim();
+    var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('IMPORT_STATS');
+    var lastRow = sh ? sh.getLastRow() : 0;
+    if (loc && lastRow >= 2) {
+      var TAIL = 2000;   // same constant-time tail as checkImportHealth_
+      var start = Math.max(2, lastRow - TAIL + 1);
+      var data = sh.getRange(start, 1, lastRow - start + 1, 13).getValues();
+      var newest = '';
+      data.forEach(function(r) { var t = runLogTs_(r[0]); if (t > newest) newest = t; });
+      for (var i = data.length - 1; i >= 0; i--) {
+        var r = data[i];
+        if (runLogTs_(r[0]) !== newest || String(r[1]).trim() !== loc) continue;
+        inventory = {
+          byType: {
+            'New':    Number(r[3]) || 0,
+            'PO':     Number(r[4]) || 0,
+            'CPO':    Number(r[5]) || 0,
+            'CPO-EL': Number(r[6]) || 0,
+            'Other':  Number(r[7]) || 0
+          },
+          total:   Number(r[2])  || 0,
+          onlot:   Number(r[8])  || 0,
+          offlot:  Number(r[9])  || 0,
+          noPrice: Number(r[11]) || 0,
+          noStock: Number(r[12]) || 0,
+          asOf:    homeDisplayTs_(newest)
+        };
+        break;
+      }
+    }
+  } catch (e) {
+    inventory = null;   // no inventory data ≠ a broken summary
+  }
+
+  // ── Run stats + last run (RUN_LOG, test runs already excluded) ─────────────
+  var runs = readRunLog_().filter(function(r) { return String(r[1]).trim() === dealerKey; });
+  var runStats = {
+    runs: runs.length, vinsOrdered: 0, vinsProduced: 0, avgMatchPct: 0,
+    byType: { new: 0, po: 0, cpo: 0, cpoEl: 0 }
+  };
+  var matched = 0;
+  runs.forEach(function(r) {
+    runStats.vinsOrdered  += Number(r[4])  || 0;   // E: total_ordered
+    matched               += Number(r[5])  || 0;   // F: total_matched
+    runStats.vinsProduced += Number(r[15]) || 0;   // P: total_produced
+    runStats.byType.new   += Number(r[6])  || 0;   // G–J: per-type gross
+    runStats.byType.po    += Number(r[7])  || 0;
+    runStats.byType.cpo   += Number(r[8])  || 0;
+    runStats.byType.cpoEl += Number(r[9])  || 0;
+  });
+  runStats.avgMatchPct = runStats.vinsOrdered
+    ? Math.round(1000 * matched / runStats.vinsOrdered) / 10 : 0;
+
+  var lastRun = null;
+  if (runs.length) {
+    var last = runs[runs.length - 1];   // append order → last = newest
+    lastRun = {
+      ts:           homeDisplayTs_(runLogTs_(last[0])),
+      orderId:      String(last[3]).trim(),
+      ordered:      Number(last[4])  || 0,
+      produced:     Number(last[15]) || 0,
+      durationSec:  Number(last[18]) || 0,
+      vinLogStatus: String(last[22]).trim() || 'pending'   // '' = pending, same as getRunsForDealer
+    };
+  }
+
+  // ── EOM open orders: sum cached per-org counts over this dealer's org(s) ───
+  var eomOrders = null;
+  try {
+    var counts = getEomOrgCountsCached_();
+    if (counts) {
+      var seen = {};
+      getPipedriveDealerRows_(dealerKey).forEach(function(row) {
+        var id = Number(row.orgId);
+        if (!id || seen[id]) return;   // numeric keys — the string-vs-number id trap
+        seen[id] = true;
+        eomOrders = (eomOrders || 0) + (Number(counts[id]) || 0);
+      });
+    }
+  } catch (e) {
+    eomOrders = null;
+  }
+
+  return {
+    dealerName: String(config[CFG.NAME] || dealerKey),
+    inventory:  inventory,
+    runStats:   runStats,
+    lastRun:    lastRun,
+    eomOrders:  eomOrders
+  };
+}
+
+/**
+ * Client-callable. The DASHBOARD 'INVENTORY SNAPSHOT' section as display
+ * strings for the Home view: banner → header row → per-location rows →
+ * TOTALS row. Fail-soft: missing sheet/section returns empty arrays + an
+ * error message, never throws.
+ * @returns {{headers:Array<string>, rows:Array<Array<string>>,
+ *            totals:?Array<string>, error:(string|undefined)}}
+ */
+function getInventorySnapshot() {
+  function empty() { return { headers: [], rows: [], totals: null, error: 'No snapshot — run an import' }; }
+  try {
+    var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('DASHBOARD');
+    if (!sh || sh.getLastRow() < 1) return empty();
+    var grid = sh.getDataRange().getDisplayValues();
+
+    // Banner row = exactly one filled cell reading 'INVENTORY SNAPSHOT'.
+    var banner = -1;
+    for (var i = 0; i < grid.length; i++) {
+      var filled = grid[i].filter(function(c) { return String(c).trim() !== ''; });
+      if (filled.length === 1 && filled[0].trim().toUpperCase() === 'INVENTORY SNAPSHOT') { banner = i; break; }
+    }
+    if (banner === -1 || banner + 2 >= grid.length) return empty();
+
+    var headerRow = grid[banner + 1];
+    var width = headerRow.length;
+    while (width > 0 && String(headerRow[width - 1]).trim() === '') width--;
+    if (!width) return empty();
+    function slice(row) { return row.slice(0, width).map(String); }
+
+    var rows = [], totals = null;
+    for (var r = banner + 2; r < grid.length; r++) {
+      var first = String(grid[r][0]).trim();
+      if (first.toUpperCase() === 'TOTALS') { totals = slice(grid[r]); break; }
+      if (!first) break;   // spacer = section ended without a TOTALS row
+      rows.push(slice(grid[r]));
+    }
+    if (!rows.length && !totals) return empty();
+    return { headers: slice(headerRow), rows: rows, totals: totals };
+  } catch (e) {
+    return { headers: [], rows: [], totals: null, error: 'Snapshot read failed: ' + e.message };
+  }
+}
+
+
+// ============================================================================
 // END OF SCRIPT
 // ============================================================================
