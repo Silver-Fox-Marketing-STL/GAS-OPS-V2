@@ -207,7 +207,14 @@
   function viAction(sid, status, vin, okMsg) {
     google.script.run
       .withSuccessHandler(function (res) {
-        if (res && res.ok) { if (okMsg) toast(okMsg, 'success'); viLoad(); }
+        if (res && res.ok) {
+          if (okMsg) {
+            var msg = okMsg, tone = 'success';
+            if (res.photoTrashed === false) { msg += ' (photo not deleted)'; tone = 'info'; }
+            toast(msg, tone);
+          }
+          viLoad();
+        }
         else { toast('Failed: ' + escHtml((res && res.error) || '?'), 'error'); }
       })
       .withFailureHandler(function (e) { toast('Failed: ' + escHtml((e && e.message) || String(e)), 'error'); })
@@ -239,7 +246,9 @@
           viLoad();
           return;
         }
-        toast('Discarded ' + res.updated + ' submission' + (res.updated === 1 ? '' : 's') + '.', 'success');
+        var msg = 'Discarded ' + res.updated + ' submission' + (res.updated === 1 ? '' : 's') + '.';
+        if (res.photosFailed > 0) msg += ' (' + res.photosFailed + ' photo(s) couldn\'t be deleted)';
+        toast(msg, 'success');
         viLoad();
       })
       .withFailureHandler(function (e) {

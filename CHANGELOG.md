@@ -11,6 +11,7 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Added
+- `sweepLotPhotos()` editor utility (Code.gs Section 32) trashes the Drive photos of already-discarded/processed backlog rows; logs and returns `sweepLotPhotos: scanned=N trashed=N failed=N`. Idempotent (`setTrashed` on an already-trashed file is a no-op); crew-owned files the office can't trash just log/count. Rows are still retained (T5.2)
 - Office-side manual OCR runner (Code.gs Section 32: `extractVinFromImage_`, `extractVinCandidates_`, `analyzeDriveFile_`, `runInboxOcr`) + VIN Inbox "Run OCR (N queued)" button — replaces the Lot Scanner's per-user `drainOcrQueue` trigger, which stalled in the field (batches sent to the office before OCR drained sat at `ocr_state='queued'` forever). Processes submitted rows (drafts are OCR'd only after the crew sends the batch to the office). Main app gains the Drive v2 advanced service (T3.1)
 - Lot Scanner Drafts: OCR progress chips + auto-refresh while OCR drains (visibility-gated), edit-safe re-renders
 - `updateVinSubmissionStatuses` bulk server fn (Code.gs Section 32) — VIN Inbox's "Discard batch" now issues one bulk call instead of a serial per-row loop (T2.2)
@@ -20,6 +21,7 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 - VIN Inbox: batches collapsible via native `<details>` (collapsed by default) with a submission count in the summary, plus a "Discard batch" action that serially discards every submission in a batch and refreshes the list — F4
 
 ### Changed
+- VIN Inbox discard AND processed now best-effort-trash the submission's Drive photo (single `updateVinSubmissionStatus` + bulk `updateVinSubmissionStatuses` paths, via `trashLotPhoto_`), with untrashable files (e.g. crew-owned My-Drive photos the office can't trash) counted and surfaced in the toast. Rows are still retained; PHOTO_ID is not blanked (keeps the sweep idempotent) (T5.2)
 - VIN Inbox now shows SENT submissions only — `getVinSubmissions` default filter and `runInboxOcr` both exclude `status='draft'` (were draft+submitted) so the client Run-OCR count and the server OCR pass agree; drafts stay field-owned until "Send to office"
 - Lot Scanner is capture/upload/batch/dealer/send only — OCR (`drainOcrQueue`/`ensureOcrTrigger` + the per-user time trigger) is stripped now that the office runs it manually from VIN Inbox (T3.2). Drafts loses its OCR-drain poll (interval + visibilitychange listener) and the "N/M read" chip; a draft's rows still land `ocr_state='queued'` when no barcode matched, which is now simply the office's signal. `lot-scan/appsscript.json` drops the Drive v2 advanced service (no remaining `Drive.` call — `uploadPhotoOnly`/`saveBlobToDrive_` use plain `DriveApp`)
 - Lot Scanner: order-session capture flow (tap-loop camera, background upload queue, incremental draft commits) replaces the real-time OCR flow; gallery upload folded into orders

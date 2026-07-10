@@ -7630,6 +7630,16 @@ function getLotSubmissionsSheet_() {
   return SpreadsheetApp.openById(LOT_SUBMISSIONS_SHEET_ID).getSheetByName(LOT_SUBMISSIONS_TAB);
 }
 
+// Best-effort trash of a submission's Drive photo. Deliberately swallows errors:
+// a crew-owned My-Drive file can't be trashed by the office user (only the owner
+// can), so a failure here surfaces a role/membership mistake instead of failing
+// the discard. No new OAuth scope — DriveApp is already used in this file.
+function trashLotPhoto_(fileId) {
+  if (!fileId) return false;
+  try { DriveApp.getFileById(String(fileId)).setTrashed(true); return true; }
+  catch (e) { Logger.log('trashLotPhoto_ ' + fileId + ': ' + e.message); return false; }
+}
+
 // ── VIN validation (ISO 3779) — re-validates a corrected VIN in the inbox ──
 var VIN_TRANSLIT = {
   A:1, B:2, C:3, D:4, E:5, F:6, G:7, H:8, J:1, K:2, L:3, M:4, N:5, P:7, R:9,
@@ -7913,7 +7923,7 @@ function getVinSubmissions(filter) {
  * Client-callable. Updates one submission's status (allow-listed) and, if a
  * corrected VIN is supplied, re-validates + re-matches it against the dealer's
  * inventory and rewrites the VIN/vehicle columns.
- * @returns {{ok:boolean, valid?:boolean, matched?:boolean, error?:string}}
+ * @returns {{ok:boolean, valid?:boolean, matched?:boolean, photoTrashed?:boolean, error?:string}}
  */
 function updateVinSubmissionStatus(submissionId, status, correctedVin) {
   try {
@@ -7953,7 +7963,12 @@ function updateVinSubmissionStatus(submissionId, status, correctedVin) {
         : '';
       // cols 17..19 (1-based): status, processed_ts, processed_by
       sh.getRange(rowNum, LOT_SUB.STATUS + 1, 1, 3).setValues([[status, ts, by]]);
-      return { ok: true, valid: resultValid, matched: resultMatched };
+      // Discard/processed rows render nowhere again — trash the photo (best-effort).
+      var photoTrashed = null;
+      if (status === 'discarded' || status === 'processed') {
+        photoTrashed = trashLotPhoto_(data[i][LOT_SUB.PHOTO_ID]);
+      }
+      return { ok: true, valid: resultValid, matched: resultMatched, photoTrashed: photoTrashed };
     }
     return { ok: false, error: 'Submission not found.' };
   } catch (e) {
@@ -7965,7 +7980,7 @@ function updateVinSubmissionStatus(submissionId, status, correctedVin) {
 /**
  * Client-callable. Bulk status update (no VIN correction — corrections stay per-row
  * via updateVinSubmissionStatus). Same status/timestamp/by stamping as the single-row fn.
- * @returns {{ok:boolean, updated?:number, missing?:number, error?:string}}
+ * @returns {{ok:boolean, updated?:number, missing?:number, photosTrashed?:number, photosFailed?:number, error?:string}}
  */
 // ponytail: per-row narrow writes in one execution — batch a single setValues pass if inbox batches outgrow ~100 rows
 function updateVinSubmissionStatuses(submissionIds, status) {
@@ -7984,19 +7999,49 @@ function updateVinSubmissionStatuses(submissionIds, status) {
       ? Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'America/Chicago', 'yyyy-MM-dd HH:mm:ss')
       : '';
 
-    var updated = 0, missing = 0;
+    var doTrash = (status === 'discarded' || status === 'processed');
+    var updated = 0, missing = 0, photosTrashed = 0, photosFailed = 0;
     ids.forEach(function (id) {
       var rowNum = rowById[id];
       if (!rowNum) { missing++; return; }
       // cols 17..19 (1-based): status, processed_ts, processed_by
       sh.getRange(rowNum, LOT_SUB.STATUS + 1, 1, 3).setValues([[status, ts, by]]);
       updated++;
+      // ponytail: per-file trash in the loop — fine to ~100 rows; batch/queue if it outgrows that
+      if (doTrash) {
+        if (trashLotPhoto_(data[rowNum - 1][LOT_SUB.PHOTO_ID])) photosTrashed++;
+        else photosFailed++;
+      }
     });
-    return { ok: true, updated: updated, missing: missing };
+    return { ok: true, updated: updated, missing: missing, photosTrashed: photosTrashed, photosFailed: photosFailed };
   } catch (e) {
     Logger.log('updateVinSubmissionStatuses failed: ' + e.message);
     return { ok: false, error: e.message };
   }
+}
+
+/**
+ * Editor-run backlog sweep (NOT client-callable). Trashes the Drive photo of
+ * every row already marked discarded/processed. Idempotent — setTrashed on an
+ * already-trashed file is a no-op; crew-owned files the office can't trash just
+ * log/count as failed. Rows are retained (never deleteRow'd).
+ * @returns {string} 'sweepLotPhotos: scanned=N trashed=N failed=N'
+ */
+function sweepLotPhotos() {
+  var sh = getLotSubmissionsSheet_();
+  if (!sh) { var m0 = 'sweepLotPhotos: submissions sheet not configured.'; Logger.log(m0); return m0; }
+  var data = sh.getDataRange().getValues();
+  var scanned = 0, trashed = 0, failed = 0;
+  for (var i = 1; i < data.length; i++) {
+    var st = String(data[i][LOT_SUB.STATUS] || '');
+    if (st !== 'discarded' && st !== 'processed') continue;
+    scanned++;
+    if (trashLotPhoto_(data[i][LOT_SUB.PHOTO_ID])) trashed++;
+    else failed++;
+  }
+  var msg = 'sweepLotPhotos: scanned=' + scanned + ' trashed=' + trashed + ' failed=' + failed;
+  Logger.log(msg);
+  return msg;
 }
 
 
