@@ -4014,6 +4014,8 @@ function openVINLogUpdater() {
 }
 
 function getRunsForDealer(dealerKey) {
+  // Empty/absent dealerKey = ALL dealers (the VIN Logs page's default view).
+  var wantAll = !dealerKey;
   var sheet   = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('RUN_LOG');
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
@@ -4023,7 +4025,7 @@ function getRunsForDealer(dealerKey) {
 
   for (var i = 0; i < data.length; i++) {
     var row = data[i];
-    if (String(row[1]).trim() !== dealerKey) continue;
+    if (!wantAll && String(row[1]).trim() !== dealerKey) continue;
 
     var rawTimestamp    = row[0];
     var dealId          = String(row[3]).trim();
@@ -4040,6 +4042,8 @@ function getRunsForDealer(dealerKey) {
 
     runs.push({
       rowIndex:     i + 2,
+      dealerKey:    String(row[1]).trim(),   // per-row identity — the All-Dealers
+      dealerName:   String(row[2]).trim(),   // table mixes dealers, actions need it
       timestamp:    timestampStr,
       dealId:       dealId,
       vinCount:     vins.length,
