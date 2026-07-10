@@ -40,6 +40,9 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 - Home + VIN Logs migrated to the unified component layer
 - Encarta table-header override retargeted to .table-u; theme coupling audit clean
 
+### Removed
+- Lot Scanner Drafts — OCR-era field UI (`processing…` badge, `(no VIN)` text, per-row Re-check + now-dead server `correctSubmissionVin`/`updateLotSubmissionVin_`) and the debug + live-camera PROBE dev panels (incl. `.ls-diag` CSS). A no-barcode draft row now shows a neutral "office reads VIN" badge
+
 ### Fixed
 - `runInboxOcr` re-verifies each row's ID immediately before writing OCR results and re-locates by ID (or skips) if it moved — the scanner project `deleteRow`s on discard and LockService can't coordinate across the two scripts, so a crew discard mid-OCR-run shifted rows under the office's cached row numbers (whole-branch review finding; same corruption class as the old trigger's orphan rows)
 - Lot Scanner: finish guards failed photos (no silent drop); idempotent batch commits (no dupes on retry); OCR-trigger + send failures surfaced; cancellable finish

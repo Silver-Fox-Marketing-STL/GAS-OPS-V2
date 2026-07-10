@@ -84,8 +84,6 @@
       display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
     .ls-lightbox[hidden] { display: none; }
     .ls-lightbox img { max-width: 96vw; max-height: 96vh; object-fit: contain; }
-    .ls-diag { margin-top: var(--space-2); font-size: var(--fs-hint); color: var(--text-3); word-break: break-all; }
-    .ls-diag summary { cursor: pointer; }
     .ls-badge { font-size: var(--fs-hint); font-weight: 700; padding: 1px 8px; border-radius: 999px; }
     .ls-badge.ok { background: var(--success-weak, #dcefe0); color: var(--success, #1c7a3a); }
     .ls-badge.bad { background: var(--danger-weak, #f6dcdc); color: var(--danger, #b3261e); }
@@ -150,34 +148,7 @@
           <button type="button" class="ls-btn" id="lsFinishBtn" onclick="vpFinishOrder(false)">Finish order</button>
           <button type="button" class="ls-btn primary" id="lsFinishSendBtn" onclick="vpFinishOrder(true)">Finish &amp; Send</button>
         </div>
-
-        <details class="ls-diag">
-          <summary>debug</summary>
-          <div id="lsDiagBody"></div>
-        </details>
       </div>
-
-      <!-- PROBE: live-camera test — remove after milestone A gate -->
-      <details class="ls-diag" style="margin-top: var(--space-4);">
-        <summary>&#127909; Live camera test (dev probe)</summary>
-        <div style="margin-top: var(--space-2);">
-          <div class="ls-actions" style="margin-top: 0;">
-            <button type="button" class="ls-btn primary" id="probeStartBtn" onclick="probeStart()">Start camera</button>
-            <button type="button" class="ls-btn" id="probeGrabBtn" onclick="probeGrab()" hidden>Grab frame</button>
-            <button type="button" class="ls-btn" id="probeStopBtn" onclick="probeStop()" hidden>Stop</button>
-            <button type="button" class="ls-btn" id="probeRestartBtn" onclick="probeRestart()" hidden>Restart</button>
-          </div>
-          <video id="probeVideo" playsinline muted autoplay hidden
-            style="display:block; width:100%; max-height:40vh; background: var(--surface-3);
-                   border: 1px solid var(--border); border-radius: var(--radius-sm); margin-top: var(--space-2);"></video>
-          <div id="probeGrabs" style="display:flex; gap: var(--space-2); flex-wrap:wrap; margin-top: var(--space-2);"></div>
-          <div id="probeLog" style="margin-top: var(--space-2); font-family: var(--font-mono, ui-monospace, monospace);
-               font-size: var(--fs-hint); color: var(--text-2); max-height: 120px; overflow-y: auto;
-               background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
-               padding: var(--space-2); white-space: pre-wrap; word-break: break-all;"></div>
-        </div>
-      </details>
-      <!-- /PROBE -->
     </div>
 
     <!-- ── DRAFTS ─────────────────────────────────────────────────── -->
@@ -265,7 +236,6 @@
       };
       vpQueue = []; vpPending = []; vpBuffer = [];
       vpEng = { decoding: false, inFlight: 0, committing: false };
-      vpDroppedNote = '';
       vpFinishing = null;
       sel.disabled = true;
       document.getElementById('lsIdle').hidden = true;
@@ -294,8 +264,6 @@
           vpUpdateFinishUI();
           return;
         }
-        vpDroppedNote = failed + ' failed photo(s) dropped at finish';
-        vpRenderDiag();
       }
       vpCompleteFinish();
     }
@@ -363,7 +331,6 @@
     var vpEng = { decoding: false, inFlight: 0, committing: false };
     var vpEngPool = 5;
     var vpQNextId = 1;
-    var vpDroppedNote = '';
 
     function vpPhotoSelected(input) {
       var file = input.files && input.files[0];
@@ -558,17 +525,6 @@
       var saved = vpQueue.filter(function (q) { return q.state === 'saved'; }).length;
       var el = document.getElementById('lsCount');
       if (el) el.textContent = total + ' photo' + (total === 1 ? '' : 's') + ' · ' + saved + ' saved';
-      vpRenderDiag();
-    }
-
-    function vpRenderDiag() {
-      var box = document.getElementById('lsDiagBody');
-      if (!box) return;
-      var by = {};
-      vpQueue.forEach(function (q) { by[q.state] = (by[q.state] || 0) + 1; });
-      box.innerHTML = 'reading=' + (by.reading || 0) + ' uploading=' + (by.uploading || 0) +
-        ' saving=' + (by.saving || 0) + ' saved=' + (by.saved || 0) + ' failed=' + (by.failed || 0) +
-        (vpDroppedNote ? '<br>' + escHtml(vpDroppedNote) : '');
     }
 
     // Draw the already-decoded <img> onto a small (64x64, cover-cropped) canvas — never
@@ -652,19 +608,14 @@
 
     function vpDraftRow(r) {
       var badge;
-      if (r.ocrState === 'queued') badge = '<span class="ls-badge wait">processing…</span>';
-      else if (r.matched) badge = '<span class="ls-badge ok">in stock</span>';
+      if (r.matched) badge = '<span class="ls-badge ok">in stock</span>';
       else if (r.valid) badge = '<span class="ls-badge bad">verify</span>';
-      else badge = '<span class="ls-badge bad">needs VIN</span>';
+      else badge = '<span class="ls-badge wait">office reads VIN</span>';
       var veh = [r.year, r.make, r.model].filter(Boolean).join(' ');
       var h = '<div class="ls-drow" data-sid="' + r.id + '">' +
-        '<div class="top"><span class="ls-vin">' + escHtml(r.vin || '(no VIN)') + '</span> ' + badge +
+        '<div class="top"><span class="ls-vin">' + (r.vin ? escHtml(r.vin) : '<span class="ls-hint">Photo</span>') + '</span> ' + badge +
         '<button type="button" class="x" title="Discard" onclick="vpDraftDiscard(\'' + r.id + '\')">&times;</button></div>';
       if (veh) h += '<div class="ls-veh">' + escHtml(veh) + (r.stock ? (' · Stock ' + escHtml(r.stock)) : '') + '</div>';
-      if (r.ocrState !== 'queued') {
-        h += '<div class="ls-edit"><input id="de_' + r.id + '" type="text" maxlength="17" value="' + escHtml(r.vin || '') + '" placeholder="Correct VIN…">' +
-             '<button type="button" class="ls-btn" style="flex:0 0 auto;" onclick="vpDraftRecheck(\'' + r.id + '\',\'' + escHtml(r.dealerKey) + '\')">Re-check</button></div>';
-      }
       if (r.photoFileId) {
         h += '<div class="ls-actions"><button type="button" class="ls-btn" onclick="vpShowDraftPhoto(\'' + r.id + '\',\'' + r.photoFileId + '\')">&#128247; Show / hide photo</button></div>';
         h += '<div id="ph_' + r.id + '"></div>';
@@ -706,18 +657,6 @@
       if (!confirm('Discard this photo?')) return;
       google.script.run.withSuccessHandler(function () { vpLoadDrafts(); }).discardSubmission(sid);
     }
-    function vpDraftRecheck(sid, dealerKey) {
-      var el = document.getElementById('de_' + sid);
-      var vin = el ? String(el.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '') : '';
-      if (vin.length !== 17) { toast('A VIN is 17 characters.', 'info'); return; }
-      google.script.run
-        .withSuccessHandler(function (res) {
-          if (res && res.ok) { toast('Updated.', 'success'); vpLoadDrafts(); }
-          else { toast('Failed: ' + ((res && res.error) || 'unknown'), 'error'); }
-        })
-        .withFailureHandler(function (e) { toast('Failed: ' + ((e && e.message) || e), 'error'); })
-        .correctSubmissionVin(sid, dealerKey, vin);
-    }
 
     function vpLightbox(src) { document.getElementById('lsLightboxImg').src = src; document.getElementById('lsLightbox').hidden = false; }
     function vpCloseLightbox() { document.getElementById('lsLightbox').hidden = true; document.getElementById('lsLightboxImg').src = ''; }
@@ -758,88 +697,6 @@
       }
       return '';
     }
-
-    // ════════════════ PROBE: live-camera test (dev, TEMPORARY — remove after milestone A gate) ════════════════
-    var probeStream = null;
-    function probeTs() {
-      var d = new Date();
-      function p(n) { return (n < 10 ? '0' : '') + n; }
-      return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
-    }
-    function probeLog(msg) {
-      var box = document.getElementById('probeLog');
-      if (!box) return;
-      box.textContent += '[' + probeTs() + '] ' + msg + '\n';
-      box.scrollTop = box.scrollHeight;
-    }
-    // Only noisy while a stream is actually live — backgrounding behavior is the whole point of the probe.
-    document.addEventListener('visibilitychange', function () {
-      if (probeStream) probeLog('visibilitychange -> ' + document.visibilityState);
-    });
-    function probeButtons(started) {
-      document.getElementById('probeStartBtn').hidden = started;
-      document.getElementById('probeGrabBtn').hidden = !started;
-      document.getElementById('probeStopBtn').hidden = !started;
-      document.getElementById('probeRestartBtn').hidden = !started;
-    }
-    function probeStart() {
-      var has = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
-      probeLog('feature detect: getUserMedia = ' + has);
-      if (!has) { probeLog('err: getUserMedia not available in this context'); return; }
-      probeLog('requesting camera permission…');
-      navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
-        .then(function (stream) {
-          probeStream = stream;
-          var video = document.getElementById('probeVideo');
-          video.srcObject = stream;
-          video.hidden = false;
-          var track = stream.getVideoTracks()[0];
-          var settings = track ? track.getSettings() : {};
-          probeLog('stream started — track: ' + ((track && track.label) || '(no label)') +
-            ' · ' + (settings.width || '?') + 'x' + (settings.height || '?'));
-          probeButtons(true);
-        })
-        .catch(function (err) {
-          probeLog('err: ' + err.name + ': ' + err.message);
-        });
-    }
-    function probeGrab() {
-      var video = document.getElementById('probeVideo');
-      if (!video || !probeStream) { probeLog('err: no active stream to grab from'); return; }
-      var w = video.videoWidth, h = video.videoHeight;
-      if (!w || !h) { probeLog('err: video has no dimensions yet'); return; }
-      var c = document.createElement('canvas'); c.width = w; c.height = h;
-      c.getContext('2d').drawImage(video, 0, 0, w, h);
-      var img = document.createElement('img');
-      img.src = c.toDataURL('image/jpeg', 0.85);
-      img.style.cssText = 'display:block; width:140px; max-height:140px; object-fit:contain; ' +
-        'border:1px solid var(--border); border-radius: var(--radius-sm);';
-      var cap = document.createElement('div');
-      cap.style.cssText = 'font-size: var(--fs-hint); color: var(--text-3); text-align:center; margin-top:2px;';
-      cap.textContent = w + '×' + h + ' @ ' + probeTs();
-      var wrap = document.createElement('div');
-      wrap.appendChild(img); wrap.appendChild(cap);
-      var grabs = document.getElementById('probeGrabs');
-      grabs.insertBefore(wrap, grabs.firstChild);
-      while (grabs.children.length > 2) grabs.removeChild(grabs.lastChild);   // keep the last 2 grabs
-      probeLog('frame grabbed: ' + w + 'x' + h);
-    }
-    function probeStop() {
-      if (probeStream) {
-        probeStream.getTracks().forEach(function (t) { t.stop(); });
-        probeStream = null;
-        probeLog('stream stopped');
-      }
-      var video = document.getElementById('probeVideo');
-      if (video) { video.srcObject = null; video.hidden = true; }
-      probeButtons(false);
-    }
-    function probeRestart() {
-      probeLog('restarting…');
-      probeStop();
-      probeStart();
-    }
-    // ════════════════ /PROBE ════════════════
   </script>
 </body>
 </html>

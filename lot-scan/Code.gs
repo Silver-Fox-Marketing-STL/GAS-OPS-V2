@@ -188,24 +188,6 @@ function isValidVin_(vin) {
   return cd !== null && vin.charAt(8) === cd;
 }
 
-// ============================================================================
-// VIN CORRECTION — re-validate + re-match a human-typed VIN against an existing
-// submission row (drafts "Re-check" and any future VIN Inbox correction UI).
-// Fail-soft (returns a result object, never throws).
-// ============================================================================
-function correctSubmissionVin(submissionId, dealerKey, vin) {
-  try {
-    var corrected = String(vin || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-    var validC = isValidVin_(corrected);
-    var vehC = corrected ? (getDealerVinMap(dealerKey)[corrected] || null) : null;
-    updateLotSubmissionVin_(submissionId, corrected, validC, !!vehC, vehC);
-    return { ok: true, submissionId: submissionId, vin: corrected, valid: validC, matched: !!vehC, vehicle: vehC };
-  } catch (e) {
-    Logger.log('correctSubmissionVin failed: ' + e.message);
-    return { ok: false, error: e.message };
-  }
-}
-
 // TEMP: deprecation stub — remove after scanner prod repoint (plan Phase 3).
 // The synchronous-OCR real-time-camera path is retired. THROWS (not {ok:false}):
 // 2 of the 3 legacy call sites never check res.ok, so a returned error object
@@ -469,26 +451,6 @@ function getPhotoDataUrl(fileId) {
   } catch (e) {
     return { ok: false, error: String((e && e.message) || e) };
   }
-}
-
-// Update a row's VIN + match columns after a human correction (cols 8–16), and
-// mark OCR resolved.
-function updateLotSubmissionVin_(submissionId, vin, valid, matched, vehicle) {
-  var sh = getOrCreateLotSubmissionsSheet_();
-  var data = sh.getDataRange().getValues();
-  for (var i = 1; i < data.length; i++) {
-    if (String(data[i][LOTC.ID]) === String(submissionId)) {
-      var v = vehicle || {};
-      // cols 9..16 (1-based) = vin_final, vin_valid, matched, year, make, model, type, stock
-      sh.getRange(i + 1, LOTC.VIN_FINAL + 1, 1, 8).setValues([[
-        vin, valid ? 'TRUE' : 'FALSE', matched ? 'TRUE' : 'FALSE',
-        v.year || '', v.make || '', v.model || '', v.type || '', v.stock || ''
-      ]]);
-      sh.getRange(i + 1, LOTC.OCR_STATE + 1).setValue('done');   // human resolved
-      return true;
-    }
-  }
-  return false;
 }
 
 
