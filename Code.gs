@@ -45,6 +45,16 @@ var ENV_IDS = {
     VIN_LOGS_ID:              '12Xf6dyZXWXp4JwbytGo6lRUShwuGeN0yS3zhbco4-Lk', // SF_VIN_LOGS (master)
     LOT_SUBMISSIONS_SHEET_ID: '1zs-Ycj64LTwIYJt84kC_-qY_EhsWgB1Pa5pQlsG-N1M', // SF_LOT_SUBMISSIONS (Section 32 inbox; logged by the scanner's setupLotScannerResources())
     EOM_INDEX_SHEET_ID:       '1p28o2IbGFrHOqKVs_DUpAtyzM6LFYyAKUpsBB7NwFxg'  // SF_EOM_REPORTS index (Section 34; logged by setupEomReportsIndex())
+  },
+  '1jbcjMNuopoO-WgzdG8me-7ZYscbi8xK8JuzmF9ajFPdioOrQlWOIWM5F': { // DEV — all copies live in the Claude Sandbox Drive folder; see docs/dev-environment.md
+    name: 'dev',
+    MASTER_SHEET_ID:          '1-0rHSoBmQip-yi_dB_S-kz-2fjc6x7pOxlbg2S7PEjk', // DEV_SF_SYSTEM_MASTER (this script's container)
+    CONFIG_SHEET_ID:          '1ajpIn_TD7fOZ_rZZMfK6KSdJ4niqiB4l85eC0dok5lA', // DEV_SF_DEALER_CONFIG (neutralized: folders → DEV_QR/DEV_OUTPUT)
+    TEMPLATE_ID:              '1BgwoKC_QnRm4SF9HwrSZxmKTe8PznzwCBr33oJ5LFxg', // DEV_SF_UNIVERSAL_TEMPLATE
+    OUTPUT_FOLDER_ID:         '1h5FS0FDkY91bjKx2nTRMuCVflMYa77P2',            // DEV_OUTPUT
+    VIN_LOGS_ID:              '1iXLrqW7e3DSdiGz5K13POjr561AwmfwL2DyXe3FR2no', // DEV_SF_VIN_LOGS
+    LOT_SUBMISSIONS_SHEET_ID: '1mftxwQOW_Pdqka8ZNPBlczDbBIku2lS91hwWUqUwNfg', // DEV_SF_LOT_SUBMISSIONS
+    EOM_INDEX_SHEET_ID:       '18EQEMCS6Z6ux767ETyeVsFFjsYxrmHMw_m00sQEaoDU'  // DEV_SF_EOM_REPORTS_INDEX
   }
 };
 var ENV = ENV_IDS[ScriptApp.getScriptId()];
