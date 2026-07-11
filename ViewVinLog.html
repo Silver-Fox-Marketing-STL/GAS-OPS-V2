@@ -198,11 +198,17 @@
       table-layout: fixed;   /* fixed columns (Timestamp/Deal ID/VINs/Status) — no jitter as the band widens */
       font-variant-numeric: tabular-nums;   /* Deal ID / VIN counts align — no digit-width shift */
     }
-    /* Static column widths — these 4 columns are constant for this table */
+    /* Static column widths — 4 columns per-dealer (Timestamp/Deal ID/VINs/Status) */
     #view-vinlog #runsTable th:nth-child(1), #view-vinlog #runsTable td:nth-child(1) { width: 40%; }
     #view-vinlog #runsTable th:nth-child(2), #view-vinlog #runsTable td:nth-child(2) { width: 26%; }
     #view-vinlog #runsTable th:nth-child(3), #view-vinlog #runsTable td:nth-child(3) { width: 14%; }
     #view-vinlog #runsTable th:nth-child(4), #view-vinlog #runsTable td:nth-child(4) { width: 20%; }
+    /* All-Dealers mode adds a Dealer column (Timestamp/Dealer/Deal ID/VINs/Status) */
+    #view-vinlog #runsTable.with-dealer th:nth-child(1), #view-vinlog #runsTable.with-dealer td:nth-child(1) { width: 26%; }
+    #view-vinlog #runsTable.with-dealer th:nth-child(2), #view-vinlog #runsTable.with-dealer td:nth-child(2) { width: 26%; }
+    #view-vinlog #runsTable.with-dealer th:nth-child(3), #view-vinlog #runsTable.with-dealer td:nth-child(3) { width: 20%; }
+    #view-vinlog #runsTable.with-dealer th:nth-child(4), #view-vinlog #runsTable.with-dealer td:nth-child(4) { width: 12%; }
+    #view-vinlog #runsTable.with-dealer th:nth-child(5), #view-vinlog #runsTable.with-dealer td:nth-child(5) { width: 16%; }
     #view-vinlog #runsTable td {
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
@@ -457,7 +463,7 @@
           return;
         }
         var sel = document.getElementById('vinlogDealerSelect');
-        sel.innerHTML = '<option value="">-- Select a dealer --</option>';
+        sel.innerHTML = '<option value="">-- All Dealers --</option>';
         data.dealers.forEach(function(d) {
           var opt = document.createElement('option');
           opt.value = d.key; opt.text = d.name;
@@ -468,6 +474,8 @@
           var key = pendingPreselectKey;
           pendingPreselectKey = null;
           vinlogPreselectDealer(key);
+        } else {
+          sel.dispatchEvent(new Event('change'));   // initial All-Dealers load
         }
       });
 
@@ -497,9 +505,11 @@
       resetManualPanel();
 
       if (!key) {
-        document.getElementById('runsSection').style.display = 'none';
+        // All Dealers — show the full run log; latest-order + manual entry
+        // need a specific dealer, so those stay hidden.
         document.getElementById('latestOrderRow').style.display = 'none';
         document.getElementById('manualToggle').style.display = 'none';
+        loadRuns('');
         return;
       }
 
@@ -563,13 +573,16 @@
 
     function renderRunsTable(runs) {
       var container = document.getElementById('runsContainer');
+      var allMode = !document.getElementById('vinlogDealerSelect').value;
       if (!runs || runs.length === 0) {
-        container.innerHTML = '<div class="empty-msg">No runs found for this dealer.</div>';
+        container.innerHTML = '<div class="empty-msg">' +
+          (allMode ? 'No runs found.' : 'No runs found for this dealer.') + '</div>';
         return;
       }
 
-      var html = '<table id="runsTable"><thead><tr>' +
-        '<th>Timestamp</th><th>Deal ID</th><th>VINs</th><th>Status</th>' +
+      var html = '<table id="runsTable"' + (allMode ? ' class="with-dealer"' : '') + '><thead><tr>' +
+        '<th>Timestamp</th>' + (allMode ? '<th>Dealer</th>' : '') +
+        '<th>Deal ID</th><th>VINs</th><th>Status</th>' +
         '</tr></thead><tbody>';
 
       runs.forEach(function(run, idx) {
@@ -586,6 +599,8 @@
             : '');
         html += '<tr data-idx="' + idx + '" onclick="selectRun(' + idx + ', this)">' +
           '<td>' + run.timestamp + noteBadge + '</td>' +
+          (allMode ? '<td title="' + escHtml(run.dealerName || run.dealerKey || '') + '">' +
+            escHtml(run.dealerName || run.dealerKey || '—') + '</td>' : '') +
           '<td>' + (run.dealId || '<em style="color:var(--text-muted)">—</em>') + '</td>' +
           '<td>' + vinCell + '</td>' +
           '<td><span class="status-badge ' + statusClass + '">' + statusLabel + '</span></td>' +
@@ -613,7 +628,9 @@
       var rollbackBtn = document.getElementById('rollbackBtn');
       var status      = run.status || 'pending';
 
+      var allMode = !document.getElementById('vinlogDealerSelect').value;
       detail.innerHTML =
+        (allMode && run.dealerName ? '<strong>Dealer:</strong> ' + escHtml(run.dealerName) + '<br>' : '') +
         '<strong>Timestamp:</strong> ' + run.timestamp + '<br>' +
         '<strong>Deal ID:</strong> '   + (run.dealId || '—') + '<br>' +
         '<strong>VINs:</strong> '      + run.vinCount + ' vehicle' + (run.vinCount === 1 ? '' : 's');
@@ -679,7 +696,8 @@
 
     function pushSelectedRun() {
       if (!selectedRun) return;
-      var dealerKey = document.getElementById('vinlogDealerSelect').value;
+      // The run's own dealer — the select is '' in All-Dealers mode.
+      var dealerKey = selectedRun.dealerKey || document.getElementById('vinlogDealerSelect').value;
       var checked = document.querySelector('input[name="vlPushMode"]:checked');
       var mode = checked ? checked.value : 'create';
       var existingDealId = '';
@@ -748,7 +766,10 @@
         return;
       }
 
-      var dealerKey = document.getElementById('vinlogDealerSelect').value;
+      // The run's own dealer — the select is '' in All-Dealers mode.
+      var sel = document.getElementById('vinlogDealerSelect');
+      var dealerKey  = selectedRun.dealerKey || sel.value;
+      var dealerName = selectedRun.dealerName || sel.options[sel.selectedIndex].text;
       var btn = document.getElementById('commitBtn');
       btn.disabled = true; btn.textContent = 'Committing...';
       setVinlogStatus('Writing ' + selectedRun.vinCount + ' VINs to log...', 'info');
@@ -756,12 +777,10 @@
       google.script.run
         .withSuccessHandler(function(result) {
           setVinlogStatus('Committed ' + result.committed + ' VINs to the ' +
-            document.getElementById('vinlogDealerSelect').options[
-              document.getElementById('vinlogDealerSelect').selectedIndex].text +
-            ' VIN log.', 'success');
+            dealerName + ' VIN log.', 'success');
           btn.textContent = 'Commit to VIN Log';
-          loadRuns(dealerKey);
-          loadLatestOrderId(dealerKey); // refresh latest order number
+          loadRuns(sel.value);                          // reload whatever view mode is showing
+          if (sel.value) loadLatestOrderId(sel.value);  // latest-order row is dealer-mode only
         })
         .withFailureHandler(function(e) {
           setVinlogStatus('Commit failed: ' + e.message, 'error');
@@ -774,9 +793,10 @@
     function rollbackRun() {
       if (!selectedRun) return;
 
-      var dealerKey  = document.getElementById('vinlogDealerSelect').value;
-      var dealerName = document.getElementById('vinlogDealerSelect').options[
-        document.getElementById('vinlogDealerSelect').selectedIndex].text;
+      // The run's own dealer — the select is '' in All-Dealers mode.
+      var sel = document.getElementById('vinlogDealerSelect');
+      var dealerKey  = selectedRun.dealerKey || sel.value;
+      var dealerName = selectedRun.dealerName || sel.options[sel.selectedIndex].text;
       var btn = document.getElementById('rollbackBtn');
 
       btn.disabled = true; btn.textContent = 'Rolling back...';
@@ -796,8 +816,8 @@
               setVinlogStatus('Rolled back ' + result.removed + ' entries from the ' +
                 dealerName + ' VIN log.', 'success');
               btn.textContent = 'Rollback';
-              loadRuns(dealerKey);
-              loadLatestOrderId(dealerKey);
+              loadRuns(sel.value);                          // reload whatever view mode is showing
+              if (sel.value) loadLatestOrderId(sel.value);  // latest-order row is dealer-mode only
             })
             .withFailureHandler(function(e) {
               setVinlogStatus('Rollback failed: ' + e.message, 'error');

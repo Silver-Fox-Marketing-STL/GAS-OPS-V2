@@ -69,6 +69,7 @@
     --fs-h2: 18px;
     --fs-h3: 15px;
     --fs-overline: 11px;
+    --fs-lg: 16px;      /* large body / section-title size (referenced by Capture.html) */
     --fs-body: 13px;
     --fs-sm: 12px;
     --fs-hint: 11px;
@@ -541,7 +542,7 @@
         if (val) root.setAttribute('data-' + ax, val);
         else root.removeAttribute('data-' + ax);
       }
-      // Per-user UI prefs (nav layout / autohide) layer ON TOP of the theme's axes.
+      // The per-user nav-layout pref layers ON TOP of the theme's axes.
       if (typeof UiPrefs !== 'undefined' && UiPrefs.applyOverrides) UiPrefs.applyOverrides();
     },
     set: function(id) { this.apply(id, true); },
@@ -637,20 +638,18 @@
   };
 
   // ── Per-user UI preferences — layered ON TOP of the theme ───────────────────
-  // The theme sets structural axes (reflectAxes); these per-user prefs then
-  // OVERRIDE the nav layout (data-shell) and autohide (data-nav) when the user
-  // picked something other than "auto" in UI Settings. Persisted per Google
-  // account (server saveUiPref/getUiPrefs), injected pre-paint via window.UI_PREFS
+  // The theme sets structural axes (reflectAxes); this per-user pref then
+  // OVERRIDES the nav layout (data-shell) when the user picked something other
+  // than "auto" in UI Settings. Persisted per Google account (server
+  // saveUiPref/getUiPrefs), injected pre-paint via window.UI_PREFS
   // in App.html's head. Pure attribute writes — no view JS / google.script.run
   // dependency for the layout itself, so a save failure can't break the chrome.
   var UiPrefs = {
     navLayout: (window.UI_PREFS && UI_PREFS.navLayout) || 'auto',
-    autohide:  !!(window.UI_PREFS && UI_PREFS.autohide),
     // user nav-layout value → data-shell value ('' = remove attr = default sidebar)
     _SHELL: { 'sidebar': '', 'top-rail': 'top-rail', 'bottom-rail': 'bottom-rail', 'start-menu': 'start-menu' },
     // Apply the user's overrides AFTER reflectAxes set the theme's axes. 'auto'
-    // leaves the theme's layout untouched; an explicit pick wins. autohide only
-    // ADDS data-nav="icons" (the icon-rail behavior, scoped to the sidebar in CSS).
+    // leaves the theme's layout untouched; an explicit pick wins.
     applyOverrides: function() {
       var root = document.documentElement;
       // Mobile (narrow viewport) wins over theme AND user pref: every theme uses
@@ -668,17 +667,11 @@
         if (shell) root.setAttribute('data-shell', shell);
         else root.removeAttribute('data-shell');
       }
-      if (this.autohide) root.setAttribute('data-nav', 'icons');
     },
     setNavLayout: function(v) {
       this.navLayout = v;
-      Theme.reflectAxes(Theme.current());     // re-apply theme axes, then these overrides
+      Theme.reflectAxes(Theme.current());     // re-apply theme axes, then this override
       try { google.script.run.saveUiPref('nav_layout', String(v)); } catch (e) {}
-    },
-    setAutohide: function(on) {
-      this.autohide = !!on;
-      Theme.reflectAxes(Theme.current());
-      try { google.script.run.saveUiPref('autohide', this.autohide ? 'true' : 'false'); } catch (e) {}
     }
   };
   window.UiPrefs = UiPrefs;
@@ -689,7 +682,7 @@
   // -nav here means the chosen layout paints right the first time — no flash.
   // (data-theme itself is already set by App.html's pre-paint head script.)
   // reflectAxes also applies UiPrefs overrides (defined just above), so the
-  // user's chosen nav layout / autohide paint correctly on first frame too.
+  // user's chosen nav layout paints correctly on first frame too.
   try { Theme.reflectAxes(Theme.current()); } catch (e) {}
 
   // ── Responsive: data-viewport="mobile" on a narrow screen (auto, by width) ──

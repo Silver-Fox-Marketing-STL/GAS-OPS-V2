@@ -1,27 +1,27 @@
 <!-- ════════════════════════════════════════════════════════════════════════════
      UI SETTINGS VIEW — per-user display preferences (layered on top of the theme).
-     Nav-layout chooser + autohide toggle. Writes through window.UiPrefs (SharedUtils),
-     which applies the change live (data-shell / data-nav) AND persists it per user
+     Nav-layout chooser. Writes through window.UiPrefs (SharedUtils), which applies
+     the change live (data-shell / data-nav) AND persists it per user
      (google.script.run.saveUiPref). Pure presentation — no backend run is touched.
 ════════════════════════════════════════════════════════════════════════════ -->
 <div class="view" id="view-ui-settings" data-layout="form" hidden>
   <div class="uis-scroll app-measure">
 
     <h2 class="u-h2 uis-title">UI Settings</h2>
-    <p class="u-hint uis-intro">Personal display preferences, saved to your account and layered on top of the current theme. A theme that sets its own layout is followed when you pick <strong>Auto</strong>. On phones, a compact taskbar nav is used automatically regardless of this setting.</p>
+    <p class="u-hint uis-intro">Personal display preferences, saved to your account. Themes set colors only — the navigation layout is chosen here. On phones, a compact taskbar nav is used automatically regardless of this setting.</p>
 
     <!-- Navigation layout -->
     <div class="uis-section-label u-overline">Navigation layout</div>
     <div class="uis-options" id="uisLayoutOptions">
-      <div class="uis-card" data-value="auto" onclick="uisPickLayout('auto')" role="button" tabindex="0">
-        <div class="uis-fig fig-auto"><span class="uis-fig-auto">A</span></div>
-        <div class="uis-card-title">Auto</div>
-        <div class="uis-card-desc">Follow the theme</div>
-      </div>
       <div class="uis-card" data-value="sidebar" onclick="uisPickLayout('sidebar')" role="button" tabindex="0">
         <div class="uis-fig"><span class="uis-fig-nav nav-left"></span></div>
         <div class="uis-card-title">Left Sidebar</div>
         <div class="uis-card-desc">Vertical nav on the left</div>
+      </div>
+      <div class="uis-card" data-value="icons" onclick="uisPickLayout('icons')" role="button" tabindex="0">
+        <div class="uis-fig"><span class="uis-fig-nav nav-left nav-thin"></span></div>
+        <div class="uis-card-title">Icon Rail</div>
+        <div class="uis-card-desc">Collapsed icon strip that expands on hover</div>
       </div>
       <div class="uis-card" data-value="top-rail" onclick="uisPickLayout('top-rail')" role="button" tabindex="0">
         <div class="uis-fig"><span class="uis-fig-nav nav-top"></span></div>
@@ -39,17 +39,6 @@
         <div class="uis-card-desc">Taskbar + Start button</div>
       </div>
     </div>
-
-    <!-- Auto-hide -->
-    <div class="uis-section-label u-overline">Auto-hide</div>
-    <label class="uis-toggle">
-      <input type="checkbox" id="uisAutohide" onchange="uisToggleAutohide(this)">
-      <span class="uis-slider" aria-hidden="true"></span>
-      <span class="uis-toggle-text">
-        <span class="uis-toggle-title">Auto-hide navigation (icon rail)</span>
-        <span class="u-hint">Collapses the left sidebar to icons and expands it on hover. Applies to the Left Sidebar layout.</span>
-      </span>
-    </label>
 
   </div>
 </div>
@@ -86,32 +75,13 @@
   }
   #view-ui-settings .uis-fig-nav { position: absolute; background: var(--accent); opacity: .85; }
   #view-ui-settings .uis-fig-nav.nav-left   { left: 0; top: 0; bottom: 0; width: 16px; }
+  #view-ui-settings .uis-fig-nav.nav-left.nav-thin { width: 6px; }   /* Icon Rail: collapsed strip */
   #view-ui-settings .uis-fig-nav.nav-top    { left: 0; right: 0; top: 0; height: 12px; }
   #view-ui-settings .uis-fig-nav.nav-bottom { left: 0; right: 0; bottom: 0; height: 12px; }
   #view-ui-settings .uis-fig-start {
     position: absolute; left: 0; bottom: 0; width: 18px; height: 12px;
     background: var(--success); opacity: .95;
   }
-  #view-ui-settings .uis-fig.fig-auto { display: flex; align-items: center; justify-content: center; }
-  #view-ui-settings .uis-fig-auto { font-family: var(--font-head); font-weight: 800; font-size: 20px; color: var(--text-3); }
-
-  /* Toggle */
-  #view-ui-settings .uis-toggle { display: flex; align-items: flex-start; gap: var(--space-3); cursor: pointer; max-width: 60ch; }
-  #view-ui-settings .uis-toggle input { position: absolute; opacity: 0; width: 0; height: 0; }
-  #view-ui-settings .uis-slider {
-    flex-shrink: 0; position: relative; width: 40px; height: 22px; margin-top: 2px;
-    background: var(--surface-3); border: 1px solid var(--border-2); border-radius: 999px;
-    transition: background .12s;
-  }
-  #view-ui-settings .uis-slider::before {
-    content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
-    background: var(--bg); border-radius: 50%; box-shadow: var(--shadow); transition: transform .12s;
-  }
-  #view-ui-settings .uis-toggle input:checked + .uis-slider { background: var(--accent); border-color: var(--accent); }
-  #view-ui-settings .uis-toggle input:checked + .uis-slider::before { transform: translateX(18px); }
-  #view-ui-settings .uis-toggle input:focus-visible + .uis-slider { box-shadow: var(--focus-ring); }
-  #view-ui-settings .uis-toggle-text { display: flex; flex-direction: column; gap: 2px; }
-  #view-ui-settings .uis-toggle-title { font-weight: 600; font-size: var(--fs-body); }
 </style>
 
 <script>
@@ -123,23 +93,17 @@
 
   // Reflect the current saved prefs onto the controls.
   function uisRender() {
-    var cur = (window.UiPrefs && UiPrefs.navLayout) || 'auto';
+    var cur = (window.UiPrefs && UiPrefs.navLayout) || 'sidebar';
     var cards = document.querySelectorAll('#view-ui-settings .uis-card');
     for (var i = 0; i < cards.length; i++) {
       cards[i].classList.toggle('active', cards[i].getAttribute('data-value') === cur);
     }
-    var cb = document.getElementById('uisAutohide');
-    if (cb) cb.checked = !!(window.UiPrefs && UiPrefs.autohide);
   }
 
   function uisPickLayout(v) {
     if (window.UiPrefs) UiPrefs.setNavLayout(v);   // applies live + persists
     uisRender();
     if (window.toast) toast('Navigation layout updated.', 'success');
-  }
-
-  function uisToggleAutohide(cb) {
-    if (window.UiPrefs) UiPrefs.setAutohide(cb.checked);
   }
 
   // Keyboard activation for the option cards (they're role="button").

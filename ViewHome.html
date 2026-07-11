@@ -1,5 +1,6 @@
 <!-- ════════════════════════════════════════════════════════════════════════════
-     HOME VIEW — status strip + workflow launcher cards + live Dashboard
+     HOME VIEW — status strip + workflow launcher cards + HUD dashboard
+     (all-time / today / this-week stat tiles + per-dealer focus card)
 ════════════════════════════════════════════════════════════════════════════ -->
 <div class="view" id="view-home" data-layout="data" hidden>
   <div class="home-scroll app-measure">
@@ -38,12 +39,46 @@
       </div>
     </div>
 
-    <div class="home-dash-head">
-      <div class="home-section-label" style="margin:0;">Dashboard</div>
-      <button class="dash-refresh" id="dashRefresh" onclick="loadHomeDashboard()">&#8635; Refresh</button>
-    </div>
-    <div id="homeDashboard" class="home-dash">
-      <div class="dash-empty">Loading dashboard&hellip;</div>
+    <div class="home-hud" id="homeHud">
+
+      <div class="home-hud-col">
+        <div class="home-hud-head">
+          <div class="home-hud-title">System Stats</div>
+          <button class="btn-secondary" id="homeRefresh" onclick="loadHomeHud()">&#8635; Refresh</button>
+        </div>
+
+        <div class="home-statgroup hero">
+          <div class="home-sub-label">Today</div>
+          <div class="home-tiles" id="homeToday">
+            <div class="home-muted">Loading stats&hellip;</div>
+          </div>
+        </div>
+
+        <div class="home-statgroup">
+          <div class="home-sub-label">This Week</div>
+          <div class="home-tiles" id="homeWeek"></div>
+        </div>
+
+        <div class="home-statgroup quiet">
+          <div class="home-sub-label">All Time</div>
+          <div class="home-tiles" id="homeAllTime"></div>
+        </div>
+      </div>
+
+      <div class="home-hud-col">
+        <div class="home-hud-head">
+          <div class="home-hud-title">Dealer Focus</div>
+        </div>
+        <div class="home-focus">
+          <div class="home-focus-pick">
+            <select id="homeDealerSelect"><option value="">-- Select a dealer --</option></select>
+          </div>
+          <div class="home-focus-body" id="homeDealerBody">
+            <div class="home-muted">Pick a dealer to see inventory, run stats, and open orders.</div>
+          </div>
+        </div>
+      </div>
+
     </div>
 
   </div>
@@ -60,14 +95,13 @@
        Named areas let a theme reorder sections with no markup change. */
     display: grid;
     grid-template-columns: 1fr;
-    grid-template-areas: "status" "wflabel" "cards" "dashhead" "dash";
+    grid-template-areas: "status" "wflabel" "cards" "hud";
     align-content: start;
   }
   #view-home .home-status { grid-area: status; justify-self: start; }  /* no-op: keep the inline-flex pill content-width (grid items default to stretch) */
   #view-home .home-wflabel { grid-area: wflabel; }
   #view-home .home-cards { grid-area: cards; }
-  #view-home .home-dash-head { grid-area: dashhead; }
-  #view-home #homeDashboard { grid-area: dash; }
+  #view-home .home-hud { grid-area: hud; }
 
   #view-home .home-status {
     display: inline-flex;
@@ -116,184 +150,356 @@
   #view-home .card-title { font-size: 14px; font-weight: bold; margin-bottom: 5px; }
   #view-home .card-desc { font-size: 11.5px; color: var(--text-2); line-height: 1.5; }
 
-  /* ── Dashboard ──────────────────────────────────────────────────────────── */
-  #view-home .home-dash-head {
+  /* ── HUD: two columns wide (System Stats | Dealer Focus), one when narrow ──
+     auto-fit + minmax measures the CONTAINER (not the viewport — HtmlService
+     rule), so the split point tracks the actual view width (~2 cols above a
+     ~1150px window with the sidebar open). min(440px,100%) keeps the single
+     column from forcing horizontal scroll on narrow/mobile widths. */
+  #view-home .home-hud {
+    padding-bottom: 10px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(440px, 100%), 1fr));
+    gap: 22px;
+    align-items: start;
+  }
+  #view-home .home-hud-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    min-height: 30px;      /* the Refresh button exists on one side only — keep both column headers level */
     margin-bottom: 10px;
   }
-  #view-home .dash-refresh {
-    padding: 5px 12px;
-    background: var(--bg);
-    color: var(--text);
-    border: 1px solid var(--border-2);
-    border-radius: 5px;
-    font-size: 11.5px;
-    font-weight: bold;
-    cursor: pointer;
-  }
-  #view-home .dash-refresh:hover:not(:disabled) { background: var(--surface-2); border-color: var(--text-3); }
-  #view-home .dash-refresh:disabled { opacity: 0.45; cursor: default; }
-
-  #view-home .home-dash { padding-bottom: 10px; }
-  #view-home .dash-empty { font-size: 12.5px; color: var(--text-3); padding: 16px 0; }
-
-  #view-home .dash-section {
-    font-size: 11.5px;
-    font-weight: bold;
+  #view-home .home-hud-title {      /* top-level accent seclabel (eomr-seclabel idiom) */
+    font-family: var(--font-head);
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: .08em;
     text-transform: uppercase;
-    letter-spacing: 0.4px;
-    color: var(--on-accent);
-    background: var(--accent);
-    padding: 7px 12px;
-    border-radius: 4px 4px 0 0;
-    margin-top: 18px;
+    color: var(--accent);
   }
-  #view-home .dash-section:first-child { margin-top: 0; }
-  /* base table/th/td recipe now owned by .table-u (SharedUtils) — spacing
-     + zebra/totals row states below are view-specific and stay scoped */
-  #view-home .dash-table {
-    margin-bottom: 4px;
-    /* NB: intentionally NOT table-layout:fixed — these sections have dynamic
-       column counts and unknown content widths (location names, counts), so
-       forcing fixed columns risks truncating real dashboard data. The
-       --measure-data cap (App.html) already tames edge-to-edge stretch at
-       1920/2560, which is the actual problem here. */
+  #view-home .home-muted { font-size: 12px; color: var(--text-3); }
+
+  /* Stat groups: surface panels that visibly separate from the page (border +
+     shadow; tiles inside step up again to --surface-2). One accent left edge
+     on the hero GROUP, not 14 accent tiles. */
+  #view-home .home-statgroup {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--border);   /* same width on all groups so left edges align */
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 12px 14px;
+    margin-bottom: 14px;
   }
-  #view-home .dash-table td, #view-home .dash-table th { white-space: nowrap; }
-  #view-home .dash-table tr:not(.dash-hdr):nth-child(even) td { background: var(--surface); }
-  #view-home .dash-table tr.dash-totals td {
-    background: var(--text);
-    color: var(--bg);
-    font-weight: bold;
+  #view-home .home-statgroup.hero { border-left-color: var(--accent); }
+  #view-home .home-sub-label {
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--text-3);
+    margin-bottom: 8px;
   }
 
-    /* themed root (overrides the interim .view light guard) */
-    #view-home { background: var(--bg); color: var(--text); }
+  /* Stat tiles: big numeral over a small uppercase label. Zero counts mute. */
+  #view-home .home-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 170px));   /* content-width tiles that wrap at narrow widths */
+    gap: 10px;
+  }
+  #view-home .home-tile {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+  }
+  #view-home .home-tile .num {
+    font-family: var(--font-head);
+    font-size: 26px;
+    font-weight: 800;
+    line-height: 1.15;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+  #view-home .home-tile.zero .num { color: var(--text-muted); font-weight: 600; }
+  #view-home .home-tile .lbl {
+    margin-top: 3px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-3);
+  }
+  /* Priority gradient: Today hero (biggest, accent non-zero numerals) →
+     This Week standard → All Time ambient (smallest, muted). Zeros stay muted. */
+  #view-home .home-statgroup.hero .home-tile .num { font-size: 30px; }
+  #view-home .home-statgroup.hero .home-tile:not(.zero) .num { color: var(--accent); }
+  #view-home .home-statgroup.quiet .home-tile .num { font-size: 19px; font-weight: 700; color: var(--text-2); }
+  #view-home .home-statgroup.quiet .home-tile.zero .num { color: var(--text-muted); }
 
-  /* ── Mobile: stop a wide dashboard table from widening the whole page ───────
-     A wide table expands its flex/grid ancestors (default min-width:auto),
-     stretching the cards + Refresh button off the right edge. Pin every layout
-     ancestor to min-width:0 so the table can't grow them, and let each table
-     scroll sideways inside its own card (display:block makes the <table>'s own
-     overflow-x scroll). */
+  /* Dealer Focus card — the interactive centerpiece: accent-topped surface
+     card, inner sections step to --surface-2 (.eomr-contact presence). */
+  #view-home .home-focus {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-top: 3px solid var(--accent);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 14px 16px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  #view-home .home-focus-pick { max-width: 320px; margin-bottom: 4px; }
+  #view-home .home-focus-pick select { width: 100%; }
+  #view-home .home-focus-sec {
+    margin-top: 12px;
+    background: var(--surface-2);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+  }
+  #view-home .home-focus-sec .eomr-chip { background: var(--surface-3); }   /* chips default to --surface-2 — invisible on a --surface-2 panel */
+  #view-home .home-focus-h {      /* accent seclabel idiom, small tier */
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+  #view-home .home-chipline { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+  #view-home .home-lastrun { font-size: 12.5px; color: var(--text-2); }
+  #view-home .home-lastrun b { color: var(--text); }
+  #view-home .home-lastrun .tag { margin-left: 4px; vertical-align: 1px; }
+  #view-home .home-eom {
+    font-family: var(--font-head);
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* themed root (overrides the interim .view light guard) */
+  #view-home { background: var(--bg); color: var(--text); }
+
+  /* ── Mobile: pin layout ancestors so wide content can't stretch the page ── */
   :root[data-viewport="mobile"] #view-home .home-scroll,
-  :root[data-viewport="mobile"] #view-home #homeDashboard,
-  :root[data-viewport="mobile"] #view-home .home-dash { min-width: 0; }
-  :root[data-viewport="mobile"] #view-home .dash-table {
-    display: block;
-    max-width: 100%;
-    overflow-x: auto;
-  }
+  :root[data-viewport="mobile"] #view-home .home-hud { min-width: 0; }
 </style>
 
 <script>
-  // Loads the DASHBOARD sheet and renders it (plus the status strip). Re-runs
-  // on every visit to Home (VIEW_SHOWN) so numbers stay current after a run —
-  // the user never has to close the app to check the stats.
-  function loadHomeDashboard() {
-    var btn = document.getElementById('dashRefresh');
+  var homeSelectedDealer = '';   // session-remembered Dealer Focus pick (survives nav — hidden views keep JS state)
+  var homeSummarySeq = 0;        // stale-response guard for getDealerSummary
+
+  // Loads the HUD stats (one getHomeHud round-trip) and, if a dealer is picked,
+  // reloads its summary in parallel. Re-runs on every visit to Home (VIEW_SHOWN)
+  // so numbers stay current after a run.
+  function loadHomeHud() {
+    var btn = document.getElementById('homeRefresh');
     if (btn) btn.disabled = true;
     google.script.run
       .withSuccessHandler(function(res) {
         if (btn) btn.disabled = false;
-        var rows = (res && res.rows) || [];
-        renderHomeStatus_(rows, res && res.error);
-        document.getElementById('homeDashboard').innerHTML =
-          rows.length ? renderDashboardRows_(rows)
-                      : '<div class="dash-empty">' + escHtml((res && res.error) || 'No dashboard data yet — run an import to populate it.') + '</div>';
+        renderHomeStatus_(res && res.lastImport);
+        renderHomeHud_(res || {});
       })
       .withFailureHandler(function(e) {
         if (btn) btn.disabled = false;
         document.getElementById('homeStatusText').textContent = 'Could not load dashboard: ' + e.message;
         document.getElementById('homeStatus').className = 'home-status stale';
-        document.getElementById('homeDashboard').innerHTML =
-          '<div class="dash-empty">Could not load dashboard: ' + escHtml(e.message) + '</div>';
+        document.getElementById('homeToday').innerHTML =   /* Today is now the first stat group on screen */
+          '<div class="home-muted">Could not load stats: ' + escHtml(e.message) + '</div>';
+        document.getElementById('homeAllTime').innerHTML = '';
+        document.getElementById('homeWeek').innerHTML = '';
       })
-      .getDashboardView();
+      .getHomeHud();
+    if (homeSelectedDealer) loadHomeDealerSummary(homeSelectedDealer);   // parallel call is fine
   }
 
-  // Derives the status strip from the dashboard's "Last Import:" row, so Home
-  // needs only one server round-trip.
-  function renderHomeStatus_(rows, err) {
+  // Status strip from getHomeHud().lastImport — date + time arrive as
+  // pre-formatted display strings (META tab); render as-is, never new Date().
+  function renderHomeStatus_(li) {
     var el = document.getElementById('homeStatus');
     var text = document.getElementById('homeStatusText');
-    var ts = '';
-    for (var i = 0; i < rows.length && i < 4; i++) {
-      if (String(rows[i][0]).trim().toLowerCase().indexOf('last import') === 0) {
-        ts = String(rows[i][1] || '').trim();
-        break;
-      }
-    }
-    if (!ts) {
-      text.textContent = err ? err : 'No scraper import recorded yet.';
+    var date = String((li && li.date) || '').trim();
+    var time = String((li && li.time) || '').trim();
+    if (!date) {
+      text.textContent = 'No scraper import recorded yet.';
       el.className = 'home-status stale';
       return;
     }
-    text.textContent = 'Last scraper import: ' + ts;
-    // Dashboard timestamp is "YYYY-MM-DD HH:mm:ss" — fresh if dated today.
-    var datePart = ts.split(' ')[0];
-    var today = new Date();
-    var pad = function(n) { return (n < 10 ? '0' : '') + n; };
-    var todayStr = today.getFullYear() + '-' + pad(today.getMonth() + 1) + '-' + pad(today.getDate());
-    el.className = 'home-status ' + (datePart === todayStr ? 'fresh' : 'stale');
+    text.textContent = 'Last scraper import: ' + date + (time ? ' ' + time : '');
+    el.className = 'home-status ' + (homeDateIsToday_(date) ? 'fresh' : 'stale');
   }
 
-  // Renders the DASHBOARD display-value grid into stacked, styled tables.
-  // Structure detection: a row with text only in column A is a section banner;
-  // the first multi-cell row after a banner is that section's column headers;
-  // the rest are data rows (a "TOTALS" first cell gets the totals style). The
-  // section's column count comes from its header row so trailing empty cells
-  // (the sheet is padded to 10 cols) don't render. Rows 1–2 (title + Last
-  // Import) are skipped — the status strip already shows them.
-  function renderDashboardRows_(rows) {
+  // Fresh = the import date string is today. Accepts yyyy/mm/dd, yyyy-mm-dd,
+  // or locale m/d/yyyy (display values vary with sheet formatting).
+  function homeDateIsToday_(dateStr) {
+    var m = /^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/.exec(dateStr);
+    if (!m) {
+      var us = /^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})/.exec(dateStr);
+      if (!us) return false;
+      m = [null, us[3], us[1], us[2]];
+    }
+    var t = new Date();
+    return +m[1] === t.getFullYear() && +m[2] === t.getMonth() + 1 && +m[3] === t.getDate();
+  }
+
+  // One stat tile. Zero renders muted (class "zero"). Pass a pre-formatted
+  // string via opts.raw for non-integers (avg VINs/run).
+  function homeTile_(label, value, opts) {
+    var n = Number(value) || 0;
+    var display = (opts && opts.raw !== undefined) ? String(opts.raw) : n.toLocaleString();
+    return '<div class="home-tile' + (n === 0 ? ' zero' : '') + '">' +
+      '<div class="num">' + escHtml(display) + '</div>' +
+      '<div class="lbl">' + escHtml(label) + '</div></div>';
+  }
+
+  function renderHomeHud_(res) {
+    var at = res.allTime || {};
+    document.getElementById('homeAllTime').innerHTML =
+      homeTile_('Total Runs', at.runs) +
+      homeTile_('Total VINs', at.vins) +
+      homeTile_('Avg VINs/Run', at.avgVinsPerRun,
+                { raw: (Number(at.avgVinsPerRun) || 0).toLocaleString(undefined, { maximumFractionDigits: 1 }) }) +
+      homeTile_('Committed', at.committed) +
+      homeTile_('Pending', at.pending) +
+      homeTile_('Rolled Back', at.rolledBack);
+    renderHomeBucket_('homeToday', res.today);
+    renderHomeBucket_('homeWeek', res.week);
+  }
+
+  function renderHomeBucket_(id, b) {
+    b = b || {};
+    document.getElementById(id).innerHTML =
+      homeTile_('Runs', b.runs) +
+      homeTile_('VINs Produced', b.vins) +
+      homeTile_('Dealers Served', b.dealers) +
+      homeTile_('Duplicates', b.dupes);
+  }
+
+  // ── Dealer Focus ───────────────────────────────────────────────────────────
+  function loadHomeDealerSummary(dealerKey) {
+    var body = document.getElementById('homeDealerBody');
+    body.innerHTML = '<div class="home-muted">Loading dealer summary&hellip;</div>';
+    var seq = ++homeSummarySeq;
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (seq !== homeSummarySeq) return;   // a newer pick superseded this load
+        if (!res || res.error) {
+          toast('Dealer summary: ' + ((res && res.error) || 'no data returned'), 'error');
+          body.innerHTML = '<div class="home-muted">Could not load this dealer&rsquo;s summary.</div>';
+          return;
+        }
+        body.innerHTML = renderHomeDealerSummary_(res);
+      })
+      .withFailureHandler(function(e) {
+        if (seq !== homeSummarySeq) return;
+        toast('Dealer summary failed: ' + e.message, 'error');
+        body.innerHTML = '<div class="home-muted">Could not load this dealer&rsquo;s summary.</div>';
+      })
+      .getDealerSummary(dealerKey);
+  }
+
+  function renderHomeDealerSummary_(d) {
+    function chip(n, label) {   // count chip; zero count skips the <b> so it reads muted
+      var v = (Number(n) || 0).toLocaleString();
+      return '<span class="eomr-chip">' + (Number(n) ? '<b>' + v + '</b>' : v) + ' ' + escHtml(label) + '</span>';
+    }
     var html = '';
-    var inTable = false;
-    var expectHeader = false;
-    var sectionCols = 0;
 
-    function closeTable() { if (inTable) { html += '</tbody></table>'; inTable = false; } }
-    function lastNonEmpty(row) {
-      var n = 0;
-      for (var k = 0; k < row.length; k++) { if (String(row[k]).trim() !== '') n = k + 1; }
-      return n;
+    // Inventory (null = the dealer's scraper location is absent from the newest import)
+    html += '<div class="home-focus-sec"><div class="home-focus-h">Inventory</div>';
+    var inv = d.inventory;
+    if (inv) {
+      html += '<div class="home-chipline">';
+      ['New', 'PO', 'CPO', 'CPO-EL', 'Other'].forEach(function(t) {
+        html += chip(inv.byType && inv.byType[t], t);
+      });
+      html += chip(inv.total, 'total');
+      html += '</div>';
+      html += '<div class="home-muted">' +
+        (Number(inv.onlot) || 0).toLocaleString() + ' on-lot &middot; ' +
+        (Number(inv.offlot) || 0).toLocaleString() + ' off-lot &middot; ' +
+        (Number(inv.noPrice) || 0).toLocaleString() + ' no price &middot; ' +
+        (Number(inv.noStock) || 0).toLocaleString() + ' no stock &middot; as of ' + escHtml(inv.asOf) + '</div>';
+    } else {
+      html += '<div class="home-muted">No inventory data for this dealer&rsquo;s scraper location.</div>';
     }
+    html += '</div>';
 
-    for (var r = 2; r < rows.length; r++) {
-      var row = rows[r];
-      var filled = lastNonEmpty(row);
-
-      if (filled === 0) { closeTable(); continue; }              // blank → end section
-
-      // Section banner: only column A has content.
-      if (filled === 1) {
-        closeTable();
-        html += '<div class="dash-section">' + escHtml(row[0]) + '</div>';
-        expectHeader = true;
-        continue;
-      }
-
-      if (!inTable) { html += '<table class="table-u dash-table"><tbody>'; inTable = true; }
-
-      var isHeader = expectHeader;
-      if (isHeader) { expectHeader = false; sectionCols = filled; }
-      var cols = sectionCols || filled;
-      var isTotals = String(row[0]).trim().toUpperCase() === 'TOTALS';
-      var tag = isHeader ? 'th' : 'td';
-
-      html += '<tr class="' + (isHeader ? 'dash-hdr' : (isTotals ? 'dash-totals' : '')) + '">';
-      for (var c = 0; c < cols; c++) {
-        var v = (row[c] === undefined) ? '' : String(row[c]);
-        html += '<' + tag + ' style="text-align:' + (c === 0 ? 'left' : 'right') + '">' + escHtml(v) + '</' + tag + '>';
-      }
-      html += '</tr>';
+    // Run stats
+    var rs = d.runStats || {};
+    var bt = rs.byType || {};
+    html += '<div class="home-focus-sec"><div class="home-focus-h">Run Stats</div>';
+    if (Number(rs.runs)) {
+      html += '<div class="home-chipline">' +
+        chip(rs.runs, 'runs') +
+        '<span class="eomr-chip"><b>' + (Number(rs.vinsOrdered) || 0).toLocaleString() +
+          ' &rarr; ' + (Number(rs.vinsProduced) || 0).toLocaleString() + '</b> ordered &rarr; produced</span>' +
+        '<span class="eomr-chip"><b>' + (Number(rs.avgMatchPct) || 0) + '%</b> avg match</span>' +
+        '</div>';
+      html += '<div class="home-muted">By type: New ' + (Number(bt.new) || 0).toLocaleString() +
+        ' &middot; PO ' + (Number(bt.po) || 0).toLocaleString() +
+        ' &middot; CPO ' + (Number(bt.cpo) || 0).toLocaleString() +
+        ' &middot; CPO-EL ' + (Number(bt.cpoEl) || 0).toLocaleString() + '</div>';
+    } else {
+      html += '<div class="home-muted">No runs recorded for this dealer yet.</div>';
     }
-    closeTable();
+    html += '</div>';
+
+    // Most recent run
+    html += '<div class="home-focus-sec"><div class="home-focus-h">Most Recent Run</div>';
+    var lr = d.lastRun;
+    if (lr) {
+      var st = String(lr.vinLogStatus || 'pending');
+      var tone = st === 'committed' ? 'tone-success' : (st === 'rolled_back' ? 'tone-danger' : 'tone-neutral');
+      html += '<div class="home-lastrun">' + escHtml(lr.ts) +
+        ' &middot; order <b>' + escHtml(lr.orderId) + '</b>' +
+        ' &middot; ' + (Number(lr.produced) || 0).toLocaleString() + ' produced' +
+        '<span class="tag ' + tone + '">' + escHtml(st) + '</span></div>';
+    } else {
+      html += '<div class="home-muted">No runs yet.</div>';
+    }
+    html += '</div>';
+
+    // EOM open orders (null = Pipedrive unconfigured/unreachable or no linked org)
+    html += '<div class="home-focus-sec"><div class="home-focus-h">EOM Open Orders</div>';
+    html += (d.eomOrders == null)
+      ? '<div class="home-muted">&mdash; (EOM unavailable)</div>'
+      : '<div class="home-eom">' + (Number(d.eomOrders) || 0).toLocaleString() + '</div>';
+    html += '</div>';
+
     return html;
   }
 
+  // ── Init (once, on first nav — dealers from the shared AppData bootstrap) ──
+  function initHomeView() {
+    var sel = document.getElementById('homeDealerSelect');
+    AppData.get(function(data, err) {
+      if (!data) {
+        sel.innerHTML = '<option value="">Error loading dealers</option>';
+        return;
+      }
+      sel.innerHTML = '<option value="">-- Select a dealer --</option>';
+      data.dealers.forEach(function(d) {
+        var opt = document.createElement('option');
+        opt.value = d.key; opt.text = d.name;
+        sel.appendChild(opt);
+      });
+      // (CustomSelect auto-refreshes on option changes via its own observer.)
+    });
+    sel.addEventListener('change', function() {
+      homeSelectedDealer = this.value;
+      if (homeSelectedDealer) loadHomeDealerSummary(homeSelectedDealer);
+      else document.getElementById('homeDealerBody').innerHTML =
+        '<div class="home-muted">Pick a dealer to see inventory, run stats, and open orders.</div>';
+    });
+  }
+
+  window.VIEW_INITS = window.VIEW_INITS || {};
+  VIEW_INITS['view-home'] = initHomeView;
+
   // Refresh on every visit to Home so stats reflect the latest run/import.
   window.VIEW_SHOWN = window.VIEW_SHOWN || {};
-  VIEW_SHOWN['view-home'] = loadHomeDashboard;
+  VIEW_SHOWN['view-home'] = loadHomeHud;
 </script>

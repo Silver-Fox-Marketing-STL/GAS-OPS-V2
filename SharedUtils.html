@@ -70,6 +70,7 @@
     --fs-h2: 18px;
     --fs-h3: 15px;
     --fs-overline: 11px;
+    --fs-lg: 16px;      /* large body / section-title size (between --fs-h3 and --fs-h2) */
     --fs-body: 13px;
     --fs-sm: 12px;
     --fs-hint: 11px;
@@ -97,8 +98,7 @@
     --rv-rail-w: 280px;        /* Run Order right rail column (ViewRun) */
   }
 
-  :root[data-theme="dark"],
-  :root[data-theme="top-rail-dark"] {   /* top-rail-dark reuses the Dark palette; its top-bar structure lives in App.html */
+  :root[data-theme="dark"] {
     color-scheme: dark;   /* native popup/scrollbar render dark — readable in modal AND web app */
     /* neutral black/grey base — warm oranges reserved for accents/highlights */
     --bg: #121214;
@@ -227,7 +227,7 @@
   }
 
   /* ── Gruvbox — warm retro dark, orange accent ── */
-  /* the palette for the 'gruvbox-rail' composed preset (gruvbox palette + top-rail). */
+  /* the palette for the 'gruvbox-rail' theme (Gruvbox dark palette; palette-only). */
   :root[data-theme="gruvbox-rail"] {
     color-scheme: dark;
     --bg: #282828; --surface: #3c3836; --surface-2: #504945; --surface-3: #665c54;
@@ -571,35 +571,33 @@
 
   // ── Theme registry + switcher ───────────────────────────────────────────────
   // A theme = a `data-theme` attribute on <html>; each id has a matching
-  // `:root[data-theme="<id>"]` token block (in this file) and, for layout
-  // changes, shell-scoped rules in App.html. Pure presentation — the backend
-  // google.script.run calls live in view JS that never reads CSS, so a theme
-  // cannot break a backend link. Add a theme in ONE place: push to `themes`
-  // here + add its CSS block(s). The picker + per-user persistence pick it up.
-  // Initial value is injected server-side (saved pref) or set from the OS by a
-  // head script before first paint (App.html / Classic.html).
+  // `:root[data-theme="<id>"]` token block (in this file). Themes are PALETTE-
+  // ONLY — the nav layout lives in the per-user UI Settings pref (UiPrefs below);
+  // the shell CSS in App.html is driven by that pref, never by a theme. Pure
+  // presentation — the backend google.script.run calls live in view JS that
+  // never reads CSS, so a theme cannot break a backend link. Add a theme in ONE
+  // place: push to `themes` here + add its token block. The picker + per-user
+  // persistence pick it up. Initial value is injected server-side (saved pref)
+  // or set from the OS by a head script before first paint (App.html / Classic.html).
   var Theme = {
     // A curated theme = an id (identity) + a palette block (:root[data-theme="id"],
-    // or a shared one) + optional STRUCTURAL AXES it composes: shell (App.html
-    // data-shell), density + shape (SharedUtils data-density/-shape), nav (App.html
-    // data-nav). apply()/reflectAxes() write those axes onto <html>; an axis a theme
-    // doesn't declare is REMOVED → the default (sidebar / comfortable / rounded /
-    // labeled). So a "complete idea" theme is ONE metadata entry + (if it needs a
-    // bespoke per-page arrangement) some [data-theme="id"] #view-xxx CSS — no
-    // per-combo shell CSS. Pure presentation: axes never touch view JS, so a theme
-    // cannot break a backend link.
+    // or a shared one) + optionally the 'arrange' axis (Luna's desktop metaphor).
+    // apply()/reflectAxes() write the axes onto <html>; an axis a theme doesn't
+    // declare is REMOVED → the default. The shell/nav axes are no longer declared
+    // by any theme (UI Settings owns them via UiPrefs.applyOverrides), but they
+    // stay in _axes so reflectAxes clears stale attributes before UiPrefs re-applies.
     _axes: ['shell', 'density', 'shape', 'nav', 'arrange'],
+    // ids are persistence keys — keep them stable even when a label changes
+    // (renaming 'gruvbox-rail'/'slate-icons' would orphan saved prefs).
     themes: [
       { id: 'light',         label: 'Light' },
       { id: 'dark',          label: 'Dark' },
-      { id: 'top-rail',      label: 'Top Rail',         shell: 'top-rail' },
-      { id: 'top-rail-dark', label: 'Top Rail — Dark',  shell: 'top-rail' },
       { id: 'midnight',      label: 'Midnight HC' },
       { id: 'encarta',       label: 'Encarta' },
       { id: 'sage',          label: 'Sage' },
-      { id: 'gruvbox-rail',  label: 'Gruvbox Rail',      shell: 'top-rail' },
-      { id: 'slate-icons',   label: 'Slate — Icon Rail', nav: 'icons' },
-      { id: 'luna',          label: 'Windows XP',        arrange: 'desktop' }
+      { id: 'gruvbox-rail',  label: 'Gruvbox' },
+      { id: 'slate-icons',   label: 'Slate' },
+      { id: 'luna',          label: 'Windows XP', arrange: 'desktop' }
     ],
     _meta: function(id) {
       for (var i = 0; i < this.themes.length; i++) { if (this.themes[i].id === id) return this.themes[i]; }
@@ -632,7 +630,7 @@
         if (val) root.setAttribute('data-' + ax, val);
         else root.removeAttribute('data-' + ax);
       }
-      // Per-user UI prefs (nav layout / autohide) layer ON TOP of the theme's axes.
+      // The per-user nav-layout pref layers ON TOP of the theme's axes.
       if (typeof UiPrefs !== 'undefined' && UiPrefs.applyOverrides) UiPrefs.applyOverrides();
     },
     set: function(id) { this.apply(id, true); },
@@ -728,20 +726,18 @@
   };
 
   // ── Per-user UI preferences — layered ON TOP of the theme ───────────────────
-  // The theme sets structural axes (reflectAxes); these per-user prefs then
-  // OVERRIDE the nav layout (data-shell) and autohide (data-nav) when the user
-  // picked something other than "auto" in UI Settings. Persisted per Google
-  // account (server saveUiPref/getUiPrefs), injected pre-paint via window.UI_PREFS
-  // in App.html's head. Pure attribute writes — no view JS / google.script.run
-  // dependency for the layout itself, so a save failure can't break the chrome.
+  // Themes are palette-only; the nav layout is owned by this per-user pref (the
+  // UI Settings view). Persisted per Google account (server saveUiPref/getUiPrefs),
+  // injected pre-paint via window.UI_PREFS in App.html's head. Pure attribute
+  // writes — no view JS / google.script.run dependency for the layout itself,
+  // so a save failure can't break the chrome.
   var UiPrefs = {
-    navLayout: (window.UI_PREFS && UI_PREFS.navLayout) || 'auto',
-    autohide:  !!(window.UI_PREFS && UI_PREFS.autohide),
-    // user nav-layout value → data-shell value ('' = remove attr = default sidebar)
-    _SHELL: { 'sidebar': '', 'top-rail': 'top-rail', 'bottom-rail': 'bottom-rail', 'start-menu': 'start-menu' },
-    // Apply the user's overrides AFTER reflectAxes set the theme's axes. 'auto'
-    // leaves the theme's layout untouched; an explicit pick wins. autohide only
-    // ADDS data-nav="icons" (the icon-rail behavior, scoped to the sidebar in CSS).
+    navLayout: (window.UI_PREFS && UI_PREFS.navLayout) || 'sidebar',
+    // nav-layout value → data-shell value ('' = remove attr = default sidebar).
+    // 'icons' keeps the default sidebar shell and adds data-nav="icons" below.
+    _SHELL: { 'sidebar': '', 'icons': '', 'top-rail': 'top-rail', 'bottom-rail': 'bottom-rail', 'start-menu': 'start-menu' },
+    // Applied AFTER reflectAxes cleared the theme's axes; an off-list value sets
+    // nothing → the default sidebar (fail-safe, matches the server-side validation).
     applyOverrides: function() {
       var root = document.documentElement;
       // Mobile (narrow viewport) wins over theme AND user pref: every theme uses
@@ -754,22 +750,17 @@
         root.removeAttribute('data-nav');
         return;
       }
-      if (this.navLayout && this.navLayout !== 'auto' && this._SHELL.hasOwnProperty(this.navLayout)) {
+      if (this.navLayout && this._SHELL.hasOwnProperty(this.navLayout)) {
         var shell = this._SHELL[this.navLayout];
         if (shell) root.setAttribute('data-shell', shell);
         else root.removeAttribute('data-shell');
       }
-      if (this.autohide) root.setAttribute('data-nav', 'icons');
+      if (this.navLayout === 'icons') root.setAttribute('data-nav', 'icons');
     },
     setNavLayout: function(v) {
       this.navLayout = v;
-      Theme.reflectAxes(Theme.current());     // re-apply theme axes, then these overrides
+      Theme.reflectAxes(Theme.current());     // re-apply theme axes, then this override
       try { google.script.run.saveUiPref('nav_layout', String(v)); } catch (e) {}
-    },
-    setAutohide: function(on) {
-      this.autohide = !!on;
-      Theme.reflectAxes(Theme.current());
-      try { google.script.run.saveUiPref('autohide', this.autohide ? 'true' : 'false'); } catch (e) {}
     }
   };
   window.UiPrefs = UiPrefs;
@@ -780,7 +771,7 @@
   // -nav here means the chosen layout paints right the first time — no flash.
   // (data-theme itself is already set by App.html's pre-paint head script.)
   // reflectAxes also applies UiPrefs overrides (defined just above), so the
-  // user's chosen nav layout / autohide paint correctly on first frame too.
+  // user's chosen nav layout paints correctly on first frame too.
   try { Theme.reflectAxes(Theme.current()); } catch (e) {}
 
   // ── Responsive: data-viewport="mobile" on a narrow screen (auto, by width) ──

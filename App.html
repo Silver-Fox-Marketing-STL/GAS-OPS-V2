@@ -20,9 +20,9 @@
         root.setAttribute('data-viewport', 'mobile');
       }
     })();
-    // Per-user UI prefs (nav layout / autohide) from the server — read pre-paint
-    // by SharedUtils' UiPrefs so the chosen nav layout paints on the first frame.
-    window.UI_PREFS = { navLayout: '<?= initialNavLayout ?>', autohide: <?= initialAutohide ?> };
+    // Per-user UI prefs (nav layout) from the server — read pre-paint by
+    // SharedUtils' UiPrefs so the chosen nav layout paints on the first frame.
+    window.UI_PREFS = { navLayout: '<?= initialNavLayout ?>' };
   </script>
   <style>
     /* ── App shell ─────────────────────────────────────────────────────────── */
@@ -73,7 +73,6 @@
     }
     :root[data-theme="dark"] .app-brand .logo,
     :root[data-theme="midnight"] .app-brand .logo,
-    :root[data-theme="top-rail-dark"] .app-brand .logo,
     :root[data-theme="encarta"] .app-brand .logo,
     :root[data-theme="gruvbox-rail"] .app-brand .logo,
     :root[data-theme="luna"] .app-brand .logo { background-color: #d2d2d6; }   /* light logo on the navy/blue title strip */
@@ -119,23 +118,10 @@
     /* Top Rail layouts put the picker in a horizontal TOP bar — open DOWNWARD. */
     :root[data-shell="top-rail"] .theme-menu { bottom: auto; top: calc(100% + 4px); }
 
-    /* ── Right-rail layout (data-shell="right-rail") ───────────────────────────
-       STRUCTURAL axis: the sidebar moves to a right-hand rail. Reusable by ANY
-       palette (Dark — Dense composes it via shell:'right-rail' in its metadata).
-       Pure CSS; markup + nav onclick wiring (and thus the backend calls) untouched.
-       The active-nav accent flips to the rail's inner (right) edge so the
-       selection cue keeps pointing at the content it selects. */
-    :root[data-shell="right-rail"] #appRoot { flex-direction: row-reverse; }
-    :root[data-shell="right-rail"] #sidebar { width: 188px; border-right: none; border-left: 1px solid var(--border); }
-    :root[data-shell="right-rail"] .nav-item,
-    :root[data-shell="right-rail"] .nav-group-header { border-left-width: 0; border-right: 3px solid transparent; }
-    :root[data-shell="right-rail"] .nav-item.active { border-right-color: var(--accent); }
-
     /* ── Top-rail layout (data-shell="top-rail") ───────────────────────────────
        STRUCTURAL axis: the side rail becomes a horizontal TOP bar. Keyed on
-       data-shell, so ANY palette composes it by declaring shell:'top-rail' in its
-       Theme.themes metadata — e.g. "Top Rail" (light), "Top Rail — Dark" (Dark
-       palette), and "Gruvbox Rail" all share these rules with no duplication.
+       data-shell, set by the UI Settings nav pref (UiPrefs.applyOverrides in
+       SharedUtils) — themes are palette-only and never set it.
        Pure CSS; markup + nav onclick wiring (and thus the backend calls) untouched.
        The active marker moves from the left edge to a bottom underline (tab
        metaphor), and the System Settings group becomes a hover flyout since it
@@ -172,10 +158,12 @@
     :root[data-shell="top-rail"] .nav-group:focus-within .nav-group-items { display: block; }
     :root[data-shell="top-rail"] .nav-group-items .nav-sub { padding-left: 16px; }
 
-    /* ── Nav axis (data-nav) — reusable nav rendering, composed via theme metadata.
+    /* ── Nav axis (data-nav) — set by the UI Settings "Icon Rail" nav pref
+       (UiPrefs.applyOverrides in SharedUtils; themes never set it).
        "icons": collapse the side rail to an icon strip that expands on hover/focus
-       (VS Code style). Side/right-rail shells only — inert under top-rail (a top
-       bar has no width to reclaim). Pure CSS; nav markup + onclick wiring untouched.
+       (VS Code style). Sidebar shell only — inert under the horizontal shells (a
+       top/bottom bar has no width to reclaim). Pure CSS; nav markup + onclick
+       wiring untouched.
        ponytail: hover-expand, no titles/markup change; the collapsed brand logo is
        clipped by overflow (it expands on hover). Add a compact mark if a theme
        wants a polished collapsed brand. */
@@ -437,7 +425,7 @@
     :root[data-arrange="desktop"] #view-home .home-card { background: transparent; border: none; box-shadow: none; text-align: center; padding: 6px 2px; }
     :root[data-arrange="desktop"] #view-home .home-card .card-icon { font-size: 40px; margin-bottom: 4px; }
     :root[data-arrange="desktop"] #view-home .home-card .card-desc { display: none; }
-    :root[data-arrange="desktop"] #view-home .home-section-label { display: none; }
+    :root[data-arrange="desktop"] #view-home .home-wflabel { display: none; } /* only the Workflows caption — HUD section labels stay */
     /* Luna pairs the desktop with a blue background + light captions. */
     :root[data-theme="luna"] #view-home, :root[data-theme="luna"] #appContent { background: linear-gradient(180deg,#5a7edc,#4a6fc8); }
     :root[data-theme="luna"] #view-home .home-card .card-title { color: #fff; text-shadow: 1px 1px 2px rgba(0,0,0,.6); }

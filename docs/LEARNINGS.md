@@ -148,6 +148,17 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   touch view JS or `google.script.run`, so a theme still can't break a backend link. (Same
   family as the "re-key the config source without rewriting consumers" lesson — here the
   consumers are CSS selectors and the new source is per-theme metadata.)
+- **When a structural axis moves from theme metadata to a user pref, keep the dead axis
+  name in the registry's axis list.** `reflectAxes(id)` is the only thing that CLEARS a
+  stale `data-*` attribute (an axis the current theme doesn't declare is removed, not just
+  left unset) — it runs BEFORE the pref layer (`UiPrefs.applyOverrides()`) re-applies its
+  own choice on top. When `shell`/`nav` stopped being theme-declarable (nav layout moved
+  entirely into UI Settings, July 2026), `Theme._axes` still lists `'shell'` and `'nav'`
+  even though no theme metadata sets them anymore — dropping them from `_axes` would mean
+  `reflectAxes` never removes a previously-set `data-shell`/`data-nav`, leaving it stuck on
+  `<html>` from whatever the last theme with that axis wrote. Same pattern for any axis/attr
+  that migrates ownership from one layer to another: the clearing pass must still know the
+  attribute exists, even after nothing on its "old" side sets it anymore.
 - **Converting a flex container to CSS Grid is NOT automatically a visual no-op.** Grid
   *blockifies* its items (an `inline-flex`/`inline-block` child becomes `flex`/`block`) and
   `justify-self`/`align-items` default to **`stretch`** — so a content-width element (a pill
@@ -173,6 +184,13 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   portable widget **self-defends** — it sets its own padding `!important`. Same family as the
   Encarta `!important` "legitimate top layer of intent" note: a self-contained component that
   must look right inside any host owns its own box model, loudly.
+- **An HTML `<!-- -->` comment inside a `<style>` block is a silent CSS parse hazard — it
+  isn't a CSS comment.** Every view fragment's `<style>` block lives inside an `.html` file,
+  so it's easy to reach for the familiar `<!-- note -->` out of muscle memory; a real browser
+  CSS parser doesn't recognize `<!--`/`-->` as a comment token, so at best the annotation
+  becomes dead/invalid text that gets silently dropped, and at worst it swallows or corrupts
+  adjacent rules depending on what follows. In-style annotations — including ponytail
+  `ponytail:` markers — must use real CSS comment syntax, `/* ... */`.
 - **Per-view CSS dialects for the same UI primitive drift silently — the fix is
   ONE unscoped canonical layer + a delete-the-dialect migration, not a linter rule.**
   By July 2026 the 12 views had accreted **6 different button-class dialects**
@@ -194,6 +212,21 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   a **second, independent coupling point to the same class name** that a class
   rename must update in the same change — grep `App.html` for the renamed selector
   before calling a rename done.
+- **A per-view ELEMENT-selector dialect (`#view-xxx table/th/td`) out-specifies the
+  canonical CLASS layer just as badly as a per-view class dialect does — dropping
+  `.table-u` into a view with one of these needs an explicit restore, not just the
+  class.** ViewImport's new Inventory Snapshot table (July 10, 2026 HUD rework) used
+  `.table-u`, but the view already carried a **generic `#view-import th`/`td` header
+  recipe** left over from the file-card tables (specificity 1,0,1 beats `.table-u
+  th`'s 0,1,1), which silently stripped the sticky inverted header. Fix pattern
+  (same shape as the CSS-dialect entry above, but for tag selectors instead of
+  classes): an **ID-scoped restore block** — `#view-import #invSnapshot .table-u th
+  { … }` — re-asserts the canonical look for just that table, rather than trying to
+  narrow the view's older element-selector dialect (other tables in the same view
+  still rely on it). General trap: before dropping a canonical `.table-u`/`.tag`/
+  `.pill`/etc into an existing view, grep that view's `<style>` block for bare
+  element selectors scoped to the view id — they silently outrank the unscoped
+  canonical class.
 - **iOS Safari fires a `change` event when a `<select>` is RE-PARENTED** — so a progressive
   enhancer that moves the select into a wrapper trips its own inline `onchange` mid-surgery.
   `CustomSelect.enhance()` does `insert wrapper → move select into it`; on iOS that DOM move
@@ -332,6 +365,18 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   it **after** you re-enable the select, so the same call also clears the stale `aria-disabled`.
   Any thin facade over a native control needs a manual repaint on model-side value writes.
   (`CustomSelect.refresh` in `vpBeginShooting` / order-end, Lot Scanner.)
+- **`CustomSelect` has NO value observer — a programmatic `select.value = x` (even with a
+  dispatched `change` event) leaves the facade's button/label stale until you call
+  `CustomSelect.refresh(sel)` explicitly.** A dispatched `change` fires listeners bound to
+  the native element, but the widget only repaints on option-childList mutation or its own
+  click handler — it never watches `.value`. Confirmed again in the VIN-Inbox-to-Run-Order
+  cross-view jump (`runPrefillFromInbox`, `ViewRun.html`): `sel.value = dealerKey;
+  sel.dispatchEvent(new Event('change'))` runs the real dealer-select handler (data loads,
+  guards fire) but the enhanced dropdown kept showing the old label until `CustomSelect.refresh(sel)`
+  was added right after. **Known latent gap:** `vinlogPreselectDealer` (`ViewVinLog.html`,
+  the older Run-Order-→-VIN-Log jump this pattern was modeled on) still sets `.value` +
+  dispatches `change` with no `refresh()` call — same stale-facade bug, not yet hit/fixed.
+  Any future `select.value =` write needs the same follow-up refresh call.
 - **`lot-scan/SharedUtils.html` is an OLD, DIVERGENT copy of the main app's — a class you emit in
   lot-scan HTML must exist in *lot-scan's own* files.** The scanner's `SharedUtils.html` was
   copied before the July 2026 unified-component layer, so it has **no `.tag` / `.tone-*`**
