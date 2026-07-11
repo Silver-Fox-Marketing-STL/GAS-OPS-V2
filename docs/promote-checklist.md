@@ -5,7 +5,11 @@
 > inventory + runbook: [dev-environment.md](dev-environment.md).
 
 1. [ ] **Branch** — `git checkout -b feat/<slug>` from up-to-date `main`
-2. [ ] **Implement** — backend-specialist (Code.gs) / frontend-specialist (views)
+2. [ ] **Implement** — backend-specialist (Code.gs) / frontend-specialist (views).
+       **Structural sheet change needed?** (new column/tab/config key — append-only,
+       per the invariants): write it as an idempotent `migration_<date>_<slug>()`
+       function in the SAME commit, run it against DEV from the dev script editor,
+       and flag the feature "needs prod migration" in its CHANGELOG line
 3. [ ] **`clasp push`** — lands on DEV (the default, safe target)
 4. [ ] **Test** — `node test/run-tests.js` green + dev SPA flow via `/verify`
 5. [ ] **Review** — `/code-review`; config JSON → config-rules-reviewer;
@@ -13,7 +17,11 @@
 6. [ ] **Docs** — CHANGELOG.md in the same commit; Bridge doc if significant
        (docs-curator)
 7. [ ] **Merge to `main`** + Nick pushes to GitHub — announce "deployable" only now
-8. [ ] **Promote** — Nick runs `scripts/promote.ps1` (requires: main, clean tree,
+8. [ ] **Migrate prod sheets FIRST** (only if the feature has a migration): run its
+       `migration_*()` from the PROD script editor. Schema before code —
+       append-only widening is backward-compatible with the still-running old code;
+       new code against an unmigrated sheet is not
+9. [ ] **Promote** — Nick runs `scripts/promote.ps1` (requires: main, clean tree,
        synced with origin/main, typed `PROMOTE`)
-9. [ ] **Prod smoke** — open the prod SPA, one read-only flow; sync
-       LEARNINGS/brain if anything new surfaced
+10. [ ] **Prod smoke** — open the prod SPA, one read-only flow; sync
+        LEARNINGS/brain if anything new surfaced

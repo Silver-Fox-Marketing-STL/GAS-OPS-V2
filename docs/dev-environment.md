@@ -48,6 +48,32 @@ prefixed `DEV_`. Minted 2026-07-10 by Drive-copying the prod originals.
 4. **Template**: verified free of IMPORTRANGE / external-ID formulas (all
    ARRAYFORMULAs are self-contained).
 
+## Structural sheet changes — migrations
+
+The sheets are the datastore, so schema changes need their own promote path
+(code rides git+clasp; sheet structure does not). Convention:
+
+- Every structural change (new column, tab, config key) is **append-only** (house
+  invariant) and ships as an **idempotent `migration_<date>_<slug>()` function in
+  the same commit** as the code that needs it — same idiom as
+  `setupEomReportsIndex()` / `setupLotScannerResources()`. Idempotent = safe to
+  run twice (check-before-add).
+- **Dev**: run the migration from the dev script editor while developing — that's
+  how the dev sheets acquire the structure.
+- **Prod**: running the migration from the prod script editor is checklist stage 8,
+  BEFORE `promote.ps1` (stage 9). Schema first, then code: append-only widening
+  never breaks the old code still running, but new code against an unmigrated
+  sheet breaks immediately.
+- **Why in-flight divergence is safe**: because changes are append-only, a hotfix
+  cut from `main` (old schema) still tests correctly against structurally-ahead
+  dev sheets — the unmerged columns just sit there unread. Non-append-only changes
+  (renaming/moving/inserting inside a fixed range) would break this guarantee and
+  are already forbidden by the invariants.
+
+<!-- ponytail: convention + checklist stage only; add a runPendingMigrations()
+     registry (applied-ids in ScriptProperties) if migrations ever stack up
+     faster than they promote -->
+
 ## Data refresh (re-seed) — NEVER re-copy the master
 
 Re-copying DEV_SF_SYSTEM_MASTER would mint a NEW bound script and invalidate
