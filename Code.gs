@@ -5613,6 +5613,7 @@ function getPipedriveStatus() {
  * @param {Object} opts    optional { version:'v2' }
  */
 function pdFetch_(method, path, payload, opts) {
+  if (ENV.name !== 'prod') return pdFakeFetch_(method, path, payload, opts);   // DEV: in-process fake, zero API traffic (PdFake.gs)
   var s = pdGetSecrets_();
   if (!s) return { ok: false, status: 0, data: null, error: 'Pipedrive is not configured.' };
   opts = opts || {};
@@ -7594,6 +7595,7 @@ function pdDealHasBillingPdf_(dealId, filename) {
  * is JSON-only so this is a raw fetch). Returns {ok} or {ok:false, error}.
  */
 function pdAttachFileToDeal_(dealId, blob, filename) {
+  if (ENV.name !== 'prod') return { ok: true }; // dev: fake the upload — the ONE Pipedrive call that bypasses pdFetch_ (multipart)
   try {
     var s = pdGetSecrets_();
     if (!s) return { ok: false, error: 'Pipedrive is not configured' };
@@ -8177,6 +8179,7 @@ function eomListDeals_(scope, stageId) {
 /** Products for many deals in ONE parallel batch. Returns {dealId:[dealProduct,…]}.
  * Never throws — a failed deal yields an empty product list. */
 function pdEomFetchProductsForDeals_(dealIds) {
+  if (ENV.name !== 'prod') return pdFakeEomProducts_(dealIds);   // DEV: in-process fake, zero API traffic (PdFake.gs)
   var out = {};
   var s = pdGetSecrets_();
   if (!s) { dealIds.forEach(function (id) { out[id] = []; }); return out; }

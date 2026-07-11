@@ -35,10 +35,16 @@ prefixed `DEV_`. Minted 2026-07-10 by Drive-copying the prod originals.
    constant are the ONLY three sheet/code-sourced Drive write destinations).
 2. **Fail-safe**: an unregistered scriptId (any stray Drive copy) throws at load —
    it can never run against prod IDs.
-3. **Pipedrive**: dev NEVER gets a `PD_API_TOKEN` script property, and the Phase 2b
-   fake layer intercepts at the `pdFetch_` / `pdEomFetchProductsForDeals_` choke
-   points when `ENV.name !== 'prod'`. PIPEDRIVE config rows stay ACTIVE in dev so
-   the integration code paths run against the fake.
+3. **Pipedrive**: in dev, ALL Pipedrive traffic routes to `PdFake.gs` at the three
+   choke points (`pdFetch_`, `pdEomFetchProductsForDeals_`, and the
+   `pdAttachFileToDeal_` multipart upload) when `ENV.name !== 'prod'` — fake deal
+   ids start at 900000. PIPEDRIVE config rows stay ACTIVE in dev so the integration
+   code paths run against the fake. **Dev script properties must hold DUMMY secrets**
+   (`PD_API_TOKEN` = `FAKE`, `PD_COMPANY_DOMAIN` = `fake-dev`, set by hand in
+   Project Settings → Script Properties — NOT via `setupPipedriveSecrets`, which
+   validates against the live API): the `configured` gates in
+   finalize/EOM check secrets exist BEFORE `pdFetch_` runs, and the fake branch
+   fires before the token is ever used. Never put the real token in dev.
 4. **Template**: verified free of IMPORTRANGE / external-ID formulas (all
    ARRAYFORMULAs are self-contained).
 
