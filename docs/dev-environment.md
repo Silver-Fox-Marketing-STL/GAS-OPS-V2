@@ -22,7 +22,7 @@ prefixed `DEV_`. Minted 2026-07-10 by Drive-copying the prod originals.
 | DEV_QR folder (all dealers) | `1c_BIBBmJL5HYJWIsMTzmHXNo5RvDUdQ1` | per-dealer folders (DEALERS col D) |
 | DEV_OUTPUT folder (all dealers) | `1h5FS0FDkY91bjKx2nTRMuCVflMYa77P2` | per-dealer folders (DEALERS col E) + `1iRDDlqgQPn9R67AEIUJcF8JmyiOyn8DI` |
 | DEV_EOM_REPORTS folder (inside DEV_OUTPUT) | `1EVSMdF1b7s__uAnTpCkET0tCHroOb1uV` | `1gM69qlwuUQYKCSYiwo6eXy9U3F83DQ19` (via PIPEDRIVE_SETTINGS `eom_reports_folder_id`) |
-| Dev Apps Script project (bound to DEV master) | _pending — Nick grabs from DEV master → Extensions → Apps Script_ | `1E5aTcofzWzJZssOikaf6lFytS92vRHmj-k1NDV0C_Xu7NoJk7VUEjtNO` |
+| Dev Apps Script project (bound to DEV master), named **"DEV_SFOX OPS V2"** in the editor | `1jbcjMNuopoO-WgzdG8me-7ZYscbi8xK8JuzmF9ajFPdioOrQlWOIWM5F` | `1E5aTcofzWzJZssOikaf6lFytS92vRHmj-k1NDV0C_Xu7NoJk7VUEjtNO` |
 
 ## Containment guarantees
 
