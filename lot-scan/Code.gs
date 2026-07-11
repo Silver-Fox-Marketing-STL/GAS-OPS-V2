@@ -27,6 +27,7 @@
 
 
 // ── Shared data (same IDs the main app uses; read-only here) ──
+// Hardcoded prod IDs — this subproject has no dev twin yet; main Code.gs uses an ENV_IDS scriptId map (see Section 1 there).
 var MASTER_SHEET_ID = '1G_wrlXVmcUDJ37xr3bDwDHUGUy9ULIbNufq_Xk9xVes';  // SF_SYSTEM_MASTER (SCRAPERDATA)
 var CONFIG_SHEET_ID = '1csQdjcNey_mgcVqY99GOJ2PNCGRTyoZTbaUyJ3IZkJ8';  // SF_DEALER_CONFIG (DEALERS)
 

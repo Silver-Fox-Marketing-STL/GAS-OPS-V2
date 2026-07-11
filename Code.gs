@@ -30,11 +30,33 @@
 // SECTION 1: GLOBAL CONSTANTS
 // ============================================================================
 
-var MASTER_SHEET_ID    = '1G_wrlXVmcUDJ37xr3bDwDHUGUy9ULIbNufq_Xk9xVes';  // SF_SYSTEM_MASTER
-var CONFIG_SHEET_ID    = '1csQdjcNey_mgcVqY99GOJ2PNCGRTyoZTbaUyJ3IZkJ8';   // SF_DEALER_CONFIG
-var TEMPLATE_ID        = '14Nk1FL-dfffIoWh9o8Q_EFCNlMXN3jUnlzzZ750QVTc';   // SF_UNIVERSAL_TEMPLATE
-var OUTPUT_FOLDER_ID   = '1iRDDlqgQPn9R67AEIUJcF8JmyiOyn8DI';              // Output docs folder
-var VIN_LOGS_ID        = '12Xf6dyZXWXp4JwbytGo6lRUShwuGeN0yS3zhbco4-Lk';  // SF_VIN_LOGS (master)
+// ── Environment resolution — the scriptId IS the environment. ──────────────
+// One codebase serves both scripts: the prod script (bound to SF_SYSTEM_MASTER)
+// and the dev script (bound to DEV_SF_SYSTEM_MASTER, added Phase 2). A Drive
+// copy of the master mints an UNREGISTERED scriptId → top-level throw → a stray
+// copy can never run against prod IDs.
+var ENV_IDS = {
+  '1E5aTcofzWzJZssOikaf6lFytS92vRHmj-k1NDV0C_Xu7NoJk7VUEjtNO': { // PROD
+    name: 'prod',
+    MASTER_SHEET_ID:          '1G_wrlXVmcUDJ37xr3bDwDHUGUy9ULIbNufq_Xk9xVes', // SF_SYSTEM_MASTER
+    CONFIG_SHEET_ID:          '1csQdjcNey_mgcVqY99GOJ2PNCGRTyoZTbaUyJ3IZkJ8', // SF_DEALER_CONFIG
+    TEMPLATE_ID:              '14Nk1FL-dfffIoWh9o8Q_EFCNlMXN3jUnlzzZ750QVTc', // SF_UNIVERSAL_TEMPLATE
+    OUTPUT_FOLDER_ID:         '1iRDDlqgQPn9R67AEIUJcF8JmyiOyn8DI',            // Output docs folder
+    VIN_LOGS_ID:              '12Xf6dyZXWXp4JwbytGo6lRUShwuGeN0yS3zhbco4-Lk', // SF_VIN_LOGS (master)
+    LOT_SUBMISSIONS_SHEET_ID: '1zs-Ycj64LTwIYJt84kC_-qY_EhsWgB1Pa5pQlsG-N1M', // SF_LOT_SUBMISSIONS (Section 32 inbox; logged by the scanner's setupLotScannerResources())
+    EOM_INDEX_SHEET_ID:       '1p28o2IbGFrHOqKVs_DUpAtyzM6LFYyAKUpsBB7NwFxg'  // SF_EOM_REPORTS index (Section 34; logged by setupEomReportsIndex())
+  }
+};
+var ENV = ENV_IDS[ScriptApp.getScriptId()];
+if (!ENV) throw new Error('Unknown scriptId ' + ScriptApp.getScriptId() +
+  ' — add it to ENV_IDS in Code.gs Section 1. Refusing to run against guessed (prod) IDs.');
+var MASTER_SHEET_ID          = ENV.MASTER_SHEET_ID;
+var CONFIG_SHEET_ID          = ENV.CONFIG_SHEET_ID;
+var TEMPLATE_ID              = ENV.TEMPLATE_ID;
+var OUTPUT_FOLDER_ID         = ENV.OUTPUT_FOLDER_ID;
+var VIN_LOGS_ID              = ENV.VIN_LOGS_ID;
+var LOT_SUBMISSIONS_SHEET_ID = ENV.LOT_SUBMISSIONS_SHEET_ID;
+var EOM_INDEX_SHEET_ID       = ENV.EOM_INDEX_SHEET_ID;
 // QR local base paths are now per-user. See USER_PROFILES tab in SF_DEALER_CONFIG
 // and Section 28 (User Profiles) below. QR_LOCAL_BASE_PATH global has been removed.
 
@@ -7603,8 +7625,7 @@ function attachBillingPdfToDeal_(dealId, outputDocId, group, meta) {
 // confirmed VINs into Run Order. Connection is by ID only — no shared runtime.
 // ============================================================================
 
-// Paste the SF_LOT_SUBMISSIONS id logged by the scanner's setupLotScannerResources().
-var LOT_SUBMISSIONS_SHEET_ID = '1zs-Ycj64LTwIYJt84kC_-qY_EhsWgB1Pa5pQlsG-N1M';
+// LOT_SUBMISSIONS_SHEET_ID is declared in Section 1 (ENV_IDS — environment resolver).
 var LOT_SUBMISSIONS_TAB = 'SUBMISSIONS';
 // 0-based column map — MUST match the scanner's LOT_SUBMISSION_COLS order.
 var LOT_SUB = {
@@ -8072,12 +8093,12 @@ var EOM_DEFAULT_STAGE_ID    = 44;  // "EOM Merge" stage
 
 // Report index (SF_EOM_REPORTS): one row per month; the in-app Reports card AND
 // the standalone eom-viewer both read it. Created once by setupEomReportsIndex()
-// — paste the logged id into EOM_INDEX_SHEET_ID here AND into eom-viewer/Code.gs.
+// — paste the logged id into EOM_INDEX_SHEET_ID (Section 1 ENV_IDS) AND into eom-viewer/Code.gs.
 // (Its own spreadsheet — SF_SYSTEM_MASTER is never written.) All cells are text:
 // Sheets date-parses "2026-07"/"July 2026", and google.script.run can't serialize
 // the resulting Date objects, so the whole grid is @-formatted and every write is
 // String()-converted with pre-formatted string timestamps.
-var EOM_INDEX_SHEET_ID = '1p28o2IbGFrHOqKVs_DUpAtyzM6LFYyAKUpsBB7NwFxg';   // set after running setupEomReportsIndex()
+// EOM_INDEX_SHEET_ID is declared in Section 1 (ENV_IDS — environment resolver).
 var EOM_INDEX_TAB = 'REPORTS';
 var EOM_INDEX_HEADERS = ['month_key', 'month_label', 'scope', 'stage_id', 'generated_at',
   'json_file_id', 'folder_url', 'ss_url', 'org_count', 'deal_count', 'status',

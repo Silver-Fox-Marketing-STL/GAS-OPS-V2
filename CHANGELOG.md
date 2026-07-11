@@ -10,6 +10,9 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## [Unreleased]
 
+### Changed
+- Core sheet/folder ID constants (MASTER/CONFIG/TEMPLATE/OUTPUT_FOLDER/VIN_LOGS + LOT_SUBMISSIONS/EOM_INDEX) now resolve through a `ScriptApp.getScriptId()`-keyed `ENV_IDS` map in Code.gs Section 1 — the scriptId IS the environment. Prod entry only for now (dev script entry lands with the dev environment); an unregistered scriptId (e.g. a stray Drive copy of the master) throws at load instead of running against prod IDs. Constant names unchanged — zero call-site changes. lot-scan/eom-viewer keep hardcoded prod IDs until they get dev twins
+
 ### Added
 - Home dashboard endpoints (Code.gs Section 34): `getHomeHud()` (today / Monday-start-week / all-time run stats from one RUN_LOG read, test runs excluded), `getDealerSummary(dealerKey)` (inventory from IMPORT_STATS last import via scraper-location join, per-dealer run stats + latest run, EOM order count), `getInventorySnapshot()` (server-side slice of the DASHBOARD sheet's inventory block). EOM counts come from a products-free Pipedrive stage-deals list cached 10 min (ScriptCache `eom_org_counts_v1`), org ids deduped across a dealer's groups, fail-soft null — a Pipedrive failure can never break Home
 - VIN Inbox "Create order" batch action (replaces "Copy valid VINs") — jumps to Run Order with the batch's dealer preselected and its valid VINs appended (`runPrefillFromInbox`, mirroring the VIN Log jump precedent, + `CustomSelect.refresh` so the styled dropdown facade updates); once every result card is resolved with at least one finalized, prompts once to discard the source batch via the bulk endpoint. Cancelling the dealer-switch guard, switching dealers, or an all-abandoned run kills the pending link (fail-safe: batch rows stay in the inbox)
