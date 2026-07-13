@@ -40,6 +40,7 @@
  */
 
 // ── Connection: data by ID only (paste the SF_EOM_REPORTS id here) ──
+// Hardcoded prod IDs — this subproject has no dev twin yet; main Code.gs uses an ENV_IDS scriptId map (see Section 1 there).
 var INDEX_SHEET_ID = '1p28o2IbGFrHOqKVs_DUpAtyzM6LFYyAKUpsBB7NwFxg';       // <-- paste the id logged by setupEomReportsIndex()
 var INDEX_TAB = 'REPORTS';
 // 0-based column map — MUST match the main app's EOMIDX.

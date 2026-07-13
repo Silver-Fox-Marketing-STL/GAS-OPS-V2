@@ -13,6 +13,11 @@ docs/**
 **/*.md
 .git/**
 
+# Dev-environment tooling: Node test harness + the prod clasp target (used only by
+# scripts/promote.ps1 — must never be pushed as an Apps Script .json file)
+test/**
+.clasp.prod.json
+
 # Visual-brainstorming companion scratch (local-only mockups; never Apps Script source)
 .superpowers/**
 

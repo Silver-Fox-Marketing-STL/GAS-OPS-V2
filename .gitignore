@@ -19,3 +19,8 @@ node_modules/
 *.canvas
 *.base
 2026-*.md
+
+# dev-environment credentials (gas-fakes OAuth etc.) — never commit
+.env*
+**/client_secret*.json
+**/token*.json
