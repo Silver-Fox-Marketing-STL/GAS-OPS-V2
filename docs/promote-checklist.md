@@ -39,6 +39,8 @@
        append-only widening is backward-compatible with the still-running old code;
        new code against an unmigrated sheet is not
 9. [ ] **Promote** — Nick runs `scripts/promote.ps1` (requires: main, clean tree,
-       synced with origin/main, typed `PROMOTE`)
-10. [ ] **Prod smoke** — open the prod SPA, one read-only flow; sync
-        LEARNINGS/brain if anything new surfaced
+       synced with origin/main, typed `PROMOTE`). Pushes the code AND bumps the
+       versioned `/exec` web-app deployment (same URL, new version) — no manual
+       deployment step in the Apps Script UI
+10. [ ] **Prod smoke** — open the prod fullscreen web app (`/exec`), one
+        read-only flow; sync LEARNINGS/brain if anything new surfaced

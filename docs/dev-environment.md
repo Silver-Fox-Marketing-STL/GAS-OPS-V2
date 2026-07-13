@@ -86,6 +86,22 @@ Re-copying DEV_SF_SYSTEM_MASTER would mint a NEW bound script and invalidate
 
 <!-- ponytail: manual runbook; script it only if refresh becomes frequent -->
 
+## Web-app deployments (fullscreen /exec usage)
+
+The sheet menu/modal always runs HEAD (latest push, no deployment involved).
+The fullscreen web app is a *deployment* and behaves differently per env:
+
+- **DEV**: use the HEAD deployment's **`/dev` test URL** (script editor →
+  Deploy → Test deployments). It always serves the latest `clasp push` —
+  zero deployment management, every push instantly live. HEAD deployment id:
+  `AKfycbwuFcrVSyE05fSiT1FSkNzxW-4PC4OZVj8d71dtNa8`.
+- **PROD**: the real `/exec` URL serves the pinned versioned deployment
+  (`AKfycbwB_wXCfnBEJCwM-bN6lO_HYtzeFI5J2e-EdURk5y-V0ZrfZ9qetotggbIE28Ez6pkI`).
+  `promote.ps1` bumps it automatically after the code push
+  (`clasp deploy --deploymentId … --description "promote <sha>"`) — same URL,
+  new version. Version pinning is a feature: rollback = redeploy a previous
+  version from Manage deployments in the Apps Script UI.
+
 ## clasp targets
 
 - `.clasp.json` (committed) → **DEV** scriptId — default `clasp push` is safe.
