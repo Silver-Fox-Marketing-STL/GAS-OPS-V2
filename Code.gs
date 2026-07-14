@@ -7309,133 +7309,195 @@ function billingVinGrid_(vins, cols) {
 
 /**
  * Builds a polished, formatted layout of the billing data in a temp tab and returns it.
- * Vertical sections (summary, by-type, by-source, duplicates + detail, produced VINs);
- * the produced VINs are laid out in a compact column-major multi-column grid (fill the
- * first column top-to-bottom, then wrap into the next column). Backgrounds/fonts/borders
- * are applied as batched matrices (runs once per push). Caller exports + deletes it.
+ * Two-column page: Band A = Order Summary ‖ By Type (+ By Source), Band B = Duplicates
+ * by Type ‖ Duplicate Detail — pairing the short tables side by side frees vertical
+ * space for orders with many VINs/duplicates. Produced VINs follow full-width in a
+ * column-major grid placed only in VIN-wide columns (a 17-char VIN at 9pt needs ~110px;
+ * Sheets CLIPS when the neighbor cell is filled, so every VIN-bearing column gets
+ * explicit width). Backgrounds/fonts/borders are applied as batched matrices (runs
+ * once per push). Caller exports + deletes it.
  */
 function buildBillingPdfTab_(outputDoc, data, meta) {
   var existing = outputDoc.getSheetByName(BILLING_PDF_TMP_TAB);
   if (existing) outputDoc.deleteSheet(existing);
   var sheet = outputDoc.insertSheet(BILLING_PDF_TMP_TAB);
 
-  var W = 6;
+  // Page grid: left block (cols 1-2) · gutter (col 3) · right block (cols 4-7).
+  var W = 7;
+  var LEFT = { c0: 0, w: 2 }, RIGHT = { c0: 3, w: 4 };
+  var COL_WIDTHS = [140, 112, 20, 150, 78, 118, 98];   // VIN-bearing cols 1/2/4/6 ≥ 112px
+  var VIN_COLS = [0, 1, 3, 5];                          // grid slots for produced VINs (0-based)
   var NAVY = '#1f3864', SECT = '#305496', SUBH = '#d9e1f2', BAND = '#eef3fb',
       WHITE = '#ffffff', GREY = '#595959', INK = '#1b1b1b', LINE = '#8ea9db';
 
-  var values = [], bgs = [], colors = [], weights = [], sizes = [];
-  var mergeRows = [], rightCells = [], borderBlocks = [];
+  var values = [], bgs = [], colors = [], weights = [], sizes = [], aligns = [];
+  var mergeSpans = [], wrapCells = [], borderBlocks = [];
 
-  function row(cells, st) {
-    st = st || {};
-    var v = cells.slice(); while (v.length < W) v.push('');
-    var bg = st.bg || WHITE, fc = st.fc || INK, fw = st.fw || 'normal', fs = st.fs || 10;
-    values.push(v);
-    var br = [], cr = [], wr = [], sr = [];
-    for (var i = 0; i < W; i++) { br.push(bg); cr.push(fc); wr.push(fw); sr.push(fs); }
-    bgs.push(br); colors.push(cr); weights.push(wr); sizes.push(sr);
-    return values.length;   // 1-based row number
+  function newRow() {
+    var v = [], b = [], c = [], w = [], s = [], a = [];
+    for (var i = 0; i < W; i++) { v.push(''); b.push(WHITE); c.push(INK); w.push('normal'); s.push(10); a.push('left'); }
+    values.push(v); bgs.push(b); colors.push(c); weights.push(w); sizes.push(s); aligns.push(a);
+    return values.length - 1;   // 0-based row index
   }
-  function blank() { return row(['']); }
-  function section(title) { var r = row([title], { bg: SECT, fc: WHITE, fw: 'bold', fs: 11 }); mergeRows.push(r); return r; }
-  function subHeader(c1, c2) { var v = ['', '', '', '', '', '']; v[0] = c1; v[W - 1] = c2; return row(v, { bg: SUBH, fw: 'bold', fs: 10 }); }
-  function countRow(label, count, idx) {
-    var r = row([label, '', '', '', '', count], { bg: (idx % 2 === 0 ? WHITE : BAND), fs: 10 });
-    rightCells.push({ row: r, col: W });
-    return r;
+  function put(r, c, sp) {
+    if (sp.v !== undefined) values[r][c] = sp.v;
+    if (sp.bg) bgs[r][c] = sp.bg;
+    if (sp.fc) colors[r][c] = sp.fc;
+    if (sp.fw) weights[r][c] = sp.fw;
+    if (sp.fs) sizes[r][c] = sp.fs;
+    if (sp.al) aligns[r][c] = sp.al;
+    if (sp.wrap) wrapCells.push({ r: r, c: c });
+  }
+  function blank() { return newRow(); }
+
+  // A block table = { rows: [cellSpec[] per row, block-width], borderFrom: relative row }.
+  // Section titles overflow across their block's empty same-bg cells — no merges needed.
+  function sectionCells(title, w) {
+    var cells = []; for (var i = 0; i < w; i++) cells.push({ bg: SECT });
+    cells[0] = { v: title, bg: SECT, fc: WHITE, fw: 'bold', fs: 11 };
+    return cells;
+  }
+  // Left-block key/value table. Pair: [label, value, fs?, wrap?]; boldLast bolds the total row.
+  function kvTable(title, pairs, opts) {
+    opts = opts || {};
+    var rows = [sectionCells(title, LEFT.w)];
+    pairs.forEach(function(p, i) {
+      var bg = (i % 2 === 0) ? WHITE : BAND, fs = p[2] || 10;
+      var last = opts.boldLast && i === pairs.length - 1;
+      rows.push([{ v: p[0], fw: 'bold', fs: fs, bg: bg },
+                 { v: p[1], fw: (last ? 'bold' : 'normal'), fs: fs, bg: bg,
+                   al: (p[3] ? 'left' : 'right'), wrap: !!p[3] }]);
+    });
+    return { rows: rows, borderFrom: 1 };
+  }
+  // Right-block label……qty table (labels overflow across the empty middle cells).
+  function countTable(title, header, items) {
+    var rows = [sectionCells(title, RIGHT.w)];
+    rows.push([{ v: header[0], bg: SUBH, fw: 'bold' }, { bg: SUBH }, { bg: SUBH },
+               { v: header[1], bg: SUBH, fw: 'bold', al: 'right' }]);
+    items.forEach(function(t, i) {
+      var bg = (i % 2 === 0) ? WHITE : BAND;
+      rows.push([{ v: t.label, bg: bg }, { bg: bg }, { bg: bg },
+                 { v: t.count, al: 'right', bg: bg }]);
+    });
+    return { rows: rows, borderFrom: 1 };
+  }
+  function dupDetailTable(detailRows) {
+    var rows = [sectionCells('DUPLICATE DETAIL', RIGHT.w)];
+    rows.push([{ v: 'Vehicle', bg: SUBH, fw: 'bold', fs: 9 }, { v: 'Stock', bg: SUBH, fw: 'bold', fs: 9 },
+               { v: 'VIN', bg: SUBH, fw: 'bold', fs: 9 }, { v: 'Prior Orders', bg: SUBH, fw: 'bold', fs: 9 }]);
+    detailRows.forEach(function(rw, i) {
+      var bg = (i % 2 === 0) ? WHITE : BAND;
+      var vehicle = [rw[0], rw[1], rw[2]].filter(Boolean).join(' ');   // Year Make Model in one cell
+      rows.push([{ v: vehicle, bg: bg, fs: 9 }, { v: rw[3], bg: bg, fs: 9 },
+                 { v: rw[4], bg: bg, fs: 9 }, { v: rw[5], bg: bg, fs: 9 }]);
+    });
+    return { rows: rows, borderFrom: 1 };
+  }
+
+  // Stack a side's tables (one spacer row between) and paste both sides row-aligned.
+  function stackSide(tables) {
+    var rows = [], borders = [];
+    tables.forEach(function(t, i) {
+      if (i > 0) rows.push(null);
+      borders.push({ from: rows.length + t.borderFrom, to: rows.length + t.rows.length - 1 });
+      rows = rows.concat(t.rows);
+    });
+    return { rows: rows, borders: borders };
+  }
+  function emitBand(leftTables, rightTables) {
+    var L = stackSide(leftTables), R = stackSide(rightTables);
+    var h = Math.max(L.rows.length, R.rows.length);
+    var base = values.length;
+    for (var i = 0; i < h; i++) newRow();
+    [{ s: L, blk: LEFT }, { s: R, blk: RIGHT }].forEach(function(side) {
+      side.s.rows.forEach(function(cells, r) {
+        if (!cells) return;
+        cells.forEach(function(sp, j) { if (sp) put(base + r, side.blk.c0 + j, sp); });
+      });
+      side.s.borders.forEach(function(b) {
+        borderBlocks.push({ top: base + b.from, bottom: base + b.to, c0: side.blk.c0, c1: side.blk.c0 + side.blk.w - 1 });
+      });
+    });
   }
 
   // ── Title + subtitle ──
-  var rTitle = row(['BILLING SUMMARY'], { bg: NAVY, fc: WHITE, fw: 'bold', fs: 18 }); mergeRows.push(rTitle);
+  var rTitle = newRow();
+  for (var tc = 0; tc < W; tc++) put(rTitle, tc, { bg: NAVY });
+  put(rTitle, 0, { v: 'BILLING SUMMARY', bg: NAVY, fc: WHITE, fw: 'bold', fs: 18, al: 'center' });
+  mergeSpans.push(rTitle);
   var sub = [];
   if (meta && meta.dealerName) sub.push(meta.dealerName);
   if (meta && meta.dealId)     sub.push('Deal #' + meta.dealId);
   if (meta && meta.group && meta.group !== 'PRIMARY') sub.push(meta.group);
   sub.push(Utilities.formatDate(new Date(), 'America/Chicago', 'MMMM d, yyyy'));
-  var rSub = row([sub.join('   •   ')], { fc: GREY, fs: 10 }); mergeRows.push(rSub);
+  var rSub = newRow();
+  put(rSub, 0, { v: sub.join('   •   '), fc: GREY, fs: 10, al: 'center' });
+  mergeSpans.push(rSub);
   blank();
 
-  // ── Order Summary ──
-  section('ORDER SUMMARY');
-  var sumStart = values.length + 1;
-  var sumPairs = [['Total Ordered', data.summary.ordered], ['Total Matched', data.summary.matched], ['Not Found', data.summary.notFoundCount]];
-  sumPairs.forEach(function(p, i) { var r = row([p[0], p[1]], { bg: (i % 2 === 0 ? WHITE : BAND), fs: 10 }); weights[r - 1][0] = 'bold'; });
+  // ── Band A: Order Summary ‖ By Type (+ By Source) ──
+  var sumPairs = [['Total Ordered', data.summary.ordered],
+                  ['Total Matched', data.summary.matched],
+                  ['Not Found', data.summary.notFoundCount]];
   if (data.summary.notFoundList && data.summary.notFoundList !== '—' && data.summary.notFoundList !== '') {
-    var rn = row(['Not Found VINs', data.summary.notFoundList], { bg: BAND, fs: 9 }); weights[rn - 1][0] = 'bold';
+    sumPairs.push(['Not Found VINs', data.summary.notFoundList, 9, true]);
   }
-  borderBlocks.push({ top: sumStart, bottom: values.length });
-  blank();
-
-  // ── By Type (gross) ──
-  section('BY TYPE (GROSS)');
-  var bth = subHeader('Type', 'Quantity');
-  data.byType.forEach(function(t, i) { countRow(t.label, t.count, i); });
-  borderBlocks.push({ top: bth, bottom: values.length });
-  blank();
-
-  // ── By Source (source_split only) ──
+  var rightA = [countTable('BY TYPE (GROSS)', ['Type', 'Quantity'], data.byType)];
   if (data.bySource && data.bySource.length) {
-    section('BY SOURCE (QTY PER SKU)');
-    var bsh = subHeader('Source — Type', 'Quantity');
-    data.bySource.forEach(function(t, i) { countRow(t.label, t.count, i); });
-    borderBlocks.push({ top: bsh, bottom: values.length });
-    blank();
+    rightA.push(countTable('BY SOURCE (QTY PER SKU)', ['Source — Type', 'Quantity'], data.bySource));
   }
-
-  // ── Duplicates by type ──
-  section('DUPLICATES BY TYPE');
-  var dh = subHeader('Type', 'Duplicates');
-  data.duplicates.byType.forEach(function(t, i) { countRow(t.label, t.count, i); });
-  var rTot = countRow('Total Duplicates', data.duplicates.total, data.duplicates.byType.length);
-  weights[rTot - 1][0] = 'bold'; weights[rTot - 1][W - 1] = 'bold';
-  borderBlocks.push({ top: dh, bottom: values.length });
+  emitBand([kvTable('ORDER SUMMARY', sumPairs)], rightA);
   blank();
 
-  // ── Duplicate detail (only when there are dupes) ──
-  if (data.dupDetail.hasRows && data.dupDetail.rows.length) {
-    section('DUPLICATE DETAIL');
-    var ddh = row(['Year', 'Make', 'Model', 'Stock', 'VIN', 'Prior Orders'], { bg: SUBH, fw: 'bold', fs: 9 });
-    data.dupDetail.rows.forEach(function(rw, i) { row(rw, { bg: (i % 2 === 0 ? WHITE : BAND), fs: 9 }); });
-    borderBlocks.push({ top: ddh, bottom: values.length });
-    blank();
-  }
+  // ── Band B: Duplicates by Type ‖ Duplicate Detail ──
+  var dupPairs = data.duplicates.byType.map(function(t) { return [t.label, t.count]; });
+  dupPairs.push(['Total Duplicates', data.duplicates.total]);
+  var rightB = (data.dupDetail.hasRows && data.dupDetail.rows.length)
+    ? [dupDetailTable(data.dupDetail.rows)] : [];
+  emitBand([kvTable('DUPLICATES BY TYPE', dupPairs, { boldLast: true })], rightB);
+  blank();
 
-  // ── Produced VINs — compact column-major multi-column grid ──
-  section('PRODUCED VINS (' + data.producedCount + ')');
+  // ── Produced VINs — full-width, column-major grid in the VIN-wide columns only ──
+  var rVins = newRow();
+  for (var vc = 0; vc < W; vc++) put(rVins, vc, { bg: SECT });
+  put(rVins, 0, { v: 'PRODUCED VINS (' + data.producedCount + ')', bg: SECT, fc: WHITE, fw: 'bold', fs: 11 });
   var vins = data.producedVins || [];
   if (!vins.length) {
-    row(['No vehicles produced.'], { fs: 10 });
+    put(newRow(), 0, { v: 'No vehicles produced.', fs: 10 });
   } else {
     // Banded only (no outer border) so a narrow grid of full columns doesn't draw a
     // wide mostly-empty box; the alternating row shading carries the structure.
-    billingVinGrid_(vins, W).forEach(function(line, rr) {
-      row(line, { bg: (rr % 2 === 0 ? WHITE : BAND), fs: 9 });
+    billingVinGrid_(vins, VIN_COLS.length).forEach(function(line, rr) {
+      var r = newRow();
+      var bg = (rr % 2 === 0) ? WHITE : BAND;
+      for (var c = 0; c < W; c++) put(r, c, { bg: bg, fs: 9 });
+      line.forEach(function(v, k) { if (v) put(r, VIN_COLS[k], { v: v }); });
     });
   }
 
   // ── Apply (batched) ──
   var n = values.length;
   var rng = sheet.getRange(1, 1, n, W);
+  rng.setNumberFormat('@');   // VIN/Stock mixed-type rule: never let a numeric-looking VIN re-type
   rng.setValues(values);
   rng.setBackgrounds(bgs);
   rng.setFontColors(colors);
   rng.setFontWeights(weights);
   rng.setFontSizes(sizes);
+  rng.setHorizontalAlignments(aligns);
   rng.setFontFamily('Arial');
   rng.setVerticalAlignment('middle');
 
-  mergeRows.forEach(function(r) { sheet.getRange(r, 1, 1, W).merge(); });
-  sheet.getRange(rTitle, 1, 1, W).setHorizontalAlignment('center');
-  sheet.getRange(rSub,   1, 1, W).setHorizontalAlignment('center');
-  sheet.setRowHeight(rTitle, 34);
-  rightCells.forEach(function(rc) { sheet.getRange(rc.row, rc.col).setHorizontalAlignment('right'); });
+  mergeSpans.forEach(function(r) { sheet.getRange(r + 1, 1, 1, W).merge(); });
+  sheet.setRowHeight(rTitle + 1, 34);
+  wrapCells.forEach(function(wc) { sheet.getRange(wc.r + 1, wc.c + 1).setWrap(true); });
   borderBlocks.forEach(function(b) {
-    sheet.getRange(b.top, 1, b.bottom - b.top + 1, W)
+    sheet.getRange(b.top + 1, b.c0 + 1, b.bottom - b.top + 1, b.c1 - b.c0 + 1)
          .setBorder(true, true, true, true, false, false, LINE, SpreadsheetApp.BorderStyle.SOLID);
   });
 
-  sheet.setColumnWidth(1, 160);
-  for (var col = 2; col <= W; col++) sheet.setColumnWidth(col, 108);
+  COL_WIDTHS.forEach(function(px, i) { sheet.setColumnWidth(i + 1, px); });
 
   SpreadsheetApp.flush();
   return sheet;

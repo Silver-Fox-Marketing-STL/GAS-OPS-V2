@@ -10,6 +10,9 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## [Unreleased]
 
+### Changed
+- Billing PDF layout (`buildBillingPdfTab_`): two-column page — Band A pairs Order Summary ‖ By Type (+ By Source), Band B pairs Duplicates by Type ‖ Duplicate Detail (Year/Make/Model condensed to one Vehicle cell) — freeing vertical space for orders with many VINs/duplicates. Produced VINs render 4-across in explicitly VIN-wide columns (≥112px at 9pt; Sheets clips against a filled neighbor, the old uniform 108px columns were the cut-off cause). Whole tab `@`-formatted before `setValues` (VIN mixed-type rule)
+
 ### Added
 - Dev runs save the billing PDF to DEV_OUTPUT: `pdAttachFileToDeal_`'s dev short-circuit now writes the generated blob to `ENV.OUTPUT_FOLDER_ID` (prod-identical filename) instead of discarding it — gives the PDF-layout work a real artifact per run. Best-effort; a Drive failure logs and never fails the push
 - "(DEV)" badge in both apps when running on a dev scriptId (`ENV.name !== 'prod'`): main app browser-tab title, modal title, and sidebar brand; Lot Scanner tab title and capture header. Renders nothing in prod — same code ships to both
