@@ -7326,8 +7326,9 @@ function buildBillingPdfTab_(outputDoc, data, meta) {
   var W = 7;
   var LEFT = { c0: 0, w: 2 }, RIGHT = { c0: 3, w: 4 };
   // A 17-char VIN at Arial 9pt measures ~135px in Sheets (field-measured: 16 chars
-  // clipped at 118px) — every VIN-bearing column (1/2/4/6) gets 140.
-  var COL_WIDTHS = [140, 140, 20, 175, 68, 140, 80];
+  // clipped at 118px) — every VIN-bearing column (1/2/4/6) gets 140. Col 5 is empty
+  // in every table, so Vehicle (col 4) overflows into it: ~215px effective.
+  var COL_WIDTHS = [140, 140, 20, 175, 40, 140, 108];
   var VIN_COLS = [0, 1, 3, 5];                          // grid slots for produced VINs (0-based)
   var NAVY = '#1f3864', SECT = '#305496', SUBH = '#d9e1f2', BAND = '#eef3fb',
       WHITE = '#ffffff', GREY = '#595959', INK = '#1b1b1b', LINE = '#8ea9db';
@@ -7384,13 +7385,15 @@ function buildBillingPdfTab_(outputDoc, data, meta) {
     return { rows: rows, borderFrom: 1 };
   }
   function dupDetailTable(detailRows) {
+    // No Stock column — VIN + prior orders are the table's identity; Vehicle
+    // overflows into the empty col 5 for the extra room.
     var rows = [sectionCells('DUPLICATE DETAIL', RIGHT.w)];
-    rows.push([{ v: 'Vehicle', bg: SUBH, fw: 'bold', fs: 9 }, { v: 'Stock', bg: SUBH, fw: 'bold', fs: 9 },
+    rows.push([{ v: 'Vehicle', bg: SUBH, fw: 'bold', fs: 9 }, { bg: SUBH },
                { v: 'VIN', bg: SUBH, fw: 'bold', fs: 9 }, { v: 'Prior Orders', bg: SUBH, fw: 'bold', fs: 9 }]);
     detailRows.forEach(function(rw, i) {
       var bg = (i % 2 === 0) ? WHITE : BAND;
       var vehicle = [rw[0], rw[1], rw[2]].filter(Boolean).join(' ');   // Year Make Model in one cell
-      rows.push([{ v: vehicle, bg: bg, fs: 9 }, { v: rw[3], bg: bg, fs: 9 },
+      rows.push([{ v: vehicle, bg: bg, fs: 9 }, { bg: bg },
                  { v: rw[4], bg: bg, fs: 9 }, { v: rw[5], bg: bg, fs: 9 }]);
     });
     return { rows: rows, borderFrom: 1 };
