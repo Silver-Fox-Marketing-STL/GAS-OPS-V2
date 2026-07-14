@@ -118,6 +118,17 @@ function getActiveDealersForScanner_() {
 function getLastSelectedDealer() {
   return PropertiesService.getUserProperties().getProperty('lot_last_dealer') || '';
 }
+
+// Theme pref (per user). getThemePreference is called by the Capture template
+// scriptlet pre-paint; saveThemePreference is called by Theme.apply in
+// SharedUtils via google.script.run — it must exist by this exact name
+// (google.script.run fails SILENTLY on missing names).
+function getThemePreference() {
+  return PropertiesService.getUserProperties().getProperty('lot_theme') || '';
+}
+function saveThemePreference(id) {
+  PropertiesService.getUserProperties().setProperty('lot_theme', String(id || 'light'));
+}
 function saveLastSelectedDealer(dealerKey) {
   if (dealerKey && String(dealerKey).trim() !== '') {
     PropertiesService.getUserProperties().setProperty('lot_last_dealer', String(dealerKey).trim());
