@@ -11,6 +11,7 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Changed
+- Billing PDF now wears the Lot Sherpa brand (the SharedUtils light-theme tokens): Coquelicot title bar, Licorice section headers, warm-paper banding/subheaders (`surface`/`surface-2`), taupe subtitle, Rufous total emphasis; Poppins headings + Montserrat body, VINs in Roboto Mono (Montserrat runs ~8% wider than Arial and would re-clip the 140px VIN columns; a mono VIN measures ~130px)
 - Billing PDF layout (`buildBillingPdfTab_`): two-column page — Band A pairs Order Summary ‖ By Type (+ By Source), Band B pairs Duplicates by Type ‖ Duplicate Detail (Year/Make/Model condensed to one Vehicle cell; Stock column dropped — VIN + prior orders are the table's identity, the freed width goes to Vehicle and Prior Orders) — freeing vertical space for orders with many VINs/duplicates. All VIN-bearing columns (produced-VIN grid, Duplicate Detail VIN) sized 140px — a 17-char VIN at Arial 9pt measures ~135px (field-measured from a clipped render; Sheets clips against a filled neighbor — the old uniform 108px columns were the cut-off cause). Not-found VINs list one per row instead of a wrapped cell (a wrapped row's height stretched the band and inflated the right-side table's row at the same position). Whole tab `@`-formatted before `setValues` (VIN mixed-type rule)
 
 ### Added

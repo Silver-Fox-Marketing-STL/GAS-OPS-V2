@@ -7330,16 +7330,26 @@ function buildBillingPdfTab_(outputDoc, data, meta) {
   // in every table, so Vehicle (col 4) overflows into it: ~215px effective.
   var COL_WIDTHS = [140, 140, 20, 175, 40, 140, 108];
   var VIN_COLS = [0, 1, 3, 5];                          // grid slots for produced VINs (0-based)
-  var NAVY = '#1f3864', SECT = '#305496', SUBH = '#d9e1f2', BAND = '#eef3fb',
-      WHITE = '#ffffff', GREY = '#595959', INK = '#1b1b1b', LINE = '#8ea9db';
+  // Lot Sherpa brand (the SharedUtils light-theme tokens — print is light):
+  // Coquelicot accent, Licorice ink, warm paper surfaces, Rufous emphasis.
+  var ACCENT = '#fd410d',                    // Coquelicot — title bar
+      HEAD   = '#221a14',                    // Licorice — section headers + body ink
+      SUBH   = '#efeae4', BAND = '#f7f5f2',  // warm sand (surface-2) / warm paper (surface)
+      WHITE  = '#ffffff', GREY = '#5c544c',  // text-2 — subtitle
+      INK    = '#221a14', LINE = '#d9d3cd',  // border-2
+      RUFOUS = '#a52b0f';                    // total-row emphasis
+  // Brand type: Poppins headings, Montserrat body; VINs in Roboto Mono
+  // (Montserrat runs ~8% wider than Arial and would re-clip the 140px VIN
+  // columns; a mono 17-char VIN measures ~130px at 9pt).
+  var F_HEAD = 'Poppins', F_BODY = 'Montserrat', F_MONO = 'Roboto Mono';
 
-  var values = [], bgs = [], colors = [], weights = [], sizes = [], aligns = [];
+  var values = [], bgs = [], colors = [], weights = [], sizes = [], aligns = [], fams = [];
   var mergeSpans = [], borderBlocks = [];
 
   function newRow() {
-    var v = [], b = [], c = [], w = [], s = [], a = [];
-    for (var i = 0; i < W; i++) { v.push(''); b.push(WHITE); c.push(INK); w.push('normal'); s.push(10); a.push('left'); }
-    values.push(v); bgs.push(b); colors.push(c); weights.push(w); sizes.push(s); aligns.push(a);
+    var v = [], b = [], c = [], w = [], s = [], a = [], f = [];
+    for (var i = 0; i < W; i++) { v.push(''); b.push(WHITE); c.push(INK); w.push('normal'); s.push(10); a.push('left'); f.push(F_BODY); }
+    values.push(v); bgs.push(b); colors.push(c); weights.push(w); sizes.push(s); aligns.push(a); fams.push(f);
     return values.length - 1;   // 0-based row index
   }
   function put(r, c, sp) {
@@ -7349,17 +7359,20 @@ function buildBillingPdfTab_(outputDoc, data, meta) {
     if (sp.fw) weights[r][c] = sp.fw;
     if (sp.fs) sizes[r][c] = sp.fs;
     if (sp.al) aligns[r][c] = sp.al;
+    if (sp.ff) fams[r][c] = sp.ff;
   }
   function blank() { return newRow(); }
 
   // A block table = { rows: [cellSpec[] per row, block-width], borderFrom: relative row }.
   // Section titles overflow across their block's empty same-bg cells — no merges needed.
   function sectionCells(title, w) {
-    var cells = []; for (var i = 0; i < w; i++) cells.push({ bg: SECT });
-    cells[0] = { v: title, bg: SECT, fc: WHITE, fw: 'bold', fs: 11 };
+    var cells = []; for (var i = 0; i < w; i++) cells.push({ bg: HEAD });
+    cells[0] = { v: title, bg: HEAD, fc: WHITE, fw: 'bold', fs: 11, ff: F_HEAD };
     return cells;
   }
-  // Left-block key/value table. Pair: [label, value, fs?, alignLeft?]; boldLast bolds the total row.
+  // Left-block key/value table. Pair: [label, value, fs?, monoLeft?] — monoLeft
+  // left-aligns the value in the mono face (VIN lists). boldLast = total row
+  // (bold + Rufous value).
   function kvTable(title, pairs, opts) {
     opts = opts || {};
     var rows = [sectionCells(title, LEFT.w)];
@@ -7368,7 +7381,8 @@ function buildBillingPdfTab_(outputDoc, data, meta) {
       var last = opts.boldLast && i === pairs.length - 1;
       rows.push([{ v: p[0], fw: 'bold', fs: fs, bg: bg },
                  { v: p[1], fw: (last ? 'bold' : 'normal'), fs: fs, bg: bg,
-                   al: (p[3] ? 'left' : 'right') }]);
+                   al: (p[3] ? 'left' : 'right'),
+                   ff: (p[3] ? F_MONO : F_BODY), fc: (last ? RUFOUS : INK) }]);
     });
     return { rows: rows, borderFrom: 1 };
   }
@@ -7394,7 +7408,7 @@ function buildBillingPdfTab_(outputDoc, data, meta) {
       var bg = (i % 2 === 0) ? WHITE : BAND;
       var vehicle = [rw[0], rw[1], rw[2]].filter(Boolean).join(' ');   // Year Make Model in one cell
       rows.push([{ v: vehicle, bg: bg, fs: 9 }, { bg: bg },
-                 { v: rw[4], bg: bg, fs: 9 }, { v: rw[5], bg: bg, fs: 9 }]);
+                 { v: rw[4], bg: bg, fs: 9, ff: F_MONO }, { v: rw[5], bg: bg, fs: 9 }]);
     });
     return { rows: rows, borderFrom: 1 };
   }
@@ -7427,8 +7441,8 @@ function buildBillingPdfTab_(outputDoc, data, meta) {
 
   // ── Title + subtitle ──
   var rTitle = newRow();
-  for (var tc = 0; tc < W; tc++) put(rTitle, tc, { bg: NAVY });
-  put(rTitle, 0, { v: 'BILLING SUMMARY', bg: NAVY, fc: WHITE, fw: 'bold', fs: 18, al: 'center' });
+  for (var tc = 0; tc < W; tc++) put(rTitle, tc, { bg: ACCENT });
+  put(rTitle, 0, { v: 'BILLING SUMMARY', bg: ACCENT, fc: WHITE, fw: 'bold', fs: 18, al: 'center', ff: F_HEAD });
   mergeSpans.push(rTitle);
   var sub = [];
   if (meta && meta.dealerName) sub.push(meta.dealerName);
@@ -7467,8 +7481,8 @@ function buildBillingPdfTab_(outputDoc, data, meta) {
 
   // ── Produced VINs — full-width, column-major grid in the VIN-wide columns only ──
   var rVins = newRow();
-  for (var vc = 0; vc < W; vc++) put(rVins, vc, { bg: SECT });
-  put(rVins, 0, { v: 'PRODUCED VINS (' + data.producedCount + ')', bg: SECT, fc: WHITE, fw: 'bold', fs: 11 });
+  for (var vc = 0; vc < W; vc++) put(rVins, vc, { bg: HEAD });
+  put(rVins, 0, { v: 'PRODUCED VINS (' + data.producedCount + ')', bg: HEAD, fc: WHITE, fw: 'bold', fs: 11, ff: F_HEAD });
   var vins = data.producedVins || [];
   if (!vins.length) {
     put(newRow(), 0, { v: 'No vehicles produced.', fs: 10 });
@@ -7479,7 +7493,7 @@ function buildBillingPdfTab_(outputDoc, data, meta) {
       var r = newRow();
       var bg = (rr % 2 === 0) ? WHITE : BAND;
       for (var c = 0; c < W; c++) put(r, c, { bg: bg, fs: 9 });
-      line.forEach(function(v, k) { if (v) put(r, VIN_COLS[k], { v: v }); });
+      line.forEach(function(v, k) { if (v) put(r, VIN_COLS[k], { v: v, ff: F_MONO }); });
     });
   }
 
@@ -7493,7 +7507,7 @@ function buildBillingPdfTab_(outputDoc, data, meta) {
   rng.setFontWeights(weights);
   rng.setFontSizes(sizes);
   rng.setHorizontalAlignments(aligns);
-  rng.setFontFamily('Arial');
+  rng.setFontFamilies(fams);
   rng.setVerticalAlignment('middle');
 
   mergeSpans.forEach(function(r) { sheet.getRange(r + 1, 1, 1, W).merge(); });
