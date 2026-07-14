@@ -7503,7 +7503,13 @@ function pdDealHasBillingPdf_(dealId, filename) {
  * is JSON-only so this is a raw fetch). Returns {ok} or {ok:false, error}.
  */
 function pdAttachFileToDeal_(dealId, blob, filename) {
-  if (ENV.name !== 'prod') return { ok: true }; // dev: fake the upload — the ONE Pipedrive call that bypasses pdFetch_ (multipart)
+  if (ENV.name !== 'prod') { // dev: fake the upload — the ONE Pipedrive call that bypasses pdFetch_ (multipart).
+    // Save the PDF to DEV_OUTPUT instead so layout work has a real artifact to inspect
+    // (prod-identical filename; date-free, so repeat runs stack same-named files — sort by created).
+    try { DriveApp.getFolderById(ENV.OUTPUT_FOLDER_ID).createFile(blob.setName(filename)); }
+    catch (e) { Logger.log('dev billing PDF save failed (non-fatal): ' + e.message); }
+    return { ok: true };
+  }
   try {
     var s = pdGetSecrets_();
     if (!s) return { ok: false, error: 'Pipedrive is not configured' };
