@@ -54,8 +54,12 @@ exact schemas/mechanism/history — NOT in context).
   disagree, trust the live system and fix the docs.
 - **Branch check before push.** Confirm the current branch first. Single deployed
   branch is `main`.
-- **Deploy:** edit locally → commit/push to GitHub → `clasp push`. Rollback =
-  checkout last good commit on `main` and `clasp push`.
+- **Deploy:** feature branch → test in dev (`clasp push` targets DEV via
+  `.clasp.json`) → merge to `main` → Nick runs `scripts/promote.ps1` — the ONLY
+  path to prod (gates: main / clean / synced / green harness / typed PROMOTE;
+  pushes code + bumps the versioned `/exec` deployment). Rollback = redeploy a
+  prior version in the prod script's Manage Deployments (see
+  `docs/dev-environment.md`); never "roll back" with `clasp push` — it targets DEV.
 - **Sheets MCP:** never edit anything outside the "Claude Sandbox" Drive folder;
   reads are fine anywhere.
 - **Pipedrive is read-only for Claude.** Claude writes the scripts/functions that
@@ -65,7 +69,7 @@ exact schemas/mechanism/history — NOT in context).
 
 ## Repo / environment
 
-- Repo: `Silver-Fox-Marketing-STL/GAS-OPS-V2`. `Code.gs` (~7,160 lines; Section 31
+- Repo: `Silver-Fox-Marketing-STL/GAS-OPS-V2`. `Code.gs` (~9,400 lines; Section 31
   = Pipedrive). Local checkout path varies per machine (this PC:
   `C:\Users\Nick_Workstation\Documents\SilverFox-V2`).
 - clasp script ID: `1E5aTcofzWzJZssOikaf6lFytS92vRHmj-k1NDV0C_Xu7NoJk7VUEjtNO`.
@@ -127,8 +131,9 @@ previously-hit failure — don't relax without reading the matching Bridge secti
   `{product_id, variation_id?, schema?, utm?}`. `runDealer` builds synthetic type
   rules from it (`buildTypeRulesFromProductMap_`, CPO-EL before CPO); a matched type
   missing a `product_id` OR `schema` makes the run THROW (`validateProductMapForRun_`).
-  No col-O fallback, no `*` catch-all. col O `type_rules` is dormant (migration source
-  only). Bridge: "Per-type config".
+  No col-O fallback, no `*` catch-all. col O `type_rules` is dormant (legacy record;
+  the one-time migrator was removed after all active dealers were verified migrated).
+  Bridge: "Per-type config".
 - `filtering_rules` `targeting_rules[]` (IF nested AND/OR THEN
   `drop_on_import`/`exclude_cao`/`exclude_order`) + `cao_exclude_types`.
   `applyFilteringRules_(…, phase)`: `exclude_order` both phases, `exclude_cao` +
@@ -136,7 +141,8 @@ previously-hit failure — don't relax without reading the matching Bridge secti
   (misconfig/empty group → keep the vehicle). Fields via `getFilterFieldIndex_()`.
 - VIN and Stock must be `String()`-converted AND `@`-formatted before AND after
   `setValues()` (QUERY mixed-type bug).
-- VIN is the vehicle primary key; `use_stock_not_vin` is FALSE for every dealer.
+- VIN is the vehicle primary key. The legacy `use_stock_not_vin` flag is removed
+  (DEALERS col F stays, dormant/append-only); ORDERMATCH always matches col A.
 - VIN logs are never written automatically — explicit commit/rollback via the VIN
   Log Updater (key: deal ID + `committed_at`). Manually entered VINs are always
   produced (the log only flags dupes in billing). `test` runs are never committed.

@@ -73,7 +73,8 @@ var EOM_INDEX_SHEET_ID       = ENV.EOM_INDEX_SHEET_ID;
 // Column indices in the DEALERS tab of SF_DEALER_CONFIG (0-indexed)
 // Current layout (23 columns, A–W):
 // A=dealer_key, B=dealer_name, C=orders_col, D=qr_folder_id, E=output_folder_id,
-// F=use_stock_not_vin, G=linkbuilder_col, H=utm_base_url_override, I=data_transforms,
+// F=use_stock_not_vin (dormant — legacy flag, guards removed; VIN is always the key),
+// G=linkbuilder_col, H=utm_base_url_override, I=data_transforms,
 // J=scraper_location_name, K=qr_local_prefix, L=active, M=notes,
 // N=pipedrive_prefix, O=type_rules, [P–V unused/deprecated], W=filtering_rules
 var CFG = {
@@ -82,7 +83,6 @@ var CFG = {
   ORDERS_COL:        2,   // orders_col (A, B, C, ... AO)
   QR_FOLDER_ID:      3,   // qr_folder_id
   OUTPUT_FOLDER:     4,   // output_folder_id (per-dealer override; falls back to OUTPUT_FOLDER_ID)
-  USE_STOCK:         5,   // use_stock_not_vin (boolean)
   LINKBUILDER_COL:   6,   // linkbuilder_col (B or C)
   UTM_BASE_URL:      7,   // utm_base_url_override (Serra Honda style fixed base URL)
   TRANSFORMS:        8,   // data_transforms (JSON string or empty)
@@ -434,7 +434,7 @@ function openApp() {
   var html = t.evaluate()
     .setWidth(MODAL_WIDTH)
     .setHeight(MODAL_HEIGHT);
-  SpreadsheetApp.getUi().showModalDialog(html, 'SilverFox');
+  SpreadsheetApp.getUi().showModalDialog(html, 'SilverFox' + (ENV.name !== 'prod' ? ' (DEV)' : ''));
 }
 
 /**
@@ -453,7 +453,7 @@ function doGet(e) {
   t.initialNavLayout = uiPrefs_.navLayout;             // 'sidebar' | 'icons' | 'top-rail' | 'bottom-rail' | 'start-menu'
   t.appMode = 'webapp';
   return t.evaluate()
-    .setTitle('SilverFox')
+    .setTitle('SilverFox' + (ENV.name !== 'prod' ? ' (DEV)' : ''))
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
@@ -935,16 +935,20 @@ function pasteVinsAndRun(dealerKey, vins, dealId, runId, bypassFilters, userKey,
   // Persist the selection so the dropdown pre-selects on next open.
   saveLastSelectedUser(userKey);
 
-  // De-duplicate the ordered VINs (case-insensitive, order-preserving) so a VIN
-  // can never be submitted twice — keeps ordered counts honest. The Run Order
-  // modal also dedupes at submit; this guarantees it regardless of entry path.
+  // De-duplicate and normalize (String().trim()) the ordered VINs, order-
+  // preserving and case-insensitive — keeps ordered counts honest and restores
+  // the normalization getOrderVINs_ used to guarantee, since the presetVins
+  // handoff below bypasses that read-back. Holds regardless of entry path.
   var seenVin_ = {};
-  vins = (vins || []).filter(function(v) {
-    var k = String(v).trim().toUpperCase();
-    if (k === '' || k === '*' || seenVin_[k]) return false;
+  var cleanVins_ = [];
+  (vins || []).forEach(function(v) {
+    var t = String(v).trim();
+    var k = t.toUpperCase();
+    if (k === '' || k === '*' || seenVin_[k]) return;
     seenVin_[k] = 1;
-    return true;
+    cleanVins_.push(t);
   });
+  vins = cleanVins_;
 
   var colLetter = config[CFG.ORDERS_COL];
   var ss    = SpreadsheetApp.getActiveSpreadsheet();
@@ -961,9 +965,12 @@ function pasteVinsAndRun(dealerKey, vins, dealId, runId, bypassFilters, userKey,
   range.setNumberFormat('@');
   SpreadsheetApp.flush();
 
-  // Pass the already-resolved config so runDealer doesn't re-open SF_DEALER_CONFIG.
+  // Pass the already-resolved config so runDealer doesn't re-open SF_DEALER_CONFIG,
+  // and the deduped VIN array itself — the ORDERS write above is a visible record,
+  // but the run must not read it back (a concurrent same-dealer run could have
+  // overwritten the column between this write and that read).
   return runDealer(dealerKey, dealId ? String(dealId).trim() : '', runId || null, bypassFilters === true,
-                   qrBasePath, config, splitDealId ? String(splitDealId).trim() : '');
+                   qrBasePath, config, splitDealId ? String(splitDealId).trim() : '', vins);
 }
 
 /**
@@ -978,11 +985,15 @@ function pasteVinsAndRun(dealerKey, vins, dealId, runId, bypassFilters, userKey,
  *                                        skips a redundant getDealerConfig_ call when provided.
  * @param {string|null} splitDealId    - Second Pipedrive Deal ID for the billing-split
  *                                        group (e.g. Sprinter). Pre-fill only.
+ * @param {Array|null}  presetVins     - VIN list already deduped by pasteVinsAndRun;
+ *                                        skips the ORDERS re-read (which a concurrent
+ *                                        same-dealer run could overwrite). Manual editor
+ *                                        runs omit it and read the ORDERS sheet as before.
  * @return {Object|null} {outputFolderUrl, pendingRuns, dealerName, producedVinCount} —
  *                       pendingRuns entries are finalized or abandoned in the modal;
  *                       nothing is logged until finalizeRun runs.
  */
-function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloadedConfig, splitDealId) {
+function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloadedConfig, splitDealId, presetVins) {
   var startTime = new Date();
   var errors    = [];
 
@@ -995,9 +1006,10 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     if (!isTrue_(config[CFG.ACTIVE])) throw new Error('Dealer is marked inactive: ' + dealerKey);
     Logger.log('Starting run for: ' + config[CFG.NAME]);
 
-    // 2. Load VINs from ORDERS sheet. (Type rules now come from the Pipedrive product map —
-    //    built after matching; see step 9b.)
-    var vins = getOrderVINs_(config[CFG.ORDERS_COL]);
+    // 2. VINs: prefer the array handed over by pasteVinsAndRun (immune to a concurrent
+    //    same-dealer ORDERS overwrite); manual editor runs fall back to the ORDERS sheet.
+    //    (Type rules now come from the Pipedrive product map — built after matching; see step 9b.)
+    var vins = (presetVins && presetVins.length) ? presetVins : getOrderVINs_(config[CFG.ORDERS_COL]);
     if (!vins || vins.length === 0) throw new Error('No VINs found in ORDERS column ' + config[CFG.ORDERS_COL]);
     Logger.log('VINs to process: ' + vins.length);
 
@@ -1031,7 +1043,6 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     // 8.5 Apply filtering rules to VIN list (skipped if bypassFilters is true)
     if (!bypassFilters) {
       var filterRules = getDealerFilterRules_(config);
-      var useStock_   = isTrue_(config[CFG.USE_STOCK]);
 
       var scraperLookup = {};
       scraperData.forEach(function(row) {
@@ -1082,7 +1093,7 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
 
     // 9. Write ORDERMATCH QUERY formula, then wait for recalculation
     setProgress_(runId, 'Running ORDERMATCH query...', 38);
-    writeOrderMatchFormula_(outputDoc, vins, isTrue_(config[CFG.USE_STOCK]));
+    writeOrderMatchFormula_(outputDoc, vins);
     SpreadsheetApp.flush();
     // Poll for the QUERY spill instead of a fixed sleep — exits as soon as
     // results land. Cap matches the old delay (40ms/row, 1s floor, 3.5s cap).
@@ -1246,6 +1257,23 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     setProgressError_(runId, e.message);
     handleError_(e);
     errors.push(e.message);
+    // Best-effort cleanup — a failed run logs nothing (RUN_LOG is written at
+    // finalization), so nothing references the artifacts. Drive trash = 30-day
+    // recovery, so a failed doc is still inspectable. Trash inline, NOT via
+    // abandonRun: its first act is a DEALERS config read it doesn't need here,
+    // and a config failure there would throw before trashing anything (and
+    // never the name-pattern folder scan, which could hit a prior run's PNGs
+    // while the folder is not yet cleared). outputDoc/qrFileIds are hoisted
+    // vars, so plain truthiness is a complete guard.
+    try {
+      if (outputDoc) {
+        DriveApp.getFileById(outputDoc.getId()).setTrashed(true);
+        if (qrFileIds && qrFileIds.length) trashFilesParallel_(qrFileIds);
+        Logger.log('runDealer: failed-run artifacts trashed (30-day recovery).');
+      }
+    } catch (cleanupErr) {
+      Logger.log('runDealer: failed-run cleanup skipped (' + cleanupErr.message + ')');
+    }
     return null;
   }
 }
@@ -1262,14 +1290,6 @@ function getDealerConfig_(dealerKey) {
     if (data[i][CFG.KEY] === dealerKey) return data[i];
   }
   return null;
-}
-
-function getActiveDealerKeys_() {
-  var data = getConfigSS_()
-    .getSheetByName('DEALERS').getDataRange().getValues();
-  return data.slice(1)
-    .filter(function(r) { return isTrue_(r[CFG.ACTIVE]); })
-    .map(function(r)    { return r[CFG.KEY]; });
 }
 
 function getCsvSchema_(schemaKey) {
@@ -1631,11 +1651,10 @@ function applyDataTransforms_(outputDoc, transformsJson) {
 // SECTION 7: ORDERMATCH FORMULA
 // ============================================================================
 
-function writeOrderMatchFormula_(outputDoc, vins, useStock) {
-  var sheet    = outputDoc.getSheetByName('ORDERMATCH');
-  var matchCol = useStock ? 'B' : 'A';
-  var pattern  = vins.map(function(v) { return v.replace(/'/g, "\\'"); }).join('|');
-  var query    = "SELECT D, E, F, G, A, B, C, J, U WHERE " + matchCol + " MATCHES '" + pattern + "'";
+function writeOrderMatchFormula_(outputDoc, vins) {
+  var sheet   = outputDoc.getSheetByName('ORDERMATCH');
+  var pattern = vins.map(function(v) { return v.replace(/'/g, "\\'"); }).join('|');
+  var query   = "SELECT D, E, F, G, A, B, C, J, U WHERE A MATCHES '" + pattern + "'";
   sheet.getRange('A2').setFormula('=IFERROR(QUERY(SCRAPERDATA!$A:$U,"' + query + '",0),"")');
 }
 
@@ -1881,15 +1900,6 @@ function writeQRPaths_(outputDoc, qrPrefix, count, basePath) {
 // ============================================================================
 // SECTION 11: TYPE RULES ENGINE
 // ============================================================================
-
-function getTypeRules_(config) {
-  var raw = config[CFG.TYPE_RULES];
-  if (raw && String(raw).trim() !== '') {
-    try { return JSON.parse(raw); } catch(e) { Logger.log('type_rules parse error: ' + e.message); }
-  }
-  Logger.log('WARNING: No valid type_rules for ' + config[CFG.KEY] + '. Using SCP default.');
-  return [{ match: '*', csv_schema: 'SCP', utm: 'VDP_ShortCut' }];
-}
 
 function matchRule_(vehicleType, rules) {
   var type = String(vehicleType).toLowerCase();
@@ -2211,50 +2221,6 @@ function validateProductMapForRun_(matchedTypes, productMap) {
     }
   });
   return missing;
-}
-
-/**
- * ONE-TIME MIGRATION — run manually from the Apps Script editor. Copies each dealer's per-type
- * schema + UTM from its legacy `type_rules` (DEALERS col O) into its PIPEDRIVE `product_map` /
- * `source_product_map` entries (the product map is now the sole per-type config). Only fills
- * entries that already have a product mapped; never overwrites an existing schema/utm. Logs a
- * per-dealer summary; idempotent. After this + finishing the product config, type_rules (col O)
- * is dormant.
- */
-function migrateTypeRulesIntoProductMap() {
-  var dealers = getConfigSS_().getSheetByName('DEALERS').getDataRange().getValues();
-  var summary = [];
-
-  function fillMap_(map, typeRules) {
-    var n = 0;
-    Object.keys(map || {}).forEach(function(t) {
-      var rule = matchRule_(t, typeRules);
-      if (!rule) return;
-      if (rule.csv_schema && !map[t].schema) { map[t].schema = rule.csv_schema; n++; }
-      if (rule.utm && !map[t].utm)           { map[t].utm    = rule.utm;        n++; }
-    });
-    return n;
-  }
-
-  for (var i = 1; i < dealers.length; i++) {
-    var dealerKey = String(dealers[i][CFG.KEY] || '').trim();
-    if (!dealerKey) continue;
-    var typeRules = getTypeRules_(dealers[i]);   // legacy col O
-    var rows = getPipedriveDealerRows_(dealerKey);
-    if (!rows.length) continue;
-
-    var touched = 0;
-    rows.forEach(function(r) {
-      touched += fillMap_(r.productMap, typeRules);
-      Object.keys(r.sourceProductMap || {}).forEach(function(grp) {
-        touched += fillMap_(r.sourceProductMap[grp], typeRules);
-      });
-    });
-    if (touched > 0) { savePipedriveDealerConfig(dealerKey, rows); summary.push(dealerKey + ': ' + touched + ' field(s)'); }
-  }
-  var msg = 'migrateTypeRulesIntoProductMap: updated ' + summary.length + ' dealer(s).\n' + summary.join('\n');
-  Logger.log(msg);
-  return msg;
 }
 
 /**
@@ -2948,14 +2914,13 @@ function abandonRun(dealerKey, outputDocId, qrFileIds) {
 function writeConfigCache_(outputDoc, config) {
   var sheet = outputDoc.getSheetByName('_CONFIG_CACHE');
   if (!sheet) return;
-  sheet.getRange('A6:H6').setValues([[
-    'dealer_key', 'dealer_name', 'use_stock_not_vin', 'linkbuilder_col',
+  sheet.getRange('A6:G6').setValues([[
+    'dealer_key', 'dealer_name', 'linkbuilder_col',
     'type_rules', 'data_transforms', 'utm_base_url_override', 'run_timestamp'
   ]]);
-  sheet.getRange('A7:H7').setValues([[
+  sheet.getRange('A7:G7').setValues([[
     config[CFG.KEY],
     config[CFG.NAME],
-    config[CFG.USE_STOCK],
     config[CFG.LINKBUILDER_COL],
     config[CFG.TYPE_RULES],
     config[CFG.TRANSFORMS],
@@ -3285,11 +3250,6 @@ function moveNormEntry(sheetRow, direction) {
 // getFieldToCol_() resolves the effective map (fail-safe); these functions edit the
 // config and reset the cache. A frontend "Field Codes" view calls these by these
 // exact names — do not rename them or change their return shapes.
-
-// Classic fallback: serves the converted App fragment standalone.
-function openFieldCodes() {
-  openViewStandalone_('ViewFieldCodes', 'Field Codes');
-}
 
 // Converts a 1-based column number to its A1 letter (1 -> 'A', 27 -> 'AA').
 function colNumberToLetter_(num) {
@@ -3988,7 +3948,6 @@ function getCaoVins(dealerKey) {
   });
 
   var loggedVins   = getLoggedVins_(dealerKey);
-  var useStock     = isTrue_(config[CFG.USE_STOCK]);
   var netNew       = [];
   var printedCount = 0;
 
@@ -3998,7 +3957,7 @@ function getCaoVins(dealerKey) {
     if (loggedVins[vin] || loggedVins[stock]) {
       printedCount++;
     } else {
-      netNew.push(useStock ? stock : vin);
+      netNew.push(vin);
     }
   });
 
@@ -4225,28 +4184,6 @@ function getCommittedAt(dealerKey, dealId) {
 
 
 // ============================================================================
-// SECTION 24: ONE-TIME SETUP
-// ============================================================================
-
-function addCommittedAtHeaders() {
-  var ss      = getVinLogsSS_();
-  var sheets  = ss.getSheets();
-  var skip    = ['README', 'Sheet1'];
-  var updated = 0;
-
-  sheets.forEach(function(sheet) {
-    var name = sheet.getName();
-    if (skip.indexOf(name) !== -1) return;
-    if (name.charAt(0) === '_') return;
-    sheet.getRange('C1').setValue('committed_at');
-    updated++;
-  });
-
-  SpreadsheetApp.getUi().alert('Done. Added committed_at header to ' + updated + ' VIN log tabs.');
-}
-
-
-// ============================================================================
 // SECTION 25: RUN PROGRESS TRACKING
 // ============================================================================
 
@@ -4437,30 +4374,6 @@ function getDealerRulesData(dealerKey) {
     typeRules:      typeRules,
     filteringRules: filteringRules
   };
-}
-
-/**
- * Writes a new type_rules JSON string to col O of the dealer's DEALERS row.
- * @param {string} dealerKey
- * @param {string} typeRulesJson
- */
-function saveDealerTypeRules(dealerKey, typeRulesJson) {
-  try { JSON.parse(typeRulesJson); }
-  catch (e) { throw new Error('Invalid type_rules JSON: ' + e.message); }
-
-  var sheet = getConfigSS_()
-    .getSheetByName('DEALERS');
-  var data  = sheet.getDataRange().getValues();
-
-  for (var i = 1; i < data.length; i++) {
-    if (data[i][CFG.KEY] === dealerKey) {
-      sheet.getRange(i + 1, CFG.TYPE_RULES + 1).setValue(typeRulesJson);
-      Logger.log('saveDealerTypeRules: wrote type_rules for ' + dealerKey);
-      return;
-    }
-  }
-
-  throw new Error('Dealer key not found in DEALERS tab: ' + dealerKey);
 }
 
 /**
@@ -5725,11 +5638,6 @@ function pdListProductFields_() {
   return pdListAllV1_('/productFields').map(function(f) {
     return { key: f.key, name: f.name, field_type: f.field_type };
   });
-}
-
-/** Client-callable: product fields for the Pipedrive Settings picker. */
-function getPipedriveProductFields() {
-  return pdListProductFields_();
 }
 
 function pdListDealFields_() {
@@ -7595,7 +7503,13 @@ function pdDealHasBillingPdf_(dealId, filename) {
  * is JSON-only so this is a raw fetch). Returns {ok} or {ok:false, error}.
  */
 function pdAttachFileToDeal_(dealId, blob, filename) {
-  if (ENV.name !== 'prod') return { ok: true }; // dev: fake the upload — the ONE Pipedrive call that bypasses pdFetch_ (multipart)
+  if (ENV.name !== 'prod') { // dev: fake the upload — the ONE Pipedrive call that bypasses pdFetch_ (multipart).
+    // Save the PDF to DEV_OUTPUT instead so layout work has a real artifact to inspect
+    // (prod-identical filename; date-free, so repeat runs stack same-named files — sort by created).
+    try { DriveApp.getFolderById(ENV.OUTPUT_FOLDER_ID).createFile(blob.setName(filename)); }
+    catch (e) { Logger.log('dev billing PDF save failed (non-fatal): ' + e.message); }
+    return { ok: true };
+  }
   try {
     var s = pdGetSecrets_();
     if (!s) return { ok: false, error: 'Pipedrive is not configured' };

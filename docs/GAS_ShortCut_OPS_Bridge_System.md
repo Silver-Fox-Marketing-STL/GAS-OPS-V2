@@ -183,7 +183,7 @@ One row per dealer (43 rows; 29 active), 23 columns (A–W).
 | C | `orders_col` | Column letter in SF_SYSTEM_MASTER ORDERS tab. |
 | D | `qr_folder_id` | Drive folder ID where QR PNGs are saved. |
 | E | `output_folder_id` | Per-dealer output folder override. Leave blank to use global constant. |
-| F | `use_stock_not_vin` | TRUE if ORDERMATCH QUERY should match on Stock instead of VIN. **Currently FALSE for every dealer — VIN is always the primary key.** Planned replacement: a stock→VIN fallback (if an ordered identifier isn't found in the VIN column, look it up in the Stock column and substitute the corresponding VIN). Not yet implemented. |
+| F | `use_stock_not_vin` | **DORMANT** — legacy flag, was FALSE for every dealer; its code guards were removed (VIN is always the primary key, ORDERMATCH always matches col A). Column kept append-only. The planned stock→VIN fallback (substitute the VIN when an ordered identifier only matches the Stock column) is a separate feature that would be built fresh. |
 | G | `linkbuilder_col` | Which LINKBUILDER column URLs are read from. `B` for most dealers, `C` for BMW of Columbia. |
 | H | `utm_base_url_override` | Replaces vehicle URL entirely for QR link building. Used by Serra Honda (AutoFi format). |
 | I | `data_transforms` | JSON find/replace rules applied to SCRAPERDATA after pasting. See Data Transforms section. |
@@ -192,7 +192,7 @@ One row per dealer (43 rows; 29 active), 23 columns (A–W).
 | L | `active` | TRUE = dealer appears in modal dropdown and can be run. |
 | M | `notes` | Internal notes. |
 | N | `pipedrive_prefix` | `PIPEDRIVE` if dealer uses Pipedrive deal IDs as order numbers. |
-| O | `type_rules` | **DORMANT** *(v2.12)* — JSON array of per-type rules. No longer read by the run (the Pipedrive product map is the sole per-type config); kept only as the source for `migrateTypeRulesIntoProductMap()` and a historical record. See Type Rules section. |
+| O | `type_rules` | **DORMANT** *(v2.12)* — JSON array of per-type rules. No longer read by the run (the Pipedrive product map is the sole per-type config); kept as a historical record only (the one-time col-O migration is complete and the migrator was removed after all 29 active dealers were verified migrated). See Type Rules section. |
 | W | `filtering_rules` | **CAO and run-time filter config.** JSON object. See Filtering Rules section. |
 
 **Note on column indices (CFG object):** The CFG constant in Code.gs uses 0-based column indices. Key values: `KEY:0, NAME:1, ORDERS_COL:2, QR_FOLDER_ID:3, OUTPUT_FOLDER:4, USE_STOCK:5, LINKBUILDER_COL:6, UTM_BASE_URL:7, TRANSFORMS:8, SCRAPER_LOCATION:9, QR_PREFIX:10, ACTIVE:11, NOTES:12, PIPEDRIVE_PREFIX:13, TYPE_RULES:14, FILTER_RULES:22`
@@ -940,20 +940,18 @@ Bound to SF_SYSTEM_MASTER.
 | `openRulesEditor` | `()` | Classic fallback: opens the ViewRules fragment standalone. |
 | `getRulesEditorBootstrap` | `()` | Single round-trip bootstrap for Rules Editor. Returns `{dealers, schemas}` — active dealers and all CSV schema keys from CSV_SCHEMAS tab. |
 | `getDealerRulesData` | `(dealerKey)` | Returns `{dealerName, typeRules, filteringRules}` — parsed objects for both rule sets. Safe defaults on parse failure. *(`typeRules` is now ignored by the UI — the Type Rules editor tab was removed.)* |
-| `saveDealerTypeRules` | `(dealerKey, typeRulesJson)` | Validates JSON and writes to DEALERS col O (TYPE_RULES). **No longer called from the UI** (Type Rules editor removed); col O is dormant. |
 | `saveDealerFilterRules` | `(dealerKey, filteringRulesJson)` | Validates JSON and writes to DEALERS col W (FILTER_RULES). |
-| `buildTypeRulesFromProductMap_` | `(productMap)` | **(new, pure)** Builds the run's synthetic type rules from the Pipedrive product map — one `{match, csv_schema: entry.schema, utm: entry.utm}` per mapped type, **ordered CPO-EL before CPO** (substring safety). Replaces `getTypeRules_` in the run path so `buildLinks_`/`buildCSVSheet_` are unchanged. |
+| `buildTypeRulesFromProductMap_` | `(productMap)` | **(new, pure)** Builds the run's synthetic type rules from the Pipedrive product map — one `{match, csv_schema: entry.schema, utm: entry.utm}` per mapped type, **ordered CPO-EL before CPO** (substring safety). Replaced the legacy col-O parser in the run path so `buildLinks_`/`buildCSVSheet_` were unchanged. |
 | `validateProductMapForRun_` | `(matchedTypes, productMap)` | **(new, pure)** Returns the matched types whose product-map entry is missing a `product_id` or a `schema`. Non-empty → `runDealer` throws ("set them in Dealer Rules → Pipedrive"). UTM not required. |
 | `getCsvProductMaps_` | `(dealerKey, sourceSplit)` | Reads the dealer's Pipedrive product maps via `getPipedriveDealerRows_` → `{main, secondary}` (main merged across billing groups, first-wins; secondary = the `source_split` group's `source_product_map`). `{}` when Pipedrive is unset. |
-| `migrateTypeRulesIntoProductMap` | `()` | **(new; one-time, run from the editor)** Copies each dealer's legacy per-type `schema` + `utm` (from col O, via `matchRule_`) into its `product_map`/`source_product_map` entries — only where a product is mapped, never overwriting. Saves via `savePipedriveDealerConfig`; idempotent. |
-| `pasteVinsAndRun` | `(dealerKey, vins, dealId, runId, bypassFilters, userKey, splitDealId)` | Resolves QR base path for `userKey` from USER_PROFILES, persists selection, writes VINs to ORDERS, calls `runDealer` (passing preloaded config to avoid a redundant SF_DEALER_CONFIG read). Both deal IDs are **optional** — they only pre-fill the finalization cards. Returns result object. |
-| `runDealer` | `(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloadedConfig, splitDealId)` | Main entry point. Produces the output doc / QR codes / CSV / billing sheet(s) but **writes no log rows** — returns `{outputFolderUrl, pendingRuns, dealerName, producedVinCount}` where `pendingRuns` holds one self-contained prospective log entry per billing account, finalized or abandoned in the modal. |
+| `pasteVinsAndRun` | `(dealerKey, vins, dealId, runId, bypassFilters, userKey, splitDealId)` | Resolves QR base path for `userKey` from USER_PROFILES, persists selection, writes VINs to ORDERS (visible record only), calls `runDealer` passing preloaded config **and the deduped VIN array** — the run never re-reads ORDERS, so a concurrent same-dealer run can't swap the list between write and read. Both deal IDs are **optional** — they only pre-fill the finalization cards. Returns result object. |
+| `runDealer` | `(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloadedConfig, splitDealId, presetVins)` | Main entry point. `presetVins` (from `pasteVinsAndRun`) skips the ORDERS re-read; manual editor runs omit it and read the sheet. A throw after the output doc exists best-effort-trashes the doc (+ this run's QR ids when generated) in the catch. Produces the output doc / QR codes / CSV / billing sheet(s) but **writes no log rows** — returns `{outputFolderUrl, pendingRuns, dealerName, producedVinCount}` where `pendingRuns` holds one self-contained prospective log entry per billing account, finalized or abandoned in the modal. |
 | `finalizeRun` | `(dealerKey, entry, dealId)` | Writes the RUN_LOG (+ ORDER_STATS) row for one finalized pending-run entry via `writeRunLog_`. Throws on blank deal ID (**invariant: no RUN_LOG row without a deal ID**; `test` marks test runs). Never touches the VIN log. Returns `{rowIndex, vinCount}`. Called directly for a **Test** finalize, and internally by `finalizeRunNewDeal` / `finalizeRunExisting` (with the real/created deal id). |
 | `finalizeRunNewDeal` | `(dealerKey, entry)` | **New Deal** finalize. Resolves the run context, preempts deactivated products, creates a fresh Pipedrive deal (real numeric id), finalizes the run with it via `finalizeRun`, then attaches products + sets fields (`pdApplyDealContents_`). Retry-safe via the `pd_new_<outputDocId|group>` token cache (caches the deal id, then `rowIndex`, the instant PD returns it — a retry adopts, never re-creates). Returns the push result `{ok, dealId, rowIndex, vinCount, …}`. |
 | `finalizeRunExisting` | `(dealerKey, entry, existingDealId)` | **Existing** finalize. Validates the supplied deal id via `pdGetDeal_` **first** (no row written for a bad id), finalizes with it, then links products via `pushRunToPipedrive(…, 'link', id)`. Returns the push result with `rowIndex` attached. |
 | `getRunPushModes` | `(dealerKey, group)` | Which finalize methods a run card offers: `{test, newDeal, existing, reason}`. Test always true; New/Existing require a connected Pipedrive **and** an active org config for the dealer/group. Attached as `pushModes` on each `pendingRuns` entry. |
 | `pdResolveRunContext_` / `pdResolveDealId_` / `pdCheckInactiveProducts_` / `pdApplyDealContents_` | (various) | Reusable push helpers extracted from `pushRunToPipedrive` (no behavior change). `pdResolveRunContext_` = read-only config/org gate + currency + line items (incl. `source_split`); `pdResolveDealId_` = create-or-validate a deal, persisting nothing; `pdCheckInactiveProducts_` = the `inactive_product` preempt; `pdApplyDealContents_` = attach products + set fields, idempotent via the passed `state`. Composed by both `pushRunToPipedrive` and the finalize orchestrators. |
-| `abandonRun` | `(dealerKey, outputDocId)` | Full-abandonment cleanup: moves the output doc and the dealer's `<prefix>_QR_Code_N.PNG` files to Drive trash (30-day recovery). Called only when no card of the run was finalized and none remain pending. Returns `{trashedDoc, trashedQrs}`. |
+| `abandonRun` | `(dealerKey, outputDocId)` | Full-abandonment cleanup: moves the output doc and the dealer's `<prefix>_QR_Code_N.PNG` files to Drive trash (30-day recovery). Called when no card of the run was finalized and none remain pending, and best-effort from `runDealer`'s catch (failed runs clean up their own artifacts). Returns `{trashedDoc, trashedQrs}`. |
 | `getBillingSplit_` | `(config)` | Parses/validates the optional `billing_split` key from `filtering_rules` (col W). Returns `{groupName, dealLabel, field, op, values}` or **null** on absence/misconfig (fail-safe — run behaves as unsplit). |
 | `isInBillingGroup_` | `(vehicle, split)` | Tests one parsed ORDERMATCH vehicle object against a billing split (case-insensitive `contains`/`in`, OR across values). |
 | `getCaoVins` | `(dealerKey)` | Pulls current inventory, applies filtering_rules, deduplicates against VIN log. Returns `{vins, summary}`. Called by Run Dealer modal. |
@@ -964,13 +962,12 @@ Bound to SF_SYSTEM_MASTER.
 | `ruleMatches_` | `(row, rule)` | True when `rule.group` matches the row. Drives both the import drop pass and `applyFilteringRules_`. |
 | `getConfigSS_` | `()` | Returns the SF_DEALER_CONFIG Spreadsheet object, opening it only on the first call per script execution. All config reads use this instead of direct `openById` calls. |
 | `getDealerConfig_` | `(dealerKey)` | Reads dealer row from SF_DEALER_CONFIG DEALERS tab via `getConfigSS_()`. |
-| `getTypeRules_` | `(config)` | Parses `type_rules` JSON (col O). Falls back to SCP default if absent. **No longer called by the run** — kept only for `migrateTypeRulesIntoProductMap()`. |
 | `matchRule_` | `(vehicleType, rules)` | Returns first matching type rule for a vehicle type string. |
 | `buildUtmFormula_` | `(linkRef, typeRef, rules)` | Generates nested IF formula for multi-rule UTM in LINKBUILDER. |
 | `getCsvSchema_` | `(schemaKey)` | Reads field code array from CSV_SCHEMAS tab via `getConfigSS_()`. |
 | `getOrderVINs_` | `(colLetter)` | Reads VINs from ORDERS sheet. Uses `getActiveSpreadsheet()`. |
 | `getDealerScraperData_` | `(locationName)` | Two-pass read: col T only first, then contiguous range of matching rows. Avoids 120k+ cell reads. |
-| `writeOrderMatchFormula_` | `(outputDoc, vins, useStock)` | Writes QUERY formula to ORDERMATCH A2. |
+| `writeOrderMatchFormula_` | `(outputDoc, vins)` | Writes QUERY formula to ORDERMATCH A2 (always matches on VIN, col A). |
 | `buildLinks_` | `(outputDoc, config, typeRules)` | Captures ORDERMATCH row count, writes LINKBUILDER formulas, waits via `calcRecalcDelay_`, reads resulting URLs. |
 | `calcRecalcDelay_` | `(rowCount, msPerRow, minMs, maxMs)` | Returns scaled sleep duration in ms. Used after ORDERMATCH and LINKBUILDER formula writes to replace fixed sleeps. |
 | `generateQRCodesParallel_` | `(links, qrFolder, qrPrefix)` | Parallel QR generation via `UrlFetchApp.fetchAll()`. One batch call regardless of count. |
@@ -1013,8 +1010,7 @@ Bound to SF_SYSTEM_MASTER.
 | `fillScraperDateTime` | `()` | Updates scraper timestamp in W1:X1 and HELPERS A1:B1. |
 | `eraseAllQRFolders` | `()` | Clears QR PNG folders for all active dealers. Uses `getConfigSS_()`. |
 | `cleanUpOutputDocs` | `(daysOld)` | Trashes output docs older than N days (default 30). |
-| `auditConfigPlaceholders` | `()` | Flags active dealers missing required config values including `filtering_rules`. Uses `getConfigSS_()`. |
-| `addCommittedAtHeaders` | `()` | One-time setup: adds `committed_at` header to col C of all SF_VIN_LOGS dealer tabs. |
+| `auditConfigPlaceholders` | `()` | Flags active dealers missing required config values including `filtering_rules`. Uses `getConfigSS_()`. *(No trigger yet — earmarked for the scheduled-config-audit backlog item.)* |
 | `getUserProfiles` | `()` | Returns all rows from USER_PROFILES tab as `[{key, name}]`. Uses `getConfigSS_()`. |
 | `getUserProfilesForModal` | `()` | Single round-trip bootstrap for Run Dealer modal: returns `{profiles, lastUser}`. |
 | `getQRBasePathForUser_` | `(userKey)` | Internal. Looks up `qr_local_base_path` for a user key from USER_PROFILES via `getConfigSS_()`. Validates path exists and normalizes trailing separator. |
@@ -1313,8 +1309,9 @@ V3's PostgreSQL migration eliminates this problem class entirely — IMPORT_STAT
 
 ### Active Issues
 - **Trim cleanup (analyzed; deferred):** Trim strings overflow the print template and need manual editing. Full analysis + a validated auto-cleanup design (global `cleanTrim_` regex pass behind a feature flag + dry-run, plus residual exact-match rules) is captured in **Trim Normalization & Cleanup — Analysis & Deferred Design** above. Decision on approach (A full / B phased / C exact-only) pending.
-- **Stock→VIN fallback (planned):** No dealer uses `use_stock_not_vin` — VIN is always the primary key. Desired behavior: if an ordered identifier isn't found in the SCRAPERDATA VIN column, check the Stock column and substitute the matching row's VIN. Not yet implemented.
+- **Stock→VIN fallback (planned):** VIN is always the primary key (the legacy `use_stock_not_vin` flag and its guards were removed; DEALERS col F is dormant). Desired behavior: if an ordered identifier isn't found in the SCRAPERDATA VIN column, check the Stock column and substitute the matching row's VIN. Not yet implemented — would be built fresh.
 - **`model_trim_split` config key inert:** present in Glendale's `data_transforms` but ignored by `applyDataTransforms_`. Implement or remove.
+- **Dave Sinclair St. Peters targeting — price floor blocked:** the configured `exclude_order` rule (used under $35k — see the example in *Targeting rules & CAO exclusions* above) can't do its price half because used cars have **no price in the scraper feed**. With nothing to compare, the `price < 35000` predicate fails to no-match (fail-safe), the group never matches, and the intended exclusion silently does nothing — used cars pass through regardless of price. Blocked until used prices are scraped; the `cao_exclude_types:["New"]` half (New manual-only) works today.
 - **Stale dealer notes:** Hyundai of Jefferson City and Nissan of Jefferson City notes still say "Scraper #N/A — inactive" but both dealers are active with live scraper feeds. Notes-column cleanup.
 - **MBCC/Sprinter shared inventory — resolved (v2.9/v2.10, June 12 2026):** Option B (one run, two billing outputs) deployed and configured. MBCC's `filtering_rules` carries the `billing_split` key (`field: "model", op: "contains", values: ["Sprinter", "Metris"]`); split runs produce BILLING + BILLING_SPRINTER and two finalization cards with independent deal IDs. Live-test verification per the v2.9/v2.10 changelog entries is the remaining step.
 - **Auffenberg Hybrid order:** Run Dealer modal doesn't support two-stream (CAO + manual) orders or type override on manual stream. Needs modal additions when Maintenance/Hybrid order types are implemented.
@@ -1327,6 +1324,7 @@ V3's PostgreSQL migration eliminates this problem class entirely — IMPORT_STAT
 - Fix legacy field names in `_CONFIG_CACHE` row 1 (cosmetic)
 - ~~Resolve remaining `scraper_location_name` mismatches for BMW of West St. Louis and Serra Honda O'Fallon~~ — done (June 18, 2026 audit): BMW corrected; Serra Honda O'Fallon confirmed not drift (see Active Issues)
 - Delete `test-write-access.txt` from the GitHub repo root (leftover MCP write test — remove locally with `git rm` and push)
+- Consolidate the redundant `SCP_NEW` CSV schema — now identical to `SCP` (the run treats them the same). Repoint the dealer mappings that still reference it (e.g. Bommarito Cadillac's New type) at `SCP` and retire `SCP_NEW` from `CSV_SCHEMAS`.
 
 ---
 

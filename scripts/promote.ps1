@@ -22,6 +22,10 @@ $head   = (git rev-parse HEAD).Trim()
 $remote = (git rev-parse origin/main).Trim()
 if ($head -ne $remote) { throw "Refusing: HEAD ($head) != origin/main ($remote). Push/pull first." }
 
+# -- Gate 1.5: offline test harness must be green ------------------------------
+node test/run-tests.js
+if ($LASTEXITCODE -ne 0) { throw 'Refusing: test harness is red (node test/run-tests.js).' }
+
 # -- Show what is about to ship -----------------------------------------------
 Write-Host ''
 Write-Host ('Promoting: ' + (git log -1 --format='%h %s'))

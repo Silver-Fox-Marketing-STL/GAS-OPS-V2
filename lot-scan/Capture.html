@@ -101,7 +101,7 @@
 <body>
   <div class="ls-wrap">
     <div class="ls-head">
-      <h1 class="ls-title">Lot Scan</h1>
+      <h1 class="ls-title">Lot Scan<?= ENV.name !== 'prod' ? ' (DEV)' : '' ?></h1>
       <span class="ls-sub">photograph a VIN &middot; dash, sticker, or tag</span>
     </div>
 

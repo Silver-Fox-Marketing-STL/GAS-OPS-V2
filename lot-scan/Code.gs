@@ -21,20 +21,41 @@
 // synchronous-OCR real-time-camera path (submitVinPhoto) is retired behind a
 // deprecation stub so a stale cached client fails LOUDLY instead of silently.
 //
-// FIRST-TIME SETUP: run setupLotScannerResources() once from the editor, paste the
-// two logged IDs into the constants below (+ the sheet id into the main app).
+// FIRST-TIME SETUP (new environment only): run setupLotScannerResources() once
+// from the editor, paste the two logged IDs into that env's ENV_IDS entry below
+// (+ the sheet id into the main app's ENV_IDS). Both prod and dev are already
+// provisioned — see docs/dev-environment.md.
 // ============================================================================
 
 
-// ── Shared data (same IDs the main app uses; read-only here) ──
-// Hardcoded prod IDs — this subproject has no dev twin yet; main Code.gs uses an ENV_IDS scriptId map (see Section 1 there).
-var MASTER_SHEET_ID = '1G_wrlXVmcUDJ37xr3bDwDHUGUy9ULIbNufq_Xk9xVes';  // SF_SYSTEM_MASTER (SCRAPERDATA)
-var CONFIG_SHEET_ID = '1csQdjcNey_mgcVqY99GOJ2PNCGRTyoZTbaUyJ3IZkJ8';  // SF_DEALER_CONFIG (DEALERS)
-
-// ── Lot-scanner-owned data (created by setupLotScannerResources()). Paste the
-//    logged IDs here; also paste LOT_SUBMISSIONS_SHEET_ID into the MAIN app. ──
-var LOT_SUBMISSIONS_SHEET_ID = '1zs-Ycj64LTwIYJt84kC_-qY_EhsWgB1Pa5pQlsG-N1M';   // SF_LOT_SUBMISSIONS spreadsheet
-var LOT_PHOTOS_FOLDER_ID     = '1Gmw3fQ6tiPLL76tE374646huuYIVHxHf';   // "SF Lot Submissions" folder on the Shared Drive (org-owned files — role-based trash; all app users need Content Manager)
+// ── Environment resolution — the scriptId IS the environment (same idiom as
+// main Code.gs Section 1). MASTER/CONFIG are shared data (read-only here);
+// LOT_SUBMISSIONS + the photos folder are the scanner's only write targets.
+// An unregistered scriptId (stray copy) throws at load — it can never run
+// against guessed (prod) IDs. Inventory: docs/dev-environment.md.
+var ENV_IDS = {
+  '1ww7VJnkeFdpQj8-m06r4RRKxPFikgpNGVMwEgU9BWOgL0DWaJP-jmZJ7': { // PROD
+    name: 'prod',
+    MASTER_SHEET_ID:          '1G_wrlXVmcUDJ37xr3bDwDHUGUy9ULIbNufq_Xk9xVes', // SF_SYSTEM_MASTER (SCRAPERDATA)
+    CONFIG_SHEET_ID:          '1csQdjcNey_mgcVqY99GOJ2PNCGRTyoZTbaUyJ3IZkJ8', // SF_DEALER_CONFIG (DEALERS)
+    LOT_SUBMISSIONS_SHEET_ID: '1zs-Ycj64LTwIYJt84kC_-qY_EhsWgB1Pa5pQlsG-N1M', // SF_LOT_SUBMISSIONS
+    LOT_PHOTOS_FOLDER_ID:     '1Gmw3fQ6tiPLL76tE374646huuYIVHxHf'             // "SF Lot Submissions" on the Shared Drive (org-owned files — role-based trash; all app users need Content Manager)
+  },
+  '1SrMalU5GszZERqAk5xmISUCwGTgqjZwuPMtybJ4nsPrDY15PBPbc25Vu': { // DEV — twins live in the Claude Sandbox Drive folder
+    name: 'dev',
+    MASTER_SHEET_ID:          '1-0rHSoBmQip-yi_dB_S-kz-2fjc6x7pOxlbg2S7PEjk', // DEV_SF_SYSTEM_MASTER
+    CONFIG_SHEET_ID:          '1ajpIn_TD7fOZ_rZZMfK6KSdJ4niqiB4l85eC0dok5lA', // DEV_SF_DEALER_CONFIG
+    LOT_SUBMISSIONS_SHEET_ID: '1mftxwQOW_Pdqka8ZNPBlczDbBIku2lS91hwWUqUwNfg', // DEV_SF_LOT_SUBMISSIONS
+    LOT_PHOTOS_FOLDER_ID:     '10HB0u_IVHC6ah2OOgXraBzDbKnKUbxCF'             // DEV_LOT_PHOTOS (My Drive, Nick-only — no Shared Drive needed in dev)
+  }
+};
+var ENV = ENV_IDS[ScriptApp.getScriptId()];
+if (!ENV) throw new Error('Unknown scriptId ' + ScriptApp.getScriptId() +
+  ' — add it to ENV_IDS in lot-scan/Code.gs. Refusing to run against guessed (prod) IDs.');
+var MASTER_SHEET_ID          = ENV.MASTER_SHEET_ID;
+var CONFIG_SHEET_ID          = ENV.CONFIG_SHEET_ID;
+var LOT_SUBMISSIONS_SHEET_ID = ENV.LOT_SUBMISSIONS_SHEET_ID;
+var LOT_PHOTOS_FOLDER_ID     = ENV.LOT_PHOTOS_FOLDER_ID;
 
 var LOT_SUBMISSIONS_TAB = 'SUBMISSIONS';
 // One row per photo. Flat / long / SQL-portable. KEEP IN SYNC with the main app reader.
@@ -73,7 +94,7 @@ function include_(name) { return HtmlService.createHtmlOutputFromFile(name).getC
 
 function doGet(e) {
   return HtmlService.createTemplateFromFile('Capture').evaluate()
-    .setTitle('SilverFox Lot Scan')
+    .setTitle('SilverFox Lot Scan' + (ENV.name !== 'prod' ? ' (DEV)' : ''))
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, maximum-scale=1');
 }
 

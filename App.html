@@ -549,7 +549,7 @@
 
     <nav id="sidebar">
       <div class="app-brand" onclick="navTo('view-home')">
-        <span class="logo" role="img" aria-label="SilverFox logo"></span> SilverFox
+        <span class="logo" role="img" aria-label="SilverFox logo"></span> SilverFox<?= ENV.name !== 'prod' ? ' (DEV)' : '' ?>
       </div>
       <div class="nav-item" id="nav-view-home" onclick="navTo('view-home')">
         <span class="icon">&#8962;</span> Home
