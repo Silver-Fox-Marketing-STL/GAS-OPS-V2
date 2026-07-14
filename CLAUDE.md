@@ -54,8 +54,12 @@ exact schemas/mechanism/history — NOT in context).
   disagree, trust the live system and fix the docs.
 - **Branch check before push.** Confirm the current branch first. Single deployed
   branch is `main`.
-- **Deploy:** edit locally → commit/push to GitHub → `clasp push`. Rollback =
-  checkout last good commit on `main` and `clasp push`.
+- **Deploy:** feature branch → test in dev (`clasp push` targets DEV via
+  `.clasp.json`) → merge to `main` → Nick runs `scripts/promote.ps1` — the ONLY
+  path to prod (gates: main / clean / synced / green harness / typed PROMOTE;
+  pushes code + bumps the versioned `/exec` deployment). Rollback = redeploy a
+  prior version in the prod script's Manage Deployments (see
+  `docs/dev-environment.md`); never "roll back" with `clasp push` — it targets DEV.
 - **Sheets MCP:** never edit anything outside the "Claude Sandbox" Drive folder;
   reads are fine anywhere.
 - **Pipedrive is read-only for Claude.** Claude writes the scripts/functions that
@@ -65,7 +69,7 @@ exact schemas/mechanism/history — NOT in context).
 
 ## Repo / environment
 
-- Repo: `Silver-Fox-Marketing-STL/GAS-OPS-V2`. `Code.gs` (~7,160 lines; Section 31
+- Repo: `Silver-Fox-Marketing-STL/GAS-OPS-V2`. `Code.gs` (~9,400 lines; Section 31
   = Pipedrive). Local checkout path varies per machine (this PC:
   `C:\Users\Nick_Workstation\Documents\SilverFox-V2`).
 - clasp script ID: `1E5aTcofzWzJZssOikaf6lFytS92vRHmj-k1NDV0C_Xu7NoJk7VUEjtNO`.
