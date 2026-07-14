@@ -1315,6 +1315,7 @@ V3's PostgreSQL migration eliminates this problem class entirely — IMPORT_STAT
 - **Trim cleanup (analyzed; deferred):** Trim strings overflow the print template and need manual editing. Full analysis + a validated auto-cleanup design (global `cleanTrim_` regex pass behind a feature flag + dry-run, plus residual exact-match rules) is captured in **Trim Normalization & Cleanup — Analysis & Deferred Design** above. Decision on approach (A full / B phased / C exact-only) pending.
 - **Stock→VIN fallback (planned):** No dealer uses `use_stock_not_vin` — VIN is always the primary key. Desired behavior: if an ordered identifier isn't found in the SCRAPERDATA VIN column, check the Stock column and substitute the matching row's VIN. Not yet implemented.
 - **`model_trim_split` config key inert:** present in Glendale's `data_transforms` but ignored by `applyDataTransforms_`. Implement or remove.
+- **Dave Sinclair St. Peters targeting — price floor blocked:** the configured `exclude_order` rule (used under $35k — see the example in *Targeting rules & CAO exclusions* above) can't do its price half because used cars have **no price in the scraper feed**. With nothing to compare, the `price < 35000` predicate fails to no-match (fail-safe), the group never matches, and the intended exclusion silently does nothing — used cars pass through regardless of price. Blocked until used prices are scraped; the `cao_exclude_types:["New"]` half (New manual-only) works today.
 - **Stale dealer notes:** Hyundai of Jefferson City and Nissan of Jefferson City notes still say "Scraper #N/A — inactive" but both dealers are active with live scraper feeds. Notes-column cleanup.
 - **MBCC/Sprinter shared inventory — resolved (v2.9/v2.10, June 12 2026):** Option B (one run, two billing outputs) deployed and configured. MBCC's `filtering_rules` carries the `billing_split` key (`field: "model", op: "contains", values: ["Sprinter", "Metris"]`); split runs produce BILLING + BILLING_SPRINTER and two finalization cards with independent deal IDs. Live-test verification per the v2.9/v2.10 changelog entries is the remaining step.
 - **Auffenberg Hybrid order:** Run Dealer modal doesn't support two-stream (CAO + manual) orders or type override on manual stream. Needs modal additions when Maintenance/Hybrid order types are implemented.
@@ -1327,6 +1328,7 @@ V3's PostgreSQL migration eliminates this problem class entirely — IMPORT_STAT
 - Fix legacy field names in `_CONFIG_CACHE` row 1 (cosmetic)
 - ~~Resolve remaining `scraper_location_name` mismatches for BMW of West St. Louis and Serra Honda O'Fallon~~ — done (June 18, 2026 audit): BMW corrected; Serra Honda O'Fallon confirmed not drift (see Active Issues)
 - Delete `test-write-access.txt` from the GitHub repo root (leftover MCP write test — remove locally with `git rm` and push)
+- Consolidate the redundant `SCP_NEW` CSV schema — now identical to `SCP` (the run treats them the same). Repoint the dealer mappings that still reference it (e.g. Bommarito Cadillac's New type) at `SCP` and retire `SCP_NEW` from `CSV_SCHEMAS`.
 
 ---
 
