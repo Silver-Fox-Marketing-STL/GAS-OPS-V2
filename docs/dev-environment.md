@@ -97,6 +97,14 @@ The fullscreen web app is a *deployment* and behaves differently per env:
   Deploy → Test deployments). It always serves the latest `clasp push` —
   zero deployment management, every push instantly live. HEAD deployment id:
   `AKfycbwuFcrVSyE05fSiT1FSkNzxW-4PC4OZVj8d71dtNa8`.
+  Both dev scripts ALSO carry a versioned `/exec` deployment (main
+  `AKfycbzw11TK7k66DY0YLPgkEtU91vxIohjG1DkObfKXCckq4ZFdP44OzhYnA7AuVGIEoO7-`
+  "Dev OPS Deploy", scanner
+  `AKfycbwCdCv47_qeKnWyEtZLHF_F76660eHCJUwZaVwZPeLIGWZBrYrKrn8G9cvjFxvlYsquLA`)
+  from Nick's bookmarks. Like any `/exec`, they pin a version and go stale on
+  every push — if dev testing goes through them, bump with
+  `clasp deploy --deploymentId <id>` after pushing, or (better) switch the
+  bookmark to the `/dev` URL.
 - **PROD**: the real `/exec` URL serves the pinned versioned deployment
   (`AKfycbwB_wXCfnBEJCwM-bN6lO_HYtzeFI5J2e-EdURk5y-V0ZrfZ9qetotggbIE28Ez6pkI`).
   `promote.ps1` bumps it automatically after the code push
