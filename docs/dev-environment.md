@@ -18,6 +18,8 @@ prefixed `DEV_`. Minted 2026-07-10 by Drive-copying the prod originals.
 | DEV_SF_UNIVERSAL_TEMPLATE | `1BgwoKC_QnRm4SF9HwrSZxmKTe8PznzwCBr33oJ5LFxg` | `14Nk1FL-dfffIoWh9o8Q_EFCNlMXN3jUnlzzZ750QVTc` |
 | DEV_SF_VIN_LOGS | `1iXLrqW7e3DSdiGz5K13POjr561AwmfwL2DyXe3FR2no` | `12Xf6dyZXWXp4JwbytGo6lRUShwuGeN0yS3zhbco4-Lk` |
 | DEV_SF_LOT_SUBMISSIONS | `1mftxwQOW_Pdqka8ZNPBlczDbBIku2lS91hwWUqUwNfg` | `1zs-Ycj64LTwIYJt84kC_-qY_EhsWgB1Pa5pQlsG-N1M` |
+| DEV_LOT_PHOTOS folder (My Drive, Nick-only) | `10HB0u_IVHC6ah2OOgXraBzDbKnKUbxCF` | `1Gmw3fQ6tiPLL76tE374646huuYIVHxHf` ("SF Lot Submissions", Shared Drive) |
+| DEV lot-scan Apps Script project, named **"DEV_SF Lot Scanner"** (standalone; minted 2026-07-13) | `1SrMalU5GszZERqAk5xmISUCwGTgqjZwuPMtybJ4nsPrDY15PBPbc25Vu` | `1ww7VJnkeFdpQj8-m06r4RRKxPFikgpNGVMwEgU9BWOgL0DWaJP-jmZJ7` |
 | DEV_SF_EOM_REPORTS_INDEX | `18EQEMCS6Z6ux767ETyeVsFFjsYxrmHMw_m00sQEaoDU` | `1p28o2IbGFrHOqKVs_DUpAtyzM6LFYyAKUpsBB7NwFxg` |
 | DEV_QR folder (all dealers) | `1c_BIBBmJL5HYJWIsMTzmHXNo5RvDUdQ1` | per-dealer folders (DEALERS col D) |
 | DEV_OUTPUT folder (all dealers) | `1h5FS0FDkY91bjKx2nTRMuCVflMYa77P2` | per-dealer folders (DEALERS col E) + `1iRDDlqgQPn9R67AEIUJcF8JmyiOyn8DI` |
@@ -108,5 +110,18 @@ The fullscreen web app is a *deployment* and behaves differently per env:
 - `.clasp.prod.json` (committed) → PROD scriptId — reached ONLY via
   `scripts/promote.ps1` (Nick-run, guarded: main branch, clean tree, synced with
   origin, typed confirmation).
-- lot-scan/ and eom-viewer/ have **no dev twins yet** — their `.clasp.json` still
-  points at prod. Rare changes; review gate + Nick-only pushes until twins exist.
+- **lot-scan/** mirrors the same model (added 2026-07-13): `lot-scan/.clasp.json`
+  → DEV scanner scriptId, `lot-scan/.clasp.prod.json` → PROD scanner, reached
+  ONLY via `scripts/promote-lot-scan.ps1` (same gates minus the Node harness —
+  it tests main-app paths). `lot-scan/.claspignore` keeps `.clasp.prod.json`
+  out of pushes (the root `.claspignore` does NOT apply to sub-project pushes).
+  The scanner's `ENV_IDS` resolver (lot-scan/Code.gs, same scriptId-keyed idiom)
+  routes dev to DEV_SF_SYSTEM_MASTER / DEV_SF_DEALER_CONFIG /
+  DEV_SF_LOT_SUBMISSIONS / DEV_LOT_PHOTOS; an unregistered scriptId throws.
+  No Pipedrive in the scanner, so no fake needed. Dev web app = the HEAD
+  deployment's `/dev` test URL (id `AKfycbyD8S_9SqHtExPhaHCnwP9EDBtrO3z-GjVaSMvMzHHV`);
+  prod `/exec` = pinned versioned deployment
+  (`AKfycbwOv4waW5OrV6tLllV2HxVqLsO6fMdP6hfGbYvuDu8IpGyRb5r2bmCNVkTB0mvcpOFvCQ`),
+  bumped by the promote script.
+- eom-viewer/ has **no dev twin yet** — its `.clasp.json` still points at prod.
+  Rare changes; review gate + Nick-only pushes until a twin exists.

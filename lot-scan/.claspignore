@@ -1,0 +1,6 @@
+# Never push the prod clasp target as an Apps Script .json file (jsonExtensions
+# includes .json). Used only by scripts/promote-lot-scan.ps1. Same pattern as the
+# root .claspignore — which does NOT apply here (clasp reads the ignore file next
+# to the .clasp.json it pushes from).
+.clasp.prod.json
+**/*.md
