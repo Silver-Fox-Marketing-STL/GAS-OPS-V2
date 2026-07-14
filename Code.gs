@@ -434,7 +434,7 @@ function openApp() {
   var html = t.evaluate()
     .setWidth(MODAL_WIDTH)
     .setHeight(MODAL_HEIGHT);
-  SpreadsheetApp.getUi().showModalDialog(html, 'SilverFox');
+  SpreadsheetApp.getUi().showModalDialog(html, 'SilverFox' + (ENV.name !== 'prod' ? ' (DEV)' : ''));
 }
 
 /**
@@ -453,7 +453,7 @@ function doGet(e) {
   t.initialNavLayout = uiPrefs_.navLayout;             // 'sidebar' | 'icons' | 'top-rail' | 'bottom-rail' | 'start-menu'
   t.appMode = 'webapp';
   return t.evaluate()
-    .setTitle('SilverFox')
+    .setTitle('SilverFox' + (ENV.name !== 'prod' ? ' (DEV)' : ''))
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 

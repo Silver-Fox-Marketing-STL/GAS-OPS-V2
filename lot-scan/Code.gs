@@ -94,7 +94,7 @@ function include_(name) { return HtmlService.createHtmlOutputFromFile(name).getC
 
 function doGet(e) {
   return HtmlService.createTemplateFromFile('Capture').evaluate()
-    .setTitle('SilverFox Lot Scan')
+    .setTitle('SilverFox Lot Scan' + (ENV.name !== 'prod' ? ' (DEV)' : ''))
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, maximum-scale=1');
 }
 
