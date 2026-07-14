@@ -7312,10 +7312,10 @@ function billingVinGrid_(vins, cols) {
  * Two-column page: Band A = Order Summary ‖ By Type (+ By Source), Band B = Duplicates
  * by Type ‖ Duplicate Detail — pairing the short tables side by side frees vertical
  * space for orders with many VINs/duplicates. Produced VINs follow full-width in a
- * column-major grid placed only in VIN-wide columns (a 17-char VIN at 9pt needs ~110px;
- * Sheets CLIPS when the neighbor cell is filled, so every VIN-bearing column gets
- * explicit width). Backgrounds/fonts/borders are applied as batched matrices (runs
- * once per push). Caller exports + deletes it.
+ * column-major grid placed only in VIN-wide columns (a 17-char VIN at 9pt measures
+ * ~135px; Sheets CLIPS when the neighbor cell is filled, so every VIN-bearing column
+ * gets explicit width). Backgrounds/fonts/borders are applied as batched matrices
+ * (runs once per push). Caller exports + deletes it.
  */
 function buildBillingPdfTab_(outputDoc, data, meta) {
   var existing = outputDoc.getSheetByName(BILLING_PDF_TMP_TAB);
@@ -7325,13 +7325,15 @@ function buildBillingPdfTab_(outputDoc, data, meta) {
   // Page grid: left block (cols 1-2) · gutter (col 3) · right block (cols 4-7).
   var W = 7;
   var LEFT = { c0: 0, w: 2 }, RIGHT = { c0: 3, w: 4 };
-  var COL_WIDTHS = [140, 112, 20, 150, 78, 118, 98];   // VIN-bearing cols 1/2/4/6 ≥ 112px
+  // A 17-char VIN at Arial 9pt measures ~135px in Sheets (field-measured: 16 chars
+  // clipped at 118px) — every VIN-bearing column (1/2/4/6) gets 140.
+  var COL_WIDTHS = [140, 140, 20, 175, 68, 140, 80];
   var VIN_COLS = [0, 1, 3, 5];                          // grid slots for produced VINs (0-based)
   var NAVY = '#1f3864', SECT = '#305496', SUBH = '#d9e1f2', BAND = '#eef3fb',
       WHITE = '#ffffff', GREY = '#595959', INK = '#1b1b1b', LINE = '#8ea9db';
 
   var values = [], bgs = [], colors = [], weights = [], sizes = [], aligns = [];
-  var mergeSpans = [], wrapCells = [], borderBlocks = [];
+  var mergeSpans = [], borderBlocks = [];
 
   function newRow() {
     var v = [], b = [], c = [], w = [], s = [], a = [];
@@ -7346,7 +7348,6 @@ function buildBillingPdfTab_(outputDoc, data, meta) {
     if (sp.fw) weights[r][c] = sp.fw;
     if (sp.fs) sizes[r][c] = sp.fs;
     if (sp.al) aligns[r][c] = sp.al;
-    if (sp.wrap) wrapCells.push({ r: r, c: c });
   }
   function blank() { return newRow(); }
 
@@ -7357,7 +7358,7 @@ function buildBillingPdfTab_(outputDoc, data, meta) {
     cells[0] = { v: title, bg: SECT, fc: WHITE, fw: 'bold', fs: 11 };
     return cells;
   }
-  // Left-block key/value table. Pair: [label, value, fs?, wrap?]; boldLast bolds the total row.
+  // Left-block key/value table. Pair: [label, value, fs?, alignLeft?]; boldLast bolds the total row.
   function kvTable(title, pairs, opts) {
     opts = opts || {};
     var rows = [sectionCells(title, LEFT.w)];
@@ -7366,7 +7367,7 @@ function buildBillingPdfTab_(outputDoc, data, meta) {
       var last = opts.boldLast && i === pairs.length - 1;
       rows.push([{ v: p[0], fw: 'bold', fs: fs, bg: bg },
                  { v: p[1], fw: (last ? 'bold' : 'normal'), fs: fs, bg: bg,
-                   al: (p[3] ? 'left' : 'right'), wrap: !!p[3] }]);
+                   al: (p[3] ? 'left' : 'right') }]);
     });
     return { rows: rows, borderFrom: 1 };
   }
@@ -7441,7 +7442,10 @@ function buildBillingPdfTab_(outputDoc, data, meta) {
                   ['Total Matched', data.summary.matched],
                   ['Not Found', data.summary.notFoundCount]];
   if (data.summary.notFoundList && data.summary.notFoundList !== '—' && data.summary.notFoundList !== '') {
-    sumPairs.push(['Not Found VINs', data.summary.notFoundList, 9, true]);
+    // One VIN per row (no wrapped cell — a wrapped row's height would stretch the
+    // band and inflate whatever row the right-side table has at the same position).
+    data.summary.notFoundList.split(',').map(function(v) { return v.trim(); }).filter(Boolean)
+      .forEach(function(v, i) { sumPairs.push([i === 0 ? 'Not Found VINs' : '', v, 9, true]); });
   }
   var rightA = [countTable('BY TYPE (GROSS)', ['Type', 'Quantity'], data.byType)];
   if (data.bySource && data.bySource.length) {
@@ -7491,7 +7495,6 @@ function buildBillingPdfTab_(outputDoc, data, meta) {
 
   mergeSpans.forEach(function(r) { sheet.getRange(r + 1, 1, 1, W).merge(); });
   sheet.setRowHeight(rTitle + 1, 34);
-  wrapCells.forEach(function(wc) { sheet.getRange(wc.r + 1, wc.c + 1).setWrap(true); });
   borderBlocks.forEach(function(b) {
     sheet.getRange(b.top + 1, b.c0 + 1, b.bottom - b.top + 1, b.c1 - b.c0 + 1)
          .setBorder(true, true, true, true, false, false, LINE, SpreadsheetApp.BorderStyle.SOLID);
