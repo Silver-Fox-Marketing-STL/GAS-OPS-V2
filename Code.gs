@@ -961,9 +961,12 @@ function pasteVinsAndRun(dealerKey, vins, dealId, runId, bypassFilters, userKey,
   range.setNumberFormat('@');
   SpreadsheetApp.flush();
 
-  // Pass the already-resolved config so runDealer doesn't re-open SF_DEALER_CONFIG.
+  // Pass the already-resolved config so runDealer doesn't re-open SF_DEALER_CONFIG,
+  // and the deduped VIN array itself — the ORDERS write above is a visible record,
+  // but the run must not read it back (a concurrent same-dealer run could have
+  // overwritten the column between this write and that read).
   return runDealer(dealerKey, dealId ? String(dealId).trim() : '', runId || null, bypassFilters === true,
-                   qrBasePath, config, splitDealId ? String(splitDealId).trim() : '');
+                   qrBasePath, config, splitDealId ? String(splitDealId).trim() : '', vins);
 }
 
 /**
@@ -978,11 +981,15 @@ function pasteVinsAndRun(dealerKey, vins, dealId, runId, bypassFilters, userKey,
  *                                        skips a redundant getDealerConfig_ call when provided.
  * @param {string|null} splitDealId    - Second Pipedrive Deal ID for the billing-split
  *                                        group (e.g. Sprinter). Pre-fill only.
+ * @param {Array|null}  presetVins     - VIN list already deduped by pasteVinsAndRun;
+ *                                        skips the ORDERS re-read (which a concurrent
+ *                                        same-dealer run could overwrite). Manual editor
+ *                                        runs omit it and read the ORDERS sheet as before.
  * @return {Object|null} {outputFolderUrl, pendingRuns, dealerName, producedVinCount} —
  *                       pendingRuns entries are finalized or abandoned in the modal;
  *                       nothing is logged until finalizeRun runs.
  */
-function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloadedConfig, splitDealId) {
+function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloadedConfig, splitDealId, presetVins) {
   var startTime = new Date();
   var errors    = [];
 
@@ -995,9 +1002,10 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     if (!isTrue_(config[CFG.ACTIVE])) throw new Error('Dealer is marked inactive: ' + dealerKey);
     Logger.log('Starting run for: ' + config[CFG.NAME]);
 
-    // 2. Load VINs from ORDERS sheet. (Type rules now come from the Pipedrive product map —
-    //    built after matching; see step 9b.)
-    var vins = getOrderVINs_(config[CFG.ORDERS_COL]);
+    // 2. VINs: prefer the array handed over by pasteVinsAndRun (immune to a concurrent
+    //    same-dealer ORDERS overwrite); manual editor runs fall back to the ORDERS sheet.
+    //    (Type rules now come from the Pipedrive product map — built after matching; see step 9b.)
+    var vins = (presetVins && presetVins.length) ? presetVins : getOrderVINs_(config[CFG.ORDERS_COL]);
     if (!vins || vins.length === 0) throw new Error('No VINs found in ORDERS column ' + config[CFG.ORDERS_COL]);
     Logger.log('VINs to process: ' + vins.length);
 
@@ -1245,6 +1253,24 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     setProgressError_(runId, e.message);
     handleError_(e);
     errors.push(e.message);
+    // Best-effort cleanup — a failed run logs nothing (RUN_LOG is written at
+    // finalization), so nothing references the artifacts. Drive trash = 30-day
+    // recovery, so a failed doc is still inspectable. qrFileIds populated means
+    // this run generated QRs — abandonRun batch-trashes exactly those files;
+    // before that point trash only the doc (never the name-pattern folder scan,
+    // which could hit a prior run's PNGs while the folder is not yet cleared).
+    try {
+      if (typeof outputDoc !== 'undefined' && outputDoc) {
+        if (typeof qrFileIds !== 'undefined' && qrFileIds && qrFileIds.length) {
+          abandonRun(dealerKey, outputDoc.getId(), qrFileIds);
+        } else {
+          DriveApp.getFileById(outputDoc.getId()).setTrashed(true);
+        }
+        Logger.log('runDealer: failed-run artifacts trashed (30-day recovery).');
+      }
+    } catch (cleanupErr) {
+      Logger.log('runDealer: failed-run cleanup skipped (' + cleanupErr.message + ')');
+    }
     return null;
   }
 }
