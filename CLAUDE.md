@@ -141,7 +141,8 @@ previously-hit failure — don't relax without reading the matching Bridge secti
   (misconfig/empty group → keep the vehicle). Fields via `getFilterFieldIndex_()`.
 - VIN and Stock must be `String()`-converted AND `@`-formatted before AND after
   `setValues()` (QUERY mixed-type bug).
-- VIN is the vehicle primary key; `use_stock_not_vin` is FALSE for every dealer.
+- VIN is the vehicle primary key. The legacy `use_stock_not_vin` flag is removed
+  (DEALERS col F stays, dormant/append-only); ORDERMATCH always matches col A.
 - VIN logs are never written automatically — explicit commit/rollback via the VIN
   Log Updater (key: deal ID + `committed_at`). Manually entered VINs are always
   produced (the log only flags dupes in billing). `test` runs are never committed.

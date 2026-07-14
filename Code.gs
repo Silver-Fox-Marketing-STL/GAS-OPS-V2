@@ -73,7 +73,8 @@ var EOM_INDEX_SHEET_ID       = ENV.EOM_INDEX_SHEET_ID;
 // Column indices in the DEALERS tab of SF_DEALER_CONFIG (0-indexed)
 // Current layout (23 columns, A–W):
 // A=dealer_key, B=dealer_name, C=orders_col, D=qr_folder_id, E=output_folder_id,
-// F=use_stock_not_vin, G=linkbuilder_col, H=utm_base_url_override, I=data_transforms,
+// F=use_stock_not_vin (dormant — legacy flag, guards removed; VIN is always the key),
+// G=linkbuilder_col, H=utm_base_url_override, I=data_transforms,
 // J=scraper_location_name, K=qr_local_prefix, L=active, M=notes,
 // N=pipedrive_prefix, O=type_rules, [P–V unused/deprecated], W=filtering_rules
 var CFG = {
@@ -82,7 +83,6 @@ var CFG = {
   ORDERS_COL:        2,   // orders_col (A, B, C, ... AO)
   QR_FOLDER_ID:      3,   // qr_folder_id
   OUTPUT_FOLDER:     4,   // output_folder_id (per-dealer override; falls back to OUTPUT_FOLDER_ID)
-  USE_STOCK:         5,   // use_stock_not_vin (boolean)
   LINKBUILDER_COL:   6,   // linkbuilder_col (B or C)
   UTM_BASE_URL:      7,   // utm_base_url_override (Serra Honda style fixed base URL)
   TRANSFORMS:        8,   // data_transforms (JSON string or empty)
@@ -1031,7 +1031,6 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     // 8.5 Apply filtering rules to VIN list (skipped if bypassFilters is true)
     if (!bypassFilters) {
       var filterRules = getDealerFilterRules_(config);
-      var useStock_   = isTrue_(config[CFG.USE_STOCK]);
 
       var scraperLookup = {};
       scraperData.forEach(function(row) {
@@ -1082,7 +1081,7 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
 
     // 9. Write ORDERMATCH QUERY formula, then wait for recalculation
     setProgress_(runId, 'Running ORDERMATCH query...', 38);
-    writeOrderMatchFormula_(outputDoc, vins, isTrue_(config[CFG.USE_STOCK]));
+    writeOrderMatchFormula_(outputDoc, vins);
     SpreadsheetApp.flush();
     // Poll for the QUERY spill instead of a fixed sleep — exits as soon as
     // results land. Cap matches the old delay (40ms/row, 1s floor, 3.5s cap).
@@ -1623,11 +1622,10 @@ function applyDataTransforms_(outputDoc, transformsJson) {
 // SECTION 7: ORDERMATCH FORMULA
 // ============================================================================
 
-function writeOrderMatchFormula_(outputDoc, vins, useStock) {
-  var sheet    = outputDoc.getSheetByName('ORDERMATCH');
-  var matchCol = useStock ? 'B' : 'A';
-  var pattern  = vins.map(function(v) { return v.replace(/'/g, "\\'"); }).join('|');
-  var query    = "SELECT D, E, F, G, A, B, C, J, U WHERE " + matchCol + " MATCHES '" + pattern + "'";
+function writeOrderMatchFormula_(outputDoc, vins) {
+  var sheet   = outputDoc.getSheetByName('ORDERMATCH');
+  var pattern = vins.map(function(v) { return v.replace(/'/g, "\\'"); }).join('|');
+  var query   = "SELECT D, E, F, G, A, B, C, J, U WHERE A MATCHES '" + pattern + "'";
   sheet.getRange('A2').setFormula('=IFERROR(QUERY(SCRAPERDATA!$A:$U,"' + query + '",0),"")');
 }
 
@@ -2887,14 +2885,13 @@ function abandonRun(dealerKey, outputDocId, qrFileIds) {
 function writeConfigCache_(outputDoc, config) {
   var sheet = outputDoc.getSheetByName('_CONFIG_CACHE');
   if (!sheet) return;
-  sheet.getRange('A6:H6').setValues([[
-    'dealer_key', 'dealer_name', 'use_stock_not_vin', 'linkbuilder_col',
+  sheet.getRange('A6:G6').setValues([[
+    'dealer_key', 'dealer_name', 'linkbuilder_col',
     'type_rules', 'data_transforms', 'utm_base_url_override', 'run_timestamp'
   ]]);
-  sheet.getRange('A7:H7').setValues([[
+  sheet.getRange('A7:G7').setValues([[
     config[CFG.KEY],
     config[CFG.NAME],
-    config[CFG.USE_STOCK],
     config[CFG.LINKBUILDER_COL],
     config[CFG.TYPE_RULES],
     config[CFG.TRANSFORMS],
@@ -3922,7 +3919,6 @@ function getCaoVins(dealerKey) {
   });
 
   var loggedVins   = getLoggedVins_(dealerKey);
-  var useStock     = isTrue_(config[CFG.USE_STOCK]);
   var netNew       = [];
   var printedCount = 0;
 
@@ -3932,7 +3928,7 @@ function getCaoVins(dealerKey) {
     if (loggedVins[vin] || loggedVins[stock]) {
       printedCount++;
     } else {
-      netNew.push(useStock ? stock : vin);
+      netNew.push(vin);
     }
   });
 

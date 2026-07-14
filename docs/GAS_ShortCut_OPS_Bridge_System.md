@@ -183,7 +183,7 @@ One row per dealer (43 rows; 29 active), 23 columns (A–W).
 | C | `orders_col` | Column letter in SF_SYSTEM_MASTER ORDERS tab. |
 | D | `qr_folder_id` | Drive folder ID where QR PNGs are saved. |
 | E | `output_folder_id` | Per-dealer output folder override. Leave blank to use global constant. |
-| F | `use_stock_not_vin` | TRUE if ORDERMATCH QUERY should match on Stock instead of VIN. **Currently FALSE for every dealer — VIN is always the primary key.** Planned replacement: a stock→VIN fallback (if an ordered identifier isn't found in the VIN column, look it up in the Stock column and substitute the corresponding VIN). Not yet implemented. |
+| F | `use_stock_not_vin` | **DORMANT** — legacy flag, was FALSE for every dealer; its code guards were removed (VIN is always the primary key, ORDERMATCH always matches col A). Column kept append-only. The planned stock→VIN fallback (substitute the VIN when an ordered identifier only matches the Stock column) is a separate feature that would be built fresh. |
 | G | `linkbuilder_col` | Which LINKBUILDER column URLs are read from. `B` for most dealers, `C` for BMW of Columbia. |
 | H | `utm_base_url_override` | Replaces vehicle URL entirely for QR link building. Used by Serra Honda (AutoFi format). |
 | I | `data_transforms` | JSON find/replace rules applied to SCRAPERDATA after pasting. See Data Transforms section. |
@@ -967,7 +967,7 @@ Bound to SF_SYSTEM_MASTER.
 | `getCsvSchema_` | `(schemaKey)` | Reads field code array from CSV_SCHEMAS tab via `getConfigSS_()`. |
 | `getOrderVINs_` | `(colLetter)` | Reads VINs from ORDERS sheet. Uses `getActiveSpreadsheet()`. |
 | `getDealerScraperData_` | `(locationName)` | Two-pass read: col T only first, then contiguous range of matching rows. Avoids 120k+ cell reads. |
-| `writeOrderMatchFormula_` | `(outputDoc, vins, useStock)` | Writes QUERY formula to ORDERMATCH A2. |
+| `writeOrderMatchFormula_` | `(outputDoc, vins)` | Writes QUERY formula to ORDERMATCH A2 (always matches on VIN, col A). |
 | `buildLinks_` | `(outputDoc, config, typeRules)` | Captures ORDERMATCH row count, writes LINKBUILDER formulas, waits via `calcRecalcDelay_`, reads resulting URLs. |
 | `calcRecalcDelay_` | `(rowCount, msPerRow, minMs, maxMs)` | Returns scaled sleep duration in ms. Used after ORDERMATCH and LINKBUILDER formula writes to replace fixed sleeps. |
 | `generateQRCodesParallel_` | `(links, qrFolder, qrPrefix)` | Parallel QR generation via `UrlFetchApp.fetchAll()`. One batch call regardless of count. |
@@ -1309,7 +1309,7 @@ V3's PostgreSQL migration eliminates this problem class entirely — IMPORT_STAT
 
 ### Active Issues
 - **Trim cleanup (analyzed; deferred):** Trim strings overflow the print template and need manual editing. Full analysis + a validated auto-cleanup design (global `cleanTrim_` regex pass behind a feature flag + dry-run, plus residual exact-match rules) is captured in **Trim Normalization & Cleanup — Analysis & Deferred Design** above. Decision on approach (A full / B phased / C exact-only) pending.
-- **Stock→VIN fallback (planned):** No dealer uses `use_stock_not_vin` — VIN is always the primary key. Desired behavior: if an ordered identifier isn't found in the SCRAPERDATA VIN column, check the Stock column and substitute the matching row's VIN. Not yet implemented.
+- **Stock→VIN fallback (planned):** VIN is always the primary key (the legacy `use_stock_not_vin` flag and its guards were removed; DEALERS col F is dormant). Desired behavior: if an ordered identifier isn't found in the SCRAPERDATA VIN column, check the Stock column and substitute the matching row's VIN. Not yet implemented — would be built fresh.
 - **`model_trim_split` config key inert:** present in Glendale's `data_transforms` but ignored by `applyDataTransforms_`. Implement or remove.
 - **Dave Sinclair St. Peters targeting — price floor blocked:** the configured `exclude_order` rule (used under $35k — see the example in *Targeting rules & CAO exclusions* above) can't do its price half because used cars have **no price in the scraper feed**. With nothing to compare, the `price < 35000` predicate fails to no-match (fail-safe), the group never matches, and the intended exclusion silently does nothing — used cars pass through regardless of price. Blocked until used prices are scraped; the `cao_exclude_types:["New"]` half (New manual-only) works today.
 - **Stale dealer notes:** Hyundai of Jefferson City and Nissan of Jefferson City notes still say "Scraper #N/A — inactive" but both dealers are active with live scraper feeds. Notes-column cleanup.
