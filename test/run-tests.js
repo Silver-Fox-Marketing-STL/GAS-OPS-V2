@@ -5,9 +5,10 @@
 // Loads the FULL Code.gs via indirect eval after stubbing the few GAS globals
 // it touches (verified: only ScriptApp.getScriptId at load time). Targets the
 // pure functions that guard the recurring traps: type-rule ordering (CPO-EL
-// before CPO), the fail-SAFE targeting engine, normalization maps, and the
-// tolerant cell comparators. Anything needing live Sheets objects is out of
-// scope here (Phase 4 gas-fakes territory).
+// before CPO), the fail-SAFE targeting engine, normalization maps, the
+// tolerant cell comparators, and the money paths — Pipedrive line-item
+// building (GROSS qty, catalog tax, variations) and CSV schema grouping.
+// Anything needing live Sheets objects is out of scope (Phase 4 gas-fakes).
 // ============================================================================
 'use strict';
 
@@ -371,6 +372,152 @@ t('fail-safe: unparseable filtering_rules JSON falls back to defaults (nothing f
   assert.strictEqual(fr.allowedTypes, null);
   assert.deepStrictEqual(fr.targetingRules, []);
   assert.strictEqual(applyFilteringRules_(rows_(), fr, 'run').passed.length, 10);
+});
+
+// ============================================================================
+// Suite: pipedrive line items — buildLineItems_/bySourceToBilling_/mergeLineItems_
+// (the money path: GROSS quantities, catalog tax carried per line, variation
+//  pricing/naming, not-in-catalog treated unavailable, SKU merge across types)
+// ============================================================================
+suite('pipedrive line items');
+var CATALOG = [
+  { id: 101, name: 'Shortcut Pack', prices: [{ currency: 'USD', price: 40 }], tax: 8.99, inactive: false },
+  { id: 102, name: 'Shortcut', prices: [{ currency: 'EUR', price: 30 }, { currency: 'USD', price: 35 }], tax: 0, inactive: false },
+  { id: 103, name: 'Retired Thing', prices: [{ currency: 'USD', price: 99 }], tax: 5, inactive: true }
+];
+var VARS = { '101': [{ id: 9001, name: 'Design Included', prices: [{ currency: 'USD', price: 55 }] }] };
+function billing_(byType) { return { byType: byType }; }
+
+t('quantity is GROSS — VIN-log dupes are still produced & billed, never subtracted', function () {
+  var items = buildLineItems_(billing_({ 'New': { gross: 7, dupes: 3 } }),
+    { 'New': { product_id: 101 } }, CATALOG, 'USD', {});
+  assert.strictEqual(items.length, 1);
+  assert.strictEqual(items[0].quantity, 7);
+});
+t('catalog price + Tax %% travel on the line (tax is sent explicitly on attach)', function () {
+  var li = buildLineItems_(billing_({ 'New': { gross: 1 } }),
+    { 'New': { product_id: 101 } }, CATALOG, 'USD', {})[0];
+  assert.strictEqual(li.item_price, 40);
+  assert.strictEqual(li.tax, 8.99);
+  assert.strictEqual(li.inactive, false);
+});
+t('price picks the requested currency from a multi-currency list', function () {
+  var li = buildLineItems_(billing_({ 'PO': { gross: 2 } }),
+    { 'PO': { product_id: 102 } }, CATALOG, 'usd', {})[0];
+  assert.strictEqual(li.item_price, 35);   // USD entry, not the first (EUR) one
+});
+t('same product+variation across types collapses to ONE line with summed qty', function () {
+  var items = buildLineItems_(billing_({ 'New': { gross: 7 }, 'PO': { gross: 2 } }),
+    { 'New': { product_id: 101 }, 'PO': { product_id: 101 } }, CATALOG, 'USD', {});
+  assert.strictEqual(items.length, 1);
+  assert.strictEqual(items[0].quantity, 9);
+});
+t('different variation of the same product stays a distinct line', function () {
+  var items = buildLineItems_(billing_({ 'New': { gross: 1 }, 'PO': { gross: 1 } }),
+    { 'New': { product_id: 101, variation_id: 9001 }, 'PO': { product_id: 101 } },
+    CATALOG, 'USD', VARS);
+  assert.strictEqual(items.length, 2);
+  var varLine = items.filter(function (i) { return i.product_variation_id === 9001; })[0];
+  assert.strictEqual(varLine.item_price, 55);                              // variation price wins
+  assert.strictEqual(varLine.name, 'Shortcut Pack — Design Included');     // variation naming
+});
+t('unknown variation id falls back to the product price but keeps the variation id', function () {
+  var li = buildLineItems_(billing_({ 'New': { gross: 1 } }),
+    { 'New': { product_id: 101, variation_id: 9999 } }, CATALOG, 'USD', VARS)[0];
+  assert.strictEqual(li.item_price, 40);
+  assert.strictEqual(li.product_variation_id, 9999);
+});
+t('catalog-inactive and not-in-catalog products are flagged unavailable', function () {
+  var items = buildLineItems_(billing_({ 'New': { gross: 1 }, 'PO': { gross: 1 } }),
+    { 'New': { product_id: 103 }, 'PO': { product_id: 555 } }, CATALOG, 'USD', {});
+  items.forEach(function (i) { assert.strictEqual(i.inactive, true); });
+});
+t('zero-count types, empty entries and missing product_id are skipped; bare id tolerated', function () {
+  var items = buildLineItems_(billing_({ 'New': { gross: 0 }, 'CPO': { gross: 4 } }),
+    { 'New': { product_id: 101 }, 'CPO': 102, 'PO': '', 'X': {} }, CATALOG, 'USD', {});
+  assert.strictEqual(items.length, 1);   // only the bare-id CPO line survives
+  assert.strictEqual(String(items[0].product_id), '102');
+  assert.strictEqual(items[0].quantity, 4);
+});
+t('null billing or null product map yields no lines', function () {
+  assert.deepStrictEqual(buildLineItems_(null, { 'New': { product_id: 101 } }, CATALOG, 'USD', {}), []);
+  assert.deepStrictEqual(buildLineItems_(billing_({}), null, CATALOG, 'USD', {}), []);
+});
+t('bySourceToBilling_ shapes {type: qty} into byType gross (dupes 0, non-numeric 0)', function () {
+  assert.deepStrictEqual(bySourceToBilling_({ 'New': '3', 'PO': 'x' }),
+    { byType: { 'New': { gross: 3, dupes: 0 }, 'PO': { gross: 0, dupes: 0 } } });
+  assert.deepStrictEqual(bySourceToBilling_(null), { byType: {} });
+});
+t('mergeLineItems_ sums quantities by product+variation and keeps variations apart', function () {
+  var merged = mergeLineItems_([
+    { product_id: 101, quantity: 2, item_price: 40, name: 'Shortcut Pack', tax: 8.99 },
+    { product_id: 101, quantity: 3, item_price: 40, name: 'Shortcut Pack', tax: 8.99 },
+    { product_id: 101, product_variation_id: 9001, quantity: 1, item_price: 55, name: 'V', tax: 8.99 }
+  ]);
+  assert.strictEqual(merged.length, 2);
+  var plain = merged.filter(function (i) { return !i.product_variation_id; })[0];
+  assert.strictEqual(plain.quantity, 5);
+  assert.strictEqual(plain.tax, 8.99);
+});
+t('mergeLineItems_: inactive is sticky — one unavailable source marks the merged line', function () {
+  var merged = mergeLineItems_([
+    { product_id: 101, quantity: 1, item_price: 40, name: 'X', tax: 0, inactive: false },
+    { product_id: 101, quantity: 1, item_price: 40, name: 'X', tax: 0, inactive: true }
+  ]);
+  assert.strictEqual(merged.length, 1);
+  assert.strictEqual(merged[0].inactive, true);
+});
+
+// ============================================================================
+// Suite: csv groups — resolveRuleSchema_/csvOutputGroups_
+// (the product a user picks for billing also picks the CSV layout; rules that
+//  resolve to the same schema share one CSV sheet)
+// ============================================================================
+suite('csv groups');
+var CSV_RULES = [
+  { match: 'CPO-EL', csv_schema: 'SCP_EL', utm: '' },
+  { match: 'CPO',    csv_schema: 'SCP',    utm: '' },
+  { match: 'New',    csv_schema: 'SC',     utm: '' },
+  { match: 'PO',     csv_schema: 'SCP',    utm: '' }
+];
+t('product-map schema overrides the rule csv_schema; missing schema falls back', function () {
+  assert.strictEqual(resolveRuleSchema_({ match: 'New', csv_schema: 'SC' },
+    { 'New': { product_id: 1, schema: 'GLENDALE_COMBINED' } }), 'GLENDALE_COMBINED');
+  assert.strictEqual(resolveRuleSchema_({ match: 'New', csv_schema: 'SC' },
+    { 'New': { product_id: 1 } }), 'SC');
+});
+t('a * catch-all rule always uses its own csv_schema, never a product schema', function () {
+  assert.strictEqual(resolveRuleSchema_({ match: '*', csv_schema: 'SCP' },
+    { '*': { schema: 'NOPE' } }), 'SCP');
+});
+t('one resolved schema means one sheet named CSV', function () {
+  var og = csvOutputGroups_([{ match: 'New', csv_schema: 'SCP' }, { match: 'PO', csv_schema: 'SCP' }], {});
+  assert.strictEqual(og.single, true);
+  assert.strictEqual(og.groups.length, 1);
+  assert.strictEqual(og.groups[0].sheetBase, 'CSV');
+  assert.deepStrictEqual(og.groups[0].matches, ['New', 'PO']);
+});
+t('multiple schemas split into CSV_<SCHEMA> sheets, same-schema types share one', function () {
+  var og = csvOutputGroups_(CSV_RULES, {});
+  assert.strictEqual(og.single, false);
+  assert.deepStrictEqual(og.groups.map(function (g) { return g.sheetBase; }),
+    ['CSV_SCP_EL', 'CSV_SCP', 'CSV_SC']);
+  assert.deepStrictEqual(og.matchToKey,
+    { 'CPO-EL': 'SCP_EL', 'CPO': 'SCP', 'New': 'SC', 'PO': 'SCP' });
+});
+t('sheet names sanitize non-alphanumerics and uppercase the schema', function () {
+  var og = csvOutputGroups_([{ match: 'A', csv_schema: 'scp-el' }, { match: 'B', csv_schema: 'x' }], {});
+  assert.strictEqual(og.groups[0].sheetBase, 'CSV_SCP_EL');
+});
+t('no schema anywhere falls back to SCP; empty rules yield no groups', function () {
+  var og = csvOutputGroups_([{ match: 'New', csv_schema: '' }], {});
+  assert.strictEqual(og.groups[0].schema, 'SCP');
+  assert.deepStrictEqual(csvOutputGroups_([], {}).groups, []);
+});
+t('a product-map schema regroups a type into its own CSV (billing product drives layout)', function () {
+  var og = csvOutputGroups_(CSV_RULES, { 'PO': { product_id: 9, schema: 'PO_SPECIAL' } });
+  assert.deepStrictEqual(og.matchToKey['PO'], 'PO_SPECIAL');
+  assert.deepStrictEqual(og.groups.filter(function (g) { return g.key === 'SCP'; })[0].matches, ['CPO']);
 });
 
 // ── Report ───────────────────────────────────────────────────────────────────
