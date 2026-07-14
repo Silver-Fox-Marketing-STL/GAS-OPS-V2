@@ -935,16 +935,20 @@ function pasteVinsAndRun(dealerKey, vins, dealId, runId, bypassFilters, userKey,
   // Persist the selection so the dropdown pre-selects on next open.
   saveLastSelectedUser(userKey);
 
-  // De-duplicate the ordered VINs (case-insensitive, order-preserving) so a VIN
-  // can never be submitted twice — keeps ordered counts honest. The Run Order
-  // modal also dedupes at submit; this guarantees it regardless of entry path.
+  // De-duplicate and normalize (String().trim()) the ordered VINs, order-
+  // preserving and case-insensitive — keeps ordered counts honest and restores
+  // the normalization getOrderVINs_ used to guarantee, since the presetVins
+  // handoff below bypasses that read-back. Holds regardless of entry path.
   var seenVin_ = {};
-  vins = (vins || []).filter(function(v) {
-    var k = String(v).trim().toUpperCase();
-    if (k === '' || k === '*' || seenVin_[k]) return false;
+  var cleanVins_ = [];
+  (vins || []).forEach(function(v) {
+    var t = String(v).trim();
+    var k = t.toUpperCase();
+    if (k === '' || k === '*' || seenVin_[k]) return;
     seenVin_[k] = 1;
-    return true;
+    cleanVins_.push(t);
   });
+  vins = cleanVins_;
 
   var colLetter = config[CFG.ORDERS_COL];
   var ss    = SpreadsheetApp.getActiveSpreadsheet();
@@ -1255,17 +1259,16 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     errors.push(e.message);
     // Best-effort cleanup — a failed run logs nothing (RUN_LOG is written at
     // finalization), so nothing references the artifacts. Drive trash = 30-day
-    // recovery, so a failed doc is still inspectable. qrFileIds populated means
-    // this run generated QRs — abandonRun batch-trashes exactly those files;
-    // before that point trash only the doc (never the name-pattern folder scan,
-    // which could hit a prior run's PNGs while the folder is not yet cleared).
+    // recovery, so a failed doc is still inspectable. Trash inline, NOT via
+    // abandonRun: its first act is a DEALERS config read it doesn't need here,
+    // and a config failure there would throw before trashing anything (and
+    // never the name-pattern folder scan, which could hit a prior run's PNGs
+    // while the folder is not yet cleared). outputDoc/qrFileIds are hoisted
+    // vars, so plain truthiness is a complete guard.
     try {
-      if (typeof outputDoc !== 'undefined' && outputDoc) {
-        if (typeof qrFileIds !== 'undefined' && qrFileIds && qrFileIds.length) {
-          abandonRun(dealerKey, outputDoc.getId(), qrFileIds);
-        } else {
-          DriveApp.getFileById(outputDoc.getId()).setTrashed(true);
-        }
+      if (outputDoc) {
+        DriveApp.getFileById(outputDoc.getId()).setTrashed(true);
+        if (qrFileIds && qrFileIds.length) trashFilesParallel_(qrFileIds);
         Logger.log('runDealer: failed-run artifacts trashed (30-day recovery).');
       }
     } catch (cleanupErr) {
