@@ -131,8 +131,9 @@ previously-hit failure — don't relax without reading the matching Bridge secti
   `{product_id, variation_id?, schema?, utm?}`. `runDealer` builds synthetic type
   rules from it (`buildTypeRulesFromProductMap_`, CPO-EL before CPO); a matched type
   missing a `product_id` OR `schema` makes the run THROW (`validateProductMapForRun_`).
-  No col-O fallback, no `*` catch-all. col O `type_rules` is dormant (migration source
-  only). Bridge: "Per-type config".
+  No col-O fallback, no `*` catch-all. col O `type_rules` is dormant (legacy record;
+  the one-time migrator was removed after all active dealers were verified migrated).
+  Bridge: "Per-type config".
 - `filtering_rules` `targeting_rules[]` (IF nested AND/OR THEN
   `drop_on_import`/`exclude_cao`/`exclude_order`) + `cao_exclude_types`.
   `applyFilteringRules_(…, phase)`: `exclude_order` both phases, `exclude_cao` +

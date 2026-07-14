@@ -1264,14 +1264,6 @@ function getDealerConfig_(dealerKey) {
   return null;
 }
 
-function getActiveDealerKeys_() {
-  var data = getConfigSS_()
-    .getSheetByName('DEALERS').getDataRange().getValues();
-  return data.slice(1)
-    .filter(function(r) { return isTrue_(r[CFG.ACTIVE]); })
-    .map(function(r)    { return r[CFG.KEY]; });
-}
-
 function getCsvSchema_(schemaKey) {
   var data = getConfigSS_()
     .getSheetByName('CSV_SCHEMAS').getDataRange().getValues();
@@ -1882,15 +1874,6 @@ function writeQRPaths_(outputDoc, qrPrefix, count, basePath) {
 // SECTION 11: TYPE RULES ENGINE
 // ============================================================================
 
-function getTypeRules_(config) {
-  var raw = config[CFG.TYPE_RULES];
-  if (raw && String(raw).trim() !== '') {
-    try { return JSON.parse(raw); } catch(e) { Logger.log('type_rules parse error: ' + e.message); }
-  }
-  Logger.log('WARNING: No valid type_rules for ' + config[CFG.KEY] + '. Using SCP default.');
-  return [{ match: '*', csv_schema: 'SCP', utm: 'VDP_ShortCut' }];
-}
-
 function matchRule_(vehicleType, rules) {
   var type = String(vehicleType).toLowerCase();
   for (var i = 0; i < rules.length; i++) {
@@ -2211,50 +2194,6 @@ function validateProductMapForRun_(matchedTypes, productMap) {
     }
   });
   return missing;
-}
-
-/**
- * ONE-TIME MIGRATION — run manually from the Apps Script editor. Copies each dealer's per-type
- * schema + UTM from its legacy `type_rules` (DEALERS col O) into its PIPEDRIVE `product_map` /
- * `source_product_map` entries (the product map is now the sole per-type config). Only fills
- * entries that already have a product mapped; never overwrites an existing schema/utm. Logs a
- * per-dealer summary; idempotent. After this + finishing the product config, type_rules (col O)
- * is dormant.
- */
-function migrateTypeRulesIntoProductMap() {
-  var dealers = getConfigSS_().getSheetByName('DEALERS').getDataRange().getValues();
-  var summary = [];
-
-  function fillMap_(map, typeRules) {
-    var n = 0;
-    Object.keys(map || {}).forEach(function(t) {
-      var rule = matchRule_(t, typeRules);
-      if (!rule) return;
-      if (rule.csv_schema && !map[t].schema) { map[t].schema = rule.csv_schema; n++; }
-      if (rule.utm && !map[t].utm)           { map[t].utm    = rule.utm;        n++; }
-    });
-    return n;
-  }
-
-  for (var i = 1; i < dealers.length; i++) {
-    var dealerKey = String(dealers[i][CFG.KEY] || '').trim();
-    if (!dealerKey) continue;
-    var typeRules = getTypeRules_(dealers[i]);   // legacy col O
-    var rows = getPipedriveDealerRows_(dealerKey);
-    if (!rows.length) continue;
-
-    var touched = 0;
-    rows.forEach(function(r) {
-      touched += fillMap_(r.productMap, typeRules);
-      Object.keys(r.sourceProductMap || {}).forEach(function(grp) {
-        touched += fillMap_(r.sourceProductMap[grp], typeRules);
-      });
-    });
-    if (touched > 0) { savePipedriveDealerConfig(dealerKey, rows); summary.push(dealerKey + ': ' + touched + ' field(s)'); }
-  }
-  var msg = 'migrateTypeRulesIntoProductMap: updated ' + summary.length + ' dealer(s).\n' + summary.join('\n');
-  Logger.log(msg);
-  return msg;
 }
 
 /**
@@ -3286,11 +3225,6 @@ function moveNormEntry(sheetRow, direction) {
 // config and reset the cache. A frontend "Field Codes" view calls these by these
 // exact names — do not rename them or change their return shapes.
 
-// Classic fallback: serves the converted App fragment standalone.
-function openFieldCodes() {
-  openViewStandalone_('ViewFieldCodes', 'Field Codes');
-}
-
 // Converts a 1-based column number to its A1 letter (1 -> 'A', 27 -> 'AA').
 function colNumberToLetter_(num) {
   var n = num, s = '';
@@ -4225,28 +4159,6 @@ function getCommittedAt(dealerKey, dealId) {
 
 
 // ============================================================================
-// SECTION 24: ONE-TIME SETUP
-// ============================================================================
-
-function addCommittedAtHeaders() {
-  var ss      = getVinLogsSS_();
-  var sheets  = ss.getSheets();
-  var skip    = ['README', 'Sheet1'];
-  var updated = 0;
-
-  sheets.forEach(function(sheet) {
-    var name = sheet.getName();
-    if (skip.indexOf(name) !== -1) return;
-    if (name.charAt(0) === '_') return;
-    sheet.getRange('C1').setValue('committed_at');
-    updated++;
-  });
-
-  SpreadsheetApp.getUi().alert('Done. Added committed_at header to ' + updated + ' VIN log tabs.');
-}
-
-
-// ============================================================================
 // SECTION 25: RUN PROGRESS TRACKING
 // ============================================================================
 
@@ -4437,30 +4349,6 @@ function getDealerRulesData(dealerKey) {
     typeRules:      typeRules,
     filteringRules: filteringRules
   };
-}
-
-/**
- * Writes a new type_rules JSON string to col O of the dealer's DEALERS row.
- * @param {string} dealerKey
- * @param {string} typeRulesJson
- */
-function saveDealerTypeRules(dealerKey, typeRulesJson) {
-  try { JSON.parse(typeRulesJson); }
-  catch (e) { throw new Error('Invalid type_rules JSON: ' + e.message); }
-
-  var sheet = getConfigSS_()
-    .getSheetByName('DEALERS');
-  var data  = sheet.getDataRange().getValues();
-
-  for (var i = 1; i < data.length; i++) {
-    if (data[i][CFG.KEY] === dealerKey) {
-      sheet.getRange(i + 1, CFG.TYPE_RULES + 1).setValue(typeRulesJson);
-      Logger.log('saveDealerTypeRules: wrote type_rules for ' + dealerKey);
-      return;
-    }
-  }
-
-  throw new Error('Dealer key not found in DEALERS tab: ' + dealerKey);
 }
 
 /**
@@ -5725,11 +5613,6 @@ function pdListProductFields_() {
   return pdListAllV1_('/productFields').map(function(f) {
     return { key: f.key, name: f.name, field_type: f.field_type };
   });
-}
-
-/** Client-callable: product fields for the Pipedrive Settings picker. */
-function getPipedriveProductFields() {
-  return pdListProductFields_();
 }
 
 function pdListDealFields_() {

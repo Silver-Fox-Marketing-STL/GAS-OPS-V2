@@ -192,7 +192,7 @@ One row per dealer (43 rows; 29 active), 23 columns (A–W).
 | L | `active` | TRUE = dealer appears in modal dropdown and can be run. |
 | M | `notes` | Internal notes. |
 | N | `pipedrive_prefix` | `PIPEDRIVE` if dealer uses Pipedrive deal IDs as order numbers. |
-| O | `type_rules` | **DORMANT** *(v2.12)* — JSON array of per-type rules. No longer read by the run (the Pipedrive product map is the sole per-type config); kept only as the source for `migrateTypeRulesIntoProductMap()` and a historical record. See Type Rules section. |
+| O | `type_rules` | **DORMANT** *(v2.12)* — JSON array of per-type rules. No longer read by the run (the Pipedrive product map is the sole per-type config); kept as a historical record only (the one-time col-O migration is complete and the migrator was removed after all 29 active dealers were verified migrated). See Type Rules section. |
 | W | `filtering_rules` | **CAO and run-time filter config.** JSON object. See Filtering Rules section. |
 
 **Note on column indices (CFG object):** The CFG constant in Code.gs uses 0-based column indices. Key values: `KEY:0, NAME:1, ORDERS_COL:2, QR_FOLDER_ID:3, OUTPUT_FOLDER:4, USE_STOCK:5, LINKBUILDER_COL:6, UTM_BASE_URL:7, TRANSFORMS:8, SCRAPER_LOCATION:9, QR_PREFIX:10, ACTIVE:11, NOTES:12, PIPEDRIVE_PREFIX:13, TYPE_RULES:14, FILTER_RULES:22`
@@ -940,12 +940,10 @@ Bound to SF_SYSTEM_MASTER.
 | `openRulesEditor` | `()` | Classic fallback: opens the ViewRules fragment standalone. |
 | `getRulesEditorBootstrap` | `()` | Single round-trip bootstrap for Rules Editor. Returns `{dealers, schemas}` — active dealers and all CSV schema keys from CSV_SCHEMAS tab. |
 | `getDealerRulesData` | `(dealerKey)` | Returns `{dealerName, typeRules, filteringRules}` — parsed objects for both rule sets. Safe defaults on parse failure. *(`typeRules` is now ignored by the UI — the Type Rules editor tab was removed.)* |
-| `saveDealerTypeRules` | `(dealerKey, typeRulesJson)` | Validates JSON and writes to DEALERS col O (TYPE_RULES). **No longer called from the UI** (Type Rules editor removed); col O is dormant. |
 | `saveDealerFilterRules` | `(dealerKey, filteringRulesJson)` | Validates JSON and writes to DEALERS col W (FILTER_RULES). |
-| `buildTypeRulesFromProductMap_` | `(productMap)` | **(new, pure)** Builds the run's synthetic type rules from the Pipedrive product map — one `{match, csv_schema: entry.schema, utm: entry.utm}` per mapped type, **ordered CPO-EL before CPO** (substring safety). Replaces `getTypeRules_` in the run path so `buildLinks_`/`buildCSVSheet_` are unchanged. |
+| `buildTypeRulesFromProductMap_` | `(productMap)` | **(new, pure)** Builds the run's synthetic type rules from the Pipedrive product map — one `{match, csv_schema: entry.schema, utm: entry.utm}` per mapped type, **ordered CPO-EL before CPO** (substring safety). Replaced the legacy col-O parser in the run path so `buildLinks_`/`buildCSVSheet_` were unchanged. |
 | `validateProductMapForRun_` | `(matchedTypes, productMap)` | **(new, pure)** Returns the matched types whose product-map entry is missing a `product_id` or a `schema`. Non-empty → `runDealer` throws ("set them in Dealer Rules → Pipedrive"). UTM not required. |
 | `getCsvProductMaps_` | `(dealerKey, sourceSplit)` | Reads the dealer's Pipedrive product maps via `getPipedriveDealerRows_` → `{main, secondary}` (main merged across billing groups, first-wins; secondary = the `source_split` group's `source_product_map`). `{}` when Pipedrive is unset. |
-| `migrateTypeRulesIntoProductMap` | `()` | **(new; one-time, run from the editor)** Copies each dealer's legacy per-type `schema` + `utm` (from col O, via `matchRule_`) into its `product_map`/`source_product_map` entries — only where a product is mapped, never overwriting. Saves via `savePipedriveDealerConfig`; idempotent. |
 | `pasteVinsAndRun` | `(dealerKey, vins, dealId, runId, bypassFilters, userKey, splitDealId)` | Resolves QR base path for `userKey` from USER_PROFILES, persists selection, writes VINs to ORDERS, calls `runDealer` (passing preloaded config to avoid a redundant SF_DEALER_CONFIG read). Both deal IDs are **optional** — they only pre-fill the finalization cards. Returns result object. |
 | `runDealer` | `(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloadedConfig, splitDealId)` | Main entry point. Produces the output doc / QR codes / CSV / billing sheet(s) but **writes no log rows** — returns `{outputFolderUrl, pendingRuns, dealerName, producedVinCount}` where `pendingRuns` holds one self-contained prospective log entry per billing account, finalized or abandoned in the modal. |
 | `finalizeRun` | `(dealerKey, entry, dealId)` | Writes the RUN_LOG (+ ORDER_STATS) row for one finalized pending-run entry via `writeRunLog_`. Throws on blank deal ID (**invariant: no RUN_LOG row without a deal ID**; `test` marks test runs). Never touches the VIN log. Returns `{rowIndex, vinCount}`. Called directly for a **Test** finalize, and internally by `finalizeRunNewDeal` / `finalizeRunExisting` (with the real/created deal id). |
@@ -964,7 +962,6 @@ Bound to SF_SYSTEM_MASTER.
 | `ruleMatches_` | `(row, rule)` | True when `rule.group` matches the row. Drives both the import drop pass and `applyFilteringRules_`. |
 | `getConfigSS_` | `()` | Returns the SF_DEALER_CONFIG Spreadsheet object, opening it only on the first call per script execution. All config reads use this instead of direct `openById` calls. |
 | `getDealerConfig_` | `(dealerKey)` | Reads dealer row from SF_DEALER_CONFIG DEALERS tab via `getConfigSS_()`. |
-| `getTypeRules_` | `(config)` | Parses `type_rules` JSON (col O). Falls back to SCP default if absent. **No longer called by the run** — kept only for `migrateTypeRulesIntoProductMap()`. |
 | `matchRule_` | `(vehicleType, rules)` | Returns first matching type rule for a vehicle type string. |
 | `buildUtmFormula_` | `(linkRef, typeRef, rules)` | Generates nested IF formula for multi-rule UTM in LINKBUILDER. |
 | `getCsvSchema_` | `(schemaKey)` | Reads field code array from CSV_SCHEMAS tab via `getConfigSS_()`. |
@@ -1013,8 +1010,7 @@ Bound to SF_SYSTEM_MASTER.
 | `fillScraperDateTime` | `()` | Updates scraper timestamp in W1:X1 and HELPERS A1:B1. |
 | `eraseAllQRFolders` | `()` | Clears QR PNG folders for all active dealers. Uses `getConfigSS_()`. |
 | `cleanUpOutputDocs` | `(daysOld)` | Trashes output docs older than N days (default 30). |
-| `auditConfigPlaceholders` | `()` | Flags active dealers missing required config values including `filtering_rules`. Uses `getConfigSS_()`. |
-| `addCommittedAtHeaders` | `()` | One-time setup: adds `committed_at` header to col C of all SF_VIN_LOGS dealer tabs. |
+| `auditConfigPlaceholders` | `()` | Flags active dealers missing required config values including `filtering_rules`. Uses `getConfigSS_()`. *(No trigger yet — earmarked for the scheduled-config-audit backlog item.)* |
 | `getUserProfiles` | `()` | Returns all rows from USER_PROFILES tab as `[{key, name}]`. Uses `getConfigSS_()`. |
 | `getUserProfilesForModal` | `()` | Single round-trip bootstrap for Run Dealer modal: returns `{profiles, lastUser}`. |
 | `getQRBasePathForUser_` | `(userKey)` | Internal. Looks up `qr_local_base_path` for a user key from USER_PROFILES via `getConfigSS_()`. Validates path exists and normalizes trailing separator. |
