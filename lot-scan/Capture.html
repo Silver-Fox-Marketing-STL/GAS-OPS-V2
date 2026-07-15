@@ -171,15 +171,29 @@
        Phone (<760px): single column + Capture/Drafts tabs (JS toggles `hidden`).
        Wide (≥760px): tabs disappear, both panes render side by side (JS removes
        `hidden` — the [hidden] attribute stays authoritative, never fought in CSS). */
-    .ls-cols { flex: 1; }
+    /* idle (home) screen fills the viewport: the flex chain runs wrap → cols →
+       viewCapture → lsIdle, so the drafts list grows into the leftover height
+       instead of everything hugging the top. Every node given an author
+       `display` gets a [hidden] guard — the UA's [hidden] rule loses otherwise. */
+    .ls-cols { flex: 1; display: flex; flex-direction: column; }
+    #viewCapture { flex: 1; display: flex; flex-direction: column; }
     #viewCapture[hidden], #viewDrafts[hidden] { display: none !important; }
+    #lsIdle { flex: 1; display: flex; flex-direction: column; gap: var(--space-4); }
+    #lsIdle[hidden] { display: none !important; }
+    #lsIdle .ls-row { margin-bottom: 0; }
+    #lsIdle select { width: 100%; padding: 14px 12px; font-size: 16px; box-sizing: border-box; }
+    #lsIdle .cs-btn { padding: 14px 12px !important; font-size: 16px; }   /* CustomSelect facade (its own 8px is !important) */
+    #lsStartBtn { padding: 22px; font-size: 20px; }
+    #lsIdle .ls-idle-drafts { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    #lsIdle .ls-idle-drafts[hidden] { display: none !important; }
+    #lsIdle #lsIdleDraftsList { flex: 1; overflow-y: auto; }
     .ls-pane-title { display: none; font-family: var(--font-head); font-weight: 800; font-size: var(--fs-h3);
       text-transform: uppercase; letter-spacing: .06em; color: var(--text-3); margin: 0 0 var(--space-3); }
     @media (min-width: 760px) {
       .ls-wrap { max-width: 1100px; }
       .ls-cols { display: grid; grid-template-columns: minmax(380px, 520px) 1fr; gap: var(--space-6); align-items: start; }
       .ls-tabs { display: none; }
-      .ls-idle-drafts { display: none; }
+      #lsIdle .ls-idle-drafts { display: none !important; }   /* wide layout: the Drafts pane is always visible */
       .ls-pane-title { display: block; }
     }
   </style>
