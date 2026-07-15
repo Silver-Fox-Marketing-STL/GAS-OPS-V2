@@ -267,6 +267,10 @@ in an unfamiliar subsystem (Pipedrive push, Lot Scanner, theme system, import).
 - GitHub MCP: fresh SHA fetched immediately before every write; explicit `branch`;
   `Code.gs` exceeds the push limit (local git for it); verify pushes by blob-SHA
   compare, not content re-read. Pull fresh before editing.
+- A same-size `Copy-Item` (preserves source mtime) over a tracked file can match
+  git's stat cache exactly — `git status` reports clean and `git checkout -- <file>`
+  no-ops (a promote left `.clasp.json` on PROD). Verify swapped-and-restored files
+  by `git hash-object` vs `HEAD:` blob; force restores by deleting first.
 - A standalone clasp sub-project inside this repo: `clasp create` in a SIBLING temp
   dir (it walks up and finds the parent `.clasp.json`), copy `.clasp.json` in, and
   add the subfolder to the main `.claspignore` (clasp's namespace is flat).

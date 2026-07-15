@@ -624,6 +624,17 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   project's **`.claspignore`**. Also seen once: a stray self-referencing **library** entry in the
   remote manifest ("You do not have access to library … used by your script") — clear it by
   re-pushing the clean local `appsscript.json`.
+- **`git status` can lie after a same-size, mtime-preserving copy — and `git checkout -- <file>`
+  then silently no-ops.** The 2026-07-14 lot-scan promote left `lot-scan/.clasp.json` pointing at
+  the **PROD** scanner while `git status` reported a clean tree: PowerShell's `Copy-Item` preserves
+  the SOURCE file's LastWriteTime, and the two clasp jsons are the same byte size, so the swapped
+  file matched the index's cached stat (size + mtime) exactly — git never re-hashed it, and the
+  promote script's `finally` restore (`git checkout -- .clasp.json`) trusted the same stat cache
+  and rewrote nothing. The next plain `clasp push` would have shipped a feature branch to prod.
+  Detection: compare `git hash-object <file>` against `git rev-parse HEAD:<file>` (content truth,
+  no stat cache). Fix in both promote scripts: **delete the file before the restoring checkout**
+  (`Remove-Item` + `git checkout --`) — a missing file always forces a real rewrite. General rule:
+  after any script swaps a tracked file and restores it, verify by blob hash, never by `git status`.
 
 ## Sheets MCP
 
