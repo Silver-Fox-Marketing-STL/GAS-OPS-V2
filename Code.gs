@@ -1012,9 +1012,9 @@ function pasteVinsAndRun(dealerKey, vins, dealId, runId, bypassFilters, userKey,
  *                                        same-dealer run could overwrite). Manual editor
  *                                        runs omit it and read the ORDERS sheet as before.
  * @param {Object|null} featuresMap    - {VIN(upper) → text} from the Run table, written to
- *                                        ORDERMATCH col V after matching (validated upstream
+ *                                        ORDERMATCH col W after matching (validated upstream
  *                                        by pasteVinsAndRun). Manual editor runs omit it —
- *                                        col V stays blank (type directly in the sheet).
+ *                                        col W stays blank (type directly in the sheet).
  * @return {Object|null} {outputFolderUrl, pendingRuns, dealerName, producedVinCount} —
  *                       pendingRuns entries are finalized or abandoned in the modal;
  *                       nothing is logged until finalizeRun runs.
@@ -1144,9 +1144,9 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     var typeRules = buildTypeRulesFromProductMap_(csvProductMaps.main);
     Logger.log('Type rules (from product map): ' + JSON.stringify(typeRules));
 
-    // 9c. Write per-row Features text into ORDERMATCH col V — after the QUERY
+    // 9c. Write per-row Features text into ORDERMATCH col W — after the QUERY
     //     spill has settled (matchedRows read above), before buildCSVSheet_
-    //     reads col V. Validated upstream by pasteVinsAndRun; blank entries are
+    //     reads col W. Validated upstream by pasteVinsAndRun; blank entries are
     //     harmless (only schemas listing FEATURES emit the column).
     writeFeatures_(outputDoc, matchedRows, featuresMap);
 
@@ -1944,7 +1944,7 @@ function writeQRPaths_(outputDoc, qrPrefix, count, basePath) {
 }
 
 /**
- * Writes the per-row Features text into ORDERMATCH col V (FIELD_TO_COL.FEATURES),
+ * Writes the per-row Features text into ORDERMATCH col W (FIELD_TO_COL.FEATURES),
  * keyed by VIN (col E). matchedRows[i] ↔ sheet row i+2 — the QUERY spill is
  * contiguous, so one batched setValues covers every row. Rows without an entry
  * get '' (only schemas listing FEATURES emit the column downstream).
@@ -2023,7 +2023,9 @@ var FIELD_TO_COL = {
   'YEARMODELSTOCK':     19,
   'PRICE_PLUS_2000':    20,
   'PRICE_TAGLINE':      21,
-  'FEATURES':           22   // col V — per-row manual text, written by writeFeatures_ (like QR paths in J)
+  // col V (22) is PRICE_MAINLINE — a template ARRAYFORMULA mapped via the
+  // FIELD_CODES tab's ordermatch_col (NOT in this constant; live in both envs).
+  'FEATURES':           23   // col W — per-row manual text, written by writeFeatures_ (like QR paths in J)
 };
 
 // Name of the optional config column (in the FIELD_CODES tab of SF_DEALER_CONFIG)
@@ -2293,7 +2295,7 @@ function validateProductMapForRun_(matchedTypes, productMap) {
 
 /**
  * Pure: does a schema's field-code list include the FEATURES column?
- * (FEATURES is the manually-typed per-row text column — ORDERMATCH col V.)
+ * (FEATURES is the manually-typed per-row text column — ORDERMATCH col W.)
  */
 function schemaCodesHaveFeatures_(codes) {
   return !!codes && codes.indexOf('FEATURES') !== -1;
