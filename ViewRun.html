@@ -10,34 +10,22 @@
       <div class="rv-topbar-main">
 
         <div class="rv-topbar-inputs">
-          <div class="rv-selects-row">
-            <div class="user-select-wrap">
-              <label for="userSelect">Running as</label>
-              <select id="userSelect">
-                <option value="">-- Loading... --</option>
-              </select>
-            </div>
-
-            <div>
-              <label for="runDealerSelect">Dealer</label>
-              <select id="runDealerSelect">
-                <option value="">-- Loading dealers... --</option>
-              </select>
-            </div>
+          <div class="user-select-wrap">
+            <label for="userSelect">Running as</label>
+            <select id="userSelect">
+              <option value="">-- Loading... --</option>
+            </select>
           </div>
 
           <div>
-            <label for="dealId">Pipedrive Deal ID</label>
-            <input type="text" id="dealId" placeholder="e.g. 44021" />
-            <div class="field-hint">Optional. Pre-fills the finalization step shown after the run.</div>
+            <label for="runDealerSelect">Dealer</label>
+            <select id="runDealerSelect">
+              <option value="">-- Loading dealers... --</option>
+            </select>
           </div>
 
-          <!-- Second deal ID — shown only for dealers with a billing_split configured -->
-          <div id="splitDealRow" style="display:none;">
-            <label for="splitDealId" id="splitDealLabel">Second Deal ID</label>
-            <input type="text" id="splitDealId" placeholder="e.g. 44022" />
-            <div class="field-hint" id="splitDealHint">Optional. This dealer bills these units to a separate Pipedrive deal — entered or confirmed after the run.</div>
-          </div>
+          <!-- Deal IDs are entered on the finalization cards after the run
+               ("Existing" method) — no pre-run Pipedrive field. -->
 
           <!-- VIN log status row (shown after dealer selected) -->
           <div id="vinLogStatusRow">
@@ -153,11 +141,13 @@
     #view-run .rv-topbar-main { display: grid; grid-template-columns: minmax(300px, 360px) 1fr auto;
                                 align-items: start; gap: var(--space-3); }
     #view-run .rv-topbar-inputs { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
-    #view-run .rv-selects-row { display: flex; gap: var(--space-3); align-items: flex-end; }
-    #view-run .rv-selects-row > * { flex: 1 1 0; min-width: 0; }
     /* Flow zone — the retired right rail's content, relocated. min-width:0 is
-       load-bearing: nowrap progress text must clip, not stretch the 1fr track. */
-    #view-run .rv-flow { display: flex; flex-direction: column; min-width: 0; }
+       load-bearing: nowrap progress text must clip, not stretch the 1fr track.
+       Children are width-capped and centered so the zone reads as one calm,
+       uniform column instead of full-bleed strips. */
+    #view-run .rv-flow { display: flex; flex-direction: column; align-items: center; min-width: 0; }
+    #view-run .rv-flow > * { width: 100%; max-width: 720px; }
+    #view-run .rv-rail-hint { text-align: center; }
     #view-run .rv-topbar-actions { flex-shrink: 0; display: flex; flex-direction: column; gap: var(--space-2); padding-top: 18px; }
     #view-run .rv-topbar-actions button { width: 100%; white-space: nowrap; }
     #view-run .rv-body { display: grid; grid-template-columns: var(--rv-vin-w) 1fr;
@@ -323,6 +313,8 @@
     #view-run .post-run-row {
       display: flex;
       gap: 10px;
+      /* match the single finalize card's width and center over it */
+      width: 100%; max-width: 480px; margin-left: auto; margin-right: auto;
     }
     /* Drive folder button — an <a> styled as a button; positioning + anchor
        resets only (visual spec now owned by .btn-ghost) */
@@ -357,7 +349,7 @@
     /* ── Finalization cards — one per prospective run log entry ──────────── */
     /* Side-by-side in the flow zone (billing-split runs show two). flex-start:
        a finalized card grows its push block without stretching its neighbor. */
-    #view-run #finalizeCards { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; margin-top: 10px; }
+    #view-run #finalizeCards { display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-start; gap: 8px; margin-top: 10px; }
     #view-run .finalize-card {
       flex: 1 1 300px; min-width: 280px; max-width: 480px;
       border: 1px solid var(--border); border-radius: var(--radius-sm);
@@ -476,7 +468,6 @@
        column: cluster, then flow content, then full-width buttons. The VIN
        table is already in .rv-table-scroll (overflow:auto). No-op on desktop. */
     :root[data-viewport="mobile"] #view-run .rv-topbar-main { grid-template-columns: 1fr; }
-    :root[data-viewport="mobile"] #view-run .rv-selects-row { flex-direction: column; align-items: stretch; }
     :root[data-viewport="mobile"] #view-run .rv-topbar-actions { flex-direction: row; flex-wrap: wrap; padding-top: 0; }
     :root[data-viewport="mobile"] #view-run .rv-topbar-actions button { flex: 1 1 auto; width: auto; }
 
@@ -603,7 +594,6 @@
       // Switching dealers abandons any pending VIN-Inbox batch link (the inbox
       // prefill itself passes this check — same key).
       if (window.viPendingBatch && window.viPendingBatch.dealerKey !== key) window.viPendingBatch = null;
-      updateSplitDealRow(key);
       updateButtons(); hideCaoSummary();
       document.getElementById('vinInput').value = '';
       updateRunVinCount();
@@ -617,30 +607,10 @@
       }
       loadVinLogStatus(key);
     });
-    // Note: typing in the deal ID fields must NOT clear post-run state — these
-    // fields are pre-fills for the finalization cards, not run inputs.
-    document.getElementById('dealId').addEventListener('input', function() {
-      updateButtons();
-    });
-    document.getElementById('splitDealId').addEventListener('input', function() {
-      updateButtons();
-    });
     }
 
-    // Show/hide the second deal ID field for billing-split dealers (e.g. MBCC
-    // Sprinters bill to a separate Pipedrive deal).
-    function updateSplitDealRow(dealerKey) {
-      var dealer = dealersByKey[dealerKey];
-      var label  = dealer ? dealer.splitDealLabel : null;
-      var row    = document.getElementById('splitDealRow');
-      if (label) {
-        document.getElementById('splitDealLabel').textContent = label;
-        row.style.display = 'block';
-      } else {
-        row.style.display = 'none';
-        document.getElementById('splitDealId').value = '';
-      }
-    }
+    // (The pre-run Pipedrive Deal ID + split-deal fields were removed July 2026 —
+    //  deal ids are entered on the finalization cards via the "Existing" method.)
 
     function getVins() {
       return document.getElementById('vinInput').value
@@ -1309,8 +1279,6 @@
       var sel    = document.getElementById('runDealerSelect');
       var key    = sel.value;
       var name   = sel.options[sel.selectedIndex].text;
-      var dealId      = document.getElementById('dealId').value.trim();
-      var splitDealId = document.getElementById('splitDealId').value.trim();
       var rawVins = getVins();
       var vins    = dedupeVins(rawVins);     // no VIN ever submitted twice
       var dupsRemoved = rawVins.length - vins.length;
@@ -1403,7 +1371,7 @@
           runBtn.disabled = false;
           runBtn.textContent = 'Run Dealer';
         })
-        .pasteVinsAndRun(key, vins, dealId, runId, bypass, userKey, splitDealId || null, featuresMap, editsMap);
+        .pasteVinsAndRun(key, vins, '', runId, bypass, userKey, null, featuresMap, editsMap);
     }
 
     function setRunStatus(msg, type) {
