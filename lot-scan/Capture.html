@@ -78,11 +78,10 @@
     .ls-shoot { flex: 1 1 140px; }
     .ls-shoot input { display: none; }
     .ls-shoot-btn { display: flex; align-items: center; justify-content: center; gap: var(--space-2);
-      width: 100%; padding: var(--space-5); box-sizing: border-box;
+      width: 100%; padding: var(--space-5); box-sizing: border-box; white-space: nowrap;
       font-family: var(--font-head); font-weight: 700; font-size: var(--fs-lg);
       color: #fff; background: var(--accent); border: none; border-radius: var(--radius); cursor: pointer; }
     .ls-shoot-btn.disabled { opacity: .5; pointer-events: none; }
-    .ls-shoot-btn-alt { background: var(--surface-2); color: var(--accent); border: 1px solid var(--border); }
 
     /* session stats card (shooting) */
     .ls-stats { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
@@ -146,7 +145,6 @@
     .ls-badge { font-size: var(--fs-hint); font-weight: 700; padding: 1px 8px; border-radius: 999px; }
     .ls-badge.ok { background: var(--success-weak, #dcefe0); color: var(--success, #1c7a3a); }
     .ls-badge.bad { background: var(--danger-weak, #f6dcdc); color: var(--danger, #b3261e); }
-    .ls-badge.wait { background: var(--surface-3); color: var(--text-2); }
 
     /* drafts */
     .ls-dbatch { margin-top: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
@@ -224,7 +222,7 @@
           </label>
           <label class="ls-shoot">
             <input type="file" id="lsGallery" accept="image/*" multiple onchange="vpGallerySelected(this)">
-            <span class="ls-shoot-btn ls-shoot-btn-alt" id="lsGalleryBtn">&#128444;&nbsp; Add from gallery</span>
+            <span class="ls-shoot-btn" id="lsGalleryBtn">&#128444;&nbsp; Add from gallery</span>
           </label>
         </div>
 
@@ -762,7 +760,7 @@
             '<button type="button" class="ls-btn" onclick="vpResumeOrder(\'' + escHtml(bid) + '\')">Add more photos</button>' +
             '<button type="button" class="ls-btn" onclick="vpDeleteBatch(\'' + escHtml(bid) + '\')">Delete batch</button>' +
           '</div>';
-        rows.forEach(function (r) { html += vpDraftRow(r); });
+        rows.forEach(function (r, i) { html += vpDraftRow(r, i + 1); });
         html += '</details>';
       });
       box.innerHTML = html;
@@ -772,14 +770,13 @@
       }
     }
 
-    function vpDraftRow(r) {
-      var badge;
+    function vpDraftRow(r, n) {
+      var badge = '';
       if (r.matched) badge = '<span class="ls-badge ok">in stock</span>';
       else if (r.valid) badge = '<span class="ls-badge bad">verify</span>';
-      else badge = '<span class="ls-badge wait">office reads VIN</span>';
       var veh = [r.year, r.make, r.model].filter(Boolean).join(' ');
       var h = '<div class="ls-drow" data-sid="' + r.id + '">' +
-        '<div class="top"><span class="ls-vin">' + (r.vin ? escHtml(r.vin) : '<span class="ls-hint">Photo</span>') + '</span> ' + badge +
+        '<div class="top"><span class="ls-vin">' + (r.vin ? escHtml(r.vin) : '<span class="ls-hint">Photo ' + n + '</span>') + '</span> ' + badge +
         '<button type="button" class="x" title="Discard" onclick="vpDraftDiscard(\'' + r.id + '\')">&times;</button></div>';
       if (veh) h += '<div class="ls-veh">' + escHtml(veh) + (r.stock ? (' · Stock ' + escHtml(r.stock)) : '') + '</div>';
       if (r.photoFileId) {
