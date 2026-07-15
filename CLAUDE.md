@@ -121,6 +121,10 @@ previously-hit failure — don't relax without reading the matching Bridge secti
   maps the data column, the header prints (`parseSchemaCell_`). Anything reading
   schema cells must parse through the override — never `indexOf('FEATURES')` on
   raw cells (`schemaCodesHaveFeatures_`/`schemaCodesHaveQR_` already do).
+- A schema row = ONE template/job file. Two templates sharing a layout get two
+  schema rows (BOMM_WC_A/B) — the schema split IS the template split; never
+  "dedupe" same-layout rows (it merges their CSVs). `source_split` is the other
+  axis (per-vehicle URL, one type on two sites); they compose.
 - Widening any fixed sheet schema is append-only; grep every read of that sheet in
   the same change (the RUN_LOG 19→23 expansion silently broke a reader).
 
