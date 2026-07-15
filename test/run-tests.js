@@ -55,10 +55,26 @@ var NORM_MAPS_ROWS = [
 var fakeNormSheet = {
   getDataRange: function () { return { getValues: function () { return NORM_MAPS_ROWS; } }; }
 };
+// Synthetic CSV_SCHEMAS (col A key, col B label, C+ ordered field codes) so
+// getCsvSchema_ resolves offline — needed by the features/QR-skip suite.
+var CSV_SCHEMAS_ROWS = [
+  ['schema_key', 'label', '', '', '', ''],
+  ['SCP',   'standard qr',      'YEARMODELSTOCK', 'TYPEVIN', '@QR', ''],
+  ['SC',    'qr via qrstock',   'QRSTOCK', 'YEAR', '', ''],
+  ['LOGO1', 'features, no qr',  'YEAR', 'YEARMODEL', 'FEATURES', 'MISC'],
+  ['LOGO3', 'no features/qr',   'YEAR', 'YEARMODEL', 'MISC', '']
+];
+var fakeCsvSchemasSheet = {
+  getDataRange: function () { return { getValues: function () { return CSV_SCHEMAS_ROWS; } }; }
+};
 globalThis.SpreadsheetApp = {
   openById: function () {
     return {
-      getSheetByName: function (name) { return name === 'NORM_MAPS' ? fakeNormSheet : null; }
+      getSheetByName: function (name) {
+        if (name === 'NORM_MAPS') return fakeNormSheet;
+        if (name === 'CSV_SCHEMAS') return fakeCsvSchemasSheet;
+        return null;
+      }
     };
   }
 };
@@ -518,6 +534,89 @@ t('a product-map schema regroups a type into its own CSV (billing product drives
   var og = csvOutputGroups_(CSV_RULES, { 'PO': { product_id: 9, schema: 'PO_SPECIAL' } });
   assert.deepStrictEqual(og.matchToKey['PO'], 'PO_SPECIAL');
   assert.deepStrictEqual(og.groups.filter(function (g) { return g.key === 'SCP'; })[0].matches, ['CPO']);
+});
+
+// ============================================================================
+// Suite: features + qr-skip — schema-driven Features column and the QR gate
+// (FEATURES is a code-written ORDERMATCH col V value column, required per-row
+//  when a vehicle's resolved schema lists it; QR generation is skipped entirely
+//  when no resolved schema carries a QR field code.)
+// ============================================================================
+suite('features + qr-skip');
+var FEAT_PM = {
+  'New': { product_id: 1, schema: 'LOGO1' },   // LOGO1 lists FEATURES, no QR
+  'PO':  { product_id: 2, schema: 'LOGO3' }    // LOGO3 lists neither
+};
+var FEAT_RULES = buildTypeRulesFromProductMap_(FEAT_PM);
+t('schemaCodesHaveFeatures_: true only when FEATURES listed; null/empty-safe', function () {
+  assert.strictEqual(schemaCodesHaveFeatures_(['YEAR', 'FEATURES', 'MISC']), true);
+  assert.strictEqual(schemaCodesHaveFeatures_(['YEAR', 'MISC']), false);
+  assert.strictEqual(schemaCodesHaveFeatures_([]), false);
+  assert.strictEqual(schemaCodesHaveFeatures_(null), false);
+});
+t('schemaCodesHaveQR_: any QR field code counts; null/empty-safe', function () {
+  assert.strictEqual(schemaCodesHaveQR_(['YEAR', '@QR']), true);
+  assert.strictEqual(schemaCodesHaveQR_(['@QR2']), true);
+  assert.strictEqual(schemaCodesHaveQR_(['QRYEARMODEL']), true);
+  assert.strictEqual(schemaCodesHaveQR_(['QRSTOCK']), true);
+  assert.strictEqual(schemaCodesHaveQR_(['YEAR', 'FEATURES']), false);
+  assert.strictEqual(schemaCodesHaveQR_(null), false);
+});
+t('featuresTypesForDealer_: only types whose RESOLVED schema lists FEATURES', function () {
+  assert.deepStrictEqual(featuresTypesForDealer_(FEAT_RULES, FEAT_PM), { 'New': true });
+});
+t('featuresTypesForDealer_: no features schemas / null inputs yield {}', function () {
+  var pm = { 'New': { product_id: 1, schema: 'SCP' } };
+  assert.deepStrictEqual(featuresTypesForDealer_(buildTypeRulesFromProductMap_(pm), pm), {});
+  assert.deepStrictEqual(featuresTypesForDealer_(null, null), {});
+  assert.deepStrictEqual(featuresTypesForDealer_([], {}), {});
+});
+t('featuresTypesForDealer_: unknown schema key (getCsvSchema_ null) is not a features type', function () {
+  var pm = { 'New': { product_id: 1, schema: 'NO_SUCH_SCHEMA' } };
+  assert.deepStrictEqual(featuresTypesForDealer_(buildTypeRulesFromProductMap_(pm), pm), {});
+});
+t('runNeedsQR_: false when no resolved schema has a QR code, true when any does', function () {
+  assert.strictEqual(runNeedsQR_(FEAT_RULES, FEAT_PM), false);
+  var qrPm = { 'New': { product_id: 1, schema: 'SCP' }, 'PO': { product_id: 2, schema: 'LOGO3' } };
+  assert.strictEqual(runNeedsQR_(buildTypeRulesFromProductMap_(qrPm), qrPm), true);
+  var qr2Pm = { 'CPO': { product_id: 3, schema: 'SC' } };   // QRSTOCK counts too
+  assert.strictEqual(runNeedsQR_(buildTypeRulesFromProductMap_(qr2Pm), qr2Pm), true);
+});
+t('runNeedsQR_: unknown schema key / null inputs are not QR (skip is fail-safe)', function () {
+  var pm = { 'New': { product_id: 1, schema: 'NO_SUCH_SCHEMA' } };
+  assert.strictEqual(runNeedsQR_(buildTypeRulesFromProductMap_(pm), pm), false);
+  assert.strictEqual(runNeedsQR_(null, null), false);
+  assert.strictEqual(runNeedsQR_([], {}), false);
+});
+var FEAT_TYPES = { 'New': true };
+var VIN_TYPE_MAP = {
+  'VINNEW1': { type: 'New' },
+  'VINNEW2': { type: 'New' },
+  'VINPO1':  { type: 'PO' }
+};
+t('collectMissingFeatures_: blank/whitespace/missing text on a features-type VIN is reported', function () {
+  assert.deepStrictEqual(
+    collectMissingFeatures_(['VINNEW1', 'VINNEW2'], VIN_TYPE_MAP, FEAT_TYPES, { 'VINNEW1': '  ' }),
+    ['VINNEW1', 'VINNEW2']);
+  assert.deepStrictEqual(
+    collectMissingFeatures_(['VINNEW1'], VIN_TYPE_MAP, FEAT_TYPES, null),
+    ['VINNEW1']);
+});
+t('collectMissingFeatures_: filled text passes; non-features types and unknown VINs are skipped', function () {
+  assert.deepStrictEqual(
+    collectMissingFeatures_(['VINNEW1', 'VINPO1', 'VINUNKNOWN'], VIN_TYPE_MAP, FEAT_TYPES,
+      { 'VINNEW1': 'Moonroof | Leather' }),
+    []);
+});
+t('collectMissingFeatures_: VIN keys match case-insensitively, original casing reported', function () {
+  assert.deepStrictEqual(
+    collectMissingFeatures_(['vinNew1', ' vinnew2 '], VIN_TYPE_MAP, FEAT_TYPES, { 'VINNEW2': 'Nav' }),
+    ['vinNew1']);
+});
+t('collectMissingFeatures_: empty featuresTypes or empty VIN list reports nothing', function () {
+  assert.deepStrictEqual(collectMissingFeatures_(['VINNEW1'], VIN_TYPE_MAP, {}, {}), []);
+  assert.deepStrictEqual(collectMissingFeatures_([], VIN_TYPE_MAP, FEAT_TYPES, {}), []);
+  assert.deepStrictEqual(collectMissingFeatures_(null, VIN_TYPE_MAP, FEAT_TYPES, {}), []);
 });
 
 // ── Report ───────────────────────────────────────────────────────────────────

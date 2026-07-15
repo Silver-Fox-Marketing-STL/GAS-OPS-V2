@@ -74,6 +74,7 @@
               <tr>
                 <th>Year</th><th>Make</th><th>Model</th><th>Type</th>
                 <th>Stock</th><th>VIN</th><th>Status</th><th>Link</th>
+                <th id="rvFeatHead" style="display:none">Features</th>
               </tr>
             </thead>
             <tbody id="vinDataBody">
@@ -170,6 +171,14 @@
     #view-run #vinDataTable td.rv-link { white-space: nowrap; }
     #view-run #vinDataTable td.rv-link a { color: var(--accent); text-decoration: none; font-size: var(--fs-sm); }
     #view-run #vinDataTable td.rv-link a:hover { text-decoration: underline; }
+    /* Features text inputs (dealers whose schema lists FEATURES) */
+    #view-run #vinDataTable td.rv-feat { min-width: 16rem; }
+    #view-run .rv-feat-input {
+      width: 100%; box-sizing: border-box;
+      font-size: var(--fs-sm); color: var(--text);
+      background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm);
+      padding: 2px var(--space-2);
+    }
 
     #view-run label {
       display: block;
@@ -555,6 +564,15 @@
     document.getElementById('vinInput').addEventListener('input', function() {
       if (rvDebounce) clearTimeout(rvDebounce);
       rvDebounce = setTimeout(rvRenderTable, 250);
+    });
+    // Features inputs are re-created on every table render — one delegated
+    // listener on the persistent tbody captures typing without re-rendering
+    // (the caret never moves; values restore from rvFeatures on rebuild).
+    document.getElementById('vinDataBody').addEventListener('input', function(e) {
+      var t = e.target;
+      if (t && t.classList && t.classList.contains('rv-feat-input')) {
+        rvFeatures[t.getAttribute('data-vin')] = t.value;
+      }
     });
     document.getElementById('runDealerSelect').addEventListener('change', function() {
       // Switching dealers discards any un-finalized run results — confirm first.
@@ -1283,6 +1301,25 @@
       if (!userKey)          { setRunStatus('Please select a user.', 'error'); return; }
       if (!key)              { setRunStatus('Please select a dealer.', 'error'); return; }
       if (vins.length === 0) { setRunStatus('Please enter at least one VIN.', 'error'); return; }
+
+      // Features gate (mirrors the authoritative server check in pasteVinsAndRun):
+      // every found VIN whose type resolves to a FEATURES schema needs text.
+      var missingFeat = [];
+      var featuresMap = {};
+      vins.forEach(function(v) {
+        var vKey = v.toUpperCase();
+        var d = rvVinData.map[vKey];
+        if (!d || !rvVinData.featuresTypes[d.type]) return;
+        var txt = (rvFeatures[vKey] || '').trim();
+        if (txt) featuresMap[vKey] = txt;
+        else missingFeat.push(v);
+      });
+      if (missingFeat.length) {
+        setRunStatus('Enter Features for ' + missingFeat.length + ' row' +
+          (missingFeat.length === 1 ? '' : 's') + ' before running: ' +
+          missingFeat.join(', '), 'error');
+        return;
+      }
       if (dupsRemoved > 0) {
         toast('Removed ' + dupsRemoved + ' duplicate VIN' + (dupsRemoved === 1 ? '' : 's') +
               ' from the order.', 'info');
@@ -1328,7 +1365,7 @@
           runBtn.disabled = false;
           runBtn.textContent = 'Run Dealer';
         })
-        .pasteVinsAndRun(key, vins, dealId, runId, bypass, userKey, splitDealId || null);
+        .pasteVinsAndRun(key, vins, dealId, runId, bypass, userKey, splitDealId || null, featuresMap);
     }
 
     function setRunStatus(msg, type) {
@@ -1337,20 +1374,26 @@
     }
 
     // ── Run Order live VIN table ──────────────────────────────────────────────
-    var rvVinData = { dealerKey: '', map: {} };
+    var rvVinData = { dealerKey: '', map: {}, featuresTypes: {} };
+    var rvFeatures = {};   // {VIN(upper) → text} — survives table re-renders
     var rvDebounce = null;
 
     function rvLoadDealerData(dealerKey) {
-      rvVinData = { dealerKey: dealerKey, map: {} };   // clear immediately
+      if (rvVinData.dealerKey !== dealerKey) rvFeatures = {};   // new dealer → stale text out
+      rvVinData = { dealerKey: dealerKey, map: {}, featuresTypes: {} };   // clear immediately
       rvRenderTable();
       if (!dealerKey) return;
       google.script.run
-        .withSuccessHandler(function(map) {
+        .withSuccessHandler(function(res) {
           // ignore a stale response if a newer load superseded this one (compare
           // internal state, NOT the DOM — the native select is hidden behind the
           // CustomSelect enhancer, so reading its .value here is unreliable)
           if (rvVinData.dealerKey !== dealerKey) return;
-          rvVinData = { dealerKey: dealerKey, map: map || {} };
+          rvVinData = {
+            dealerKey: dealerKey,
+            map: (res && res.vinData) || {},
+            featuresTypes: (res && res.featuresTypes) || {}
+          };
           rvRenderTable();
         })
         .withFailureHandler(function() {})
@@ -1371,8 +1414,16 @@
       var lines = [];
       for (var i = 0; i < raw.length; i++) { var v = raw[i].trim(); if (v) lines.push(v); }
 
+      // Features column: shown only when this dealer has a schema listing FEATURES.
+      // Inputs render on rows whose type needs it; values live in rvFeatures so a
+      // re-render (VIN textarea edits) never loses typed text.
+      var rvHasFeatures = Object.keys(rvVinData.featuresTypes).length > 0;
+      var featHead = document.getElementById('rvFeatHead');
+      if (featHead) featHead.style.display = rvHasFeatures ? '' : 'none';
+      var cols = rvHasFeatures ? 9 : 8;
+
       if (!lines.length) {
-        body.innerHTML = '<tr class="rv-empty-row"><td colspan="8">' +
+        body.innerHTML = '<tr class="rv-empty-row"><td colspan="' + cols + '">' +
           (rvVinData.dealerKey ? 'Enter VINs to check them against this dealer.' : 'Select a dealer, then enter VINs to check them.') +
           '</td></tr>';
         if (countEl) countEl.textContent = '';
@@ -1388,6 +1439,13 @@
           var urlCell = (d.url && d.url !== '*')
             ? '<a href="' + escHtml(d.url) + '" target="_blank" rel="noopener">Vehicle URL</a>'
             : '—';
+          var featCell = '';
+          if (rvHasFeatures) {
+            featCell = rvVinData.featuresTypes[d.type]
+              ? '<td class="rv-feat"><input type="text" class="rv-feat-input" data-vin="' + escHtml(key) +
+                '" value="' + escHtml(rvFeatures[key] || '') + '" placeholder="Features…"></td>'
+              : '<td>—</td>';
+          }
           html += '<tr>' +
             '<td>' + escHtml(d.year)  + '</td>' +
             '<td>' + escHtml(d.make)  + '</td>' +
@@ -1397,6 +1455,7 @@
             '<td class="rv-vin">' + escHtml(lines[j]) + '</td>' +
             '<td>' + escHtml(d.status) + '</td>' +
             '<td class="rv-link">' + urlCell + '</td>' +
+            featCell +
           '</tr>';
         } else {
           html += '<tr class="row-danger">' +
@@ -1404,6 +1463,7 @@
             '<td class="rv-vin">' + escHtml(lines[j]) + '</td>' +
             '<td>⚠ not in this dealer</td>' +
             '<td>—</td>' +
+            (rvHasFeatures ? '<td>—</td>' : '') +
           '</tr>';
         }
       }
