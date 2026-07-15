@@ -152,11 +152,18 @@
     .ls-dsum::-webkit-details-marker { display: none; }
     .ls-dsum::before { content: '\25B8'; margin-right: 4px; color: var(--text-3); }
     details[open] > .ls-dsum::before { content: '\25BE'; }
-    .ls-dsum .t { font-family: var(--font-head); font-weight: 700; }
+    .ls-dsum .t { font-family: var(--font-head); font-weight: 700; font-size: 17px; }
     .ls-dbtns { display: flex; gap: var(--space-2); padding: 0 var(--space-3) var(--space-2); }
-    .ls-drow { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-3); margin-bottom: var(--space-2); }
+    .ls-drow { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-4); margin-bottom: var(--space-2);
+      min-height: 120px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; }
     .ls-drow .top { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
     .ls-drow .x { margin-left: auto; cursor: pointer; color: var(--text-3); border: none; background: none; font-size: var(--fs-lg); }
+    .ls-pnum { font-size: 17px; font-weight: 700; color: var(--text-2); }
+    .ls-dthumb { width: 72px; height: 72px; flex: 0 0 auto; object-fit: cover; border: 1px solid var(--border);
+      border-radius: var(--radius-sm); background: var(--surface-2); }
+    .ls-dthumb[hidden] { display: none; }
+    .ls-drow .ls-actions { align-items: center; }
+    .ls-drow .ls-actions .ls-btn { flex: 0 1 auto; }
 
     /* ── responsive two-column layout ──────────────────────────────────────────
        Phone (<760px): single column + Capture/Drafts tabs (JS toggles `hidden`).
@@ -702,6 +709,13 @@
       return { groups: groups, order: order };
     }
 
+    // "7/14/2026 4:02 PM" — the sheet Date arrives stringified with TZ noise
+    function vpFmtTs(s) {
+      var d = new Date(s);
+      if (!s || isNaN(d)) return s || '';
+      return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    }
+
     // compact unsent-drafts list on the idle screen (phone). Renders from the same
     // getMyDrafts payload as the Drafts pane; only system batch ids go into onclick.
     function vpRenderIdleDrafts(res) {
@@ -716,7 +730,7 @@
         html += '<div class="ls-idrow">' +
           '<div class="info" onclick="vpTab(\'drafts\',\'' + escHtml(bid) + '\')">' +
             '<span class="t">' + escHtml(dealer) + '</span>' +
-            '<span class="ls-hint">' + escHtml(rows[0].ts || '') + ' &middot; ' + rows.length + ' photo' + (rows.length === 1 ? '' : 's') + '</span>' +
+            '<span class="ls-hint">' + escHtml(vpFmtTs(rows[0].ts)) + ' &middot; ' + rows.length + ' photo' + (rows.length === 1 ? '' : 's') + '</span>' +
           '</div>' +
           '<button type="button" class="ls-btn" onclick="vpResumeOrder(\'' + escHtml(bid) + '\')">Resume</button>' +
           '<button type="button" class="ls-btn primary" onclick="vpSendBatch(\'' + escHtml(bid) + '\')">Send</button>' +
@@ -745,7 +759,7 @@
       g.order.forEach(function (bid) {
         var rows = g.groups[bid], dealer = rows[0].dealerName || rows[0].dealerKey || '';
         vpDraftMeta[bid] = { dealerKey: rows[0].dealerKey || '', dealerName: dealer };
-        var when = rows[0].ts || '';
+        var when = vpFmtTs(rows[0].ts);
         var shortId = bid.length > 12 ? bid.substr(0, 12) : bid;
         var isOpen = bid === openId || !!openIds[bid];
         // collapsed by default (<details> without `open`) — except a just-finished order, or a
@@ -764,6 +778,7 @@
         html += '</details>';
       });
       box.innerHTML = html;
+      vpFillThumbs();
       if (openId) {
         var el = document.getElementById('dbatch_' + openId);
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -776,15 +791,44 @@
       else if (r.valid) badge = '<span class="ls-badge bad">verify</span>';
       var veh = [r.year, r.make, r.model].filter(Boolean).join(' ');
       var h = '<div class="ls-drow" data-sid="' + r.id + '">' +
-        '<div class="top"><span class="ls-vin">' + (r.vin ? escHtml(r.vin) : '<span class="ls-hint">Photo ' + n + '</span>') + '</span> ' + badge +
+        '<div class="top">' + (r.vin ? '<span class="ls-vin">' + escHtml(r.vin) + '</span>' : '<span class="ls-pnum">Photo ' + n + '</span>') + ' ' + badge +
         '<button type="button" class="x" title="Discard" onclick="vpDraftDiscard(\'' + r.id + '\')">&times;</button></div>';
       if (veh) h += '<div class="ls-veh">' + escHtml(veh) + (r.stock ? (' · Stock ' + escHtml(r.stock)) : '') + '</div>';
       if (r.photoFileId) {
-        h += '<div class="ls-actions"><button type="button" class="ls-btn" onclick="vpShowDraftPhoto(\'' + r.id + '\',\'' + r.photoFileId + '\')">&#128247; Show / hide photo</button></div>';
+        h += '<div class="ls-actions"><img class="ls-dthumb" data-thumb="' + escHtml(r.photoFileId) + '" alt="" hidden>' +
+          '<button type="button" class="ls-btn" onclick="vpShowDraftPhoto(\'' + r.id + '\',\'' + r.photoFileId + '\')">&#128247; Show / hide photo</button></div>';
         h += '<div id="ph_' + r.id + '"></div>';
       }
       h += '</div>';
       return h;
+    }
+
+    // Draft-card thumbnails: filled after render from a session cache, missing ids
+    // batch-fetched once via getPhotoThumbs (server-side Drive thumbnail blobs — the
+    // sandboxed iframe can't load drive.google.com image URLs itself). A file whose
+    // Drive thumbnail isn't generated yet just stays hidden and self-heals on a
+    // later render (misses are re-requested; only successes are cached).
+    var vpThumbs = {};   // photoFileId → dataUrl
+    function vpFillThumbs() {
+      var imgs = document.querySelectorAll('img.ls-dthumb[data-thumb]');
+      var need = [], seen = {};
+      imgs.forEach(function (im) {
+        var id = im.dataset.thumb;
+        if (vpThumbs[id]) { im.src = vpThumbs[id]; im.hidden = false; }
+        else if (id && !seen[id]) { seen[id] = 1; need.push(id); }
+      });
+      if (!need.length) return;
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (!res || !res.ok) return;
+          for (var id in res.thumbs) vpThumbs[id] = res.thumbs[id];
+          document.querySelectorAll('img.ls-dthumb[data-thumb]').forEach(function (im) {
+            var d = vpThumbs[im.dataset.thumb];
+            if (d) { im.src = d; im.hidden = false; }
+          });
+        })
+        .withFailureHandler(function () {})   // no thumb is cosmetic — never toast
+        .getPhotoThumbs(need);
     }
 
     // Drafts → Capture: reopen a draft batch's capture flow so more photos append under the SAME

@@ -499,6 +499,29 @@ function getPhotoDataUrl(fileId) {
   }
 }
 
+// Small draft-card thumbnails, batched per render: { fileId: dataUrl } for every id
+// Drive has a generated thumbnail for; ids without one (fresh upload, bad id) are
+// simply absent and the client retries them on its next render. getThumbnail() keeps
+// us inside the existing Drive scope — a REST fetchAll would add the external_request
+// scope and force every crew phone to re-authorize.
+// ponytail: per-file getThumbnail loop (~150ms each, no batch API without the scope
+// change); fine for draft-sized lists — revisit only if drafts ever hit the hundreds.
+function getPhotoThumbs(fileIds) {
+  try {
+    var ids = (fileIds || []).map(String).filter(Boolean);
+    var out = {};
+    ids.forEach(function (id) {
+      try {
+        var t = DriveApp.getFileById(id).getThumbnail();
+        if (t) out[id] = 'data:' + (t.getContentType() || 'image/jpeg') + ';base64,' + Utilities.base64Encode(t.getBytes());
+      } catch (e) {}   // cosmetic — one bad id never blocks the rest
+    });
+    return { ok: true, thumbs: out };
+  } catch (e) {
+    return { ok: false, thumbs: {}, error: String((e && e.message) || e) };
+  }
+}
+
 
 // ============================================================================
 // ONE-TIME SETUP — creates the photos folder + submissions sheet, saves their
