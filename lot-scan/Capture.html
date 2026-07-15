@@ -154,16 +154,18 @@
     details[open] > .ls-dsum::before { content: '\25BE'; }
     .ls-dsum .t { font-family: var(--font-head); font-weight: 700; font-size: 17px; }
     .ls-dbtns { display: flex; gap: var(--space-2); padding: 0 var(--space-3) var(--space-2); }
-    .ls-drow { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-4); margin-bottom: var(--space-2);
+    .ls-drows { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); padding: 0 var(--space-3) var(--space-3); }
+    .ls-drow { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-3);
       min-height: 120px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; }
+    .ls-drow.expanded { grid-column: 1 / -1; }   /* open photo gets the full row width */
     .ls-drow .top { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
     .ls-drow .x { margin-left: auto; cursor: pointer; color: var(--text-3); border: none; background: none; font-size: var(--fs-lg); }
     .ls-pnum { font-size: 17px; font-weight: 700; color: var(--text-2); }
     .ls-dthumb { width: 72px; height: 72px; flex: 0 0 auto; object-fit: cover; border: 1px solid var(--border);
       border-radius: var(--radius-sm); background: var(--surface-2); }
     .ls-dthumb[hidden] { display: none; }
-    .ls-drow .ls-actions { align-items: center; }
-    .ls-drow .ls-actions .ls-btn { flex: 0 1 auto; }
+    .ls-drow .ls-actions { flex-direction: column; align-items: center; }
+    .ls-drow .ls-actions .ls-btn { flex: 0 1 auto; padding: 7px 12px; }
 
     /* ── responsive two-column layout ──────────────────────────────────────────
        Phone (<760px): single column + Capture/Drafts tabs (JS toggles `hidden`).
@@ -775,8 +777,9 @@
             '<button type="button" class="ls-btn" onclick="vpResumeOrder(\'' + escHtml(bid) + '\')">Add more photos</button>' +
             '<button type="button" class="ls-btn" onclick="vpDeleteBatch(\'' + escHtml(bid) + '\')">Delete batch</button>' +
           '</div>';
+        html += '<div class="ls-drows">';
         rows.forEach(function (r, i) { html += vpDraftRow(r, i + 1); });
-        html += '</details>';
+        html += '</div></details>';
       });
       box.innerHTML = html;
       vpFillThumbs();
@@ -797,7 +800,7 @@
       if (veh) h += '<div class="ls-veh">' + escHtml(veh) + (r.stock ? (' · Stock ' + escHtml(r.stock)) : '') + '</div>';
       if (r.photoFileId) {
         h += '<div class="ls-actions"><img class="ls-dthumb" data-thumb="' + escHtml(r.photoFileId) + '" alt="" hidden>' +
-          '<button type="button" class="ls-btn" onclick="vpShowDraftPhoto(\'' + r.id + '\',\'' + r.photoFileId + '\')">&#128247; Show / hide photo</button></div>';
+          '<button type="button" class="ls-btn" onclick="vpShowDraftPhoto(\'' + r.id + '\',\'' + r.photoFileId + '\')">Show / hide photo</button></div>';
         h += '<div id="ph_' + r.id + '"></div>';
       }
       h += '</div>';
@@ -870,7 +873,13 @@
     function vpShowDraftPhoto(sid, fileId) {
       var box = document.getElementById('ph_' + sid);
       if (!box) return;
-      if (box.dataset.loaded === '1') { box.innerHTML = ''; box.dataset.loaded = ''; return; }
+      var row = box.closest('.ls-drow');
+      if (box.dataset.loaded === '1') {
+        box.innerHTML = ''; box.dataset.loaded = '';
+        if (row) row.classList.remove('expanded');
+        return;
+      }
+      if (row) row.classList.add('expanded');
       box.innerHTML = '<span class="ls-hint">Loading photo…</span>';
       google.script.run
         .withSuccessHandler(function (res) {
