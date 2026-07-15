@@ -499,23 +499,36 @@ function getPhotoDataUrl(fileId) {
   }
 }
 
-// Small draft-card thumbnails, batched per render: { fileId: dataUrl } for every id
-// Drive has a generated thumbnail for; ids without one (fresh upload, bad id) are
-// simply absent and the client retries them on its next render. getThumbnail() keeps
-// us inside the existing Drive scope — a REST fetchAll would add the external_request
-// scope and force every crew phone to re-authorize.
-// ponytail: per-file getThumbnail loop (~150ms each, no batch API without the scope
-// change); fine for draft-sized lists — revisit only if drafts ever hit the hundreds.
+// Small draft-card thumbnails: { fileId: dataUrl } for every id Drive has a generated
+// thumbnail for; ids without one (fresh upload, bad id) are simply absent and the
+// client retries them on its next render. getThumbnail() keeps us inside the existing
+// Drive scope — a REST fetchAll would add the external_request scope and force every
+// crew phone to re-authorize. Photos are immutable, so a shared ScriptCache (6h) makes
+// every load after the first cache-hit fast; the client also calls this in small
+// parallel chunks so cold thumbs stream in instead of waiting on one serial loop.
+// ponytail: per-file getThumbnail on cache miss (~150ms each, no batch API without
+// the scope change); fine for draft-sized lists at chunk size 4.
 function getPhotoThumbs(fileIds) {
   try {
     var ids = (fileIds || []).map(String).filter(Boolean);
     var out = {};
+    if (!ids.length) return { ok: true, thumbs: out };
+    var cache = CacheService.getScriptCache();
+    var hit = {};
+    try { hit = cache.getAll(ids.map(function (id) { return 'lsth_' + id; })) || {}; } catch (e) {}
+    var toPut = {};
     ids.forEach(function (id) {
+      var c = hit['lsth_' + id];
+      if (c) { out[id] = c; return; }
       try {
         var t = DriveApp.getFileById(id).getThumbnail();
-        if (t) out[id] = 'data:' + (t.getContentType() || 'image/jpeg') + ';base64,' + Utilities.base64Encode(t.getBytes());
+        if (!t) return;
+        var d = 'data:' + (t.getContentType() || 'image/jpeg') + ';base64,' + Utilities.base64Encode(t.getBytes());
+        out[id] = d;
+        if (d.length < 95000) toPut['lsth_' + id] = d;   // CacheService 100KB/value cap
       } catch (e) {}   // cosmetic — one bad id never blocks the rest
     });
+    if (Object.keys(toPut).length) { try { cache.putAll(toPut, 21600); } catch (e) {} }
     return { ok: true, thumbs: out };
   } catch (e) {
     return { ok: false, thumbs: {}, error: String((e && e.message) || e) };

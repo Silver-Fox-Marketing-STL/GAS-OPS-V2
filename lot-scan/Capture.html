@@ -575,6 +575,7 @@
           vpEng.inFlight--;
           if (res && res.ok) {
             item.fileId = res.fileId; item.url = res.url; item.state = 'saving';
+            if (item.thumb) vpThumbs[res.fileId] = item.thumb;   // drafts reuse the local 64px thumb — no server refetch
             vpBuffer.push(item);
           } else {
             item.state = 'failed'; item.error = (res && res.error) || 'upload not ok';
@@ -818,17 +819,24 @@
         else if (id && !seen[id]) { seen[id] = 1; need.push(id); }
       });
       if (!need.length) return;
-      google.script.run
-        .withSuccessHandler(function (res) {
-          if (!res || !res.ok) return;
-          for (var id in res.thumbs) vpThumbs[id] = res.thumbs[id];
-          document.querySelectorAll('img.ls-dthumb[data-thumb]').forEach(function (im) {
-            var d = vpThumbs[im.dataset.thumb];
-            if (d) { im.src = d; im.hidden = false; }
-          });
-        })
-        .withFailureHandler(function () {})   // no thumb is cosmetic — never toast
-        .getPhotoThumbs(need);
+      // Small chunks fired in PARALLEL — each server call returns as soon as its
+      // few files are done, so thumbs stream in instead of blocking on one big
+      // serial Drive loop. Chunk size grows past 48 ids to stay ≤12 executions.
+      var apply = function (res) {
+        if (!res || !res.ok) return;
+        for (var id in res.thumbs) vpThumbs[id] = res.thumbs[id];
+        document.querySelectorAll('img.ls-dthumb[data-thumb]').forEach(function (im) {
+          var d = vpThumbs[im.dataset.thumb];
+          if (d) { im.src = d; im.hidden = false; }
+        });
+      };
+      var size = Math.max(4, Math.ceil(need.length / 12));
+      for (var i = 0; i < need.length; i += size) {
+        google.script.run
+          .withSuccessHandler(apply)
+          .withFailureHandler(function () {})   // no thumb is cosmetic — never toast
+          .getPhotoThumbs(need.slice(i, i + size));
+      }
     }
 
     // Drafts → Capture: reopen a draft batch's capture flow so more photos append under the SAME
