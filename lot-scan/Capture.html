@@ -1,13 +1,19 @@
 <!DOCTYPE html>
-<html data-theme="light">
+<html data-theme="<?= getThemePreference() ?>">
 <head>
   <base target="_top">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
   <script>
-    // Pre-paint: mobile is the primary mode for this phone tool.
+    // Pre-paint: mobile is the primary mode for this phone tool. Theme comes from
+    // the saved pref injected server-side above; a fresh user (no pref) follows
+    // the OS light/dark setting. Unknown ids fall through to :root (light) CSS.
     (function () {
       var r = document.documentElement;
       if (window.matchMedia && window.matchMedia('(max-width: 760px)').matches) r.setAttribute('data-viewport', 'mobile');
+      if (!r.getAttribute('data-theme')) {
+        r.setAttribute('data-theme',
+          (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light');
+      }
     })();
   </script>
 
@@ -25,7 +31,39 @@
                padding: var(--space-4); box-sizing: border-box; }
     .ls-head { display: flex; align-items: baseline; gap: var(--space-2); margin-bottom: var(--space-3); }
     .ls-title { font-family: var(--font-head); font-weight: 800; font-size: var(--fs-h2); margin: 0; }
-    .ls-sub { font-size: var(--fs-hint); color: var(--text-3); }
+    .ls-sub { flex: 1; min-width: 0; font-size: var(--fs-hint); color: var(--text-3);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* theme picker (button + themed <ul> — native <select> popups can't be themed
+       in the web-app sandbox). Same classes as the main app; lot-scan carries its
+       OWN copy of the CSS (divergent SharedUtils — classes must exist locally). */
+    .ls-theme { position: relative; flex: 0 0 auto; align-self: center; }
+    .theme-btn {
+      display: flex; align-items: center; gap: 6px;
+      background: var(--surface); color: var(--text-2);
+      border: 1px solid var(--border); border-radius: var(--radius-sm);
+      font-family: var(--font-body); font-size: 12.5px; font-weight: 600;
+      padding: 4px 8px; cursor: pointer; text-align: left;
+    }
+    .theme-btn:hover { color: var(--text); border-color: var(--border-2); }
+    .theme-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+    .theme-caret { font-size: 9px; color: var(--text-3); flex-shrink: 0; }
+    .theme-menu {
+      position: absolute; z-index: 60; right: 0; left: auto; min-width: 160px;
+      top: calc(100% + 4px);               /* opens DOWNWARD — the picker sits in the top header */
+      margin: 0; padding: 4px; list-style: none;
+      background: var(--surface); border: 1px solid var(--border-2);
+      border-radius: var(--radius); box-shadow: var(--shadow-lg);
+      max-height: 60vh; overflow-y: auto;
+    }
+    .theme-menu[hidden] { display: none; }
+    .theme-menu li {
+      padding: 6px 9px; border-radius: var(--radius-sm); cursor: pointer;
+      font-size: 12.5px; font-weight: 600; color: var(--text); white-space: nowrap;
+    }
+    .theme-menu li:hover,
+    .theme-menu li:focus { outline: none; background: var(--accent-weak); }
+    .theme-menu li[aria-selected="true"] { background: var(--accent); color: var(--on-accent); }
 
     /* tabs */
     .ls-tabs { display: flex; gap: var(--space-2); margin-bottom: var(--space-3); }
@@ -40,12 +78,36 @@
     .ls-shoot { flex: 1 1 140px; }
     .ls-shoot input { display: none; }
     .ls-shoot-btn { display: flex; align-items: center; justify-content: center; gap: var(--space-2);
-      width: 100%; padding: var(--space-5); box-sizing: border-box;
+      width: 100%; padding: var(--space-5); box-sizing: border-box; white-space: nowrap;
       font-family: var(--font-head); font-weight: 700; font-size: var(--fs-lg);
       color: #fff; background: var(--accent); border: none; border-radius: var(--radius); cursor: pointer; }
     .ls-shoot-btn.disabled { opacity: .5; pointer-events: none; }
-    .ls-shoot-btn-alt { background: var(--surface-2); color: var(--accent); border: 1px solid var(--border); }
-    .ls-count { font-size: var(--fs-hint); color: var(--text-3); margin: var(--space-1) 0 var(--space-3); }
+
+    /* session stats card (shooting) */
+    .ls-stats { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: var(--space-3) var(--space-4); margin-bottom: var(--space-3); }
+    .ls-stats-head { display: flex; align-items: baseline; gap: var(--space-2); margin-bottom: var(--space-2); }
+    .ls-stats-dealer { flex: 1; min-width: 0; font-family: var(--font-head); font-weight: 700;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ls-stats-batch { font-size: var(--fs-hint); color: var(--text-3); }
+    .ls-stats-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-2); }
+    .ls-stat { text-align: center; padding: var(--space-2); border-radius: var(--radius-sm); background: var(--surface-2); }
+    .ls-stat .n { display: block; font-family: var(--font-head); font-weight: 800; font-size: var(--fs-h1); line-height: 1.1; }
+    .ls-stat .l { font-size: var(--fs-hint); color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; }
+    .ls-stat.bad { background: var(--danger-weak); }
+    .ls-stat.bad .n { color: var(--danger); }
+    .ls-stats-busy { margin-top: var(--space-2); font-size: var(--fs-hint); color: var(--warning); }
+    .ls-stats-busy[hidden] { display: none; }
+
+    /* unsent drafts on the idle screen (phone — the wide layout's drafts panel covers this) */
+    .ls-idle-drafts { margin-top: var(--space-5); }
+    .ls-idle-drafts[hidden] { display: none; }
+    .ls-idrow { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-2);
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-3); }
+    .ls-idrow .info { flex: 1; min-width: 0; cursor: pointer; }
+    .ls-idrow .info .t { display: block; font-family: var(--font-head); font-weight: 700;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ls-idrow .ls-btn { flex: 0 0 auto; padding: 8px 12px; }
 
     /* queue strip (order-session capture pipeline) */
     .ls-qstrip { display: flex; gap: var(--space-2); overflow-x: auto; -webkit-overflow-scrolling: touch;
@@ -83,7 +145,6 @@
     .ls-badge { font-size: var(--fs-hint); font-weight: 700; padding: 1px 8px; border-radius: 999px; }
     .ls-badge.ok { background: var(--success-weak, #dcefe0); color: var(--success, #1c7a3a); }
     .ls-badge.bad { background: var(--danger-weak, #f6dcdc); color: var(--danger, #b3261e); }
-    .ls-badge.wait { background: var(--surface-3); color: var(--text-2); }
 
     /* drafts */
     .ls-dbatch { margin-top: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
@@ -91,11 +152,50 @@
     .ls-dsum::-webkit-details-marker { display: none; }
     .ls-dsum::before { content: '\25B8'; margin-right: 4px; color: var(--text-3); }
     details[open] > .ls-dsum::before { content: '\25BE'; }
-    .ls-dsum .t { font-family: var(--font-head); font-weight: 700; }
+    .ls-dsum .t { font-family: var(--font-head); font-weight: 700; font-size: 17px; }
     .ls-dbtns { display: flex; gap: var(--space-2); padding: 0 var(--space-3) var(--space-2); }
-    .ls-drow { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-3); margin-bottom: var(--space-2); }
+    .ls-drows { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); padding: 0 var(--space-3) var(--space-3); }
+    .ls-drow { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-3);
+      min-height: 120px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; }
+    .ls-drow.expanded { grid-column: 1 / -1; }   /* open photo gets the full row width */
     .ls-drow .top { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
     .ls-drow .x { margin-left: auto; cursor: pointer; color: var(--text-3); border: none; background: none; font-size: var(--fs-lg); }
+    .ls-pnum { font-size: 17px; font-weight: 700; color: var(--text-2); }
+    .ls-dthumb { width: 72px; height: 72px; flex: 0 0 auto; object-fit: cover; border: 1px solid var(--border);
+      border-radius: var(--radius-sm); background: var(--surface-2); }
+    .ls-dthumb[hidden] { display: none; }
+    .ls-drow .ls-actions { flex-direction: column; align-items: center; }
+    .ls-drow .ls-actions .ls-btn { flex: 0 1 auto; padding: 7px 12px; }
+
+    /* ── responsive two-column layout ──────────────────────────────────────────
+       Phone (<760px): single column + Capture/Drafts tabs (JS toggles `hidden`).
+       Wide (≥760px): tabs disappear, both panes render side by side (JS removes
+       `hidden` — the [hidden] attribute stays authoritative, never fought in CSS). */
+    /* idle (home) screen fills the viewport: the flex chain runs wrap → cols →
+       viewCapture → lsIdle, so the drafts list grows into the leftover height
+       instead of everything hugging the top. Every node given an author
+       `display` gets a [hidden] guard — the UA's [hidden] rule loses otherwise. */
+    .ls-cols { flex: 1; display: flex; flex-direction: column; }
+    #viewCapture { flex: 1; display: flex; flex-direction: column; }
+    #viewCapture[hidden], #viewDrafts[hidden] { display: none !important; }
+    #lsIdle { flex: 1; display: flex; flex-direction: column; gap: var(--space-4); }
+    #lsIdle[hidden] { display: none !important; }
+    #lsIdle .ls-row { margin-bottom: 0; }
+    #lsIdle select { width: 100%; padding: 14px 12px; font-size: 16px; box-sizing: border-box; }
+    #lsIdle .cs-btn { padding: 14px 12px !important; font-size: 16px; }   /* CustomSelect facade (its own 8px is !important) */
+    #lsStartBtn { padding: 22px; font-size: 20px; }
+    #lsIdle .ls-idle-drafts { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    #lsIdle .ls-idle-drafts[hidden] { display: none !important; }
+    #lsIdle #lsIdleDraftsList { flex: 1; overflow-y: auto; }
+    .ls-pane-title { display: none; font-family: var(--font-head); font-weight: 800; font-size: var(--fs-h3);
+      text-transform: uppercase; letter-spacing: .06em; color: var(--text-3); margin: 0 0 var(--space-3); }
+    @media (min-width: 760px) {
+      .ls-wrap { max-width: 1100px; }
+      .ls-cols { display: grid; grid-template-columns: minmax(380px, 520px) 1fr; gap: var(--space-6); align-items: start; }
+      .ls-tabs { display: none; }
+      #lsIdle .ls-idle-drafts { display: none !important; }   /* wide layout: the Drafts pane is always visible */
+      .ls-pane-title { display: block; }
+    }
   </style>
 </head>
 <body>
@@ -103,6 +203,12 @@
     <div class="ls-head">
       <h1 class="ls-title">Lot Scan<?= ENV.name !== 'prod' ? ' (DEV)' : '' ?></h1>
       <span class="ls-sub">photograph a VIN &middot; dash, sticker, or tag</span>
+      <div class="ls-theme">
+        <button type="button" id="themeBtn" class="theme-btn" aria-haspopup="listbox" aria-expanded="false">
+          <span id="themeBtnLabel">Theme</span><span class="theme-caret">&#9662;</span>
+        </button>
+        <ul id="themeMenu" class="theme-menu" role="listbox" aria-label="Theme" hidden></ul>
+      </div>
     </div>
 
     <div class="ls-tabs">
@@ -110,8 +216,10 @@
       <div class="ls-tab" id="tabDrafts" onclick="vpTab('drafts')">Drafts</div>
     </div>
 
+    <div class="ls-cols">
     <!-- ── CAPTURE ────────────────────────────────────────────────── -->
     <div id="viewCapture">
+      <div class="ls-pane-title">Capture</div>
 
       <!-- IDLE: pick a dealer, start an order -->
       <div id="lsIdle">
@@ -120,12 +228,16 @@
           <select id="lsDealer" onchange="vpDealerChange()"><option value="">Loading&hellip;</option></select>
         </div>
         <button type="button" class="ls-shoot-btn" id="lsStartBtn" onclick="vpStartOrder()">&#9654;&nbsp; Start New Order</button>
+
+        <!-- unsent drafts (phone — hidden on wide, where the Drafts panel is always visible) -->
+        <div class="ls-idle-drafts" id="lsIdleDrafts" hidden>
+          <span class="ls-label">Unsent drafts</span>
+          <div id="lsIdleDraftsList"></div>
+        </div>
       </div>
 
       <!-- SHOOTING: one order = one dealer, until Finish -->
       <div id="lsShooting" hidden>
-        <div class="ls-hint" id="lsOrderDealer" style="margin-bottom: var(--space-2);"></div>
-
         <div class="ls-shoot-row">
           <label class="ls-shoot">
             <input type="file" id="lsPhoto" accept="image/*" capture="environment" onchange="vpPhotoSelected(this)">
@@ -133,10 +245,22 @@
           </label>
           <label class="ls-shoot">
             <input type="file" id="lsGallery" accept="image/*" multiple onchange="vpGallerySelected(this)">
-            <span class="ls-shoot-btn ls-shoot-btn-alt" id="lsGalleryBtn">&#128444;&nbsp; Add from gallery</span>
+            <span class="ls-shoot-btn" id="lsGalleryBtn">&#128444;&nbsp; Add from gallery</span>
           </label>
         </div>
-        <div class="ls-count" id="lsCount">0 photos &middot; 0 saved</div>
+
+        <div class="ls-stats">
+          <div class="ls-stats-head">
+            <span class="ls-stats-dealer" id="lsOrderDealer"></span>
+            <span class="ls-stats-batch" id="lsOrderBatch"></span>
+          </div>
+          <div class="ls-stats-tiles">
+            <div class="ls-stat"><span class="n" id="lsStatTotal">0</span><span class="l">Photos</span></div>
+            <div class="ls-stat"><span class="n" id="lsStatSaved">0</span><span class="l">Saved</span></div>
+            <div class="ls-stat" id="lsStatFailedTile"><span class="n" id="lsStatFailed">0</span><span class="l">Failed</span></div>
+          </div>
+          <div class="ls-stats-busy" id="lsStatBusy" hidden></div>
+        </div>
 
         <div class="ls-qstrip" id="lsQueue"></div>
 
@@ -149,11 +273,13 @@
 
     <!-- ── DRAFTS ─────────────────────────────────────────────────── -->
     <div id="viewDrafts" hidden>
+      <div class="ls-pane-title">Drafts</div>
       <div class="ls-row" style="flex-direction:row; align-items:center;">
         <span class="ls-hint" style="flex:1;">Your uploaded batches still being finished. They also reach the office Inbox.</span>
         <button type="button" class="ls-btn" style="flex:0 0 auto;" onclick="vpLoadDrafts()">&#8635; Refresh</button>
       </div>
       <div id="lsDrafts"><p class="ls-hint">Loading&hellip;</p></div>
+    </div>
     </div>
   </div>
 
@@ -177,11 +303,30 @@
     }
 
     document.addEventListener('DOMContentLoaded', function () {
+      Theme.initPicker();
+      vpSyncLayout();
       google.script.run
         .withSuccessHandler(vpInitDealers)
         .withFailureHandler(function (e) { toast('Could not load dealers: ' + (e && e.message || e), 'error'); })
         .getCaptureBootstrap();
+      vpLoadDrafts();   // feeds BOTH the idle unsent-drafts list and the Drafts pane
     });
+
+    // ── responsive layout: tabs on phone, two columns wide ──
+    var vpWideMq = window.matchMedia('(min-width: 760px)');
+    function vpIsWide() { return vpWideMq.matches; }
+    // Wide: both panes visible (JS owns the `hidden` attribute — CSS never fights it).
+    // Narrow: restore whichever tab is active.
+    function vpSyncLayout() {
+      var cap = document.getElementById('viewCapture'), dra = document.getElementById('viewDrafts');
+      if (vpIsWide()) { cap.hidden = false; dra.hidden = false; }
+      else {
+        var onCapture = document.getElementById('tabCapture').classList.contains('active');
+        cap.hidden = !onCapture; dra.hidden = onCapture;
+      }
+    }
+    if (vpWideMq.addEventListener) vpWideMq.addEventListener('change', vpSyncLayout);
+    else if (vpWideMq.addListener) vpWideMq.addListener(vpSyncLayout);   // older iOS Safari
 
     var vpOpenBatchId = '';   // batchId to auto-open in Drafts after a Finish (consumed once)
     var vpDraftsOpenIds = {};      // batchIds expanded in the DOM at the moment of the last drafts fetch (preserved across re-render)
@@ -190,10 +335,9 @@
 
     function vpTab(which, batchId) {
       var cap = which === 'capture';
-      document.getElementById('viewCapture').hidden = !cap;
-      document.getElementById('viewDrafts').hidden = cap;
       document.getElementById('tabCapture').classList.toggle('active', cap);
       document.getElementById('tabDrafts').classList.toggle('active', !cap);
+      vpSyncLayout();   // wide: both panes stay visible; narrow: honors the tab just set
       if (!cap) { if (batchId) vpOpenBatchId = batchId; vpLoadDrafts(); }
     }
 
@@ -243,6 +387,7 @@
       document.getElementById('lsIdle').hidden = true;
       document.getElementById('lsShooting').hidden = false;
       document.getElementById('lsOrderDealer').textContent = label;
+      document.getElementById('lsOrderBatch').textContent = '#' + (batchId.length > 12 ? batchId.substr(0, 12) : batchId);
       vpRenderQueue(); vpUpdateCount(); vpUpdateFinishUI();
     }
 
@@ -304,6 +449,7 @@
       document.getElementById('lsDealer').disabled = false;
       if (window.CustomSelect) CustomSelect.refresh(document.getElementById('lsDealer'));   // repaint facade after re-enable: syncs label to native value + clears aria-disabled (resume may have changed the dealer)
       vpUpdateFinishUI();
+      vpLoadDrafts();   // back on the idle screen — refresh its unsent-drafts list
     }
 
     function vpUpdateFinishUI() {
@@ -445,6 +591,7 @@
           vpEng.inFlight--;
           if (res && res.ok) {
             item.fileId = res.fileId; item.url = res.url; item.state = 'saving';
+            if (item.thumb) vpThumbs[res.fileId] = item.thumb;   // drafts reuse the local 64px thumb — no server refetch
             vpBuffer.push(item);
           } else {
             item.state = 'failed'; item.error = (res && res.error) || 'upload not ok';
@@ -524,10 +671,16 @@
     }
 
     function vpUpdateCount() {
-      var total = vpQueue.length;
-      var saved = vpQueue.filter(function (q) { return q.state === 'saved'; }).length;
-      var el = document.getElementById('lsCount');
-      if (el) el.textContent = total + ' photo' + (total === 1 ? '' : 's') + ' · ' + saved + ' saved';
+      var total = vpQueue.length, saved = 0, failed = 0;
+      vpQueue.forEach(function (q) { if (q.state === 'saved') saved++; else if (q.state === 'failed') failed++; });
+      var pending = total - saved - failed;   // reading / uploading / saving
+      document.getElementById('lsStatTotal').textContent = total;
+      document.getElementById('lsStatSaved').textContent = saved;
+      document.getElementById('lsStatFailed').textContent = failed;
+      document.getElementById('lsStatFailedTile').classList.toggle('bad', failed > 0);
+      var busy = document.getElementById('lsStatBusy');
+      busy.hidden = pending === 0;
+      busy.textContent = pending ? (pending + ' in progress…') : '';
     }
 
     // Draw the already-decoded <img> onto a small (64x64, cover-cropped) canvas — never
@@ -561,9 +714,47 @@
       box.innerHTML = '<p class="ls-hint">Loading&hellip;</p>';
       vpDraftsFetching = true;
       google.script.run
-        .withSuccessHandler(function (res) { vpDraftsFetching = false; vpRenderDrafts(res); })
+        .withSuccessHandler(function (res) { vpDraftsFetching = false; vpRenderDrafts(res); vpRenderIdleDrafts(res); })
         .withFailureHandler(function (e) { vpDraftsFetching = false; box.innerHTML = '<p class="ls-hint">Could not load: ' + escHtml((e && e.message) || e) + '</p>'; })
         .getMyDrafts();
+    }
+
+    // group a flat drafts list by batchId, preserving server order
+    function vpGroupDrafts(drafts) {
+      var groups = {}, order = [];
+      (drafts || []).forEach(function (d) { var b = d.batchId || '(none)'; if (!groups[b]) { groups[b] = []; order.push(b); } groups[b].push(d); });
+      return { groups: groups, order: order };
+    }
+
+    // "7/14/2026 4:02 PM" — the sheet Date arrives stringified with TZ noise
+    function vpFmtTs(s) {
+      var d = new Date(s);
+      if (!s || isNaN(d)) return s || '';
+      return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    }
+
+    // compact unsent-drafts list on the idle screen (phone). Renders from the same
+    // getMyDrafts payload as the Drafts pane; only system batch ids go into onclick.
+    function vpRenderIdleDrafts(res) {
+      var wrap = document.getElementById('lsIdleDrafts'), list = document.getElementById('lsIdleDraftsList');
+      if (!wrap || !list) return;
+      var g = vpGroupDrafts(res && res.ok ? res.drafts : []);
+      if (!g.order.length) { wrap.hidden = true; list.innerHTML = ''; return; }
+      var html = '';
+      g.order.forEach(function (bid) {
+        var rows = g.groups[bid], dealer = rows[0].dealerName || rows[0].dealerKey || '';
+        vpDraftMeta[bid] = { dealerKey: rows[0].dealerKey || '', dealerName: dealer };
+        html += '<div class="ls-idrow">' +
+          '<div class="info" onclick="vpTab(\'drafts\',\'' + escHtml(bid) + '\')">' +
+            '<span class="t">' + escHtml(dealer) + '</span>' +
+            '<span class="ls-hint">' + escHtml(vpFmtTs(rows[0].ts)) + ' &middot; ' + rows.length + ' photo' + (rows.length === 1 ? '' : 's') + '</span>' +
+          '</div>' +
+          '<button type="button" class="ls-btn" onclick="vpResumeOrder(\'' + escHtml(bid) + '\')">Resume</button>' +
+          '<button type="button" class="ls-btn primary" onclick="vpSendBatch(\'' + escHtml(bid) + '\')">Send</button>' +
+          '</div>';
+      });
+      list.innerHTML = html;
+      wrap.hidden = false;
     }
 
     function vpRenderDrafts(res) {
@@ -577,17 +768,15 @@
         box.innerHTML = '<p class="ls-hint">No drafts. Uploaded batches show here while they finish.</p>';
         return;
       }
-      // group by batchId
-      var groups = {}, order = [];
-      drafts.forEach(function (d) { var b = d.batchId || '(none)'; if (!groups[b]) { groups[b] = []; order.push(b); } groups[b].push(d); });
+      var g = vpGroupDrafts(drafts);
       var openId = vpOpenBatchId; vpOpenBatchId = '';
       var openIds = vpDraftsOpenIds; vpDraftsOpenIds = {};
       vpDraftMeta = {};   // rebuilt from this render; only the system bid is ever inlined (dealerName carries apostrophes)
       var html = '';
-      order.forEach(function (bid) {
-        var rows = groups[bid], dealer = rows[0].dealerName || rows[0].dealerKey || '';
+      g.order.forEach(function (bid) {
+        var rows = g.groups[bid], dealer = rows[0].dealerName || rows[0].dealerKey || '';
         vpDraftMeta[bid] = { dealerKey: rows[0].dealerKey || '', dealerName: dealer };
-        var when = rows[0].ts || '';
+        var when = vpFmtTs(rows[0].ts);
         var shortId = bid.length > 12 ? bid.substr(0, 12) : bid;
         var isOpen = bid === openId || !!openIds[bid];
         // collapsed by default (<details> without `open`) — except a just-finished order, or a
@@ -602,32 +791,69 @@
             '<button type="button" class="ls-btn" onclick="vpResumeOrder(\'' + escHtml(bid) + '\')">Add more photos</button>' +
             '<button type="button" class="ls-btn" onclick="vpDeleteBatch(\'' + escHtml(bid) + '\')">Delete batch</button>' +
           '</div>';
-        rows.forEach(function (r) { html += vpDraftRow(r); });
-        html += '</details>';
+        html += '<div class="ls-drows">';
+        rows.forEach(function (r, i) { html += vpDraftRow(r, i + 1); });
+        html += '</div></details>';
       });
       box.innerHTML = html;
+      vpFillThumbs();
       if (openId) {
         var el = document.getElementById('dbatch_' + openId);
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
     }
 
-    function vpDraftRow(r) {
-      var badge;
+    function vpDraftRow(r, n) {
+      var badge = '';
       if (r.matched) badge = '<span class="ls-badge ok">in stock</span>';
       else if (r.valid) badge = '<span class="ls-badge bad">verify</span>';
-      else badge = '<span class="ls-badge wait">office reads VIN</span>';
       var veh = [r.year, r.make, r.model].filter(Boolean).join(' ');
       var h = '<div class="ls-drow" data-sid="' + r.id + '">' +
-        '<div class="top"><span class="ls-vin">' + (r.vin ? escHtml(r.vin) : '<span class="ls-hint">Photo</span>') + '</span> ' + badge +
+        '<div class="top">' + (r.vin ? '<span class="ls-vin">' + escHtml(r.vin) + '</span>' : '<span class="ls-pnum">Photo ' + n + '</span>') + ' ' + badge +
         '<button type="button" class="x" title="Discard" onclick="vpDraftDiscard(\'' + r.id + '\')">&times;</button></div>';
       if (veh) h += '<div class="ls-veh">' + escHtml(veh) + (r.stock ? (' · Stock ' + escHtml(r.stock)) : '') + '</div>';
       if (r.photoFileId) {
-        h += '<div class="ls-actions"><button type="button" class="ls-btn" onclick="vpShowDraftPhoto(\'' + r.id + '\',\'' + r.photoFileId + '\')">&#128247; Show / hide photo</button></div>';
+        h += '<div class="ls-actions"><img class="ls-dthumb" data-thumb="' + escHtml(r.photoFileId) + '" alt="" hidden>' +
+          '<button type="button" class="ls-btn" onclick="vpShowDraftPhoto(\'' + r.id + '\',\'' + r.photoFileId + '\')">Show / hide photo</button></div>';
         h += '<div id="ph_' + r.id + '"></div>';
       }
       h += '</div>';
       return h;
+    }
+
+    // Draft-card thumbnails: filled after render from a session cache, missing ids
+    // batch-fetched once via getPhotoThumbs (server-side Drive thumbnail blobs — the
+    // sandboxed iframe can't load drive.google.com image URLs itself). A file whose
+    // Drive thumbnail isn't generated yet just stays hidden and self-heals on a
+    // later render (misses are re-requested; only successes are cached).
+    var vpThumbs = {};   // photoFileId → dataUrl
+    function vpFillThumbs() {
+      var imgs = document.querySelectorAll('img.ls-dthumb[data-thumb]');
+      var need = [], seen = {};
+      imgs.forEach(function (im) {
+        var id = im.dataset.thumb;
+        if (vpThumbs[id]) { im.src = vpThumbs[id]; im.hidden = false; }
+        else if (id && !seen[id]) { seen[id] = 1; need.push(id); }
+      });
+      if (!need.length) return;
+      // Small chunks fired in PARALLEL — each server call returns as soon as its
+      // few files are done, so thumbs stream in instead of blocking on one big
+      // serial Drive loop. Chunk size grows past 48 ids to stay ≤12 executions.
+      var apply = function (res) {
+        if (!res || !res.ok) return;
+        for (var id in res.thumbs) vpThumbs[id] = res.thumbs[id];
+        document.querySelectorAll('img.ls-dthumb[data-thumb]').forEach(function (im) {
+          var d = vpThumbs[im.dataset.thumb];
+          if (d) { im.src = d; im.hidden = false; }
+        });
+      };
+      var size = Math.max(4, Math.ceil(need.length / 12));
+      for (var i = 0; i < need.length; i += size) {
+        google.script.run
+          .withSuccessHandler(apply)
+          .withFailureHandler(function () {})   // no thumb is cosmetic — never toast
+          .getPhotoThumbs(need.slice(i, i + size));
+      }
     }
 
     // Drafts → Capture: reopen a draft batch's capture flow so more photos append under the SAME
@@ -661,7 +887,13 @@
     function vpShowDraftPhoto(sid, fileId) {
       var box = document.getElementById('ph_' + sid);
       if (!box) return;
-      if (box.dataset.loaded === '1') { box.innerHTML = ''; box.dataset.loaded = ''; return; }
+      var row = box.closest('.ls-drow');
+      if (box.dataset.loaded === '1') {
+        box.innerHTML = ''; box.dataset.loaded = '';
+        if (row) row.classList.remove('expanded');
+        return;
+      }
+      if (row) row.classList.add('expanded');
       box.innerHTML = '<span class="ls-hint">Loading photo…</span>';
       google.script.run
         .withSuccessHandler(function (res) {

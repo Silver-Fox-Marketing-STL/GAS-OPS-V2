@@ -118,6 +118,17 @@ function getActiveDealersForScanner_() {
 function getLastSelectedDealer() {
   return PropertiesService.getUserProperties().getProperty('lot_last_dealer') || '';
 }
+
+// Theme pref (per user). getThemePreference is called by the Capture template
+// scriptlet pre-paint; saveThemePreference is called by Theme.apply in
+// SharedUtils via google.script.run — it must exist by this exact name
+// (google.script.run fails SILENTLY on missing names).
+function getThemePreference() {
+  return PropertiesService.getUserProperties().getProperty('lot_theme') || '';
+}
+function saveThemePreference(id) {
+  PropertiesService.getUserProperties().setProperty('lot_theme', String(id || 'light'));
+}
 function saveLastSelectedDealer(dealerKey) {
   if (dealerKey && String(dealerKey).trim() !== '') {
     PropertiesService.getUserProperties().setProperty('lot_last_dealer', String(dealerKey).trim());
@@ -485,6 +496,42 @@ function getPhotoDataUrl(fileId) {
     return { ok: true, dataUrl: 'data:' + (blob.getContentType() || 'image/jpeg') + ';base64,' + Utilities.base64Encode(blob.getBytes()) };
   } catch (e) {
     return { ok: false, error: String((e && e.message) || e) };
+  }
+}
+
+// Small draft-card thumbnails: { fileId: dataUrl } for every id Drive has a generated
+// thumbnail for; ids without one (fresh upload, bad id) are simply absent and the
+// client retries them on its next render. getThumbnail() keeps us inside the existing
+// Drive scope — a REST fetchAll would add the external_request scope and force every
+// crew phone to re-authorize. Photos are immutable, so a shared ScriptCache (6h) makes
+// every load after the first cache-hit fast; the client also calls this in small
+// parallel chunks so cold thumbs stream in instead of waiting on one serial loop.
+// ponytail: per-file getThumbnail on cache miss (~150ms each, no batch API without
+// the scope change); fine for draft-sized lists at chunk size 4.
+function getPhotoThumbs(fileIds) {
+  try {
+    var ids = (fileIds || []).map(String).filter(Boolean);
+    var out = {};
+    if (!ids.length) return { ok: true, thumbs: out };
+    var cache = CacheService.getScriptCache();
+    var hit = {};
+    try { hit = cache.getAll(ids.map(function (id) { return 'lsth_' + id; })) || {}; } catch (e) {}
+    var toPut = {};
+    ids.forEach(function (id) {
+      var c = hit['lsth_' + id];
+      if (c) { out[id] = c; return; }
+      try {
+        var t = DriveApp.getFileById(id).getThumbnail();
+        if (!t) return;
+        var d = 'data:' + (t.getContentType() || 'image/jpeg') + ';base64,' + Utilities.base64Encode(t.getBytes());
+        out[id] = d;
+        if (d.length < 95000) toPut['lsth_' + id] = d;   // CacheService 100KB/value cap
+      } catch (e) {}   // cosmetic — one bad id never blocks the rest
+    });
+    if (Object.keys(toPut).length) { try { cache.putAll(toPut, 21600); } catch (e) {} }
+    return { ok: true, thumbs: out };
+  } catch (e) {
+    return { ok: false, thumbs: {}, error: String((e && e.message) || e) };
   }
 }
 

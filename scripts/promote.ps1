@@ -64,6 +64,10 @@ try {
     Write-Host 'PROD updated (code push + /exec deployment bump).'
     Write-Host 'Run the prod SPA smoke: open the fullscreen web app, one read-only flow.'
 } finally {
+    # Delete first: Copy-Item preserves the source mtime, so if the two clasp
+    # jsons ever match in size git's stat cache sees .clasp.json as unchanged
+    # and checkout no-ops (bit the lot-scan twin 2026-07-14).
+    Remove-Item .clasp.json -Force
     git checkout -- .clasp.json
     Write-Host '(.clasp.json restored to DEV target)'
 }

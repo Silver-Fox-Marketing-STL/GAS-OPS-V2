@@ -50,6 +50,10 @@ try {
     Write-Host 'PROD scanner updated (code push + /exec deployment bump).'
     Write-Host 'Smoke: open the scanner /exec URL on a phone, pick a dealer, one capture flow.'
 } finally {
+    # Delete first: Copy-Item preserves the source mtime, and both clasp jsons
+    # are the same byte size, so git's stat cache saw .clasp.json as unchanged
+    # and let checkout no-op - left the DEV target aimed at prod (2026-07-14).
+    Remove-Item .clasp.json -Force
     git checkout -- .clasp.json
     Write-Host '(lot-scan/.clasp.json restored to DEV target)'
 }

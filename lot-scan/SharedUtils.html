@@ -97,8 +97,7 @@
     --rv-rail-w: 280px;        /* Run Order right rail column (ViewRun) */
   }
 
-  :root[data-theme="dark"],
-  :root[data-theme="top-rail-dark"] {   /* top-rail-dark reuses the Dark palette; its top-bar structure lives in App.html */
+  :root[data-theme="dark"] {
     color-scheme: dark;   /* native popup/scrollbar render dark — readable in modal AND web app */
     /* neutral black/grey base — warm oranges reserved for accents/highlights */
     --bg: #121214;
@@ -194,7 +193,7 @@
      ════════════════════════════════════════════════════════════════════════ */
 
   /* ── Slate — cool neutral light (the crisp blue counterpart to warm Light) ── */
-  /* the palette for the 'slate-icons' composed preset (slate palette + icon rail). */
+  /* id stays 'slate-icons' (saved prefs + main-app parity); label is just "Slate". */
   :root[data-theme="slate-icons"] {
     color-scheme: light;
     --bg: #ffffff; --surface: #f1f5f9; --surface-2: #e6edf3; --surface-3: #dae3ec;
@@ -227,7 +226,7 @@
   }
 
   /* ── Gruvbox — warm retro dark, orange accent ── */
-  /* the palette for the 'gruvbox-rail' composed preset (gruvbox palette + top-rail). */
+  /* id stays 'gruvbox-rail' (saved prefs + main-app parity); label is just "Gruvbox". */
   :root[data-theme="gruvbox-rail"] {
     color-scheme: dark;
     --bg: #282828; --surface: #3c3836; --surface-2: #504945; --surface-3: #665c54;
@@ -502,14 +501,12 @@
     themes: [
       { id: 'light',         label: 'Light' },
       { id: 'dark',          label: 'Dark' },
-      { id: 'top-rail',      label: 'Top Rail',         shell: 'top-rail' },
-      { id: 'top-rail-dark', label: 'Top Rail — Dark',  shell: 'top-rail' },
       { id: 'midnight',      label: 'Midnight HC' },
       { id: 'encarta',       label: 'Encarta' },
       { id: 'sage',          label: 'Sage' },
-      { id: 'gruvbox-rail',  label: 'Gruvbox Rail',      shell: 'top-rail' },
-      { id: 'slate-icons',   label: 'Slate — Icon Rail', nav: 'icons' },
-      { id: 'luna',          label: 'Windows XP',        arrange: 'desktop' }
+      { id: 'gruvbox-rail',  label: 'Gruvbox' },
+      { id: 'slate-icons',   label: 'Slate' },
+      { id: 'luna',          label: 'Windows XP' }
     ],
     _meta: function(id) {
       for (var i = 0; i < this.themes.length; i++) { if (this.themes[i].id === id) return this.themes[i]; }
