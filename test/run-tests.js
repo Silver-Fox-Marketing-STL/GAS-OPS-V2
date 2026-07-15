@@ -62,7 +62,8 @@ var CSV_SCHEMAS_ROWS = [
   ['SCP',   'standard qr',      'YEARMODELSTOCK', 'TYPEVIN', '@QR', ''],
   ['SC',    'qr via qrstock',   'QRSTOCK', 'YEAR', '', ''],
   ['LOGO1', 'features, no qr',  'YEAR', 'YEARMODEL', 'FEATURES', 'MISC'],
-  ['LOGO3', 'no features/qr',   'YEAR', 'YEARMODEL', 'MISC', '']
+  ['LOGO3', 'no features/qr',   'YEAR', 'YEARMODEL', 'MISC', ''],
+  ['VDP1',  'versaworks vdp headers', 'YEAR:VDP_A', 'FEATURES:VDP_D', 'MISC:VDP_G', '']
 ];
 var fakeCsvSchemasSheet = {
   getDataRange: function () { return { getValues: function () { return CSV_SCHEMAS_ROWS; } }; }
@@ -617,6 +618,41 @@ t('collectMissingFeatures_: empty featuresTypes or empty VIN list reports nothin
   assert.deepStrictEqual(collectMissingFeatures_(['VINNEW1'], VIN_TYPE_MAP, {}, {}), []);
   assert.deepStrictEqual(collectMissingFeatures_([], VIN_TYPE_MAP, FEAT_TYPES, {}), []);
   assert.deepStrictEqual(collectMissingFeatures_(null, VIN_TYPE_MAP, FEAT_TYPES, {}), []);
+});
+
+// ============================================================================
+// Suite: schema header overrides — CODE:HEADER cells (VersaWorks VDP fields)
+// (A schema cell is `CODE` or `CODE:HEADER`; the code drives the ORDERMATCH
+//  column lookup, the header prints in the CSV header row. Plain cells keep
+//  the legacy header-equals-code behavior byte-identical.)
+// ============================================================================
+suite('schema header overrides');
+t('parseSchemaCell_: plain code has header = code', function () {
+  assert.deepStrictEqual(parseSchemaCell_('YEAR'), { code: 'YEAR', header: 'YEAR' });
+  assert.deepStrictEqual(parseSchemaCell_('@QR'), { code: '@QR', header: '@QR' });
+});
+t('parseSchemaCell_: CODE:HEADER splits on the first colon, trimmed', function () {
+  assert.deepStrictEqual(parseSchemaCell_('YEAR:VDP_A'), { code: 'YEAR', header: 'VDP_A' });
+  assert.deepStrictEqual(parseSchemaCell_(' MV_PRICE : VDP_F '), { code: 'MV_PRICE', header: 'VDP_F' });
+});
+t('parseSchemaCell_: blank header after colon falls back to the code; null-safe', function () {
+  assert.deepStrictEqual(parseSchemaCell_('YEAR:'), { code: 'YEAR', header: 'YEAR' });
+  assert.deepStrictEqual(parseSchemaCell_(''), { code: '', header: '' });
+  assert.deepStrictEqual(parseSchemaCell_(null), { code: '', header: '' });
+});
+t('schemaCodesHaveFeatures_/HaveQR_ see through header overrides', function () {
+  assert.strictEqual(schemaCodesHaveFeatures_(['YEAR:VDP_A', 'FEATURES:VDP_D']), true);
+  assert.strictEqual(schemaCodesHaveFeatures_(['YEAR:VDP_A', 'MISC:VDP_G']), false);
+  assert.strictEqual(schemaCodesHaveQR_(['@QR:VDP_B']), true);
+  assert.strictEqual(schemaCodesHaveQR_(['YEAR:VDP_A']), false);
+});
+t('featuresTypesForDealer_ detects FEATURES inside an override-syntax schema', function () {
+  var pm = { 'PO': { product_id: 1, schema: 'VDP1' } };
+  assert.deepStrictEqual(featuresTypesForDealer_(buildTypeRulesFromProductMap_(pm), pm), { 'PO': true });
+});
+t('dedupFieldCodeHeaders_ applies to override headers like any header', function () {
+  assert.deepStrictEqual(dedupFieldCodeHeaders_(['VDP_A', 'VDP_B', 'VDP_A']),
+    ['VDP_A', 'VDP_B', 'VDP_A2']);
 });
 
 // ── Report ───────────────────────────────────────────────────────────────────

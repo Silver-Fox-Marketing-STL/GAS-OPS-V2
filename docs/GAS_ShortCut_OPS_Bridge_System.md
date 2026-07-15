@@ -697,8 +697,12 @@ The `FIELD_TO_COL` constant in Code.gs maps field code names to 1-based ORDERMAT
 | `YEARMODELSTOCK` | 19 | `"2024 CR-V - 262617A"` |
 | `PRICE_PLUS_2000` | 20 | `"$30,995"` — price + $2,000 (**live**; used by GLENDALE_COMBINED) |
 | `PRICE_TAGLINE` | 21 | Price-tier tagline (**live**; used by SCP_TAGLINE): `≥15000` → `"as low as $300/mo"`, `10000–14999` → `"Below $15,000"`, `<10000` → `"Below $10,000"`, non-numeric → blank |
-| `PRICE_MAINLINE` | 22 | Price-ladder mainline message (**live**; template ARRAYFORMULA in col V). **The one mapping NOT in the `FIELD_TO_COL` constant** — it rides the FIELD_CODES tab's `ordermatch_col` overlay (F20 = 22 in both envs). Discovered July 2026 when FEATURES nearly landed on col 22; the doc previously claimed the template ended at U |
+| `PRICE_MAINLINE` | 22 | Price-ladder mainline message (**live**; template ARRAYFORMULA in col V). **Mapped only via the FIELD_CODES tab's `ordermatch_col` overlay** (not the constant). Discovered July 2026 when FEATURES nearly landed on col 22; the doc previously claimed the template ended at U |
 | `FEATURES` | 23 | **Per-row manual text** (July 2026 — no-QR dealers): typed into the Run Order table's Features inputs, written by `writeFeatures_` after matching (script-written value column like col J, not a template formula). Required (client + server fail-fast) for every VIN whose type resolves to a schema listing `FEATURES`; blank for all other rows |
+| `MODELTRIM` | 24 | `"CAMRY XSE"` — MODEL + TRIM uppercased, space-joined (July 2026, VersaWorks dealers; template ARRAYFORMULA col X, mapped via the FIELD_CODES overlay only) |
+| `MV_PRICE` | 25 | `"Market Value Price: $30,995"` — PRICE_PLUS_2000 with prefix (July 2026, Bommarito West County; template ARRAYFORMULA col Y, FIELD_CODES overlay only; blank/`*` prices stay `*`) |
+
+**Header overrides (July 2026, VersaWorks VDP):** a CSV_SCHEMAS cell may be `CODE:HEADER` (e.g. `YEAR:VDP_A`). `parseSchemaCell_` splits on the first colon: the **code** drives the ORDERMATCH column lookup, the **header** prints in the CSV header row — required because VersaWorks Variable Data Printing matches CSV headers to the VDP field names saved in the job file, which vary per template. Plain cells keep header = code (legacy behavior, byte-identical). `dedupFieldCodeHeaders_` suffixing applies to the final headers; `schemaCodesHaveFeatures_`/`schemaCodesHaveQR_` (Features gating + QR skip) see through overrides.
 
 `buildCSVSheet_` reads 100 columns from ORDERMATCH — new field codes can be added through column CV without changing the read range.
 
@@ -735,8 +739,10 @@ Copied at runtime for each dealer order. The copy becomes the output document.
 | U | 21 | PRICE_TAGLINE | `=ARRAYFORMULA(IF(ISBLANK(A2:A),"",IFERROR(IF(VALUE(H2:H)<15000,"Smart Buy!","Budget Friendly!"),"")))` *(live formula read July 2026 — the doc previously recorded an older price-tier cascade; PRICE_RAW is text, `VALUE()` coerces, `IFERROR` blanks non-numeric)* |
 | V | 22 | PRICE_MAINLINE | `=ARRAYFORMULA(IF(ISBLANK(A2:A),"",IFERROR(VLOOKUP(VALUE(H2:H),{0,"Under $10,000!";10000,"Under $15,000!";15000,"ONLY $248/mo!";…;30000,"LOW PAYMENT!"},2,TRUE),"")))` *(price-ladder mainline; mapped to CSVs via FIELD_CODES `ordermatch_col`=22, not the constant. Was entirely undocumented until July 2026)* |
 | W | 23 | FEATURES | Script-written by `writeFeatures_` (July 2026) — per-row manual text typed in the Run Order table, VIN-aligned to the QUERY spill. **No formula; W2:W must stay empty in the template.** Blank unless the run supplied a `featuresMap` |
+| X | 24 | MODELTRIM | `=ARRAYFORMULA(IF(ISBLANK(A2:A),"",UPPER(C2:C&" "&D2:D)))` *(July 2026, VersaWorks dealers)* |
+| Y | 25 | MV_PRICE | `=ARRAYFORMULA(IF(ISBLANK(A2:A),"",IF(H2:H="*","*","Market Value Price: $"&TEXT(H2:H+2000,"#,##0"))))` *(July 2026, Bommarito West County)* |
 
-**Cols A–I are the QUERY spill zone.** Nothing should be written there in the template. Cols J (QR paths) and W (Features) are the script-written value columns. Cols K–V are ARRAYFORMULAs that auto-expand with QUERY output.
+**Cols A–I are the QUERY spill zone.** Nothing should be written there in the template. Cols J (QR paths) and W (Features) are the script-written value columns. Cols K–V and X–Y are ARRAYFORMULAs that auto-expand with QUERY output.
 
 ### Other Tabs
 

@@ -2191,15 +2191,18 @@ function buildCSVSheet_(outputDoc, typeRules, sourceSplit, mainProductMap, secon
   var fieldToCol = getFieldToCol_();  // FIELD_TO_COL constant overlaid with FIELD_CODES config
 
   // Renders one CSV sheet from a set of ORDERMATCH rows + a SCHEMA key.
+  // Schema cells may carry a header override (`CODE:HEADER`, e.g. VersaWorks
+  // VDP field names) — the code drives the data lookup, the header prints.
   function writeGroup_(schemaKey, rows, sheetName) {
-    var fieldCodes = getCsvSchema_(schemaKey) || getCsvSchema_('SCP');
+    var entries = (getCsvSchema_(schemaKey) || getCsvSchema_('SCP')).map(parseSchemaCell_);
     var dataRows = rows.map(function(row) {
-      return fieldCodes.map(function(code) {
-        var col = fieldToCol[code];
+      return entries.map(function(e) {
+        var col = fieldToCol[e.code];
         return col ? row[col - 1] : '';
       });
     });
-    writeCSVSheet_(outputDoc, sheetName, dedupFieldCodeHeaders_(fieldCodes), dataRows);
+    var headers = dedupFieldCodeHeaders_(entries.map(function(e) { return e.header; }));
+    writeCSVSheet_(outputDoc, sheetName, headers, dataRows);
     Logger.log('CSV sheet "' + sheetName + '" written: ' + dataRows.length + ' rows, schema: ' + schemaKey);
   }
 
@@ -2294,21 +2297,39 @@ function validateProductMapForRun_(matchedTypes, productMap) {
 }
 
 /**
+ * Pure: parses one CSV_SCHEMAS cell. A cell is `CODE` or `CODE:HEADER` —
+ * the code drives the ORDERMATCH column lookup, the header prints in the CSV
+ * header row (VersaWorks VDP field names must match the job file's variables,
+ * so headers are overridable per schema column). Splits on the FIRST colon;
+ * a blank header falls back to the code (legacy behavior, header = code).
+ */
+function parseSchemaCell_(cell) {
+  var s = String(cell == null ? '' : cell).trim();
+  var i = s.indexOf(':');
+  if (i === -1) return { code: s, header: s };
+  var code = s.slice(0, i).trim();
+  var header = s.slice(i + 1).trim();
+  return { code: code, header: header || code };
+}
+
+/**
  * Pure: does a schema's field-code list include the FEATURES column?
  * (FEATURES is the manually-typed per-row text column — ORDERMATCH col W.)
+ * Sees through `CODE:HEADER` header overrides.
  */
 function schemaCodesHaveFeatures_(codes) {
-  return !!codes && codes.indexOf('FEATURES') !== -1;
+  return !!codes && codes.some(function(c) { return parseSchemaCell_(c).code === 'FEATURES'; });
 }
 
 /**
  * Pure: does a schema's field-code list emit any QR-derived column?
  * Used by runNeedsQR_ to skip QR generation entirely for no-QR dealers.
+ * Sees through `CODE:HEADER` header overrides.
  */
 function schemaCodesHaveQR_(codes) {
   if (!codes) return false;
-  return codes.indexOf('@QR') !== -1 || codes.indexOf('@QR2') !== -1 ||
-         codes.indexOf('QRYEARMODEL') !== -1 || codes.indexOf('QRSTOCK') !== -1;
+  var QR = { '@QR': 1, '@QR2': 1, 'QRYEARMODEL': 1, 'QRSTOCK': 1 };
+  return codes.some(function(c) { return QR[parseSchemaCell_(c).code] === 1; });
 }
 
 /**
