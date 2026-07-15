@@ -63,7 +63,8 @@ var CSV_SCHEMAS_ROWS = [
   ['SC',    'qr via qrstock',   'QRSTOCK', 'YEAR', '', ''],
   ['LOGO1', 'features, no qr',  'YEAR', 'YEARMODEL', 'FEATURES', 'MISC'],
   ['LOGO3', 'no features/qr',   'YEAR', 'YEARMODEL', 'MISC', ''],
-  ['VDP1',  'versaworks vdp headers', 'YEAR:VDP_A', 'FEATURES:VDP_D', 'MISC:VDP_G', '']
+  ['VDP1',  'versaworks vdp headers', 'YEAR:VDP_A', 'FEATURES:VDP_D', 'MISC:VDP_G', ''],
+  ['VDP_EDIT', 'editable modeltrim',  'YEAR:VDP_A', 'MODELTRIM:VDP_B:edit18', 'MISC:VDP_G', '']
 ];
 var fakeCsvSchemasSheet = {
   getDataRange: function () { return { getValues: function () { return CSV_SCHEMAS_ROWS; } }; }
@@ -628,17 +629,17 @@ t('collectMissingFeatures_: empty featuresTypes or empty VIN list reports nothin
 // ============================================================================
 suite('schema header overrides');
 t('parseSchemaCell_: plain code has header = code', function () {
-  assert.deepStrictEqual(parseSchemaCell_('YEAR'), { code: 'YEAR', header: 'YEAR' });
-  assert.deepStrictEqual(parseSchemaCell_('@QR'), { code: '@QR', header: '@QR' });
+  assert.deepStrictEqual(parseSchemaCell_('YEAR'), { code: 'YEAR', header: 'YEAR', edit: false });
+  assert.deepStrictEqual(parseSchemaCell_('@QR'), { code: '@QR', header: '@QR', edit: false });
 });
 t('parseSchemaCell_: CODE:HEADER splits on the first colon, trimmed', function () {
-  assert.deepStrictEqual(parseSchemaCell_('YEAR:VDP_A'), { code: 'YEAR', header: 'VDP_A' });
-  assert.deepStrictEqual(parseSchemaCell_(' MV_PRICE : VDP_F '), { code: 'MV_PRICE', header: 'VDP_F' });
+  assert.deepStrictEqual(parseSchemaCell_('YEAR:VDP_A'), { code: 'YEAR', header: 'VDP_A', edit: false });
+  assert.deepStrictEqual(parseSchemaCell_(' MV_PRICE : VDP_F '), { code: 'MV_PRICE', header: 'VDP_F', edit: false });
 });
 t('parseSchemaCell_: blank header after colon falls back to the code; null-safe', function () {
-  assert.deepStrictEqual(parseSchemaCell_('YEAR:'), { code: 'YEAR', header: 'YEAR' });
-  assert.deepStrictEqual(parseSchemaCell_(''), { code: '', header: '' });
-  assert.deepStrictEqual(parseSchemaCell_(null), { code: '', header: '' });
+  assert.deepStrictEqual(parseSchemaCell_('YEAR:'), { code: 'YEAR', header: 'YEAR', edit: false });
+  assert.deepStrictEqual(parseSchemaCell_(''), { code: '', header: '', edit: false });
+  assert.deepStrictEqual(parseSchemaCell_(null), { code: '', header: '', edit: false });
 });
 t('schemaCodesHaveFeatures_/HaveQR_ see through header overrides', function () {
   assert.strictEqual(schemaCodesHaveFeatures_(['YEAR:VDP_A', 'FEATURES:VDP_D']), true);
@@ -653,6 +654,62 @@ t('featuresTypesForDealer_ detects FEATURES inside an override-syntax schema', f
 t('dedupFieldCodeHeaders_ applies to override headers like any header', function () {
   assert.deepStrictEqual(dedupFieldCodeHeaders_(['VDP_A', 'VDP_B', 'VDP_A']),
     ['VDP_A', 'VDP_B', 'VDP_A2']);
+});
+
+// ============================================================================
+// Suite: pre-run editable columns — CODE:HEADER:edit (VersaWorks text-fit)
+// (A third schema-cell segment `edit`/`edit<N>` marks a column user-editable in
+//  the Run table before the run; seeds are advisory JS twins of the template
+//  formulas, and only user-CHANGED values override the CSV at write time.)
+// ============================================================================
+suite('editable columns');
+t('parseSchemaCell_: third segment edit/editN parses into the edit flag', function () {
+  assert.deepStrictEqual(parseSchemaCell_('MODELTRIM:VDP_B:edit'),
+    { code: 'MODELTRIM', header: 'VDP_B', edit: { max: null } });
+  assert.deepStrictEqual(parseSchemaCell_('MODELTRIM:VDP_B:edit18'),
+    { code: 'MODELTRIM', header: 'VDP_B', edit: { max: 18 } });
+  assert.deepStrictEqual(parseSchemaCell_('MODELTRIM:VDP_B:EDIT'),
+    { code: 'MODELTRIM', header: 'VDP_B', edit: { max: null } });
+});
+t('parseSchemaCell_: non-edit third segment folds back into the header (fail-safe)', function () {
+  assert.deepStrictEqual(parseSchemaCell_('YEAR:VDP:A'),
+    { code: 'YEAR', header: 'VDP:A', edit: false });
+  assert.deepStrictEqual(parseSchemaCell_('YEAR:VDP_A'),
+    { code: 'YEAR', header: 'VDP_A', edit: false });
+  assert.deepStrictEqual(parseSchemaCell_('YEAR'),
+    { code: 'YEAR', header: 'YEAR', edit: false });
+});
+t('editableCodesForDealer_: per-type editable entries from resolved schemas', function () {
+  var pm = { 'PO': { product_id: 1, schema: 'VDP_EDIT' }, 'CPO': { product_id: 2, schema: 'LOGO3' } };
+  var out = editableCodesForDealer_(buildTypeRulesFromProductMap_(pm), pm);
+  assert.deepStrictEqual(out, { 'PO': [{ code: 'MODELTRIM', max: 18 }] });
+});
+t('editableCodesForDealer_: empty on no rules / no edit flags', function () {
+  var pm = { 'PO': { product_id: 1, schema: 'LOGO1' } };
+  assert.deepStrictEqual(editableCodesForDealer_(buildTypeRulesFromProductMap_(pm), pm), {});
+  assert.deepStrictEqual(editableCodesForDealer_(null, null), {});
+});
+t('computeEditSeed_: JS twins of the editable formulas (advisory preview values)', function () {
+  // Base-21 fixture row indices: 0 VIN, 1 Stock, 3 Year, 5 Model, 6 Trim, 9 Price.
+  var r = row_({ 0: '1FMCU9J96GUA10243', 1: 'P6UA10243', 3: 2016, 5: 'CX-50', 6: '2.5 S Prem Plus Pkg AWD', 9: '28995' });
+  assert.strictEqual(computeEditSeed_('MODELTRIM', r), 'CX-50 2.5 S PREM PLUS PKG AWD');
+  assert.strictEqual(computeEditSeed_('YEARMODELSTOCK', r), '2016 CX-50 - P6UA10243');
+  assert.strictEqual(computeEditSeed_('MISC', r), '2016 CX-50 - 1FMCU9J96GUA10243 - P6UA10243');
+  assert.strictEqual(computeEditSeed_('VINHALF', r), '6GUA10243'.slice(-8));
+  assert.strictEqual(computeEditSeed_('MV_PRICE', r), 'Market Value Price: $30,995');
+});
+t('computeEditSeed_: unknown code / unparseable price are fail-safe', function () {
+  var r = row_({ 9: '*' });
+  assert.strictEqual(computeEditSeed_('NO_SUCH_CODE', r), '');
+  assert.strictEqual(computeEditSeed_('MV_PRICE', r), '*');
+});
+t('csvCellValue_: a user edit overrides the ORDERMATCH value for that VIN+code only', function () {
+  var edits = { 'VIN1': { 'MODELTRIM': 'CX-50 2.5 S' } };
+  assert.strictEqual(csvCellValue_('MAZDA CX-50 2.5 S PREM PLUS PKG AWD', 'VIN1', 'MODELTRIM', edits), 'CX-50 2.5 S');
+  assert.strictEqual(csvCellValue_('SOMETHING', 'VIN2', 'MODELTRIM', edits), 'SOMETHING');
+  assert.strictEqual(csvCellValue_('SOMETHING', 'VIN1', 'MISC', edits), 'SOMETHING');
+  assert.strictEqual(csvCellValue_('SOMETHING', 'vin1', 'MODELTRIM', edits), 'CX-50 2.5 S');  // VIN case-insensitive
+  assert.strictEqual(csvCellValue_('SOMETHING', 'VIN1', 'MODELTRIM', null), 'SOMETHING');
 });
 
 // ── Report ───────────────────────────────────────────────────────────────────

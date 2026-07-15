@@ -117,10 +117,13 @@ previously-hit failure — don't relax without reading the matching Bridge secti
   `FEATURES` = col 23 (W), script-written per-row manual text (like col J —
   template W2:W must stay EMPTY). Template ARRAYFORMULAs `TYPESTOCK`/`TYPEVIN`
   (N2/R2) are exact-match — a custom type prints its own uppercased name, not "USED".
-- CSV_SCHEMAS cells may be `CODE:HEADER` (VersaWorks VDP field names): the code
-  maps the data column, the header prints (`parseSchemaCell_`). Anything reading
-  schema cells must parse through the override — never `indexOf('FEATURES')` on
-  raw cells (`schemaCodesHaveFeatures_`/`schemaCodesHaveQR_` already do).
+- CSV_SCHEMAS cells may be `CODE:HEADER[:edit[N]]` (VersaWorks): the code maps
+  the data column, the header prints, `edit` makes the column user-editable in
+  the Run table pre-run (`parseSchemaCell_`). Anything reading schema cells must
+  parse through the syntax — never `indexOf('FEATURES')` on raw cells. Seeds
+  (`computeEditSeed_`) are ADVISORY JS twins of template formulas — only
+  user-CHANGED values override the CSV (`csvCellValue_`); keep twins in sync
+  when a template ARRAYFORMULA changes.
 - A schema row = ONE template/job file. Two templates sharing a layout get two
   schema rows (BOMM_WC_A/B) — the schema split IS the template split; never
   "dedupe" same-layout rows (it merges their CSVs). `source_split` is the other

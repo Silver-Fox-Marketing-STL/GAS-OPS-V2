@@ -171,14 +171,18 @@
     #view-run #vinDataTable td.rv-link { white-space: nowrap; }
     #view-run #vinDataTable td.rv-link a { color: var(--accent); text-decoration: none; font-size: var(--fs-sm); }
     #view-run #vinDataTable td.rv-link a:hover { text-decoration: underline; }
-    /* Features text inputs (dealers whose schema lists FEATURES) */
+    /* Features + editable-column text inputs (VersaWorks dealers) */
     #view-run #vinDataTable td.rv-feat { min-width: 16rem; }
-    #view-run .rv-feat-input {
+    #view-run .rv-feat-input,
+    #view-run .rv-edit-input {
       width: 100%; box-sizing: border-box;
       font-size: var(--fs-sm); color: var(--text);
       background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm);
       padding: 2px var(--space-2);
     }
+    /* Over the column's length budget (`edit<N>` in the schema) — VersaWorks
+       will shrink this text; flag it for manual shortening. */
+    #view-run .rv-edit-input.rv-over { border-color: var(--danger); color: var(--danger); }
 
     #view-run label {
       display: block;
@@ -565,13 +569,20 @@
       if (rvDebounce) clearTimeout(rvDebounce);
       rvDebounce = setTimeout(rvRenderTable, 250);
     });
-    // Features inputs are re-created on every table render — one delegated
-    // listener on the persistent tbody captures typing without re-rendering
-    // (the caret never moves; values restore from rvFeatures on rebuild).
+    // Features + editable-column inputs are re-created on every table render —
+    // one delegated listener on the persistent tbody captures typing without
+    // re-rendering (the caret never moves; values restore from rvFeatures /
+    // rvEdits on rebuild). Over-budget styling toggles live via data-max.
     document.getElementById('vinDataBody').addEventListener('input', function(e) {
       var t = e.target;
-      if (t && t.classList && t.classList.contains('rv-feat-input')) {
+      if (!t || !t.classList) return;
+      if (t.classList.contains('rv-feat-input')) {
         rvFeatures[t.getAttribute('data-vin')] = t.value;
+      } else if (t.classList.contains('rv-edit-input')) {
+        var vin = t.getAttribute('data-vin'), code = t.getAttribute('data-code');
+        (rvEdits[vin] || (rvEdits[vin] = {}))[code] = t.value;
+        var max = t.getAttribute('data-max');
+        if (max) t.classList.toggle('rv-over', t.value.length > Number(max));
       }
     });
     document.getElementById('runDealerSelect').addEventListener('change', function() {
@@ -1320,6 +1331,26 @@
           missingFeat.join(', '), 'error');
         return;
       }
+
+      // Editable-column overrides: send ONLY values the user actually changed
+      // from their seed — untouched rows keep the authoritative template
+      // formula value in the CSV (seeds are advisory previews).
+      var editsMap = {};
+      vins.forEach(function(v) {
+        var vKey = v.toUpperCase();
+        var d = rvVinData.map[vKey];
+        var typed = rvEdits[vKey];
+        if (!d || !typed) return;
+        Object.keys(typed).forEach(function(code) {
+          if (!rvTypeHasEditCode(d.type, code)) return;
+          var val = String(typed[code] == null ? '' : typed[code]).trim();
+          var seeds = rvVinData.editSeeds[vKey];
+          var seed = (seeds && seeds[code] != null) ? String(seeds[code]) : '';
+          if (val !== '' && val !== seed) {
+            (editsMap[vKey] || (editsMap[vKey] = {}))[code] = val;
+          }
+        });
+      });
       if (dupsRemoved > 0) {
         toast('Removed ' + dupsRemoved + ' duplicate VIN' + (dupsRemoved === 1 ? '' : 's') +
               ' from the order.', 'info');
@@ -1365,7 +1396,7 @@
           runBtn.disabled = false;
           runBtn.textContent = 'Run Dealer';
         })
-        .pasteVinsAndRun(key, vins, dealId, runId, bypass, userKey, splitDealId || null, featuresMap);
+        .pasteVinsAndRun(key, vins, dealId, runId, bypass, userKey, splitDealId || null, featuresMap, editsMap);
     }
 
     function setRunStatus(msg, type) {
@@ -1374,13 +1405,14 @@
     }
 
     // ── Run Order live VIN table ──────────────────────────────────────────────
-    var rvVinData = { dealerKey: '', map: {}, featuresTypes: {} };
+    var rvVinData = { dealerKey: '', map: {}, featuresTypes: {}, editCodes: {}, editSeeds: {} };
     var rvFeatures = {};   // {VIN(upper) → text} — survives table re-renders
+    var rvEdits = {};      // {VIN(upper) → {code → text}} — editable-column values (seeded)
     var rvDebounce = null;
 
     function rvLoadDealerData(dealerKey) {
-      if (rvVinData.dealerKey !== dealerKey) rvFeatures = {};   // new dealer → stale text out
-      rvVinData = { dealerKey: dealerKey, map: {}, featuresTypes: {} };   // clear immediately
+      if (rvVinData.dealerKey !== dealerKey) { rvFeatures = {}; rvEdits = {}; }   // new dealer → stale text out
+      rvVinData = { dealerKey: dealerKey, map: {}, featuresTypes: {}, editCodes: {}, editSeeds: {} };   // clear immediately
       rvRenderTable();
       if (!dealerKey) return;
       google.script.run
@@ -1392,12 +1424,42 @@
           rvVinData = {
             dealerKey: dealerKey,
             map: (res && res.vinData) || {},
-            featuresTypes: (res && res.featuresTypes) || {}
+            featuresTypes: (res && res.featuresTypes) || {},
+            editCodes: (res && res.editCodes) || {},
+            editSeeds: (res && res.editSeeds) || {}
           };
           rvRenderTable();
         })
         .withFailureHandler(function() {})
         .getDealerVinData(dealerKey);
+    }
+
+    // Union of edit-flagged codes across the dealer's types, first-seen order:
+    // one table column per code. Returns [{code, max}] (max = strictest budget).
+    function rvEditColumns() {
+      var out = [], byCode = {};
+      Object.keys(rvVinData.editCodes).forEach(function(type) {
+        rvVinData.editCodes[type].forEach(function(c) {
+          if (!byCode[c.code]) { byCode[c.code] = { code: c.code, max: c.max }; out.push(byCode[c.code]); }
+          else if (c.max != null && (byCode[c.code].max == null || c.max < byCode[c.code].max)) byCode[c.code].max = c.max;
+        });
+      });
+      return out;
+    }
+
+    // Does this row's type get an input for this code?
+    function rvTypeHasEditCode(type, code) {
+      var list = rvVinData.editCodes[type];
+      if (!list) return false;
+      for (var i = 0; i < list.length; i++) if (list[i].code === code) return true;
+      return false;
+    }
+
+    // Current value for an edit input: user-typed if present, else the seed.
+    function rvEditValue(vinKey, code) {
+      if (rvEdits[vinKey] && rvEdits[vinKey][code] != null) return rvEdits[vinKey][code];
+      var seeds = rvVinData.editSeeds[vinKey];
+      return (seeds && seeds[code] != null) ? seeds[code] : '';
     }
 
     function rvRenderTable() {
@@ -1420,7 +1482,23 @@
       var rvHasFeatures = Object.keys(rvVinData.featuresTypes).length > 0;
       var featHead = document.getElementById('rvFeatHead');
       if (featHead) featHead.style.display = rvHasFeatures ? '' : 'none';
-      var cols = rvHasFeatures ? 9 : 8;
+
+      // Editable formula columns (`CODE:HEADER:edit` schema cells — VersaWorks
+      // text-fit): one dynamic column per code, seeded with the computed value.
+      // Header cells are rebuilt each render (marked .rv-edit-head).
+      var editCols = rvEditColumns();
+      var headRow = featHead ? featHead.parentNode : null;
+      if (headRow) {
+        var stale = headRow.querySelectorAll('.rv-edit-head');
+        for (var h = 0; h < stale.length; h++) headRow.removeChild(stale[h]);
+        editCols.forEach(function(c) {
+          var th = document.createElement('th');
+          th.className = 'rv-edit-head';
+          th.textContent = c.code;
+          headRow.appendChild(th);
+        });
+      }
+      var cols = (rvHasFeatures ? 9 : 8) + editCols.length;
 
       if (!lines.length) {
         body.innerHTML = '<tr class="rv-empty-row"><td colspan="' + cols + '">' +
@@ -1446,6 +1524,20 @@
                 '" value="' + escHtml(rvFeatures[key] || '') + '" placeholder="Features…"></td>'
               : '<td>—</td>';
           }
+          var editCells = '';
+          editCols.forEach(function(c) {
+            if (rvTypeHasEditCode(d.type, c.code)) {
+              var val = rvEditValue(key, c.code);
+              var over = c.max != null && val.length > c.max;
+              editCells += '<td class="rv-feat"><input type="text" class="rv-edit-input' +
+                (over ? ' rv-over' : '') + '" data-vin="' + escHtml(key) +
+                '" data-code="' + escHtml(c.code) + '"' +
+                (c.max != null ? ' data-max="' + c.max + '"' : '') +
+                ' value="' + escHtml(val) + '"></td>';
+            } else {
+              editCells += '<td>—</td>';
+            }
+          });
           html += '<tr>' +
             '<td>' + escHtml(d.year)  + '</td>' +
             '<td>' + escHtml(d.make)  + '</td>' +
@@ -1456,14 +1548,18 @@
             '<td>' + escHtml(d.status) + '</td>' +
             '<td class="rv-link">' + urlCell + '</td>' +
             featCell +
+            editCells +
           '</tr>';
         } else {
+          var blankEdit = '';
+          editCols.forEach(function() { blankEdit += '<td>—</td>'; });
           html += '<tr class="row-danger">' +
             '<td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>' +
             '<td class="rv-vin">' + escHtml(lines[j]) + '</td>' +
             '<td>⚠ not in this dealer</td>' +
             '<td>—</td>' +
             (rvHasFeatures ? '<td>—</td>' : '') +
+            blankEdit +
           '</tr>';
         }
       }

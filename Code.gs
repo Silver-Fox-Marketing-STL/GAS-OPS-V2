@@ -925,8 +925,12 @@ function getActiveDealersForUI() {
  * @param {Object|null} featuresMap    - {VIN(upper) → text} typed in the Run table. Required
  *                                        (non-blank) for every VIN whose type resolves to a
  *                                        schema listing FEATURES; ignored otherwise.
+ * @param {Object|null} editsMap       - {VIN(upper) → {code → text}} user-changed values for
+ *                                        `edit`-flagged schema columns (VersaWorks text-fit).
+ *                                        Optional — only rows the user actually changed;
+ *                                        applied at CSV-write time (csvCellValue_).
  */
-function pasteVinsAndRun(dealerKey, vins, dealId, runId, bypassFilters, userKey, splitDealId, featuresMap) {
+function pasteVinsAndRun(dealerKey, vins, dealId, runId, bypassFilters, userKey, splitDealId, featuresMap, editsMap) {
   var config = getDealerConfig_(dealerKey);
   if (!config) throw new Error('Dealer key not found: ' + dealerKey);
 
@@ -992,7 +996,7 @@ function pasteVinsAndRun(dealerKey, vins, dealId, runId, bypassFilters, userKey,
   // overwritten the column between this write and that read).
   return runDealer(dealerKey, dealId ? String(dealId).trim() : '', runId || null, bypassFilters === true,
                    qrBasePath, config, splitDealId ? String(splitDealId).trim() : '', vins,
-                   featuresMap || null);
+                   featuresMap || null, editsMap || null);
 }
 
 /**
@@ -1015,11 +1019,14 @@ function pasteVinsAndRun(dealerKey, vins, dealId, runId, bypassFilters, userKey,
  *                                        ORDERMATCH col W after matching (validated upstream
  *                                        by pasteVinsAndRun). Manual editor runs omit it —
  *                                        col W stays blank (type directly in the sheet).
+ * @param {Object|null} editsMap       - {VIN(upper) → {code → text}} user-changed values for
+ *                                        `edit`-flagged schema columns; overrides the
+ *                                        formula-derived value at CSV-write time only.
  * @return {Object|null} {outputFolderUrl, pendingRuns, dealerName, producedVinCount} —
  *                       pendingRuns entries are finalized or abandoned in the modal;
  *                       nothing is logged until finalizeRun runs.
  */
-function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloadedConfig, splitDealId, presetVins, featuresMap) {
+function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloadedConfig, splitDealId, presetVins, featuresMap, editsMap) {
   var startTime = new Date();
   var errors    = [];
 
@@ -1185,7 +1192,7 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     //     (source_split) additionally splits each CSV by URL domain
     //     (e.g. main vs AutoLoanPro) — one billing/deal, separate CSVs.
     setProgress_(runId, 'Building CSV output...', 88);
-    buildCSVSheet_(outputDoc, typeRules, csvSourceSplit, csvProductMaps.main, csvProductMaps.secondary);
+    buildCSVSheet_(outputDoc, typeRules, csvSourceSplit, csvProductMaps.main, csvProductMaps.secondary, editsMap);
 
     // 14. Write BILLING sheet(s) from ORDERMATCH + LOG data. An optional
     //     billing_split in filtering_rules renders group vehicles (e.g. Sprinter
@@ -1418,27 +1425,45 @@ function buildVinDataMap_(rows) {
 }
 
 /**
- * Client-callable. Returns the selected dealer's inventory + Features config for
- * the Run Order live table: `{ vinData: {VIN→row}, featuresTypes: {type→true} }`.
- * featuresTypes = types whose resolved CSV schema lists FEATURES (cheap config-
- * sheet reads — PIPEDRIVE/CSV_SCHEMAS tabs, no Pipedrive HTTP). Fail-safe: empty
- * shapes on any error (the table shows VINs as "not found" rather than break).
+ * Client-callable. Returns the selected dealer's inventory + per-row edit
+ * config for the Run Order live table:
+ *   { vinData:       {VIN→row},
+ *     featuresTypes: {type→true},                 // types needing manual FEATURES text
+ *     editCodes:     {type→[{code,max}]},         // schema columns flagged `edit`
+ *     editSeeds:     {VIN→{code→seed}} }          // advisory previews (computeEditSeed_)
+ * Cheap config-sheet reads only (PIPEDRIVE/CSV_SCHEMAS tabs, no Pipedrive HTTP).
+ * Fail-safe: empty shapes on any error (the table shows VINs as "not found").
  */
 function getDealerVinData(dealerKey) {
   try {
     var config = getDealerConfig_(dealerKey);
-    if (!config) return { vinData: {}, featuresTypes: {} };
+    if (!config) return { vinData: {}, featuresTypes: {}, editCodes: {}, editSeeds: {} };
     var loc = config[CFG.SCRAPER_LOCATION];
     var rows = loc ? (getDealerScraperData_(loc) || []) : [];
     var maps = getCsvProductMaps_(config[CFG.KEY], getSourceSplit_(config));
     var typeRules = buildTypeRulesFromProductMap_(maps.main);
+    var editCodes = editableCodesForDealer_(typeRules, maps.main);
+    var editSeeds = {};
+    if (Object.keys(editCodes).length) {
+      rows.forEach(function(r) {
+        var vin = String(r[0] == null ? '' : r[0]).trim();
+        if (vin === '' || vin === '*') return;
+        var codes = editCodes[String(r[2] == null ? '' : r[2]).trim()];
+        if (!codes) return;
+        var seeds = {};
+        codes.forEach(function(c) { seeds[c.code] = computeEditSeed_(c.code, r); });
+        editSeeds[vin.toUpperCase()] = seeds;
+      });
+    }
     return {
       vinData: buildVinDataMap_(rows),
-      featuresTypes: featuresTypesForDealer_(typeRules, maps.main)
+      featuresTypes: featuresTypesForDealer_(typeRules, maps.main),
+      editCodes: editCodes,
+      editSeeds: editSeeds
     };
   } catch (e) {
     Logger.log('getDealerVinData failed for ' + dealerKey + ': ' + e.message);
-    return { vinData: {}, featuresTypes: {} };
+    return { vinData: {}, featuresTypes: {}, editCodes: {}, editSeeds: {} };
   }
 }
 
@@ -2178,9 +2203,10 @@ function csvOutputGroups_(typeRules, productMap) {
   return { groups: groups, matchToKey: matchToKey, single: single };
 }
 
-function buildCSVSheet_(outputDoc, typeRules, sourceSplit, mainProductMap, secondaryProductMap) {
+function buildCSVSheet_(outputDoc, typeRules, sourceSplit, mainProductMap, secondaryProductMap, editsMap) {
   mainProductMap      = mainProductMap || {};
   secondaryProductMap = secondaryProductMap || {};
+  editsMap            = editsMap || null;
   var omSheet = outputDoc.getSheetByName('ORDERMATCH');
   var lastRow = omSheet.getLastRow();
   if (lastRow < 2) { Logger.log('No ORDERMATCH data for CSV.'); return; }
@@ -2193,12 +2219,15 @@ function buildCSVSheet_(outputDoc, typeRules, sourceSplit, mainProductMap, secon
   // Renders one CSV sheet from a set of ORDERMATCH rows + a SCHEMA key.
   // Schema cells may carry a header override (`CODE:HEADER`, e.g. VersaWorks
   // VDP field names) — the code drives the data lookup, the header prints.
+  // User edits from the Run table (editsMap, keyed VIN+code) override the
+  // formula-derived value per cell at write time (csvCellValue_).
   function writeGroup_(schemaKey, rows, sheetName) {
     var entries = (getCsvSchema_(schemaKey) || getCsvSchema_('SCP')).map(parseSchemaCell_);
     var dataRows = rows.map(function(row) {
+      var vin = row[4];   // ORDERMATCH col E
       return entries.map(function(e) {
         var col = fieldToCol[e.code];
-        return col ? row[col - 1] : '';
+        return csvCellValue_(col ? row[col - 1] : '', vin, e.code, editsMap);
       });
     });
     var headers = dedupFieldCodeHeaders_(entries.map(function(e) { return e.header; }));
@@ -2297,19 +2326,96 @@ function validateProductMapForRun_(matchedTypes, productMap) {
 }
 
 /**
- * Pure: parses one CSV_SCHEMAS cell. A cell is `CODE` or `CODE:HEADER` —
- * the code drives the ORDERMATCH column lookup, the header prints in the CSV
- * header row (VersaWorks VDP field names must match the job file's variables,
- * so headers are overridable per schema column). Splits on the FIRST colon;
- * a blank header falls back to the code (legacy behavior, header = code).
+ * Pure: parses one CSV_SCHEMAS cell. A cell is `CODE`, `CODE:HEADER`, or
+ * `CODE:HEADER:edit[N]` — the code drives the ORDERMATCH column lookup, the
+ * header prints in the CSV header row (VersaWorks VDP field names must match
+ * the job file's variables), and an `edit` flag marks the column user-editable
+ * in the Run table before the run (`editN` adds a soft length budget of N
+ * chars — VersaWorks shrinks over-long text, so the input warns past N).
+ * Splits on the FIRST colon; a trailing segment that isn't `edit[N]` folds
+ * back into the header (fail-safe); a blank header falls back to the code.
  */
 function parseSchemaCell_(cell) {
   var s = String(cell == null ? '' : cell).trim();
   var i = s.indexOf(':');
-  if (i === -1) return { code: s, header: s };
+  if (i === -1) return { code: s, header: s, edit: false };
   var code = s.slice(0, i).trim();
-  var header = s.slice(i + 1).trim();
-  return { code: code, header: header || code };
+  var rest = s.slice(i + 1).trim();
+  var edit = false;
+  var j = rest.lastIndexOf(':');
+  if (j !== -1) {
+    var m = rest.slice(j + 1).trim().match(/^edit(\d*)$/i);
+    if (m) {
+      edit = { max: m[1] ? parseInt(m[1], 10) : null };
+      rest = rest.slice(0, j).trim();
+    }
+  }
+  return { code: code, header: rest || code, edit: edit };
+}
+
+/**
+ * Returns the per-type editable columns from a dealer's resolved schemas:
+ * `{type: [{code, max}]}`. Same resolution as the CSV builder; a type with no
+ * `edit`-flagged columns is omitted. Fail-safe {} on no rules.
+ */
+function editableCodesForDealer_(typeRules, productMap) {
+  var out = {};
+  (typeRules || []).forEach(function(rule) {
+    var cells = getCsvSchema_(resolveRuleSchema_(rule, productMap));
+    if (!cells) return;
+    var list = [], seen = {};
+    cells.forEach(function(c) {
+      var e = parseSchemaCell_(c);
+      if (e.edit && !seen[e.code]) { seen[e.code] = 1; list.push({ code: e.code, max: e.edit.max }); }
+    });
+    if (list.length) out[rule.match] = list;
+  });
+  return out;
+}
+
+/**
+ * Pure: ADVISORY preview value for an editable column — a JS twin of the
+ * template ARRAYFORMULA, computed from a base-21 SCRAPERDATA row so the Run
+ * table can seed the edit input before the run. The template formula stays
+ * AUTHORITATIVE: only user-CHANGED values are sent with the run, so a drift
+ * between a twin and its formula can never corrupt an unedited row. Keep the
+ * twins in sync when a template formula changes. Unknown code → ''.
+ * Row indices: 0 VIN, 1 Stock, 3 Year, 5 Model, 6 Trim, 9 Price.
+ */
+function computeEditSeed_(code, r) {
+  function f(i) { return String(r[i] == null ? '' : r[i]).trim(); }
+  switch (String(code)) {
+    case 'MODELTRIM':      return (f(5) + ' ' + f(6)).trim().toUpperCase();
+    case 'YEARMODELSTOCK': return ((f(3) + ' ' + f(5)).trim() + ' - ' + f(1)).toUpperCase();
+    case 'YEARMODEL':      return (f(3) + ' ' + f(5)).trim().toUpperCase();
+    case 'MISC':           return f(3) + ' ' + f(5) + ' - ' + f(0) + ' - ' + f(1);
+    case 'VINHALF':        return f(0).slice(-8);
+    case 'MODEL':          return f(5).toUpperCase();
+    case 'TRIM':           return f(6).toUpperCase();
+    case 'YEAR':           return f(3);
+    case 'STOCK':          return f(1);
+    case 'VIN':            return f(0);
+    case 'MV_PRICE': {
+      var raw = f(9);
+      var n = Number(raw.replace(/[$,]/g, ''));
+      if (raw === '' || raw === '*' || !isFinite(n)) return '*';
+      var s = String(Math.round(n + 2000)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+      return 'Market Value Price: $' + s;
+    }
+    default: return '';
+  }
+}
+
+/**
+ * Pure: resolves one CSV cell — a user edit (keyed by upper VIN + field code)
+ * overrides the ORDERMATCH-derived value; blank/absent edits keep the formula
+ * value. Applied at CSV-write time only, so ORDERMATCH formulas are untouched.
+ */
+function csvCellValue_(current, vin, code, edits) {
+  if (!edits) return current;
+  var e = edits[String(vin == null ? '' : vin).trim().toUpperCase()];
+  if (e && e[code] != null && String(e[code]).trim() !== '') return String(e[code]);
+  return current;
 }
 
 /**
