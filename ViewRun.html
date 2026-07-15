@@ -2,23 +2,28 @@
 
   <div class="rv-wrap app-measure">
 
-    <!-- TOP BAR: setup controls (primary row) + secondary row -->
+    <!-- TOP BAR: left cluster (selects + deal IDs + VIN-log status) |
+         flow zone (CAO summary / progress / finalize / status — JS toggles
+         each panel's display; relocated from the retired right rail) |
+         action buttons -->
     <div class="rv-topbar">
       <div class="rv-topbar-main">
 
         <div class="rv-topbar-inputs">
-          <div class="user-select-wrap">
-            <label for="userSelect">Running as</label>
-            <select id="userSelect">
-              <option value="">-- Loading... --</option>
-            </select>
-          </div>
+          <div class="rv-selects-row">
+            <div class="user-select-wrap">
+              <label for="userSelect">Running as</label>
+              <select id="userSelect">
+                <option value="">-- Loading... --</option>
+              </select>
+            </div>
 
-          <div>
-            <label for="runDealerSelect">Dealer</label>
-            <select id="runDealerSelect">
-              <option value="">-- Loading dealers... --</option>
-            </select>
+            <div>
+              <label for="runDealerSelect">Dealer</label>
+              <select id="runDealerSelect">
+                <option value="">-- Loading dealers... --</option>
+              </select>
+            </div>
           </div>
 
           <div>
@@ -33,6 +38,53 @@
             <input type="text" id="splitDealId" placeholder="e.g. 44022" />
             <div class="field-hint" id="splitDealHint">Optional. This dealer bills these units to a separate Pipedrive deal — entered or confirmed after the run.</div>
           </div>
+
+          <!-- VIN log status row (shown after dealer selected) -->
+          <div id="vinLogStatusRow">
+            <span class="log-label">Most recent order in log: <span id="vinLogOrderSpan" class="tag tone-neutral">—</span></span>
+            <button id="openVinLogBtn" onclick="openVinLogUpdater()">&#x1F4CB; Update VIN Log</button>
+          </div>
+        </div>
+
+        <div class="rv-flow">
+          <div id="caoSummary">
+            <div class="summary-row"><span>Total inventory</span><span id="sTotal">—</span></div>
+            <div class="summary-row"><span>After filters</span><span id="sFiltered">—</span></div>
+            <div id="rejectionRows"></div>
+            <hr class="summary-divider">
+            <div class="summary-row"><span>Already printed</span><span id="sPrinted">—</span></div>
+            <hr class="summary-divider">
+            <div class="summary-row summary-net"><span><b>Net new (pre-filled)</b></span><span id="sNetNew">—</span></div>
+          </div>
+
+          <!-- Progress bar — shown during run -->
+          <div id="progressSection">
+            <div id="progressStep">Starting...</div>
+            <div class="progress-track">
+              <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <div class="progress-meta">
+              <span id="progressElapsed"></span>
+              <span id="progressPercent">0%</span>
+            </div>
+          </div>
+
+          <!-- Post-run finalization — shown after successful completion.
+               One card per prospective run log entry; each is finalized (deal ID
+               required) or abandoned. Nothing is logged until a card is finalized. -->
+          <div id="postRunActions">
+            <div class="post-run-row">
+              <a id="driveFolderBtn" class="btn-ghost" href="#" target="_blank">&#128194; Open Output Folder</a>
+            </div>
+            <div id="finalizeCards"></div>
+            <div class="post-run-row">
+              <button id="vinLogBtn" onclick="addToVINLog()" disabled>&#10003; Add to VIN Log</button>
+            </div>
+          </div>
+
+          <div id="runStatus" class="empty"></div>
+
+          <div class="rv-rail-hint" id="rvRailHint">Pre-fill from CAO or paste VINs, then Run.</div>
         </div>
 
         <div class="rv-topbar-actions">
@@ -42,16 +94,9 @@
         </div>
 
       </div>
-      <div class="rv-topbar-sub">
-        <!-- VIN log status row (shown after dealer selected) -->
-        <div id="vinLogStatusRow">
-          <span class="log-label">Most recent order in log: <span id="vinLogOrderSpan" class="tag tone-neutral">—</span></span>
-          <button id="openVinLogBtn" onclick="openVinLogUpdater()">&#x1F4CB; Update VIN Log</button>
-        </div>
-      </div>
     </div>
 
-    <!-- BODY: VIN box | data table | reserved rail -->
+    <!-- BODY: VIN box | data table (the flow zone lives in the topbar now) -->
     <div class="rv-body">
 
       <div class="rv-vinzone">
@@ -84,49 +129,6 @@
         </div>
       </div>
 
-      <div class="rv-rail">
-        <!-- CAO summary, progress, post-run actions, and run status stack here;
-             existing JS toggles their display. -->
-        <div id="caoSummary">
-          <div class="summary-row"><span>Total inventory</span><span id="sTotal">—</span></div>
-          <div class="summary-row"><span>After filters</span><span id="sFiltered">—</span></div>
-          <div id="rejectionRows"></div>
-          <hr class="summary-divider">
-          <div class="summary-row"><span>Already printed</span><span id="sPrinted">—</span></div>
-          <hr class="summary-divider">
-          <div class="summary-row summary-net"><span><b>Net new (pre-filled)</b></span><span id="sNetNew">—</span></div>
-        </div>
-
-        <!-- Progress bar — shown during run -->
-        <div id="progressSection">
-          <div id="progressStep">Starting...</div>
-          <div class="progress-track">
-            <div class="progress-fill" id="progressFill"></div>
-          </div>
-          <div class="progress-meta">
-            <span id="progressElapsed"></span>
-            <span id="progressPercent">0%</span>
-          </div>
-        </div>
-
-        <!-- Post-run finalization — shown after successful completion.
-             One card per prospective run log entry; each is finalized (deal ID
-             required) or abandoned. Nothing is logged until a card is finalized. -->
-        <div id="postRunActions">
-          <div class="post-run-row">
-            <a id="driveFolderBtn" class="btn-ghost" href="#" target="_blank">&#128194; Open Output Folder</a>
-          </div>
-          <div id="finalizeCards"></div>
-          <div class="post-run-row">
-            <button id="vinLogBtn" onclick="addToVINLog()" disabled>&#10003; Add to VIN Log</button>
-          </div>
-        </div>
-
-        <div id="runStatus" class="empty"></div>
-
-        <div class="rv-rail-hint" id="rvRailHint">Pre-fill from CAO or paste VINs, then Run.</div>
-      </div>
-
     </div>
   </div>
 </div>
@@ -143,22 +145,25 @@
       overflow: hidden;
     }
 
-    /* ── Option B layout: top bar + 3-zone body ─────────────────────────── */
+    /* ── Layout: top bar (left cluster | flow zone | actions) + 2-zone body ── */
     #view-run .rv-wrap { display: flex; flex-direction: column; height: 100%; min-height: 0; gap: var(--space-3); padding: var(--space-3); }
     #view-run .rv-topbar { display: flex; flex-direction: column; gap: var(--space-2); }
-    #view-run .rv-topbar-main { display: flex; align-items: flex-start; gap: var(--space-3); }
-    #view-run .rv-topbar-inputs { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-3); }
+    /* The topbar takes natural height (the flow zone grows during finalize) and
+       .rv-body's flex:1 absorbs the rest — the table shifts down, never overlaps. */
+    #view-run .rv-topbar-main { display: grid; grid-template-columns: minmax(300px, 360px) 1fr auto;
+                                align-items: start; gap: var(--space-3); }
+    #view-run .rv-topbar-inputs { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+    #view-run .rv-selects-row { display: flex; gap: var(--space-3); align-items: flex-end; }
+    #view-run .rv-selects-row > * { flex: 1 1 0; min-width: 0; }
+    /* Flow zone — the retired right rail's content, relocated. min-width:0 is
+       load-bearing: nowrap progress text must clip, not stretch the 1fr track. */
+    #view-run .rv-flow { display: flex; flex-direction: column; min-width: 0; }
     #view-run .rv-topbar-actions { flex-shrink: 0; display: flex; flex-direction: column; gap: var(--space-2); padding-top: 18px; }
     #view-run .rv-topbar-actions button { width: 100%; white-space: nowrap; }
-    #view-run .rv-topbar-sub  { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); font-size: var(--fs-sm); color: var(--text-2); }
-    /* Grid skeleton (default = the original vin / table / rail row, no-op):
-       named areas let a theme rearrange in one line (e.g. Luna → rail on left). */
-    #view-run .rv-body { display: grid; grid-template-columns: var(--rv-vin-w) 1fr var(--rv-rail-w);
-                         grid-template-areas: "vin table rail"; gap: var(--space-3); flex: 1; min-height: 0; }
+    #view-run .rv-body { display: grid; grid-template-columns: var(--rv-vin-w) 1fr;
+                         grid-template-areas: "vin table"; gap: var(--space-3); flex: 1; min-height: 0; }
     #view-run .rv-vinzone { grid-area: vin; display: flex; flex-direction: column; min-height: 0; }
     #view-run .rv-tablezone { grid-area: table; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
-    #view-run .rv-rail { grid-area: rail; display: flex; flex-direction: column; min-height: 0; overflow-y: auto;
-                         border-left: 1px solid var(--border); padding-left: var(--space-3); }
     #view-run .rv-zone-label { font-size: var(--fs-overline); text-transform: uppercase; letter-spacing: .04em; color: var(--text-3); margin-bottom: var(--space-2); }
     #view-run .rv-matchcount { font-size: var(--fs-sm); color: var(--text-2); margin-top: var(--space-2); }
     #view-run .rv-rail-hint { font-size: var(--fs-sm); color: var(--text-muted); padding: var(--space-2) 0; }
@@ -278,6 +283,7 @@
       display: none; margin-bottom: var(--space-3); padding: 8px 10px;
       background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
       font-size: 11px; line-height: 1.7;
+      max-width: 320px;   /* compact block in the wide flow zone (~its old rail width) */
     }
     #view-run #caoSummary .summary-row { display: flex; justify-content: space-between; }
     #view-run #caoSummary .summary-row span:last-child { font-weight: bold; color: var(--text); }
@@ -349,10 +355,13 @@
     }
 
     /* ── Finalization cards — one per prospective run log entry ──────────── */
-    #view-run #finalizeCards { margin-top: 10px; }
+    /* Side-by-side in the flow zone (billing-split runs show two). flex-start:
+       a finalized card grows its push block without stretching its neighbor. */
+    #view-run #finalizeCards { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; margin-top: 10px; }
     #view-run .finalize-card {
+      flex: 1 1 300px; min-width: 280px; max-width: 480px;
       border: 1px solid var(--border); border-radius: var(--radius-sm);
-      padding: 10px 12px; margin-bottom: 8px; background: var(--surface);
+      padding: 10px 12px; background: var(--surface);
     }
     #view-run .finalize-card.finalized { border-color: var(--success); background: var(--success-weak); }
     #view-run .finalize-card.abandoned { opacity: 0.55; background: var(--surface-2); }
@@ -462,37 +471,35 @@
     #view-run { background: var(--bg); color: var(--text); }
 
     /* ── Mobile (data-viewport="mobile") — phone ≤760px ─────────────────────
-       .rv-body already stacks (App.html). The topbar's main row is a
-       non-wrapping flex (inputs | actions) that crams on a ~360px screen — let
-       it wrap so the action buttons drop full-width below the inputs. The VIN
+       .rv-body already stacks (App.html). The topbar's 3-column grid (left
+       cluster | flow zone | actions) crams on a ~360px screen — stack it to one
+       column: cluster, then flow content, then full-width buttons. The VIN
        table is already in .rv-table-scroll (overflow:auto). No-op on desktop. */
-    :root[data-viewport="mobile"] #view-run .rv-topbar-main { flex-wrap: wrap; }
-    :root[data-viewport="mobile"] #view-run .rv-topbar-inputs { flex: 1 1 100%; }
-    :root[data-viewport="mobile"] #view-run .rv-topbar-actions { flex: 1 1 100%; flex-direction: row; flex-wrap: wrap; padding-top: 0; }
+    :root[data-viewport="mobile"] #view-run .rv-topbar-main { grid-template-columns: 1fr; }
+    :root[data-viewport="mobile"] #view-run .rv-selects-row { flex-direction: column; align-items: stretch; }
+    :root[data-viewport="mobile"] #view-run .rv-topbar-actions { flex-direction: row; flex-wrap: wrap; padding-top: 0; }
     :root[data-viewport="mobile"] #view-run .rv-topbar-actions button { flex: 1 1 auto; width: auto; }
 
     /* Full-page scroll on mobile: drop the fixed-height panes so the whole view
-       flows naturally and the bottom (post-CAO breakdown in the rail) is reachable
-       by scrolling the page. The desktop layout (height:100% + internal pane
-       scroll) is untouched — everything here is under [data-viewport="mobile"]. */
+       flows naturally and the bottom (post-CAO breakdown, finalize cards) is
+       reachable by scrolling the page. The desktop layout (height:100% + internal
+       pane scroll) is untouched — everything here is under [data-viewport="mobile"]. */
     :root[data-viewport="mobile"] #view-run { overflow-y: auto; }
     :root[data-viewport="mobile"] #view-run .rv-wrap { height: auto; min-height: 100%; }
     :root[data-viewport="mobile"] #view-run .rv-body { flex: 0 0 auto; min-height: 0; }
     /* min-width:0 is the key: grid items default to min-width:auto, so a wide
-       post-run element in the rail (the nowrap progress step / finalize-card rows
-       that appear after a run) would force the column wider than the viewport and
-       stretch the page horizontally. min-width:0 lets the column stay at viewport
-       width and the content clip/wrap within it. */
+       element (the nowrap progress step / finalize-card rows in the flow zone)
+       would force the column wider than the viewport and stretch the page
+       horizontally. min-width:0 lets the column stay at viewport width and the
+       content clip/wrap within it. */
     :root[data-viewport="mobile"] #view-run .rv-vinzone,
     :root[data-viewport="mobile"] #view-run .rv-tablezone,
-    :root[data-viewport="mobile"] #view-run .rv-rail { min-height: 0; min-width: 0; }
+    :root[data-viewport="mobile"] #view-run .rv-flow { min-height: 0; min-width: 0; }
     /* Keep the VIN textarea usable (~8+ lines) even after a CAO fill shrinks the
        grid row; it's flex:1 on desktop so a floor is all that's needed. */
     :root[data-viewport="mobile"] #view-run textarea { min-height: 220px; }
     /* The data table keeps its OWN internal scroll so it can't dominate the page. */
     :root[data-viewport="mobile"] #view-run .rv-table-scroll { max-height: 55vh; overflow: auto; }
-    /* Rail flows at natural height so the CAO breakdown is fully visible. */
-    :root[data-viewport="mobile"] #view-run .rv-rail { overflow-y: visible; border-left: none; padding-left: 0; }
 </style>
 
 <script>

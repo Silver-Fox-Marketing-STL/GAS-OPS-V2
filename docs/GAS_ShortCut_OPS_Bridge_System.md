@@ -1191,7 +1191,7 @@ New token: **`--font-mono: ui-monospace, 'Cascadia Mono', Consolas, Menlo, monos
 - `.home-status` — Encarta
 - `.toggle-slider`, `.toggle-slider:before` — Encarta inset
 - `.table-u th` — Encarta flat gray header, `position: static` (Win95 has no sticky inverted headers); **retargeted this pass** from the stale `#view-run #vinDataTable th`, so every unified table now gets Encarta treatment, not just Run Order
-- `#view-run .rv-table-scroll`, `#view-run .rv-rail` — Encarta inset borders
+- `#view-run .rv-table-scroll` — Encarta inset border *(the `.rv-rail` inset was retired with the rail in the July 2026 Run Order layout rework — rail content now lives in the topbar `.rv-flow` zone; Luna's Run override became `"table vin"` at the same time)*
 - `#appRoot`, `#appHeader`, `.app-brand .logo`, `#startBar`, `.start-btn`, `.start-clock` — Luna chrome (not coupled to the component layer; listed for completeness of the theme-override audit)
 
 A full audit of every Encarta/Luna selector against the migrated view fragments and the renamed-class list (`util-btn`, `ds-btn`, `ps-btn-*`, `eom-btn-*`, `eom-status`, `vi-badge`/`vi-badges`, `btn-add-*`, `rv-notfound`) found **no stale couplings** at HEAD of this branch.

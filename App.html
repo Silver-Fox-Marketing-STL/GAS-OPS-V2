@@ -266,7 +266,7 @@
     :root[data-viewport="mobile"] .nav-group-header { padding-top: 12px; padding-bottom: 12px; }   /* finger-sized targets */
 
     /* Grid-skeleton views collapse to a single column. */
-    :root[data-viewport="mobile"] #view-run .rv-body { grid-template-columns: 1fr; grid-template-areas: "vin" "table" "rail"; }
+    :root[data-viewport="mobile"] #view-run .rv-body { grid-template-columns: 1fr; grid-template-areas: "vin" "table"; }
     :root[data-viewport="mobile"] #view-vinlog .layout { grid-template-columns: 1fr; grid-template-areas: "main" "side"; }
     :root[data-viewport="mobile"] #view-vinlog .col-main { border-right: none; border-bottom: 1px solid var(--border); }
     :root[data-viewport="mobile"] #view-import .import-cols { grid-template-columns: 1fr; grid-template-areas: "left" "right"; }
@@ -399,9 +399,9 @@
     :root[data-theme="encarta"] .toggle-slider:before { border: 2px outset #dfdfdf !important; background: var(--surface) !important; }
     /* Every unified table header goes flat gray — Win95 has no sticky inverted headers. */
     :root[data-theme="encarta"] .table-u th { background: var(--surface) !important; color: var(--text) !important; position: static; }
-    /* Encarta — Run Order table + rail as Win95 panels */
+    /* Encarta — Run Order table as a Win95 panel (the old right rail is retired;
+       its content lives in the topbar flow zone, themed by its own child borders) */
     :root[data-theme="encarta"] #view-run .rv-table-scroll { border: 2px inset #dfdfdf !important; }
-    :root[data-theme="encarta"] #view-run .rv-rail { border-left: 2px inset #dfdfdf !important; }
 
     /* ── "Windows XP" (Luna) — window-frame reskin over the existing shell. ── */
     :root[data-theme="luna"] #appRoot { background: linear-gradient(180deg,#5a7edc,#4a6fc8); }
@@ -429,8 +429,9 @@
     /* Luna pairs the desktop with a blue background + light captions. */
     :root[data-theme="luna"] #view-home, :root[data-theme="luna"] #appContent { background: linear-gradient(180deg,#5a7edc,#4a6fc8); }
     :root[data-theme="luna"] #view-home .home-card .card-title { color: #fff; text-shadow: 1px 1px 2px rgba(0,0,0,.6); }
-    /* Luna moves the Run rail to the left as an Explorer task pane (uses the grid skeleton below). */
-    :root[data-theme="luna"] #view-run .rv-body { grid-template-columns: var(--rv-rail-w) 1fr var(--rv-vin-w); grid-template-areas: "rail table vin"; }
+    /* Luna mirrors the Run body — VIN column on the right, Explorer-style
+       (the rail is retired; base order is "vin table"). */
+    :root[data-theme="luna"] #view-run .rv-body { grid-template-columns: 1fr var(--rv-vin-w); grid-template-areas: "table vin"; }
 
     .nav-item {
       display: flex;
@@ -517,9 +518,9 @@
        measure and centers, so extra space becomes calm gutters instead of the
        "modal, stretched" look:
          form       → 880px  (narrow single-column: Utilities)
-         form-wide  → 1280px (split / dense config: Run, Rules, Import, Pipedrive,
+         form-wide  → 1280px (split / dense config: Rules, Import, Pipedrive,
                               Data Sources)
-         data       → 1680px (tables: Home, VIN Logs, Normalization)
+         data       → 1680px (tables: Home, VIN Logs, Normalization, Run)
        Gated by viewport WIDTH, intentionally NOT by [data-mode]: the modal is
        locked at 1400 so it sits under the 1500px gate and is untouched, while
        the full-screen browser tab AND the installed standalone window (both
