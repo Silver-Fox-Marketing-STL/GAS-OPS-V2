@@ -281,10 +281,13 @@
     #view-run #caoSummary .summary-net { color: var(--accent); }
     #view-run #caoSummary .summary-net span:last-child { color: var(--accent); }
     #view-run #caoSummary .rejection-detail { color: var(--text-3); font-size: 10.5px; }
-    /* Breakdown toggle — a button dressed as a summary row */
+    /* Breakdown toggle — a button dressed as a summary row, in the app's
+       link idiom (accent + hover underline, like the Vehicle URL links) so
+       it reads as clickable; the caret seals it. */
     #view-run .rej-toggle { display: flex; justify-content: space-between; gap: 12px; width: 100%;
-                            background: none; border: 0; padding: 0; font: inherit; cursor: pointer; }
-    #view-run .rej-toggle:hover { color: var(--text); }
+                            background: none; border: 0; padding: 0; font: inherit; cursor: pointer;
+                            color: var(--accent); }
+    #view-run .rej-toggle:hover span:first-child { text-decoration: underline; }
     /* Breakdown popover — top layer (never clipped by the card/band, zero
        layout shift); anchored under the toggle by rvPositionRejPop. */
     #view-run .rej-pop { position: fixed; inset: auto; margin: 0;
@@ -782,7 +785,7 @@
           if (b[k] > 0) items += '<div class="summary-row"><span>' +
             rejectionLabel(k) + '</span><span>' + b[k] + '</span></div>';
         });
-        rows = '<button type="button" class="rej-toggle rejection-detail" popovertarget="rvRejPop">' +
+        rows = '<button type="button" class="rej-toggle" popovertarget="rvRejPop">' +
                  '<span>Filtered out (' + totalRejected + ')</span><span>&#9662;</span></button>' +
                '<div id="rvRejPop" popover ontoggle="rvPositionRejPop(this)" class="rej-pop">' + items + '</div>';
       }
