@@ -139,13 +139,17 @@
     #view-run .rv-topbar-main { display: grid; grid-template-columns: minmax(300px, 360px) auto 1fr;
                                 align-items: start; gap: var(--space-3); }
     #view-run .rv-topbar-inputs { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
-    /* Flow zone — the retired right rail's content, relocated. min-width:0 is
-       load-bearing: nowrap progress text must clip, not stretch the 1fr track.
-       Children fill the zone's full width; the panels themselves lay out
-       horizontally (see #caoSummary / #postRunActions) so the topbar stays
-       SHORT and the table/VIN box below barely shift down. */
-    #view-run .rv-flow { display: flex; flex-direction: column; min-width: 0; }
-    #view-run .rv-flow > * { width: 100%; }
+    /* Flow zone — the retired right rail's content, relocated. A 2-column grid:
+       the compact panels (CAO strip, progress, status, hint) stack in a
+       content-sized left column (fit-content caps a long nowrap progress line
+       from blowing the column open), and the post-run band sits to their RIGHT
+       in the leftover width — the topbar stays one card tall. min-width:0 is
+       load-bearing on the zone and its items: nowrap progress text must clip,
+       not stretch the track. Grid gap owns the spacing (panel margins are 0). */
+    #view-run .rv-flow { display: grid; grid-template-columns: fit-content(560px) minmax(0, 1fr);
+                         align-items: start; gap: var(--space-2) var(--space-3); min-width: 0; }
+    #view-run .rv-flow > * { width: 100%; min-width: 0; grid-column: 1; }
+    #view-run #postRunActions { grid-column: 2; grid-row: 1 / span 4; }
     #view-run .rv-rail-hint { text-align: center; }
     #view-run .rv-topbar-actions { flex-shrink: 0; display: flex; flex-direction: column; gap: var(--space-2); padding-top: 18px; }
     #view-run .rv-topbar-actions button { width: 100%; white-space: nowrap; }
@@ -274,7 +278,7 @@
        rejection-breakdown rows keep their label/value row layout. */
     #view-run #caoSummary {
       display: none; align-items: stretch; flex-wrap: wrap;
-      gap: 4px var(--space-4); margin-bottom: var(--space-3); padding: 8px 14px;
+      gap: 4px var(--space-4); padding: 8px 14px;
       background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
       font-size: 11px; line-height: 1.5;
     }
@@ -292,7 +296,7 @@
 
     /* ── Progress section ────────────────────────────────────────────────── */
     #view-run #progressSection {
-      display: none; margin-bottom: var(--space-3); padding: 12px;
+      display: none; padding: 12px;
       background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
     }
     #view-run #progressStep {
@@ -321,7 +325,6 @@
       display: none;
       align-items: center; flex-wrap: wrap;
       gap: var(--space-3);
-      margin-bottom: var(--space-3);
     }
     #view-run .post-run-row {
       display: flex;
@@ -483,8 +486,9 @@
     :root[data-viewport="mobile"] #view-run .rv-topbar-main { grid-template-columns: 1fr; }
     :root[data-viewport="mobile"] #view-run .rv-topbar-actions { flex-direction: row; flex-wrap: wrap; padding-top: 0; }
     :root[data-viewport="mobile"] #view-run .rv-topbar-actions button { flex: 1 1 auto; width: auto; }
-    /* The horizontal post-run band re-stacks on a phone (cards + buttons full width). */
-    :root[data-viewport="mobile"] #view-run #postRunActions { flex-direction: column; align-items: stretch; }
+    /* The 2-column flow grid + horizontal post-run band re-stack on a phone. */
+    :root[data-viewport="mobile"] #view-run .rv-flow { grid-template-columns: 1fr; }
+    :root[data-viewport="mobile"] #view-run #postRunActions { grid-column: 1; grid-row: auto; flex-direction: column; align-items: stretch; }
 
     /* Full-page scroll on mobile: drop the fixed-height panes so the whole view
        flows naturally and the bottom (post-CAO breakdown, finalize cards) is
