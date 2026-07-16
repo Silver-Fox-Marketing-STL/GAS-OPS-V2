@@ -281,6 +281,18 @@
     #view-run #caoSummary .summary-net { color: var(--accent); }
     #view-run #caoSummary .summary-net span:last-child { color: var(--accent); }
     #view-run #caoSummary .rejection-detail { color: var(--text-3); font-size: 10.5px; }
+    /* Breakdown toggle — a button dressed as a summary row */
+    #view-run .rej-toggle { display: flex; justify-content: space-between; gap: 12px; width: 100%;
+                            background: none; border: 0; padding: 0; font: inherit; cursor: pointer; }
+    #view-run .rej-toggle:hover { color: var(--text); }
+    /* Breakdown popover — top layer (never clipped by the card/band, zero
+       layout shift); anchored under the toggle by rvPositionRejPop. */
+    #view-run .rej-pop { position: fixed; inset: auto; margin: 0;
+                         min-width: 260px; max-width: 360px; max-height: 300px; overflow-y: auto;
+                         padding: 10px 14px; font-size: 11px; line-height: 1.6;
+                         background: var(--surface-2); color: var(--text);
+                         border: 1px solid var(--border-2); border-radius: var(--radius-sm);
+                         box-shadow: 0 8px 24px rgba(0,0,0,.35); }
 
     /* ── Progress card — appears only while a run is live/complete, so the
        idle band has no empty placeholder card. JS shows it with display:flex. */
@@ -758,22 +770,41 @@
         }
         return k;
       }
+      // The per-reason breakdown collapses behind a click-to-open popover
+      // (top-layer — overlays the page, light-dismisses, and can never grow
+      // the fixed-height stats card, whatever the reason count).
       var rows = '';
       var totalRejected = s.totalInventory - s.afterFiltering;
       if (totalRejected > 0) {
-        rows += '<div class="rejection-detail">Filtered out (' + totalRejected + '):</div>';
+        var items = '';
         // Iterate the actual breakdown so new targeting reasons (cond:*, cao_excluded) render too.
         Object.keys(b).forEach(function(k) {
-          if (b[k] > 0) rows += '<div class="summary-row rejection-detail"><span>&nbsp;&nbsp;' +
+          if (b[k] > 0) items += '<div class="summary-row"><span>' +
             rejectionLabel(k) + '</span><span>' + b[k] + '</span></div>';
         });
+        rows = '<button type="button" class="rej-toggle rejection-detail" popovertarget="rvRejPop">' +
+                 '<span>Filtered out (' + totalRejected + ')</span><span>&#9662;</span></button>' +
+               '<div id="rvRejPop" popover ontoggle="rvPositionRejPop(this)" class="rej-pop">' + items + '</div>';
       }
       document.getElementById('rejectionRows').innerHTML = rows;
-      document.getElementById('caoSummary').style.display = 'flex';   // horizontal stat strip
+      document.getElementById('caoSummary').style.display = 'flex';
     }
 
     function hideCaoSummary() {
+      var pop = document.getElementById('rvRejPop');
+      if (pop && pop.hidePopover) { try { pop.hidePopover(); } catch (e) {} }
       document.getElementById('caoSummary').style.display = 'none';
+    }
+
+    // Anchor the rejection-breakdown popover under its toggle row (popovers
+    // default to viewport-center; CSS anchor positioning isn't broadly safe yet).
+    function rvPositionRejPop(pop) {
+      if (!pop.matches(':popover-open')) return;
+      var btn = document.querySelector('#view-run .rej-toggle');
+      if (!btn) return;
+      var r = btn.getBoundingClientRect();
+      pop.style.left = r.left + 'px';
+      pop.style.top = (r.bottom + 4) + 'px';
     }
 
     // ── Progress polling ──────────────────────────────────────────────────────
