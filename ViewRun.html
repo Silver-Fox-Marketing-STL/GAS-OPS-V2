@@ -151,7 +151,7 @@
                          overflow-x: auto; overflow-y: hidden; }
     /* Run-status card: progress strip + status banner + idle hint. */
     #view-run .rv-flow-mid { display: flex; flex-direction: column; justify-content: space-evenly; gap: var(--space-2);
-                             flex: 1.5 1 240px; min-width: 0;
+                             flex: 1.5 0 240px; min-width: 240px;
                              padding: 10px 14px; background: var(--surface);
                              border: 1px solid var(--border); border-radius: var(--radius-sm); }
     #view-run .rv-rail-hint { text-align: center; }
@@ -281,7 +281,7 @@
        a long rejection breakdown scrolls inside. JS shows it with display:flex. */
     #view-run #caoSummary {
       display: none; flex-direction: column; justify-content: space-evenly;
-      flex: 1 1 230px; min-width: 230px; overflow-y: auto;
+      flex: 1 0 230px; min-width: 230px; overflow-y: auto;
       padding: 10px 14px;
       background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
       font-size: 11px; line-height: 1.6;
@@ -320,7 +320,9 @@
       display: none;
       flex-direction: column;
       gap: var(--space-2);
-      flex: 2.5 1 340px; min-width: 0;
+      /* shrink 0 + no min-width:0 — cells keep their natural width and the
+         flow row scrolls horizontally instead of squishing them. */
+      flex: 2.5 0 340px;
     }
     #view-run .post-run-btns {
       display: flex;
@@ -359,8 +361,10 @@
 
     /* ── Finalization cards — one per prospective run log entry ──────────── */
     /* Side-by-side in the post-run band (billing-split runs show two);
-       stretch keeps card edges on the same grid lines as the neighbors. */
-    #view-run #finalizeCards { flex: 1 1 auto; min-width: 0; min-height: 0; display: flex; flex-wrap: wrap; justify-content: flex-start; align-items: stretch; gap: 8px; }
+       stretch keeps card edges on the same grid lines as the neighbors.
+       nowrap: a second card widens the block into the row's horizontal
+       scroll — wrapping would stack it past the fixed height. */
+    #view-run #finalizeCards { flex: 1 1 auto; min-height: 0; display: flex; flex-wrap: nowrap; justify-content: flex-start; align-items: stretch; gap: 8px; }
     #view-run .finalize-card {
       flex: 1 1 300px; min-width: 280px;
       display: flex; flex-direction: column; justify-content: space-evenly;
@@ -490,6 +494,7 @@
     :root[data-viewport="mobile"] #view-run .rv-flow { flex-direction: column; align-items: stretch; height: auto; overflow: visible; }
     :root[data-viewport="mobile"] #view-run #caoSummary { min-width: 0; }
     :root[data-viewport="mobile"] #view-run #postRunActions { flex-direction: column; align-items: stretch; }
+    :root[data-viewport="mobile"] #view-run #finalizeCards { flex-wrap: wrap; }
 
     /* Full-page scroll on mobile: drop the fixed-height panes so the whole view
        flows naturally and the bottom (post-CAO breakdown, finalize cards) is
