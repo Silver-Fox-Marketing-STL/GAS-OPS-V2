@@ -922,8 +922,15 @@ function getActiveDealersForUI() {
  * @param {string}      userKey        - Key from USER_PROFILES tab; determines local QR base path
  * @param {string|null} splitDealId    - Second Pipedrive Deal ID for billing-split dealers.
  *                                        Optional — pre-fills the group finalization card.
+ * @param {Object|null} featuresMap    - {VIN(upper) → text} typed in the Run table. Required
+ *                                        (non-blank) for every VIN whose type resolves to a
+ *                                        schema listing FEATURES; ignored otherwise.
+ * @param {Object|null} editsMap       - {VIN(upper) → {code → text}} user-changed values for
+ *                                        `edit`-flagged schema columns (VersaWorks text-fit).
+ *                                        Optional — only rows the user actually changed;
+ *                                        applied at CSV-write time (csvCellValue_).
  */
-function pasteVinsAndRun(dealerKey, vins, dealId, runId, bypassFilters, userKey, splitDealId) {
+function pasteVinsAndRun(dealerKey, vins, dealId, runId, bypassFilters, userKey, splitDealId, featuresMap, editsMap) {
   var config = getDealerConfig_(dealerKey);
   if (!config) throw new Error('Dealer key not found: ' + dealerKey);
 
@@ -950,6 +957,24 @@ function pasteVinsAndRun(dealerKey, vins, dealId, runId, bypassFilters, userKey,
   });
   vins = cleanVins_;
 
+  // Fail-fast: every ordered VIN whose type resolves to a FEATURES schema must
+  // have text. Runs BEFORE the ORDERS write and the template copy in runDealer —
+  // a validation failure creates zero artifacts. Client mirrors this check for
+  // UX; this is the authoritative gate.
+  var featMaps  = getCsvProductMaps_(config[CFG.KEY], getSourceSplit_(config));
+  var featTypes = featuresTypesForDealer_(buildTypeRulesFromProductMap_(featMaps.main), featMaps.main);
+  if (Object.keys(featTypes).length) {
+    // ponytail: second scraper read per run (runDealer reads again at step 7);
+    // thread the map through if it ever measurably matters.
+    var vinTypes = buildVinDataMap_(getDealerScraperData_(config[CFG.SCRAPER_LOCATION]) || []);
+    var missingFeat = collectMissingFeatures_(vins, vinTypes, featTypes, featuresMap);
+    if (missingFeat.length) {
+      throw new Error('Missing Features text for ' + missingFeat.length + ' vehicle' +
+        (missingFeat.length === 1 ? '' : 's') + ': ' + missingFeat.join(', ') +
+        '. Enter Features for every required row before running.');
+    }
+  }
+
   var colLetter = config[CFG.ORDERS_COL];
   var ss    = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName('ORDERS');
@@ -970,7 +995,8 @@ function pasteVinsAndRun(dealerKey, vins, dealId, runId, bypassFilters, userKey,
   // but the run must not read it back (a concurrent same-dealer run could have
   // overwritten the column between this write and that read).
   return runDealer(dealerKey, dealId ? String(dealId).trim() : '', runId || null, bypassFilters === true,
-                   qrBasePath, config, splitDealId ? String(splitDealId).trim() : '', vins);
+                   qrBasePath, config, splitDealId ? String(splitDealId).trim() : '', vins,
+                   featuresMap || null, editsMap || null);
 }
 
 /**
@@ -989,11 +1015,18 @@ function pasteVinsAndRun(dealerKey, vins, dealId, runId, bypassFilters, userKey,
  *                                        skips the ORDERS re-read (which a concurrent
  *                                        same-dealer run could overwrite). Manual editor
  *                                        runs omit it and read the ORDERS sheet as before.
+ * @param {Object|null} featuresMap    - {VIN(upper) → text} from the Run table, written to
+ *                                        ORDERMATCH col W after matching (validated upstream
+ *                                        by pasteVinsAndRun). Manual editor runs omit it —
+ *                                        col W stays blank (type directly in the sheet).
+ * @param {Object|null} editsMap       - {VIN(upper) → {code → text}} user-changed values for
+ *                                        `edit`-flagged schema columns; overrides the
+ *                                        formula-derived value at CSV-write time only.
  * @return {Object|null} {outputFolderUrl, pendingRuns, dealerName, producedVinCount} —
  *                       pendingRuns entries are finalized or abandoned in the modal;
  *                       nothing is logged until finalizeRun runs.
  */
-function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloadedConfig, splitDealId, presetVins) {
+function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloadedConfig, splitDealId, presetVins, featuresMap, editsMap) {
   var startTime = new Date();
   var errors    = [];
 
@@ -1118,33 +1151,48 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     var typeRules = buildTypeRulesFromProductMap_(csvProductMaps.main);
     Logger.log('Type rules (from product map): ' + JSON.stringify(typeRules));
 
+    // 9c. Write per-row Features text into ORDERMATCH col W — after the QUERY
+    //     spill has settled (matchedRows read above), before buildCSVSheet_
+    //     reads col W. Validated upstream by pasteVinsAndRun; blank entries are
+    //     harmless (only schemas listing FEATURES emit the column).
+    writeFeatures_(outputDoc, matchedRows, featuresMap);
+
     // 10. Copy VIN log into LOG tab of output doc
     setProgress_(runId, 'Copying VIN log (' + matchedRows.length + ' matched)...', 50);
     copyVINLogToOutput_(outputDoc, dealerKey);
 
-    // 11. Build LINKBUILDER, generate QR codes in parallel
-    setProgress_(runId, 'Building link formulas...', 56);
-    var links    = buildLinks_(outputDoc, config, typeRules);
-    // Auto-clear the dealer's QR folder first: folders then only ever hold the
-    // current run's PNGs (old ones go to Drive trash, 30-day recovery). Keeps
-    // uploads fast, abandons cheap, and kills the duplicate-filename pileup.
-    setProgress_(runId, 'Clearing old QR codes...', 60);
-    var clearedOld = clearQRFolder_(config[CFG.QR_FOLDER_ID]);
-    if (clearedOld > 0) Logger.log('Cleared ' + clearedOld + ' old QR PNGs before run.');
+    // 11+12. LINKBUILDER + QR generation + col-J paths — only when a resolved
+    //     schema actually emits a QR column. LINKBUILDER's sole consumer is QR
+    //     generation, so a no-QR dealer skips the whole block (and its blank
+    //     QR_FOLDER_ID / QR_PREFIX / UTM_BASE_URL config is never touched).
+    var links = [], qrFileIds = [];
+    if (runNeedsQR_(typeRules, csvProductMaps.main)) {
+      setProgress_(runId, 'Building link formulas...', 56);
+      links = buildLinks_(outputDoc, config, typeRules);
+      // Auto-clear the dealer's QR folder first: folders then only ever hold the
+      // current run's PNGs (old ones go to Drive trash, 30-day recovery). Keeps
+      // uploads fast, abandons cheap, and kills the duplicate-filename pileup.
+      setProgress_(runId, 'Clearing old QR codes...', 60);
+      var clearedOld = clearQRFolder_(config[CFG.QR_FOLDER_ID]);
+      if (clearedOld > 0) Logger.log('Cleared ' + clearedOld + ' old QR PNGs before run.');
 
-    setProgress_(runId, 'Generating ' + links.length + ' QR code' + (links.length === 1 ? '' : 's') + ' (parallel)...', 64);
-    var qrFileIds = generateQRCodesParallel_(links, config[CFG.QR_FOLDER_ID], config[CFG.QR_PREFIX]);
-    Logger.log('QR codes generated: ' + qrFileIds.length + ' of ' + links.length);
+      setProgress_(runId, 'Generating ' + links.length + ' QR code' + (links.length === 1 ? '' : 's') + ' (parallel)...', 64);
+      qrFileIds = generateQRCodesParallel_(links, config[CFG.QR_FOLDER_ID], config[CFG.QR_PREFIX]);
+      Logger.log('QR codes generated: ' + qrFileIds.length + ' of ' + links.length);
 
-    // 12. Write QR paths into ORDERMATCH col J
-    setProgress_(runId, links.length + ' QR codes complete. Writing paths...', 82);
-    writeQRPaths_(outputDoc, config[CFG.QR_PREFIX], links.length, qrBasePath);
+      // 12. Write QR paths into ORDERMATCH col J
+      setProgress_(runId, links.length + ' QR codes complete. Writing paths...', 82);
+      writeQRPaths_(outputDoc, config[CFG.QR_PREFIX], links.length, qrBasePath);
+    } else {
+      Logger.log('QR generation skipped — no resolved schema contains a QR field code.');
+      setProgress_(runId, 'No QR codes for this dealer — skipping...', 82);
+    }
 
     // 13. Build CSV sheet(s) based on type rules. A dual-site dealer
     //     (source_split) additionally splits each CSV by URL domain
     //     (e.g. main vs AutoLoanPro) — one billing/deal, separate CSVs.
     setProgress_(runId, 'Building CSV output...', 88);
-    buildCSVSheet_(outputDoc, typeRules, csvSourceSplit, csvProductMaps.main, csvProductMaps.secondary);
+    buildCSVSheet_(outputDoc, typeRules, csvSourceSplit, csvProductMaps.main, csvProductMaps.secondary, editsMap);
 
     // 14. Write BILLING sheet(s) from ORDERMATCH + LOG data. An optional
     //     billing_split in filtering_rules renders group vehicles (e.g. Sprinter
@@ -1377,21 +1425,45 @@ function buildVinDataMap_(rows) {
 }
 
 /**
- * Client-callable. Returns the selected dealer's inventory as a VIN→data map
- * for the Run Order live table. Fail-safe: returns {} on any error / unknown
- * dealer (the table then shows entered VINs as "not found" rather than break).
+ * Client-callable. Returns the selected dealer's inventory + per-row edit
+ * config for the Run Order live table:
+ *   { vinData:       {VIN→row},
+ *     featuresTypes: {type→true},                 // types needing manual FEATURES text
+ *     editCodes:     {type→[{code,max}]},         // schema columns flagged `edit`
+ *     editSeeds:     {VIN→{code→seed}} }          // advisory previews (computeEditSeed_)
+ * Cheap config-sheet reads only (PIPEDRIVE/CSV_SCHEMAS tabs, no Pipedrive HTTP).
+ * Fail-safe: empty shapes on any error (the table shows VINs as "not found").
  */
 function getDealerVinData(dealerKey) {
   try {
     var config = getDealerConfig_(dealerKey);
-    if (!config) return {};
+    if (!config) return { vinData: {}, featuresTypes: {}, editCodes: {}, editSeeds: {} };
     var loc = config[CFG.SCRAPER_LOCATION];
-    if (!loc) return {};
-    var rows = getDealerScraperData_(loc) || [];
-    return buildVinDataMap_(rows);
+    var rows = loc ? (getDealerScraperData_(loc) || []) : [];
+    var maps = getCsvProductMaps_(config[CFG.KEY], getSourceSplit_(config));
+    var typeRules = buildTypeRulesFromProductMap_(maps.main);
+    var editCodes = editableCodesForDealer_(typeRules, maps.main);
+    var editSeeds = {};
+    if (Object.keys(editCodes).length) {
+      rows.forEach(function(r) {
+        var vin = String(r[0] == null ? '' : r[0]).trim();
+        if (vin === '' || vin === '*') return;
+        var codes = editCodes[String(r[2] == null ? '' : r[2]).trim()];
+        if (!codes) return;
+        var seeds = {};
+        codes.forEach(function(c) { seeds[c.code] = computeEditSeed_(c.code, r); });
+        editSeeds[vin.toUpperCase()] = seeds;
+      });
+    }
+    return {
+      vinData: buildVinDataMap_(rows),
+      featuresTypes: featuresTypesForDealer_(typeRules, maps.main),
+      editCodes: editCodes,
+      editSeeds: editSeeds
+    };
   } catch (e) {
     Logger.log('getDealerVinData failed for ' + dealerKey + ': ' + e.message);
-    return {};
+    return { vinData: {}, featuresTypes: {}, editCodes: {}, editSeeds: {} };
   }
 }
 
@@ -1896,6 +1968,26 @@ function writeQRPaths_(outputDoc, qrPrefix, count, basePath) {
   }
 }
 
+/**
+ * Writes the per-row Features text into ORDERMATCH col W (FIELD_TO_COL.FEATURES),
+ * keyed by VIN (col E). matchedRows[i] ↔ sheet row i+2 — the QUERY spill is
+ * contiguous, so one batched setValues covers every row. Rows without an entry
+ * get '' (only schemas listing FEATURES emit the column downstream).
+ */
+function writeFeatures_(outputDoc, matchedRows, featuresMap) {
+  if (!featuresMap || !matchedRows || !matchedRows.length) return;
+  var col = getFieldToCol_()['FEATURES'];
+  if (!col) return;
+  var vals = matchedRows.map(function(r) {
+    var vin = String(r[4] == null ? '' : r[4]).trim().toUpperCase();  // col E
+    var txt = featuresMap[vin];
+    return [txt == null ? '' : String(txt)];
+  });
+  var range = outputDoc.getSheetByName('ORDERMATCH').getRange(2, col, vals.length, 1);
+  range.setValues(vals);
+  range.setNumberFormat('@');
+}
+
 
 // ============================================================================
 // SECTION 11: TYPE RULES ENGINE
@@ -1955,7 +2047,10 @@ var FIELD_TO_COL = {
   'TYPEVIN':            18,
   'YEARMODELSTOCK':     19,
   'PRICE_PLUS_2000':    20,
-  'PRICE_TAGLINE':      21
+  'PRICE_TAGLINE':      21,
+  // col V (22) is PRICE_MAINLINE — a template ARRAYFORMULA mapped via the
+  // FIELD_CODES tab's ordermatch_col (NOT in this constant; live in both envs).
+  'FEATURES':           23   // col W — per-row manual text, written by writeFeatures_ (like QR paths in J)
 };
 
 // Name of the optional config column (in the FIELD_CODES tab of SF_DEALER_CONFIG)
@@ -2108,9 +2203,10 @@ function csvOutputGroups_(typeRules, productMap) {
   return { groups: groups, matchToKey: matchToKey, single: single };
 }
 
-function buildCSVSheet_(outputDoc, typeRules, sourceSplit, mainProductMap, secondaryProductMap) {
+function buildCSVSheet_(outputDoc, typeRules, sourceSplit, mainProductMap, secondaryProductMap, editsMap) {
   mainProductMap      = mainProductMap || {};
   secondaryProductMap = secondaryProductMap || {};
+  editsMap            = editsMap || null;
   var omSheet = outputDoc.getSheetByName('ORDERMATCH');
   var lastRow = omSheet.getLastRow();
   if (lastRow < 2) { Logger.log('No ORDERMATCH data for CSV.'); return; }
@@ -2121,15 +2217,21 @@ function buildCSVSheet_(outputDoc, typeRules, sourceSplit, mainProductMap, secon
   var fieldToCol = getFieldToCol_();  // FIELD_TO_COL constant overlaid with FIELD_CODES config
 
   // Renders one CSV sheet from a set of ORDERMATCH rows + a SCHEMA key.
+  // Schema cells may carry a header override (`CODE:HEADER`, e.g. VersaWorks
+  // VDP field names) — the code drives the data lookup, the header prints.
+  // User edits from the Run table (editsMap, keyed VIN+code) override the
+  // formula-derived value per cell at write time (csvCellValue_).
   function writeGroup_(schemaKey, rows, sheetName) {
-    var fieldCodes = getCsvSchema_(schemaKey) || getCsvSchema_('SCP');
+    var entries = (getCsvSchema_(schemaKey) || getCsvSchema_('SCP')).map(parseSchemaCell_);
     var dataRows = rows.map(function(row) {
-      return fieldCodes.map(function(code) {
-        var col = fieldToCol[code];
-        return col ? row[col - 1] : '';
+      var vin = row[4];   // ORDERMATCH col E
+      return entries.map(function(e) {
+        var col = fieldToCol[e.code];
+        return csvCellValue_(col ? row[col - 1] : '', vin, e.code, editsMap);
       });
     });
-    writeCSVSheet_(outputDoc, sheetName, dedupFieldCodeHeaders_(fieldCodes), dataRows);
+    var headers = dedupFieldCodeHeaders_(entries.map(function(e) { return e.header; }));
+    writeCSVSheet_(outputDoc, sheetName, headers, dataRows);
     Logger.log('CSV sheet "' + sheetName + '" written: ' + dataRows.length + ' rows, schema: ' + schemaKey);
   }
 
@@ -2219,6 +2321,168 @@ function validateProductMapForRun_(matchedTypes, productMap) {
         e.schema == null || String(e.schema).trim() === '') {
       missing.push(t);
     }
+  });
+  return missing;
+}
+
+/**
+ * Pure: parses one CSV_SCHEMAS cell. A cell is `CODE`, `CODE:HEADER`, or
+ * `CODE:HEADER:edit[N]` — the code drives the ORDERMATCH column lookup, the
+ * header prints in the CSV header row (VersaWorks VDP field names must match
+ * the job file's variables), and an `edit` flag marks the column user-editable
+ * in the Run table before the run (`editN` adds a soft length budget of N
+ * chars — VersaWorks shrinks over-long text, so the input warns past N).
+ * Splits on the FIRST colon; a trailing segment that isn't `edit[N]` folds
+ * back into the header (fail-safe); a blank header falls back to the code.
+ */
+function parseSchemaCell_(cell) {
+  var s = String(cell == null ? '' : cell).trim();
+  var i = s.indexOf(':');
+  if (i === -1) return { code: s, header: s, edit: false };
+  var code = s.slice(0, i).trim();
+  var rest = s.slice(i + 1).trim();
+  var edit = false;
+  var j = rest.lastIndexOf(':');
+  if (j !== -1) {
+    var m = rest.slice(j + 1).trim().match(/^edit(\d*)$/i);
+    if (m) {
+      edit = { max: m[1] ? parseInt(m[1], 10) : null };
+      rest = rest.slice(0, j).trim();
+    }
+  }
+  return { code: code, header: rest || code, edit: edit };
+}
+
+/**
+ * Returns the per-type editable columns from a dealer's resolved schemas:
+ * `{type: [{code, max}]}`. Same resolution as the CSV builder; a type with no
+ * `edit`-flagged columns is omitted. Fail-safe {} on no rules.
+ */
+function editableCodesForDealer_(typeRules, productMap) {
+  var out = {};
+  (typeRules || []).forEach(function(rule) {
+    var cells = getCsvSchema_(resolveRuleSchema_(rule, productMap));
+    if (!cells) return;
+    var list = [], seen = {};
+    cells.forEach(function(c) {
+      var e = parseSchemaCell_(c);
+      if (e.edit && !seen[e.code]) { seen[e.code] = 1; list.push({ code: e.code, max: e.edit.max }); }
+    });
+    if (list.length) out[rule.match] = list;
+  });
+  return out;
+}
+
+/**
+ * Pure: ADVISORY preview value for an editable column — a JS twin of the
+ * template ARRAYFORMULA, computed from a base-21 SCRAPERDATA row so the Run
+ * table can seed the edit input before the run. The template formula stays
+ * AUTHORITATIVE: only user-CHANGED values are sent with the run, so a drift
+ * between a twin and its formula can never corrupt an unedited row. Keep the
+ * twins in sync when a template formula changes. Unknown code → ''.
+ * Row indices: 0 VIN, 1 Stock, 3 Year, 5 Model, 6 Trim, 9 Price.
+ */
+function computeEditSeed_(code, r) {
+  function f(i) { return String(r[i] == null ? '' : r[i]).trim(); }
+  switch (String(code)) {
+    case 'MODELTRIM':      return (f(5) + ' ' + f(6)).trim().toUpperCase();
+    case 'YEARMODELSTOCK': return ((f(3) + ' ' + f(5)).trim() + ' - ' + f(1)).toUpperCase();
+    case 'YEARMODEL':      return (f(3) + ' ' + f(5)).trim().toUpperCase();
+    case 'MISC':           return f(3) + ' ' + f(5) + ' - ' + f(0) + ' - ' + f(1);
+    case 'VINHALF':        return f(0).slice(-8);
+    case 'MODEL':          return f(5).toUpperCase();
+    case 'TRIM':           return f(6).toUpperCase();
+    case 'YEAR':           return f(3);
+    case 'STOCK':          return f(1);
+    case 'VIN':            return f(0);
+    case 'MV_PRICE': {
+      var raw = f(9);
+      var n = Number(raw.replace(/[$,]/g, ''));
+      if (raw === '' || raw === '*' || !isFinite(n)) return '*';
+      var s = String(Math.round(n + 2000)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+      return 'Market Value Price: $' + s;
+    }
+    default: return '';
+  }
+}
+
+/**
+ * Pure: resolves one CSV cell — a user edit (keyed by upper VIN + field code)
+ * overrides the ORDERMATCH-derived value; blank/absent edits keep the formula
+ * value. Applied at CSV-write time only, so ORDERMATCH formulas are untouched.
+ */
+function csvCellValue_(current, vin, code, edits) {
+  if (!edits) return current;
+  var e = edits[String(vin == null ? '' : vin).trim().toUpperCase()];
+  if (e && e[code] != null && String(e[code]).trim() !== '') return String(e[code]);
+  return current;
+}
+
+/**
+ * Pure: does a schema's field-code list include the FEATURES column?
+ * (FEATURES is the manually-typed per-row text column — ORDERMATCH col W.)
+ * Sees through `CODE:HEADER` header overrides.
+ */
+function schemaCodesHaveFeatures_(codes) {
+  return !!codes && codes.some(function(c) { return parseSchemaCell_(c).code === 'FEATURES'; });
+}
+
+/**
+ * Pure: does a schema's field-code list emit any QR-derived column?
+ * Used by runNeedsQR_ to skip QR generation entirely for no-QR dealers.
+ * Sees through `CODE:HEADER` header overrides.
+ */
+function schemaCodesHaveQR_(codes) {
+  if (!codes) return false;
+  var QR = { '@QR': 1, '@QR2': 1, 'QRYEARMODEL': 1, 'QRSTOCK': 1 };
+  return codes.some(function(c) { return QR[parseSchemaCell_(c).code] === 1; });
+}
+
+/**
+ * Returns the set of vehicle types whose RESOLVED schema (product-derived, same
+ * resolution as the CSV builder) lists FEATURES: `{type: true}`. Keys are the
+ * typeRules match tokens = product_map keys = canonical SCRAPERDATA types, so an
+ * exact-match lookup against a vehicle's type is consistent with the run
+ * (no CPO-EL/CPO substring concern — exact keys only). Fail-safe: {} on no rules.
+ */
+function featuresTypesForDealer_(typeRules, productMap) {
+  var out = {};
+  (typeRules || []).forEach(function(rule) {
+    if (schemaCodesHaveFeatures_(getCsvSchema_(resolveRuleSchema_(rule, productMap)))) {
+      out[rule.match] = true;
+    }
+  });
+  return out;
+}
+
+/**
+ * True when ANY resolved schema for the run emits a QR column — the gate for
+ * the whole QR block (LINKBUILDER + folder clear + PNG generation + col-J paths).
+ * Fail-safe FALSE on unknown schema keys / empty rules: a misconfigured schema
+ * skips QR work rather than throwing on a blank QR folder.
+ * ponytail: scans the main map only; add the secondary map if a source_split
+ * dealer ever needs QR on just its secondary site.
+ */
+function runNeedsQR_(typeRules, productMap) {
+  return (typeRules || []).some(function(rule) {
+    return schemaCodesHaveQR_(getCsvSchema_(resolveRuleSchema_(rule, productMap)));
+  });
+}
+
+/**
+ * Pure: the ordered VINs that REQUIRE Features text but have none. A VIN needs
+ * text when it's found in inventory (vinTypeMap, upper-keyed) AND its type is in
+ * featuresTypes. Missing VINs are reported in their original input casing.
+ * Shared by the client mirror check and the server fail-fast in pasteVinsAndRun.
+ */
+function collectMissingFeatures_(orderedVins, vinTypeMap, featuresTypes, featuresMap) {
+  var missing = [];
+  (orderedVins || []).forEach(function(v) {
+    var key = String(v).trim().toUpperCase();
+    var d = vinTypeMap[key];
+    if (!d || !featuresTypes[d.type]) return;   // not in inventory, or type needs no features
+    var txt = featuresMap && featuresMap[key];
+    if (txt == null || String(txt).trim() === '') missing.push(v);
   });
   return missing;
 }

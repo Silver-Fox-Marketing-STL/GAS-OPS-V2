@@ -94,7 +94,7 @@ exact schemas/mechanism/history — NOT in context).
 |---|---|
 | SF_SYSTEM_MASTER (script bound; SCRAPERDATA, ORDERS, RUN_LOG, IMPORT_STATS, ORDER_STATS, DASHBOARD) | `1G_wrlXVmcUDJ37xr3bDwDHUGUy9ULIbNufq_Xk9xVes` |
 | SF_DEALER_CONFIG (DEALERS, NORM_MAPS, CSV_SCHEMAS, USER_PROFILES, FIELD_CODES, PIPEDRIVE, PIPEDRIVE_SETTINGS) | `1csQdjcNey_mgcVqY99GOJ2PNCGRTyoZTbaUyJ3IZkJ8` |
-| SF_UNIVERSAL_TEMPLATE (copied per order; ORDERMATCH cols A–U) | `14Nk1FL-dfffIoWh9o8Q_EFCNlMXN3jUnlzzZ750QVTc` |
+| SF_UNIVERSAL_TEMPLATE (copied per order; ORDERMATCH cols A–Y) | `14Nk1FL-dfffIoWh9o8Q_EFCNlMXN3jUnlzzZ750QVTc` |
 | SF_VIN_LOGS (one tab per dealer_key; `ORDER_ID | VIN | committed_at`) | `12Xf6dyZXWXp4JwbytGo6lRUShwuGeN0yS3zhbco4-Lk` |
 
 ## Invariants — do not break
@@ -110,9 +110,24 @@ previously-hit failure — don't relax without reading the matching Bridge secti
   `getRunsForDealer` reads all 23 — keep new reads in sync. Cols G–N are the
   canonical-four per-type counts — never widened (new types go to `ORDER_TYPE_STATS`).
 - ORDERMATCH cols A–I are the QUERY spill zone — never write there in the template.
-  `FIELD_TO_COL` in Code.gs is the only runtime mapping; `buildCSVSheet_` reads 100
-  cols; `PRICE_TAGLINE` = col 21 (U). Template ARRAYFORMULAs `TYPESTOCK`/`TYPEVIN`
+  `FIELD_TO_COL` + the FIELD_CODES tab's `ordermatch_col` overlay are the runtime
+  mapping (`PRICE_MAINLINE`=22/V, `MODELTRIM`=24/X, `MV_PRICE`=25/Y live ONLY in
+  the overlay — the constant is not the full picture; check both before claiming
+  a column free); `buildCSVSheet_` reads 100 cols; `PRICE_TAGLINE` = col 21 (U);
+  `FEATURES` = col 23 (W), script-written per-row manual text (like col J —
+  template W2:W must stay EMPTY). Template ARRAYFORMULAs `TYPESTOCK`/`TYPEVIN`
   (N2/R2) are exact-match — a custom type prints its own uppercased name, not "USED".
+- CSV_SCHEMAS cells may be `CODE:HEADER[:edit[N]]` (VersaWorks): the code maps
+  the data column, the header prints, `edit` makes the column user-editable in
+  the Run table pre-run (`parseSchemaCell_`). Anything reading schema cells must
+  parse through the syntax — never `indexOf('FEATURES')` on raw cells. Seeds
+  (`computeEditSeed_`) are ADVISORY JS twins of template formulas — only
+  user-CHANGED values override the CSV (`csvCellValue_`); keep twins in sync
+  when a template ARRAYFORMULA changes.
+- A schema row = ONE template/job file. Two templates sharing a layout get two
+  schema rows (BOMM_WC_A/B) — the schema split IS the template split; never
+  "dedupe" same-layout rows (it merges their CSVs). `source_split` is the other
+  axis (per-vehicle URL, one type on two sites); they compose.
 - Widening any fixed sheet schema is append-only; grep every read of that sheet in
   the same change (the RUN_LOG 19→23 expansion silently broke a reader).
 
@@ -139,6 +154,11 @@ previously-hit failure — don't relax without reading the matching Bridge secti
   `applyFilteringRules_(…, phase)`: `exclude_order` both phases, `exclude_cao` +
   `cao_exclude_types` CAO-only, `drop_on_import` at import. Engine fails SAFE
   (misconfig/empty group → keep the vehicle). Fields via `getFilterFieldIndex_()`.
+- QR/LINKBUILDER is schema-gated: `runNeedsQR_` skips the whole block (links, folder
+  clear, PNGs, col-J paths) when no resolved schema carries a QR field code —
+  LINKBUILDER's only consumer is QR. Features text (`FEATURES` schemas) is required
+  per-row: client blocks Run, `pasteVinsAndRun` fail-fasts BEFORE any write
+  (`collectMissingFeatures_`); gating is exact-match on product-map keys both sides.
 - VIN and Stock must be `String()`-converted AND `@`-formatted before AND after
   `setValues()` (QUERY mixed-type bug).
 - VIN is the vehicle primary key. The legacy `use_stock_not_vin` flag is removed
