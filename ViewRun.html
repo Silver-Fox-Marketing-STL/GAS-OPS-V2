@@ -364,7 +364,10 @@
     #view-run .finalize-card {
       flex: 1 1 300px; min-width: 280px;
       display: flex; flex-direction: column; justify-content: space-evenly;
-      overflow-y: auto;   /* safety valve: content never grows the fixed flow row */
+      /* safety valve: a wrapped flex line sizes to its content, so without the
+         cap an over-tall card paints PAST the cards zone (under the button
+         row) instead of scrolling — max-height pins it to the zone. */
+      max-height: 100%; overflow-y: auto;
       border: 1px solid var(--border); border-radius: var(--radius-sm);
       padding: 10px 14px; background: var(--surface);
     }
@@ -426,13 +429,10 @@
     #view-run .finalize-card-status.error { color: var(--danger); }
     #view-run .finalize-card-status.ok { color: var(--success); }
 
-    /* ── Pipedrive push sub-block (inside a finalized card) ──────────────── */
+    /* ── Pipedrive push sub-block (inside a finalized card) — single-line;
+       it lives in the slot the hidden Finalize/Abandon buttons vacate. ── */
     #view-run .card-push {
-      margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border-2);
-    }
-    #view-run .card-push-title {
-      font-size: 11px; font-weight: bold; text-transform: uppercase;
-      letter-spacing: 0.3px; color: var(--text-3); margin-bottom: 6px;
+      margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border-2);
     }
     #view-run .card-push-modes { display: flex; gap: 14px; margin-bottom: 6px; }
     #view-run .card-push-modes label {
@@ -1089,10 +1089,9 @@
         var pushMode = (method === 'new') ? 'create' : 'link';
         try {
           if (wrap) {
-            wrap.innerHTML = '<div class="card-push-title">Pipedrive</div>' +
-              '<div class="card-push-status" id="pushStatus' + i + '"></div>';
+            wrap.innerHTML = '<div class="card-push-status" id="pushStatus' + i + '"></div>';
           }
-          var msg = res.message || 'Push failed.';
+          var msg = 'Pipedrive: ' + (res.message || 'Push failed.');
           if (res.stage === 'inactive_product') {
             msg += ' Fix the product mapping in Dealer Rules → Pipedrive, then push again.';
           }
@@ -1152,14 +1151,14 @@
     }
 
     // Collapse the controls to a done state showing the deal the run landed on.
+    // ONE line — the push block fills the slot the hidden Finalize/Abandon
+    // buttons vacate, so a finalized card never grows past the fixed flow row.
     function renderPushDone(i, res) {
       var wrap = document.getElementById('cardPush' + i);
       if (!wrap) return;
       var dealTxt = res.dealId != null ? ('#' + res.dealId) : '';
       wrap.innerHTML =
-        '<div class="card-push-title">Pipedrive</div>' +
-        '<div class="card-push-done">✓ ' + escHtml(res.message || 'Pushed to deal ' + dealTxt) + '</div>' +
-        (dealTxt ? '<div class="card-push-status ok">Pushed to deal ' + escHtml(dealTxt) + '</div>' : '');
+        '<div class="card-push-done">✓ ' + escHtml(res.message || 'Pushed to Pipedrive deal ' + dealTxt) + '</div>';
     }
 
     function renderPushRetry(i, mode, existingDealId) {
