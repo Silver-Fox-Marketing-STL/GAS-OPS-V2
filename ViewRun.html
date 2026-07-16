@@ -2,10 +2,9 @@
 
   <div class="rv-wrap app-measure">
 
-    <!-- TOP BAR: left cluster (selects + deal IDs + VIN-log status) |
+    <!-- TOP BAR: left cluster (selects + VIN-log status) | action buttons |
          flow zone (CAO summary / progress / finalize / status — JS toggles
-         each panel's display; relocated from the retired right rail) |
-         action buttons -->
+         each panel's display; lays out HORIZONTALLY to keep the topbar short) -->
     <div class="rv-topbar">
       <div class="rv-topbar-main">
 
@@ -32,6 +31,11 @@
             <span class="log-label">Most recent order in log: <span id="vinLogOrderSpan" class="tag tone-neutral">—</span></span>
             <button id="openVinLogBtn" onclick="openVinLogUpdater()">&#x1F4CB; Update VIN Log</button>
           </div>
+        </div>
+
+        <div class="rv-topbar-actions">
+          <button id="caoBtn" class="btn-ghost" onclick="prefillFromCAO()" disabled>&#x21BA; Pre-fill from CAO</button>
+          <button class="btn-primary" id="runBtn" onclick="runSelected()" disabled>Run Dealer</button>
         </div>
 
         <div class="rv-flow">
@@ -73,12 +77,6 @@
           <div id="runStatus" class="empty"></div>
 
           <div class="rv-rail-hint" id="rvRailHint">Pre-fill from CAO or paste VINs, then Run.</div>
-        </div>
-
-        <div class="rv-topbar-actions">
-          <button id="caoBtn" class="btn-ghost" onclick="prefillFromCAO()" disabled>&#x21BA; Pre-fill from CAO</button>
-          <button class="btn-primary" id="runBtn" onclick="runSelected()" disabled>Run Dealer</button>
-          <button class="btn-secondary" id="cancelBtn" onclick="closeModal()">Cancel</button>
         </div>
 
       </div>
@@ -138,20 +136,17 @@
     #view-run .rv-topbar { display: flex; flex-direction: column; gap: var(--space-2); }
     /* The topbar takes natural height (the flow zone grows during finalize) and
        .rv-body's flex:1 absorbs the rest — the table shifts down, never overlaps. */
-    #view-run .rv-topbar-main { display: grid; grid-template-columns: minmax(300px, 360px) 1fr auto;
+    #view-run .rv-topbar-main { display: grid; grid-template-columns: minmax(300px, 360px) auto 1fr;
                                 align-items: start; gap: var(--space-3); }
     #view-run .rv-topbar-inputs { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
     /* Flow zone — the retired right rail's content, relocated. min-width:0 is
        load-bearing: nowrap progress text must clip, not stretch the 1fr track.
-       Children are width-capped and centered so the zone reads as one calm,
-       uniform column instead of full-bleed strips. */
-    #view-run .rv-flow { display: flex; flex-direction: column; align-items: center; min-width: 0; }
-    #view-run .rv-flow > * { width: 100%; max-width: 720px; }
-    /* Progress, status strip, and hint match the single finalize card's 480px
-       so the zone reads as one column. #postRunActions keeps the 720 cap so a
-       billing-split run can still seat two cards abreast. */
-    #view-run #progressSection, #view-run #runStatus { max-width: 480px; }
-    #view-run .rv-rail-hint { text-align: center; max-width: 480px; }
+       Children fill the zone's full width; the panels themselves lay out
+       horizontally (see #caoSummary / #postRunActions) so the topbar stays
+       SHORT and the table/VIN box below barely shift down. */
+    #view-run .rv-flow { display: flex; flex-direction: column; min-width: 0; }
+    #view-run .rv-flow > * { width: 100%; }
+    #view-run .rv-rail-hint { text-align: center; }
     #view-run .rv-topbar-actions { flex-shrink: 0; display: flex; flex-direction: column; gap: var(--space-2); padding-top: 18px; }
     #view-run .rv-topbar-actions button { width: 100%; white-space: nowrap; }
     #view-run .rv-body { display: grid; grid-template-columns: var(--rv-vin-w) 1fr;
@@ -250,15 +245,16 @@
       display: none;
       align-items: center;
       gap: 8px;
-      font-size: 11px;
+      font-size: 12.5px;
       color: var(--text-2);
     }
     #view-run #vinLogStatusRow .log-label { flex: 1; }
     /* positioning only — visual spec now owned by .tag.tone-neutral */
     #view-run #vinLogStatusRow .log-label span { margin-left: 4px; }
+    #view-run #vinLogStatusRow .tag { font-size: 11.5px; }
     #view-run #openVinLogBtn {
-      padding: 4px 10px;
-      font-size: 11px;
+      padding: 7px 14px;
+      font-size: 12.5px;
       font-weight: bold;
       background: var(--bg);
       color: var(--accent);
@@ -272,18 +268,27 @@
     /* ── CAO button (positioning only — visual spec now owned by .btn-ghost) ── */
     #view-run #caoBtn { width: auto; margin: 0; }
 
-    /* ── CAO summary ─────────────────────────────────────────────────────── */
+    /* ── CAO summary — a horizontal stat strip (label over value), so it adds
+       one short band to the topbar instead of a tall stacked list. JS shows it
+       with display:flex. Direct-child rows become stat columns; the nested
+       rejection-breakdown rows keep their label/value row layout. */
     #view-run #caoSummary {
-      display: none; margin-bottom: var(--space-3); padding: 8px 10px;
+      display: none; align-items: stretch; flex-wrap: wrap;
+      gap: 4px var(--space-4); margin-bottom: var(--space-3); padding: 8px 14px;
       background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
-      font-size: 11px; line-height: 1.7;
-      max-width: 320px;   /* compact block in the wide flow zone (~its old rail width) */
+      font-size: 11px; line-height: 1.5;
     }
     #view-run #caoSummary .summary-row { display: flex; justify-content: space-between; }
+    #view-run #caoSummary > .summary-row { flex-direction: column; justify-content: center; }
     #view-run #caoSummary .summary-row span:last-child { font-weight: bold; color: var(--text); }
-    #view-run #caoSummary .summary-divider { border: none; border-top: 1px solid var(--border); margin: 4px 0; }
+    #view-run #caoSummary > .summary-row > span:last-child { font-size: 15px; }
+    #view-run #caoSummary .summary-divider { border: none; border-left: 1px solid var(--border); margin: 0; align-self: stretch; }
     #view-run #caoSummary .summary-net { color: var(--accent); }
+    #view-run #caoSummary .summary-net span:last-child { color: var(--accent); }
+    #view-run #caoSummary #rejectionRows { display: flex; flex-direction: column; justify-content: center; }
+    #view-run #caoSummary #rejectionRows:empty { display: none; }
     #view-run #caoSummary .rejection-detail { color: var(--text-3); font-size: 10.5px; margin-top: 2px; }
+    #view-run #caoSummary .rejection-detail.summary-row { gap: 12px; }
 
     /* ── Progress section ────────────────────────────────────────────────── */
     #view-run #progressSection {
@@ -309,16 +314,19 @@
     }
     #view-run #progressPercent { font-weight: bold; color: var(--text-2); }
 
-    /* ── Post-run actions ────────────────────────────────────────────────── */
+    /* ── Post-run actions — one horizontal band: [Open Folder] [finalize
+       card(s)] [Add to VIN Log], so the panel's height is just the card's.
+       JS shows it with display:flex. */
     #view-run #postRunActions {
       display: none;
+      align-items: center; flex-wrap: wrap;
+      gap: var(--space-3);
       margin-bottom: var(--space-3);
     }
     #view-run .post-run-row {
       display: flex;
       gap: 10px;
-      /* match the single finalize card's width and center over it */
-      width: 100%; max-width: 480px; margin-left: auto; margin-right: auto;
+      flex-shrink: 0;
     }
     /* Drive folder button — an <a> styled as a button; positioning + anchor
        resets only (visual spec now owned by .btn-ghost) */
@@ -351,9 +359,9 @@
     }
 
     /* ── Finalization cards — one per prospective run log entry ──────────── */
-    /* Side-by-side in the flow zone (billing-split runs show two). flex-start:
+    /* Side-by-side in the post-run band (billing-split runs show two). flex-start:
        a finalized card grows its push block without stretching its neighbor. */
-    #view-run #finalizeCards { display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-start; gap: 8px; margin-top: 10px; }
+    #view-run #finalizeCards { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-start; gap: 8px; }
     #view-run .finalize-card {
       flex: 1 1 300px; min-width: 280px; max-width: 480px;
       border: 1px solid var(--border); border-radius: var(--radius-sm);
@@ -475,6 +483,8 @@
     :root[data-viewport="mobile"] #view-run .rv-topbar-main { grid-template-columns: 1fr; }
     :root[data-viewport="mobile"] #view-run .rv-topbar-actions { flex-direction: row; flex-wrap: wrap; padding-top: 0; }
     :root[data-viewport="mobile"] #view-run .rv-topbar-actions button { flex: 1 1 auto; width: auto; }
+    /* The horizontal post-run band re-stacks on a phone (cards + buttons full width). */
+    :root[data-viewport="mobile"] #view-run #postRunActions { flex-direction: column; align-items: stretch; }
 
     /* Full-page scroll on mobile: drop the fixed-height panes so the whole view
        flows naturally and the bottom (post-CAO breakdown, finalize cards) is
@@ -761,7 +771,7 @@
         });
       }
       document.getElementById('rejectionRows').innerHTML = rows;
-      document.getElementById('caoSummary').style.display = 'block';
+      document.getElementById('caoSummary').style.display = 'flex';   // horizontal stat strip
     }
 
     function hideCaoSummary() {
@@ -865,7 +875,7 @@
         '</div>';
       });
       document.getElementById('finalizeCards').innerHTML = html;
-      document.getElementById('postRunActions').style.display = 'block';
+      document.getElementById('postRunActions').style.display = 'flex';   // horizontal band
     }
 
     // The up-front 3-way method selector + (Existing only) the deal-id input.
@@ -989,12 +999,6 @@
       if (!hasUnfinalizedCards()) return true;
       return confirm('You have run results that haven\'t been finalized or abandoned. ' +
                      'Discard them? They will never appear in the run log.');
-    }
-
-    function closeModal() {
-      // exitApp runs the shared AppGuards (which include this view's
-      // pending-cards and live-run checks) and confirms once.
-      exitApp();
     }
 
     // Method-first finalize. One server call per method; always capture rowIndex
@@ -1353,7 +1357,6 @@
 
       runBtn.disabled = true;
       runBtn.textContent = 'Running...';
-      document.getElementById('cancelBtn').textContent = 'Close';
       setRunStatus('', 'empty');
       startPolling(runId);
 
