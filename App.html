@@ -504,6 +504,14 @@
       color: var(--text);
     }
     #appHeaderRight { margin-left: auto; font-size: 11px; color: var(--text-3); }
+    /* Run Order status pill — same tones as the old in-view banner, header-sized */
+    #appHeaderStatus { font-size: 13px; padding: 4px 12px; border-radius: var(--radius-sm);
+                       min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #appHeaderStatus.error   { background: var(--danger-weak);  color: var(--danger); }
+    #appHeaderStatus.success { background: var(--success-weak); color: var(--success); }
+    #appHeaderStatus.info    { background: var(--accent-weak);  color: var(--accent); }
+    #appHeaderStatus.empty, #appHeaderStatus:empty { display: none; }
+    #appHeaderStatus[hidden] { display: none !important; }
     #appContent { flex: 1; min-height: 0; position: relative; background: var(--bg); }
 
     /* ── Views ─────────────────────────────────────────────────────────────── */
@@ -614,6 +622,9 @@
     <div id="appMain">
       <div id="appHeader">
         <span id="appHeaderTitle">Home</span>
+        <!-- Run Order's status line (setRunStatus) — fixed spot beside the title
+             instead of moving around the view; hidden on every other view. -->
+        <span id="appHeaderStatus" class="empty" hidden></span>
         <span id="appHeaderRight"></span>
       </div>
       <div id="appContent">
@@ -686,6 +697,9 @@
         if (sg) sg.classList.remove('collapsed');
       }
       document.getElementById('appHeaderTitle').textContent = NAV_TITLES[viewId] || '';
+      // The header status line belongs to Run Order; its text survives the
+      // round-trip (hidden views keep state, so does this).
+      document.getElementById('appHeaderStatus').hidden = (viewId !== 'view-run');
 
       // Lazy init (once), then on-show hook (every visit)
       if (!_viewInited[viewId]) {
