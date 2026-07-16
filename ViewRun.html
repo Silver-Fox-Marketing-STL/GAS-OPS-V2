@@ -49,7 +49,8 @@
             <div class="summary-row summary-net"><span><b>Net new (pre-filled)</b></span><span id="sNetNew">—</span></div>
           </div>
 
-          <!-- Middle cell: progress bar, status banner, idle hint -->
+          <!-- Middle cell: progress bar + status banner (idle guidance lives
+               in the VIN textarea's placeholder) -->
           <div class="rv-flow-mid">
             <div id="progressSection">
               <div id="progressStep">Starting...</div>
@@ -63,8 +64,6 @@
             </div>
 
             <div id="runStatus" class="empty"></div>
-
-            <div class="rv-rail-hint" id="rvRailHint">Pre-fill from CAO or paste VINs, then Run.</div>
           </div>
 
           <!-- Post-run finalization — shown after successful completion.
@@ -87,7 +86,7 @@
 
       <div class="rv-vinzone">
         <label for="vinInput">VINs / Stock Numbers</label>
-        <textarea id="vinInput" placeholder="Paste VINs here, one per line..."></textarea>
+        <textarea id="vinInput" placeholder="Pre-fill from CAO, or paste VINs here — one per line..."></textarea>
         <label class="bypass-label">
           <input type="checkbox" id="bypassFilters" />
           Bypass filtering rules
@@ -141,7 +140,7 @@
     #view-run .rv-topbar-inputs { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
     /* Flow zone — HARD RULE: the table/VIN box NEVER shift for run-flow
        elements. The zone is a FIXED-HEIGHT row of up to three equal-height
-       cards — [inventory stats] [run status: progress/status/hint] [finalize
+       cards — [inventory stats] [run status: progress + status] [finalize
        block] — each filling the full height (shared top/bottom gridlines) and
        distributing its contents evenly. Too narrow → the row scrolls
        horizontally; it never wraps or grows taller. min-width:0 is
@@ -149,12 +148,12 @@
     #view-run .rv-flow { display: flex; align-items: stretch; gap: var(--space-2); min-width: 0;
                          height: 190px;   /* ponytail: ≈ the input cluster's height — the ONE height knob */
                          overflow-x: auto; overflow-y: hidden; }
-    /* Run-status card: progress strip + status banner + idle hint. */
+    /* Run-status card: progress strip + status banner. */
     #view-run .rv-flow-mid { display: flex; flex-direction: column; justify-content: space-evenly; gap: var(--space-2);
                              flex: 1.5 0 240px; min-width: 240px;
                              padding: 10px 14px; background: var(--surface);
-                             border: 1px solid var(--border); border-radius: var(--radius-sm); }
-    #view-run .rv-rail-hint { text-align: center; }
+                             border: 1px solid var(--border); border-radius: var(--radius-sm);
+                             overflow-y: auto; }
     #view-run .rv-topbar-actions { flex-shrink: 0; display: flex; flex-direction: column; gap: var(--space-2); padding-top: 18px; }
     #view-run .rv-topbar-actions button { width: 100%; white-space: nowrap; }
     #view-run .rv-body { display: grid; grid-template-columns: var(--rv-vin-w) 1fr;
@@ -163,7 +162,6 @@
     #view-run .rv-tablezone { grid-area: table; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
     #view-run .rv-zone-label { font-size: var(--fs-overline); text-transform: uppercase; letter-spacing: .04em; color: var(--text-3); margin-bottom: var(--space-2); }
     #view-run .rv-matchcount { font-size: var(--fs-sm); color: var(--text-2); margin-top: var(--space-2); }
-    #view-run .rv-rail-hint { font-size: var(--fs-sm); color: var(--text-muted); padding: var(--space-2) 0; }
 
     /* Data table — token-bound, tabular figures, like the dash/runs tables */
     #view-run .rv-table-scroll { flex: 1; min-height: 0; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); }
