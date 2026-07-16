@@ -49,34 +49,34 @@
             <div class="summary-row summary-net"><span><b>Net new (pre-filled)</b></span><span id="sNetNew">—</span></div>
           </div>
 
-          <!-- Progress bar — shown during run -->
-          <div id="progressSection">
-            <div id="progressStep">Starting...</div>
-            <div class="progress-track">
-              <div class="progress-fill" id="progressFill"></div>
+          <!-- Middle cell: progress bar, status banner, idle hint -->
+          <div class="rv-flow-mid">
+            <div id="progressSection">
+              <div id="progressStep">Starting...</div>
+              <div class="progress-track">
+                <div class="progress-fill" id="progressFill"></div>
+              </div>
+              <div class="progress-meta">
+                <span id="progressElapsed"></span>
+                <span id="progressPercent">0%</span>
+              </div>
             </div>
-            <div class="progress-meta">
-              <span id="progressElapsed"></span>
-              <span id="progressPercent">0%</span>
-            </div>
+
+            <div id="runStatus" class="empty"></div>
+
+            <div class="rv-rail-hint" id="rvRailHint">Pre-fill from CAO or paste VINs, then Run.</div>
           </div>
 
           <!-- Post-run finalization — shown after successful completion.
                One card per prospective run log entry; each is finalized (deal ID
                required) or abandoned. Nothing is logged until a card is finalized. -->
           <div id="postRunActions">
-            <div class="post-run-row">
+            <div class="post-run-btns">
               <a id="driveFolderBtn" class="btn-ghost" href="#" target="_blank">&#128194; Open Output Folder</a>
-            </div>
-            <div id="finalizeCards"></div>
-            <div class="post-run-row">
               <button id="vinLogBtn" onclick="addToVINLog()" disabled>&#10003; Add to VIN Log</button>
             </div>
+            <div id="finalizeCards"></div>
           </div>
-
-          <div id="runStatus" class="empty"></div>
-
-          <div class="rv-rail-hint" id="rvRailHint">Pre-fill from CAO or paste VINs, then Run.</div>
         </div>
 
       </div>
@@ -139,17 +139,19 @@
     #view-run .rv-topbar-main { display: grid; grid-template-columns: minmax(300px, 360px) auto 1fr;
                                 align-items: start; gap: var(--space-3); }
     #view-run .rv-topbar-inputs { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
-    /* Flow zone — the retired right rail's content, relocated. A 2-column grid:
-       the compact panels (CAO strip, progress, status, hint) stack in a
-       content-sized left column (fit-content caps a long nowrap progress line
-       from blowing the column open), and the post-run band sits to their RIGHT
-       in the leftover width — the topbar stays one card tall. min-width:0 is
-       load-bearing on the zone and its items: nowrap progress text must clip,
-       not stretch the track. Grid gap owns the spacing (panel margins are 0). */
-    #view-run .rv-flow { display: grid; grid-template-columns: fit-content(560px) minmax(0, 1fr);
-                         align-items: start; gap: var(--space-2) var(--space-3); min-width: 0; }
-    #view-run .rv-flow > * { width: 100%; min-width: 0; grid-column: 1; }
-    #view-run #postRunActions { grid-column: 2; grid-row: 1 / span 4; }
+    /* Flow zone — the retired right rail's content, relocated. ONE row of
+       equal-height cells (align-items:stretch keeps every card's top and
+       bottom edge on the same lines): [CAO strip] [progress/status/hint
+       column] [post-run block]. Nothing stacks vertically, so the topbar
+       never grows past its tallest card and the table barely shifts.
+       min-width:0 is load-bearing: long progress/status text must wrap or
+       clip, not stretch the topbar's 1fr track. */
+    #view-run .rv-flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: var(--space-2); min-width: 0; }
+    #view-run .rv-flow-mid { display: flex; flex-direction: column; justify-content: center; gap: var(--space-2);
+                             flex: 1 1 240px; min-width: 0; max-width: 480px; }
+    /* The progress card grows to fill the middle cell so its edges line up
+       with the neighboring cards. */
+    #view-run #progressSection { flex: 1 1 auto; flex-direction: column; justify-content: center; }
     #view-run .rv-rail-hint { text-align: center; }
     #view-run .rv-topbar-actions { flex-shrink: 0; display: flex; flex-direction: column; gap: var(--space-2); padding-top: 18px; }
     #view-run .rv-topbar-actions button { width: 100%; white-space: nowrap; }
@@ -301,7 +303,7 @@
     }
     #view-run #progressStep {
       font-size: 12px; color: var(--text); margin-bottom: 8px;
-      min-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      min-height: 16px;   /* wraps in the narrow middle cell — never clip run info */
     }
     #view-run .progress-track {
       height: 6px; background: var(--border); border-radius: 3px; overflow: hidden;
@@ -318,31 +320,31 @@
     }
     #view-run #progressPercent { font-weight: bold; color: var(--text-2); }
 
-    /* ── Post-run actions — one horizontal band: [Open Folder] [finalize
-       card(s)] [Add to VIN Log], so the panel's height is just the card's.
-       JS shows it with display:flex. */
+    /* ── Post-run actions — [stacked buttons] [finalize card(s)]: the two
+       action buttons share a vertically-centered column (equal widths via
+       stretch) with the cards filling the rest. JS shows it with display:flex. */
     #view-run #postRunActions {
       display: none;
-      align-items: center; flex-wrap: wrap;
+      align-items: stretch;
       gap: var(--space-3);
+      flex: 1 1 auto; min-width: 0;
     }
-    #view-run .post-run-row {
-      display: flex;
+    #view-run .post-run-btns {
+      display: flex; flex-direction: column; justify-content: center;
       gap: 10px;
       flex-shrink: 0;
     }
     /* Drive folder button — an <a> styled as a button; positioning + anchor
        resets only (visual spec now owned by .btn-ghost) */
     #view-run #driveFolderBtn {
-      flex: 1;
       display: block;
       text-align: center;
       text-decoration: none;
       line-height: 1.4;
+      white-space: nowrap;
     }
     /* VIN log button */
     #view-run #vinLogBtn {
-      flex: 1;
       padding: 9px 12px;
       background: var(--success);
       color: var(--on-success);
@@ -362,9 +364,9 @@
     }
 
     /* ── Finalization cards — one per prospective run log entry ──────────── */
-    /* Side-by-side in the post-run band (billing-split runs show two). flex-start:
-       a finalized card grows its push block without stretching its neighbor. */
-    #view-run #finalizeCards { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-start; gap: 8px; }
+    /* Side-by-side in the post-run band (billing-split runs show two);
+       stretch keeps card edges on the same grid lines as the neighbors. */
+    #view-run #finalizeCards { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap; justify-content: flex-start; align-items: stretch; gap: 8px; }
     #view-run .finalize-card {
       flex: 1 1 300px; min-width: 280px; max-width: 480px;
       border: 1px solid var(--border); border-radius: var(--radius-sm);
@@ -392,7 +394,9 @@
     }
     #view-run .card-method {
       display: inline-flex; align-items: center; gap: 7px;
-      font-size: 13.5px; color: var(--text); cursor: pointer; font-weight: normal;
+      font-size: 13.5px; line-height: 16px;   /* = radio height, so all three labels sit level */
+      color: var(--text); cursor: pointer; font-weight: normal;
+      margin: 0;
     }
     #view-run .card-method.is-disabled { color: var(--text-muted); cursor: default; }
     #view-run .card-method input[type="radio"] {
@@ -486,9 +490,9 @@
     :root[data-viewport="mobile"] #view-run .rv-topbar-main { grid-template-columns: 1fr; }
     :root[data-viewport="mobile"] #view-run .rv-topbar-actions { flex-direction: row; flex-wrap: wrap; padding-top: 0; }
     :root[data-viewport="mobile"] #view-run .rv-topbar-actions button { flex: 1 1 auto; width: auto; }
-    /* The 2-column flow grid + horizontal post-run band re-stack on a phone. */
-    :root[data-viewport="mobile"] #view-run .rv-flow { grid-template-columns: 1fr; }
-    :root[data-viewport="mobile"] #view-run #postRunActions { grid-column: 1; grid-row: auto; flex-direction: column; align-items: stretch; }
+    /* The one-row flow zone + post-run block re-stack on a phone. */
+    :root[data-viewport="mobile"] #view-run .rv-flow { flex-direction: column; align-items: stretch; }
+    :root[data-viewport="mobile"] #view-run #postRunActions { flex-direction: column; align-items: stretch; }
 
     /* Full-page scroll on mobile: drop the fixed-height panes so the whole view
        flows naturally and the bottom (post-CAO breakdown, finalize cards) is
@@ -787,7 +791,7 @@
       if (window.AppBusy) AppBusy.set('run', true);
       currentRunId = runId;
       runStartTime = Date.now();
-      document.getElementById('progressSection').style.display = 'block';
+      document.getElementById('progressSection').style.display = 'flex';   // column card, fills the middle cell
       updateProgressUI({ message: 'Starting...', percent: 0, done: false, error: null });
 
       pollInterval = setInterval(function() {
