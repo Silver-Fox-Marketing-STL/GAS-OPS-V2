@@ -1202,6 +1202,15 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     var billingSplit  = getBillingSplit_(config);
     var billingResult = writeBillingSheet_(outputDoc, billingSplit, getSourceSplit_(config));
 
+    // 14b. Export the CSV tabs as real .csv files into the output folder —
+    //      the manual File > Download step, automated. Best-effort: a Drive/
+    //      export hiccup never fails a completed run (tabs remain in the doc).
+    setProgress_(runId, 'Exporting CSV files...', 92);
+    SpreadsheetApp.flush();
+    try {
+      Logger.log('CSV files exported to output folder: ' + exportCsvTabsToFolder_(outputDoc, outputFolderId));
+    } catch (e) { Logger.log('CSV file export failed (non-fatal): ' + e.message); }
+
     // 15. Read billing totals back from the sheet(s) we just wrote
     setProgress_(runId, 'Reading billing totals...', 93);
     SpreadsheetApp.flush();
@@ -7787,20 +7796,61 @@ function buildBillingPdfTab_(outputDoc, data, meta) {
   return sheet;
 }
 
-/** Exports one sheet (by gid) of a spreadsheet to a PDF Blob. Returns {ok, blob} or {ok:false, error}. */
-function exportSheetPdf_(spreadsheetId, gid) {
-  var url = 'https://docs.google.com/spreadsheets/d/' + spreadsheetId + '/export?' + [
-    'format=pdf', 'gid=' + gid,
-    'portrait=true', 'fitw=true', 'size=letter',
-    'gridlines=false', 'sheetnames=false', 'printtitle=false', 'pagenumbers=false', 'fzr=false',
-    'top_margin=0.40', 'bottom_margin=0.40', 'left_margin=0.40', 'right_margin=0.40'
-  ].join('&');
+/** Export URL for one tab as CSV — byte-identical to File > Download > CSV. */
+function csvExportUrl_(spreadsheetId, gid) {
+  return 'https://docs.google.com/spreadsheets/d/' + spreadsheetId + '/export?format=csv&gid=' + gid;
+}
+
+/** Exports one tab as CSV. Returns {ok, blob} | {ok:false, error}. Never throws. */
+function exportSheetCsv_(spreadsheetId, gid) {
   var resp;
   try {
-    resp = UrlFetchApp.fetch(url, { method: 'get', headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true });
+    resp = UrlFetchApp.fetch(csvExportUrl_(spreadsheetId, gid),
+      { method: 'get', headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true });
   } catch (e) { return { ok: false, error: 'export fetch: ' + e.message }; }
   if (resp.getResponseCode() !== 200) return { ok: false, error: 'export HTTP ' + resp.getResponseCode() };
   return { ok: true, blob: resp.getBlob() };
+}
+
+/**
+ * Batch CSV export of several tabs in ONE fetchAll (batching invariant).
+ * Returns one {ok, blob} | {ok:false, error} per gid, index-aligned — a bad
+ * tab never fails the rest. Never throws.
+ */
+function exportSheetsCsvBatch_(spreadsheetId, gids) {
+  var token = ScriptApp.getOAuthToken();
+  var reqs = gids.map(function (gid) {
+    return { url: csvExportUrl_(spreadsheetId, gid), method: 'get',
+             headers: { Authorization: 'Bearer ' + token }, muteHttpExceptions: true };
+  });
+  var resps;
+  try { resps = UrlFetchApp.fetchAll(reqs); }
+  catch (e) { return gids.map(function () { return { ok: false, error: 'fetchAll: ' + e.message }; }); }
+  return resps.map(function (r) {
+    if (r.getResponseCode() !== 200) return { ok: false, error: 'export HTTP ' + r.getResponseCode() };
+    return { ok: true, blob: r.getBlob() };
+  });
+}
+
+/**
+ * Exports every CSV* tab of the output doc as a real .csv file into the run's
+ * output folder ("<doc name> - <TAB>.csv") — the manual File > Download step,
+ * automated. Best-effort: failed tabs are logged and skipped; the tabs stay in
+ * the doc as the manual fallback. Returns the count written.
+ */
+function exportCsvTabsToFolder_(outputDoc, outputFolderId) {
+  var tabs = outputDoc.getSheets().filter(function (s) { return isCsvTabName_(s.getName()); });
+  if (!tabs.length) return 0;
+  var results = exportSheetsCsvBatch_(outputDoc.getId(), tabs.map(function (s) { return s.getSheetId(); }));
+  var folder  = DriveApp.getFolderById(outputFolderId);
+  var docName = outputDoc.getName();
+  var written = 0;
+  results.forEach(function (r, i) {
+    if (!r.ok) { Logger.log('CSV export skipped [' + tabs[i].getName() + ']: ' + r.error); return; }
+    folder.createFile(r.blob.setName(csvExportFileName_(docName, tabs[i].getName())));
+    written++;
+  });
+  return written;
 }
 
 /**
