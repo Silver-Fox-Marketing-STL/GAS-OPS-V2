@@ -22,7 +22,16 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   `data-viewport`) — the old `auto-fit minmax(440px)` collapsed wrongly once a
   full-width `1 / -1` band spanned it (a spanned track never collapses, so a
   wide monitor held 4+ tracks open and squeezed System Stats into one narrow
-  column). Server: `getPrintSchedule(refresh)` — field key auto-discovered by
+  column). Printed-vs-pending: the band shows only dealers NOT yet run today
+  ("All scheduled orders printed ✓" when done); the System Stats **Today**
+  group becomes per-dealer printed cards — every dealer with a RUN_LOG run
+  today (scheduled ones get a success left edge + "✓ Scheduled" tag,
+  unscheduled runs appear too), each showing runs · VINs · dupes with the
+  inbox tag carried over; aggregate totals move into the "Today" sub-label.
+  `getPrintSchedule` returns `{upNext, ranToday, totals}` (RUN_LOG-derived, so
+  ranToday/totals survive a Pipedrive outage); the old aggregate tiles remain
+  the fallback when the schedule is unconfigured (`renderHomeToday_` arbitrates
+  between the two responses, so arrival order never matters). Server: `getPrintSchedule(refresh)` — field key auto-discovered by
   name once then persisted in PIPEDRIVE_SETTINGS (`print_schedule_field_key`,
   stable-key invariant), ONE batched v2 `/organizations?custom_fields=` list
   (never per-org GETs), org→days cached 6h in ScriptCache

@@ -6292,81 +6292,116 @@ function pdPrintScheduleFieldKey_() {
 }
 
 /**
- * Client-callable (Home HUD). Which active dealers print today, per the
- * "Print Schedule" set field on each dealer's active PRIMARY org row.
- * Returns { ok, configured, day, dealers:[{key,name,pending}] }.
- * Never throws — a Pipedrive failure can never break the Home view.
+ * Client-callable (Home HUD). Today's print schedule + today's per-dealer
+ * production, per the "Print Schedule" set field on each dealer's active
+ * PRIMARY org row and today's RUN_LOG rows (test runs excluded):
+ *   { ok, configured, day,
+ *     upNext:   [{key,name,pending}],                          // scheduled, not yet run today
+ *     ranToday: [{key,name,pending,runs,vins,dupes,scheduled}],// any dealer with a run today
+ *     totals:   {runs,vins,dupes} }                            // today's aggregate
+ * Never throws — a Pipedrive failure can never break the Home view; ranToday/
+ * totals come from RUN_LOG (sheet-local), so they survive a Pipedrive outage
+ * (ok:false + empty upNext, the client shows "Schedule unavailable" there only).
  * refresh=true bypasses the 6h org→days cache (HUD Refresh button).
  */
 function getPrintSchedule(refresh) {
   try {
     var cache = CacheService.getScriptCache();
-    var payload = null;
+    var payload = null, pdError = '';
     if (!refresh) {
       var hit = cache.get(PD_SCHED_CACHE_KEY);
       if (hit) { try { payload = JSON.parse(hit); } catch (e) { payload = null; } }
     }
     if (!payload) {
       var fieldKey = pdPrintScheduleFieldKey_();
-      if (!fieldKey) return { ok: true, configured: false, day: '', dealers: [] };
+      if (!fieldKey) return { ok: true, configured: false, day: '', upNext: [], ranToday: [], totals: null };
       var field = null;
       var fields = pdListOrganizationFields_();
       for (var i = 0; i < fields.length; i++) if (fields[i].key === fieldKey) { field = fields[i]; break; }
-      if (!field) return { ok: true, configured: false, day: '', dealers: [] };
+      if (!field) return { ok: true, configured: false, day: '', upNext: [], ranToday: [], totals: null };
       // ONE batched v2 list for every org's day set — never per-org GETs.
       var orgs = pdListAllV2_('/organizations?custom_fields=' + encodeURIComponent(fieldKey));
-      // A configured account always has orgs — an empty list here means the
-      // fetch failed (pdListAllV2_ swallows errors), not an empty schedule.
-      if (!orgs.length) return { ok: false, configured: true, day: '', dealers: [], error: 'Pipedrive unavailable' };
-      var orgDays = {};
-      orgs.forEach(function(o) {
-        var raw = (o.custom_fields || {})[fieldKey];
-        if (!raw) return;
-        var arr = Array.isArray(raw) ? raw : [raw];
-        var ids = arr.map(function(v) {
-          if (v && typeof v === 'object') v = (v.id !== undefined) ? v.id : v.value;
-          return Number(v);
-        }).filter(function(n) { return !isNaN(n); });
-        if (ids.length) orgDays[String(o.id)] = ids;
-      });
-      payload = { fieldKey: fieldKey, options: field.options || [], orgDays: orgDays };
-      cache.put(PD_SCHED_CACHE_KEY, JSON.stringify(payload), 21600);
-    }
-
-    // Today's option id (America/Chicago): the label locates it, ids compare.
-    var todayName = Utilities.formatDate(new Date(), 'America/Chicago', 'EEEE');
-    var todayId = null;
-    (payload.options || []).forEach(function(op) {
-      if (String(op.label).trim().toLowerCase() === todayName.toLowerCase()) todayId = Number(op.id);
-    });
-    if (todayId === null) return { ok: true, configured: true, day: todayName, dealers: [] };
-
-    var orgByDealer = {};
-    var pdSheet = getPipedriveSheet_();
-    if (pdSheet) {
-      var pdData = pdSheet.getDataRange().getValues();
-      for (var r = 1; r < pdData.length; r++) {
-        if (String(pdData[r][PDCFG.GROUP] || 'PRIMARY').toUpperCase() !== 'PRIMARY') continue;
-        if (!isTrue_(pdData[r][PDCFG.ACTIVE])) continue;
-        if (pdData[r][PDCFG.ORG_ID] === '') continue;
-        orgByDealer[String(pdData[r][PDCFG.DEALER_KEY])] = String(pdData[r][PDCFG.ORG_ID]);
+      if (!orgs.length) {
+        // A configured account always has orgs — empty means the fetch failed
+        // (pdListAllV2_ swallows errors). Degrade: no schedule, stats still real.
+        pdError = 'Pipedrive unavailable';
+      } else {
+        var orgDays = {};
+        orgs.forEach(function(o) {
+          var raw = (o.custom_fields || {})[fieldKey];
+          if (!raw) return;
+          var arr = Array.isArray(raw) ? raw : [raw];
+          var ids = arr.map(function(v) {
+            if (v && typeof v === 'object') v = (v.id !== undefined) ? v.id : v.value;
+            return Number(v);
+          }).filter(function(n) { return !isNaN(n); });
+          if (ids.length) orgDays[String(o.id)] = ids;
+        });
+        payload = { fieldKey: fieldKey, options: field.options || [], orgDays: orgDays };
+        cache.put(PD_SCHED_CACHE_KEY, JSON.stringify(payload), 21600);
       }
     }
 
+    var tz = 'America/Chicago';
+    var todayName = Utilities.formatDate(new Date(), tz, 'EEEE');
+    var todayStr  = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+
+    // Today's option id (label locates it, ids compare) + dealer→org links.
+    var todayId = null;
+    if (payload) (payload.options || []).forEach(function(op) {
+      if (String(op.label).trim().toLowerCase() === todayName.toLowerCase()) todayId = Number(op.id);
+    });
+    var orgByDealer = {};
+    if (todayId !== null) {
+      var pdSheet = getPipedriveSheet_();
+      if (pdSheet) {
+        var pdData = pdSheet.getDataRange().getValues();
+        for (var r = 1; r < pdData.length; r++) {
+          if (String(pdData[r][PDCFG.GROUP] || 'PRIMARY').toUpperCase() !== 'PRIMARY') continue;
+          if (!isTrue_(pdData[r][PDCFG.ACTIVE])) continue;
+          if (pdData[r][PDCFG.ORG_ID] === '') continue;
+          orgByDealer[String(pdData[r][PDCFG.DEALER_KEY])] = String(pdData[r][PDCFG.ORG_ID]);
+        }
+      }
+    }
+
+    // Today's per-dealer production from RUN_LOG (same cols as getHomeHud:
+    // B dealer_key, O total_dupes, P total_produced; test runs pre-excluded).
+    var statsByKey = {};
+    var totals = { runs: 0, vins: 0, dupes: 0 };
+    readRunLog_().forEach(function(row) {
+      if (runLogTs_(row[0]).slice(0, 10) !== todayStr) return;
+      var k = String(row[1]);
+      var s = statsByKey[k] || (statsByKey[k] = { runs: 0, vins: 0, dupes: 0 });
+      var vins = Number(row[15]) || 0, dupes = Number(row[14]) || 0;
+      s.runs++;        totals.runs++;
+      s.vins += vins;  totals.vins += vins;
+      s.dupes += dupes; totals.dupes += dupes;
+    });
+
     var pending = printSchedulePendingByDealer_();
     var dealers = getConfigSS_().getSheetByName('DEALERS').getDataRange().getValues();
-    var out = [];
-    for (var d = 1; d < dealers.length; d++) {
-      if (!isTrue_(dealers[d][CFG.ACTIVE])) continue;
+    var upNext = [], ranToday = [];
+    for (var d = 1; d < dealers.length; d++) {   // DEALERS sheet order throughout
       var key = String(dealers[d][CFG.KEY]);
-      var days = payload.orgDays[orgByDealer[key] || ''] || [];
-      if (days.indexOf(todayId) === -1) continue;
-      out.push({ key: key, name: String(dealers[d][CFG.NAME]), pending: pending[key] || 0 });
+      var isActive = isTrue_(dealers[d][CFG.ACTIVE]);
+      var isSched = isActive && payload !== null && todayId !== null &&
+        (payload.orgDays[orgByDealer[key] || ''] || []).indexOf(todayId) !== -1;
+      var st = statsByKey[key];
+      if (st) {   // ran today — scheduled or not, it belongs in the Today stats
+        ranToday.push({ key: key, name: String(dealers[d][CFG.NAME]), pending: pending[key] || 0,
+                        runs: st.runs, vins: st.vins, dupes: st.dupes, scheduled: isSched });
+      } else if (isSched) {
+        upNext.push({ key: key, name: String(dealers[d][CFG.NAME]), pending: pending[key] || 0 });
+      }
     }
-    return { ok: true, configured: true, day: todayName, dealers: out };
+
+    return { ok: !pdError, configured: true, day: todayName,
+             upNext: upNext, ranToday: ranToday, totals: totals,
+             error: pdError || undefined };
   } catch (e) {
     Logger.log('getPrintSchedule failed: ' + e.message);
-    return { ok: false, configured: true, day: '', dealers: [], error: e.message };
+    return { ok: false, configured: true, day: '', upNext: [], ranToday: [], totals: null, error: e.message };
   }
 }
 

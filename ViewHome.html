@@ -57,7 +57,7 @@
         </div>
 
         <div class="home-statgroup hero">
-          <div class="home-sub-label">Today</div>
+          <div class="home-sub-label">Today <span class="home-today-totals" id="homeTodayTotals"></span></div>
           <div class="home-tiles" id="homeToday">
             <div class="home-muted">Loading stats&hellip;</div>
           </div>
@@ -224,9 +224,18 @@
     gap: 8px;
   }
   #view-home .home-sched-card .name { font-size: 12.5px; font-weight: 700; line-height: 1.3; }
-  #view-home .home-sched-card .foot { margin-top: auto; display: flex; align-items: center; gap: 8px; }
+  #view-home .home-sched-card .stats { font-size: 11.5px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+  #view-home .home-sched-card .foot { margin-top: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   #view-home .home-sched-card .btn-secondary { padding: 4px 10px; font-size: 11.5px; }
+  #view-home .home-sched-card.done-sched { border-left: 3px solid var(--success); }   /* scheduled AND printed — visibly "moved over" */
   #view-home .home-sched-inbox { cursor: pointer; }
+  #view-home .home-today-totals {   /* aggregate line beside the "Today" sub-label (tiles carry it in fallback mode) */
+    text-transform: none;
+    letter-spacing: normal;
+    font-weight: 600;
+    color: var(--text-3);
+    margin-left: 6px;
+  }
 
   /* Stat groups: surface panels that visibly separate from the page (border +
      shadow; tiles inside step up again to --surface-2). One accent left edge
@@ -407,6 +416,7 @@
   }
 
   function renderHomeHud_(res) {
+    homeHudData = res;
     var at = res.allTime || {};
     document.getElementById('homeAllTime').innerHTML =
       homeTile_('Total Runs', at.runs) +
@@ -416,8 +426,8 @@
       homeTile_('Committed', at.committed) +
       homeTile_('Pending', at.pending) +
       homeTile_('Rolled Back', at.rolledBack);
-    renderHomeBucket_('homeToday', res.today);
     renderHomeBucket_('homeWeek', res.week);
+    renderHomeToday_();   // Today is owned jointly with the schedule response
   }
 
   function renderHomeBucket_(id, b) {
@@ -429,7 +439,13 @@
       homeTile_('Duplicates', b.dupes);
   }
 
-  // ── Today's Print Schedule band ────────────────────────────────────────────
+  // ── Today's Print Schedule band + per-dealer Today stats ──────────────────
+  // Two responses share the Today stat group: the schedule response owns it
+  // (per-dealer printed cards) whenever the schedule is configured; getHomeHud's
+  // aggregate tiles are the fallback. Both cache their data and either arrival
+  // re-renders via renderHomeToday_ — so response order never matters.
+  var homeHudData = null;      // last getHomeHud response
+  var homeSchedData = null;    // last getPrintSchedule response
   var homeSchedDealers = [];   // Run Order buttons index into this (never interpolate a name into onclick — apostrophe trap)
   var homeSchedSeq = 0;        // stale-response guard (same idiom as homeSummarySeq)
 
@@ -447,19 +463,30 @@
       .getPrintSchedule(refresh === true);
   }
 
+  function homeInboxTag_(d) {
+    return Number(d.pending)
+      ? '<span class="tag tone-warning home-sched-inbox" onclick="navTo(\'view-vin-inbox\')" title="Open the VIN Inbox">' +
+        Number(d.pending) + ' in inbox</span>'
+      : '';
+  }
+
   function homeRenderSchedule_(res) {
+    homeSchedData = res;
     var band = document.getElementById('homeSchedule');
     var rows = document.getElementById('homeSchedRows');
+    renderHomeToday_();
     if (!res.configured) { band.hidden = true; return; }   // Pipedrive / field not set up — stay quiet
     band.hidden = false;
     document.getElementById('homeSchedDay').textContent = res.day ? '· ' + res.day : '';
-    homeSchedDealers = res.dealers || [];
+    homeSchedDealers = res.upNext || [];
     if (!res.ok) {
       rows.innerHTML = '<div class="home-muted">Schedule unavailable.</div>';
       return;
     }
     if (!homeSchedDealers.length) {
-      rows.innerHTML = '<div class="home-muted">Nothing scheduled today.</div>';
+      var anyDone = (res.ranToday || []).some(function(d) { return d.scheduled; });
+      rows.innerHTML = '<div class="home-muted">' +
+        (anyDone ? 'All scheduled orders printed. &#10003;' : 'Nothing scheduled today.') + '</div>';
       return;
     }
     var html = '';
@@ -468,13 +495,41 @@
         '<div class="name">' + escHtml(d.name) + '</div>' +
         '<div class="foot">' +
           '<button class="btn-secondary" onclick="homeSchedRun_(' + i + ')">&#9654; Run Order</button>' +
-          (Number(d.pending)
-            ? '<span class="tag tone-warning home-sched-inbox" onclick="navTo(\'view-vin-inbox\')" title="Open the VIN Inbox">' +
-              Number(d.pending) + ' in inbox</span>'
-            : '') +
+          homeInboxTag_(d) +
         '</div></div>';
     });
     rows.innerHTML = html;
+  }
+
+  // Today stat group: per-dealer printed cards (schedule configured) or the
+  // aggregate tiles from getHomeHud (fallback / schedule not yet answered).
+  function renderHomeToday_() {
+    var el = document.getElementById('homeToday');
+    var totalsEl = document.getElementById('homeTodayTotals');
+    var s = homeSchedData;
+    if (s && s.configured) {
+      el.className = 'home-sched-cards';
+      var t = s.totals;
+      totalsEl.textContent = t
+        ? '· ' + t.runs + ' runs · ' + t.vins.toLocaleString() + ' VINs · ' + t.dupes + ' dupes'
+        : '';
+      var html = '';
+      (s.ranToday || []).forEach(function(d) {
+        html += '<div class="home-sched-card' + (d.scheduled ? ' done-sched' : '') + '">' +
+          '<div class="name">' + escHtml(d.name) + '</div>' +
+          '<div class="stats">' + d.runs + (d.runs === 1 ? ' run' : ' runs') +
+            ' · ' + Number(d.vins).toLocaleString() + ' VINs · ' + d.dupes + ' dupes</div>' +
+          '<div class="foot">' +
+            (d.scheduled ? '<span class="tag tone-success">&#10003; Scheduled</span>' : '') +
+            homeInboxTag_(d) +
+          '</div></div>';
+      });
+      el.innerHTML = html || '<div class="home-muted">No orders printed yet today.</div>';
+    } else if (homeHudData) {
+      el.className = 'home-tiles';
+      totalsEl.textContent = '';
+      renderHomeBucket_('homeToday', homeHudData.today);
+    }
   }
 
   // Mirrors viCreateOrder (VIN Inbox → Run): land on Run first, then drive the

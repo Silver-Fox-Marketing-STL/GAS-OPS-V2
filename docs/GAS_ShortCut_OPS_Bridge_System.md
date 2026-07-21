@@ -1097,10 +1097,26 @@ Three read-only, client-invoked endpoints (Code.gs Section 34). `getHomeHud`/`ge
 Nick's per-day print schedule lives in Pipedrive: each dealer's **PRIMARY org** carries a
 **"Print Schedule" multi-select (set) custom field** of weekday options. The Home HUD's
 first element — `.home-hud-band`, `grid-column: 1 / -1`, above the two HUD columns — shows
-every active dealer scheduled **today** (America/Chicago) as a grid of small `surface-2`
-cards (`.home-sched-cards`, the stat-tile idiom): dealer name over a **Run Order** button
-and, when the dealer has `submitted` Lot-Scanner rows waiting, a clickable **"N in inbox"**
-`tag tone-warning` (→ `navTo('view-vin-inbox')`).
+the active dealers scheduled **today** (America/Chicago) that have **not yet run today**,
+as a grid of small `surface-2` cards (`.home-sched-cards`, the stat-tile idiom): dealer
+name over a **Run Order** button and, when the dealer has `submitted` Lot-Scanner rows
+waiting, a clickable **"N in inbox"** `tag tone-warning` (→ `navTo('view-vin-inbox')`).
+Empty states: "All scheduled orders printed ✓" (something was scheduled and every one ran)
+vs "Nothing scheduled today."
+
+**Printed-today lives in the System Stats "Today" group** (the two sections are one
+mechanism): when the schedule is configured, the Today group's aggregate tiles are
+replaced by **per-dealer printed cards** — one card per dealer with a RUN_LOG run today
+(same day-prefix bucketing as `getHomeHud`; test runs pre-excluded by `readRunLog_`),
+showing `runs · VINs · dupes`, a **`✓ Scheduled`** `tag tone-success` + `--success` left
+edge when the dealer was on today's schedule (the card visibly "moved over" from the
+band), unscheduled runs included without the tag, and the inbox tag carried over (a manual
+order arriving AFTER the morning run stays visible). Aggregate `runs · VINs · dupes`
+totals render beside the "Today" sub-label (`#homeTodayTotals`). The old aggregate tiles
+are the **fallback** when the schedule is unconfigured — client-side, `renderHomeToday_()`
+arbitrates: both `getHomeHud` and `getPrintSchedule` cache their responses
+(`homeHudData`/`homeSchedData`) and either arrival re-renders, so response order never
+matters (`el.className` toggles `home-sched-cards` ↔ `home-tiles`).
 
 > **Grid trap (hit on this branch, day one):** `.home-hud` was `repeat(auto-fit,
 > minmax(min(440px,100%),1fr))`. auto-fit only collapses tracks **no item spans** — the
@@ -1111,7 +1127,12 @@ and, when the dealer has `submitted` Lot-Scanner rows waiting, a clickable **"N 
 > spanner with an auto-fit column list.
 
 - **`getPrintSchedule(refresh)`** *(client-callable, Code.gs Section 31)* →
-  `{ok, configured, day, dealers:[{key,name,pending}]}`. Never throws.
+  `{ok, configured, day, upNext:[{key,name,pending}],
+  ranToday:[{key,name,pending,runs,vins,dupes,scheduled}], totals:{runs,vins,dupes}}`.
+  Never throws. `ranToday`/`totals` are RUN_LOG-derived (sheet-local), so they stay
+  populated through a Pipedrive outage — `ok:false` empties only `upNext` (the band shows
+  "Schedule unavailable."; the Today cards keep rendering, with `scheduled:false` since
+  the schedule is unknown).
   - **Field key**: `pdPrintScheduleFieldKey_()` — PIPEDRIVE_SETTINGS
     `print_schedule_field_key` first; if empty, auto-discovers the org field named
     `Print Schedule` (case-insensitive) via `pdListOrganizationFields_()` and persists
