@@ -13,11 +13,16 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ### Added
 - Today's Print Schedule band on the Home HUD: each dealer's PRIMARY Pipedrive
   org carries a "Print Schedule" multi-select field of weekday options; the band
-  (full-width above the System Stats / Dealer Focus columns) lists the active
-  dealers scheduled today (America/Chicago) with a Run Order shortcut (jumps to
-  the Run view dealer-preselected via the existing `runPrefillFromInbox(key, [])`
-  handoff) and a clickable "N in VIN Inbox" tag when `submitted` scanner rows are
-  waiting. Server: `getPrintSchedule(refresh)` — field key auto-discovered by
+  (full-width above the System Stats / Dealer Focus columns) shows the active
+  dealers scheduled today (America/Chicago) as a grid of small surface-2 cards
+  (stat-tile idiom) — dealer name over a Run Order shortcut (jumps to the Run
+  view dealer-preselected via the existing `runPrefillFromInbox(key, [])`
+  handoff) and a clickable "N in inbox" tag when `submitted` scanner rows are
+  waiting. The `.home-hud` grid went explicit `1fr 1fr` (mobile: one column via
+  `data-viewport`) — the old `auto-fit minmax(440px)` collapsed wrongly once a
+  full-width `1 / -1` band spanned it (a spanned track never collapses, so a
+  wide monitor held 4+ tracks open and squeezed System Stats into one narrow
+  column). Server: `getPrintSchedule(refresh)` — field key auto-discovered by
   name once then persisted in PIPEDRIVE_SETTINGS (`print_schedule_field_key`,
   stable-key invariant), ONE batched v2 `/organizations?custom_fields=` list
   (never per-org GETs), org→days cached 6h in ScriptCache

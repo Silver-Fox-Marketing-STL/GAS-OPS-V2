@@ -1096,10 +1096,19 @@ Three read-only, client-invoked endpoints (Code.gs Section 34). `getHomeHud`/`ge
 
 Nick's per-day print schedule lives in Pipedrive: each dealer's **PRIMARY org** carries a
 **"Print Schedule" multi-select (set) custom field** of weekday options. The Home HUD's
-first element — `.home-hud-band`, `grid-column: 1 / -1`, above the two HUD columns — lists
-every active dealer scheduled **today** (America/Chicago), each row with a **Run Order**
-button and, when the dealer has `submitted` Lot-Scanner rows waiting, a clickable
-**"N in VIN Inbox"** `tag tone-warning` (→ `navTo('view-vin-inbox')`).
+first element — `.home-hud-band`, `grid-column: 1 / -1`, above the two HUD columns — shows
+every active dealer scheduled **today** (America/Chicago) as a grid of small `surface-2`
+cards (`.home-sched-cards`, the stat-tile idiom): dealer name over a **Run Order** button
+and, when the dealer has `submitted` Lot-Scanner rows waiting, a clickable **"N in inbox"**
+`tag tone-warning` (→ `navTo('view-vin-inbox')`).
+
+> **Grid trap (hit on this branch, day one):** `.home-hud` was `repeat(auto-fit,
+> minmax(min(440px,100%),1fr))`. auto-fit only collapses tracks **no item spans** — the
+> band's `grid-column: 1 / -1` held every track that fit a wide monitor open (4+), so
+> System Stats landed in one quarter-width track and its tiles stacked vertically. Fix:
+> explicit `grid-template-columns: 1fr 1fr` (stats left half / Dealer Focus right half),
+> mobile single column via `:root[data-viewport="mobile"]`. Never combine a `1 / -1`
+> spanner with an auto-fit column list.
 
 - **`getPrintSchedule(refresh)`** *(client-callable, Code.gs Section 31)* →
   `{ok, configured, day, dealers:[{key,name,pending}]}`. Never throws.
