@@ -11,6 +11,16 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Added
+- Run Order dupe guard: the Inventory match table highlights rows whose VIN
+  (or stock number — same identifier logic as the billing dupe flags) already
+  appears in the dealer's VIN log (`row-dup` warning tone, "· in VIN log"
+  status suffix, count in the match line), every row gets a ✕ button that
+  removes that vehicle from the order, and a "Remove Duplicates (N)" button
+  in the table header clears all flagged rows at once. Server:
+  `getLoggedIdentifiers(dealerKey)` (reads VIN-log col B, fails safe to empty —
+  a log hiccup never degrades the Run screen), fetched in parallel with the
+  dealer inventory. Order edits only touch the VIN textarea; the
+  VIN-logs-never-written-automatically invariant is untouched.
 - Targeting-rule operators `starts_with` / `not_starts_with` (case-insensitive
   prefix, any-value OR, same empty-value fail-safe as `contains`) in
   `conditionMatches_` + the Rules editor operator dropdown. First use case:

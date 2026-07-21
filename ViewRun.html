@@ -94,7 +94,10 @@
       </div>
 
       <div class="rv-tablezone">
-        <div class="rv-zone-label">Inventory match</div>
+        <div class="rv-zone-row">
+          <div class="rv-zone-label">Inventory match</div>
+          <button type="button" id="rvDedupeBtn" class="btn-danger" style="display:none" onclick="rvRemoveDuplicates()">Remove Duplicates</button>
+        </div>
         <div class="rv-table-scroll">
           <table id="vinDataTable" class="table-u">
             <thead>
@@ -102,10 +105,11 @@
                 <th>Year</th><th>Make</th><th>Model</th><th>Type</th>
                 <th>Stock</th><th>VIN</th><th>Status</th><th>Link</th>
                 <th id="rvFeatHead" style="display:none">Features</th>
+                <th id="rvXHead"></th>
               </tr>
             </thead>
             <tbody id="vinDataBody">
-              <tr class="rv-empty-row"><td colspan="8">Select a dealer, then enter VINs to check them.</td></tr>
+              <tr class="rv-empty-row"><td colspan="9">Select a dealer, then enter VINs to check them.</td></tr>
             </tbody>
           </table>
         </div>
@@ -152,6 +156,15 @@
     #view-run .rv-vinzone { grid-area: vin; display: flex; flex-direction: column; min-height: 0; }
     #view-run .rv-tablezone { grid-area: table; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
     #view-run .rv-zone-label { font-size: var(--fs-overline); text-transform: uppercase; letter-spacing: .04em; color: var(--text-3); margin-bottom: var(--space-2); }
+    /* Table-header row: zone label left, Remove Duplicates right */
+    #view-run .rv-zone-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-2); }
+    #view-run .rv-zone-row .rv-zone-label { margin-bottom: 0; }
+    #view-run #rvDedupeBtn { padding: 3px 10px !important; font-size: var(--fs-sm); }  /* compact; base .btn-danger padding is !important */
+    /* Per-row remove — compact table control, view-scoped like the other views' X buttons */
+    #view-run #vinDataTable td.rv-x-cell { text-align: center; padding-top: 0; padding-bottom: 0; }
+    #view-run .rv-x { background: none; border: none; color: var(--text-3); cursor: pointer;
+                      font-size: var(--fs-sm); line-height: 1; padding: 3px 6px; border-radius: var(--radius-sm); }
+    #view-run .rv-x:hover { color: var(--danger); background: var(--danger-weak); }
     #view-run .rv-matchcount { font-size: var(--fs-sm); color: var(--text-2); margin-top: var(--space-2); }
 
     /* Data table — token-bound, tabular figures, like the dash/runs tables */
@@ -611,6 +624,12 @@
         if (max) t.classList.toggle('rv-over', t.value.length > Number(max));
       }
     });
+    // Per-row ✕ buttons are re-created each render — delegate the click. The
+    // VIN travels as a data attribute, never interpolated into an onclick.
+    document.getElementById('vinDataBody').addEventListener('click', function(e) {
+      var t = e.target;
+      if (t && t.classList && t.classList.contains('rv-x')) rvRemoveVin(t.getAttribute('data-vin'));
+    });
     document.getElementById('runDealerSelect').addEventListener('change', function() {
       // Switching dealers discards any un-finalized run results — confirm first.
       if (!discardPendingGuard()) {
@@ -668,6 +687,33 @@
       // dealerKey with no matching option, which leaves sel.value = '').
       if (sel.value !== dealerKey) { window.viPendingBatch = null; return; }
       appendVins(vins);   // AFTER the change handler cleared the textarea
+    }
+
+    // Row ✕ button: drop every textarea line matching this VIN (rendered row
+    // index ≠ raw line number, and a VIN can appear on two lines pre-dedupe —
+    // removal by value is the robust op). Same refresh idiom as appendVins.
+    function rvRemoveVin(vin) {
+      var key = String(vin || '').toUpperCase();
+      if (!key) return;
+      rvRewriteVins_(function(v) { return v.toUpperCase() !== key; });
+    }
+
+    // "Remove Duplicates": drop every line whose VIN (or its stock) is in the
+    // dealer's VIN log — the same check that highlights the rows.
+    function rvRemoveDuplicates() {
+      if (!rvLoggedIds) return;
+      rvRewriteVins_(function(v) { return !rvIsDupe(v.toUpperCase()); });
+    }
+
+    // Rewrite the VIN textarea keeping lines that pass the filter, then the
+    // full programmatic-edit refresh (a .value set does NOT fire 'input').
+    function rvRewriteVins_(keep) {
+      var ta = document.getElementById('vinInput');
+      ta.value = ta.value.split(/\r?\n/)
+        .filter(function(l) { var v = l.trim(); return v !== '' && keep(v); })
+        .join('\n');
+      updateRunVinCount(); updateButtons(); hideCaoSummary();
+      rvRenderTable();
     }
 
     // Case-insensitive, order-preserving de-dup of a VIN list.
@@ -1432,11 +1478,13 @@
     var rvVinData = { dealerKey: '', map: {}, featuresTypes: {}, editCodes: {}, editSeeds: {} };
     var rvFeatures = {};   // {VIN(upper) → text} — survives table re-renders
     var rvEdits = {};      // {VIN(upper) → {code → text}} — editable-column values (seeded)
+    var rvLoggedIds = null;   // {identifier(upper) → 1} from the dealer's VIN log; null until loaded
     var rvDebounce = null;
 
     function rvLoadDealerData(dealerKey) {
       if (rvVinData.dealerKey !== dealerKey) { rvFeatures = {}; rvEdits = {}; }   // new dealer → stale text out
       rvVinData = { dealerKey: dealerKey, map: {}, featuresTypes: {}, editCodes: {}, editSeeds: {} };   // clear immediately
+      rvLoggedIds = null;
       rvRenderTable();
       if (!dealerKey) return;
       google.script.run
@@ -1456,6 +1504,26 @@
         })
         .withFailureHandler(function() {})
         .getDealerVinData(dealerKey);
+      // Logged-identifier set (dupe highlighting) loads in parallel; highlights
+      // appear on the re-render when it lands. Server fails safe to [].
+      google.script.run
+        .withSuccessHandler(function(res) {
+          if (rvVinData.dealerKey !== dealerKey) return;
+          rvLoggedIds = {};
+          (((res && res.identifiers) || [])).forEach(function(id) { rvLoggedIds[id] = 1; });
+          rvRenderTable();
+        })
+        .withFailureHandler(function() {})
+        .getLoggedIdentifiers(dealerKey);
+    }
+
+    // Already produced? VIN or its stock number appears in the dealer's VIN log
+    // (same identifier logic as the billing dupe flags).
+    function rvIsDupe(key) {
+      if (!rvLoggedIds) return false;
+      if (rvLoggedIds[key]) return true;
+      var d = rvVinData.map[key];
+      return !!(d && d.stock && rvLoggedIds[String(d.stock).toUpperCase()]);
     }
 
     // Union of edit-flagged codes across the dealer's types, first-seen order:
@@ -1512,6 +1580,7 @@
       // Header cells are rebuilt each render (marked .rv-edit-head).
       var editCols = rvEditColumns();
       var headRow = featHead ? featHead.parentNode : null;
+      var xHead = document.getElementById('rvXHead');
       if (headRow) {
         var stale = headRow.querySelectorAll('.rv-edit-head');
         for (var h = 0; h < stale.length; h++) headRow.removeChild(stale[h]);
@@ -1519,23 +1588,29 @@
           var th = document.createElement('th');
           th.className = 'rv-edit-head';
           th.textContent = c.code;
-          headRow.appendChild(th);
+          headRow.insertBefore(th, xHead);   // ✕ column stays last
         });
       }
-      var cols = (rvHasFeatures ? 9 : 8) + editCols.length;
+      var cols = (rvHasFeatures ? 10 : 9) + editCols.length;
 
+      var dedupeBtn = document.getElementById('rvDedupeBtn');
       if (!lines.length) {
         body.innerHTML = '<tr class="rv-empty-row"><td colspan="' + cols + '">' +
           (rvVinData.dealerKey ? 'Enter VINs to check them against this dealer.' : 'Select a dealer, then enter VINs to check them.') +
           '</td></tr>';
         if (countEl) countEl.textContent = '';
+        if (dedupeBtn) dedupeBtn.style.display = 'none';
         return;
       }
 
-      var html = '', found = 0;
+      var html = '', found = 0, dupes = 0;
       for (var j = 0; j < lines.length; j++) {
         var key = lines[j].toUpperCase();
         var d = rvVinData.map[key];
+        var isDupe = rvIsDupe(key);
+        if (isDupe) dupes++;
+        var xCell = '<td class="rv-x-cell"><button type="button" class="rv-x" data-vin="' +
+          escHtml(key) + '" title="Remove from order">✕</button></td>';
         if (d) {
           found++;
           var urlCell = (d.url && d.url !== '*')
@@ -1562,17 +1637,18 @@
               editCells += '<td>—</td>';
             }
           });
-          html += '<tr>' +
+          html += '<tr' + (isDupe ? ' class="row-dup"' : '') + '>' +
             '<td>' + escHtml(d.year)  + '</td>' +
             '<td>' + escHtml(d.make)  + '</td>' +
             '<td>' + escHtml(d.model) + '</td>' +
             '<td>' + rvTypePill(d.type) + '</td>' +
             '<td>' + escHtml(d.stock) + '</td>' +
             '<td class="rv-vin">' + escHtml(lines[j]) + '</td>' +
-            '<td>' + escHtml(d.status) + '</td>' +
+            '<td>' + escHtml(d.status) + (isDupe ? ' · in VIN log' : '') + '</td>' +
             '<td class="rv-link">' + urlCell + '</td>' +
             featCell +
             editCells +
+            xCell +
           '</tr>';
         } else {
           var blankEdit = '';
@@ -1584,11 +1660,17 @@
             '<td>—</td>' +
             (rvHasFeatures ? '<td>—</td>' : '') +
             blankEdit +
+            xCell +
           '</tr>';
         }
       }
       body.innerHTML = html;
-      if (countEl) countEl.textContent = lines.length + ' VINs · ' + found + ' found · ' + (lines.length - found) + ' not found';
+      if (countEl) countEl.textContent = lines.length + ' VINs · ' + found + ' found · ' + (lines.length - found) + ' not found' +
+        (dupes ? ' · ' + dupes + ' in VIN log' : '');
+      if (dedupeBtn) {
+        dedupeBtn.style.display = dupes ? '' : 'none';
+        dedupeBtn.textContent = 'Remove Duplicates (' + dupes + ')';
+      }
     }
 
     // Reuse the themed type-pill classes (.pill + .type-*) so it themes everywhere.
