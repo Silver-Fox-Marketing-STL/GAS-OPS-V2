@@ -11,6 +11,15 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Added
+- Crew handbooks (`docs/crew/`) — first end-user documentation: role-based job
+  aids for the production crew in task-recipe format, quoting on-screen labels
+  verbatim. `field-crew-handbook.md` (Lot Scanner), `office-operator-handbook.md`
+  (Home/print schedule, the four order-origination paths — CAO, VIN Inbox,
+  combined, manual — run, finalize decision box, output files, VIN log,
+  drafts, troubleshooting), `import-handbook.md` (modes, conflicts, health
+  check), plus a `README.md` maintenance contract (crew-visible flow changes
+  update the matching recipe in the same PR; published to Drive for the crew).
+  `[SCREENSHOT: …]` markers are placeholders pending a capture pass.
 - Order Drafts: in-progress Run Order work (typed VINs, per-row FEATURES text,
   editable-column edits, bypass checkbox) is saved per user as a draft — auto
   on dealer switch and nav-away, 15 s after typing, or via a **Save draft**
