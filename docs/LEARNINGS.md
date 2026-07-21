@@ -90,6 +90,19 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   `addEventListener`; (5) operations that were implicitly exclusive when each
   modal was its own dialog (import vs run) need explicit mutual exclusion
   (`AppBusy`) once they share one page.
+- **The `[hidden]`-defeated-by-an-author-`display`-rule trap is NOT limited to
+  `.view`.** ANY component class that sets its own `display` — `.tag {
+  display:inline-block }`, `.rv-drafts-band { display:flex }` — outranks the UA
+  `[hidden]{display:none}` rule (an author declaration beats a UA one), so an
+  element toggled purely by the `hidden` attribute stays visible. Symptom: a
+  "0 DRAFTS" chip and an empty Drafts band both painted despite `hidden=true`
+  (found from a prod screenshot, July 2026 — the same latent bug the `.view`
+  guard was written for, re-hit on two new component classes). Fix idiom: ship a
+  matching `<selector>[hidden] { display:none !important }` rule beside ANY
+  display-setting component class you also toggle via the `hidden` attribute
+  (`#homeDraftsChip[hidden]` / `.rv-drafts-band[hidden]`). Rule of thumb: if you
+  set `display` on a class AND ever set its `hidden` attribute, you owe it a
+  `[hidden]` override.
 - **The HtmlService SPA parses ALL view fragments into ONE shared global JS
   scope.** Every `<?!= include_('ViewXxx') ?>` fragment's `<script>` is concatenated
   into the same window, so a duplicate **top-level** `function name()` in two
