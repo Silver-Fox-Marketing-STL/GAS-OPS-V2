@@ -281,6 +281,14 @@ t('contains / not_contains are case-insensitive substring', function () {
   assert.strictEqual(conditionMatches_(santaFe, { field: 'model', op: 'not_contains', values: ['santa'] }), false);
   assert.strictEqual(conditionMatches_(poRow,   { field: 'model', op: 'not_contains', values: ['santa'] }), true);
 });
+t('starts_with / not_starts_with are case-insensitive prefix', function () {
+  var santaFe = fixture.rows[7];   // model Santa Fe
+  assert.strictEqual(conditionMatches_(santaFe, { field: 'model', op: 'starts_with', values: ['santa'] }), true);
+  assert.strictEqual(conditionMatches_(santaFe, { field: 'model', op: 'starts_with', values: ['fe'] }), false);
+  assert.strictEqual(conditionMatches_(santaFe, { field: 'model', op: 'not_starts_with', values: ['santa'] }), false);
+  assert.strictEqual(conditionMatches_(poRow,   { field: 'model', op: 'not_starts_with', values: ['santa'] }), true);
+  assert.strictEqual(conditionMatches_(santaFe, { field: 'model', op: 'starts_with', values: [''] }), false);
+});
 t('numeric ops strip dollar signs and commas from BOTH cell and threshold', function () {
   var r = row_({ 9: '$18,019' });
   assert.strictEqual(conditionMatches_(r, { field: 'price', op: 'gte', values: ['18000'] }), true);

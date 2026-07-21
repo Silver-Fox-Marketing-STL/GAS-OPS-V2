@@ -11,6 +11,11 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Added
+- Targeting-rule operators `starts_with` / `not_starts_with` (case-insensitive
+  prefix, any-value OR, same empty-value fail-safe as `contains`) in
+  `conditionMatches_` + the Rules editor operator dropdown. First use case:
+  Weber Chevy drops stock numbers starting with "W"
+  (`stock starts_with ["W"]` → `drop_on_import`). Harness: 88/88.
 - Today's Print Schedule band on the Home HUD: each dealer's PRIMARY Pipedrive
   org carries a "Print Schedule" multi-select field of weekday options; the band
   (full-width above the System Stats / Dealer Focus columns) shows the active
