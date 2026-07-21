@@ -282,7 +282,7 @@ function pdFakeFetch_(method, path, payload, opts) {
   }
   if (p === '/files') {
     if (method === 'post') return pdFakeOk_({ id: s.nextAttach++, name: (payload && payload.name) || 'fake.pdf' });
-    return pdFakeOk_([]);   // GET ?deal_id= — nothing attached -> billing-PDF dup check proceeds
+    return pdFakeOk_([]);   // GET ?deal_id= — nothing attached -> billing-file dup check proceeds
   }
 
   Logger.log('pdFakeFetch_: unmatched ' + method + ' ' + path);

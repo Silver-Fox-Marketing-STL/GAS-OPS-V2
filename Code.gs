@@ -7149,10 +7149,10 @@ function pushRunToPipedrive(dealerKey, runRowIndex, mode, existingDealId) {
     return {
       ok: true, stage: 'done', dealId: dealId,
       productsAttached: lineItems.length, fieldsSet: applied.fieldsSet,
-      billingPdfPending: applied.billingPdfPending,
+      billingCsvPending: applied.billingCsvPending,
       message: (mode === 'link' ? 'Linked to deal ' : 'Created deal ') + dealId +
                ' (' + lineItems.length + ' product line' + (lineItems.length === 1 ? '' : 's') + ').' +
-               (applied.billingPdfPending ? ' (billing PDF will attach on a re-push)' : '')
+               (applied.billingCsvPending ? ' (billing CSV will attach on a re-push)' : '')
     };
   } catch (e) {
     return { ok: false, stage: 'error', message: 'Unexpected error: ' + e.message, retryable: true };
@@ -7330,20 +7330,20 @@ function pdApplyDealContents_(dealId, lineItems, pdCfg, currency, state, persist
     else { state.designDone = true; persist(state); }
   }
 
-  // ── Billing PDF — generate a formatted PDF of the run's billing sheet and attach it to the
-  //    deal. Best-effort / non-fatal: a failure flags billingPdfPending (a re-push retries);
-  //    idempotent (skips if a billing PDF is already on the deal). Never fails the push. ──
-  var billingPdfPending = false;
-  if (!state.billingPdfDone && runCtx && runCtx.outputDocId) {
+  // ── Billing CSV — export the run's billing sheet as CSV and attach it to the
+  //    deal. Best-effort / non-fatal: a failure flags billingCsvPending (a re-push
+  //    retries); idempotent (skips if already on the deal). Never fails the push. ──
+  var billingCsvPending = false;
+  if (!state.billingPdfDone && runCtx && runCtx.outputDocId) {   // persisted key keeps its legacy name (state compat) — now means "billing CSV attached"
     try {
-      var bp = attachBillingPdfToDeal_(dealId, runCtx.outputDocId, runCtx.group || 'PRIMARY',
+      var bc = attachBillingCsvToDeal_(dealId, runCtx.outputDocId, runCtx.group || 'PRIMARY',
                  { dealerName: runCtx.dealerName || pdCfg.orgName || '' });
-      if (bp.ok) { state.billingPdfDone = true; persist(state); }
-      else { billingPdfPending = true; Logger.log('billing PDF attach failed: ' + bp.error); }
-    } catch (e) { billingPdfPending = true; Logger.log('billing PDF attach threw: ' + e.message); }
+      if (bc.ok) { state.billingPdfDone = true; persist(state); }
+      else { billingCsvPending = true; Logger.log('billing CSV attach failed: ' + bc.error); }
+    } catch (e) { billingCsvPending = true; Logger.log('billing CSV attach threw: ' + e.message); }
   }
 
-  return { ok: true, fieldsSet: fieldsSet, designPending: designPending, billingPdfPending: billingPdfPending };
+  return { ok: true, fieldsSet: fieldsSet, designPending: designPending, billingCsvPending: billingCsvPending };
 }
 
 /**
@@ -7402,11 +7402,11 @@ function finalizeRunNewDeal(dealerKey, entry) {
     return {
       ok: true, stage: 'done', dealId: dealId, rowIndex: rowIndex,
       productsAttached: ctx.lineItems.length, fieldsSet: applied.fieldsSet,
-      billingPdfPending: applied.billingPdfPending,
+      billingCsvPending: applied.billingCsvPending,
       vinCount: (entry.producedVins || []).length,
       message: 'Created deal ' + dealId + ' (' + ctx.lineItems.length + ' product line' +
                (ctx.lineItems.length === 1 ? '' : 's') + ').' +
-               (applied.billingPdfPending ? ' (billing PDF will attach on a re-push)' : '')
+               (applied.billingCsvPending ? ' (billing CSV will attach on a re-push)' : '')
     };
   } catch (e) {
     return { ok: false, stage: 'error', message: 'Unexpected error: ' + e.message, retryable: true };
@@ -7457,344 +7457,6 @@ function getRunPushModes(dealerKey, group) {
   return modes;
 }
 
-
-// ── Billing PDF: generate a formatted PDF of the run's BILLING sheet + attach to the deal ──
-//
-// A best-effort, idempotent supplement to the push. The working BILLING sheet
-// (renderBillingSheet_) is left untouched — this READS it, lays the data out fresh in a
-// temp tab with full formatting, exports that tab to PDF, deletes the temp tab, and
-// attaches the PDF to the Pipedrive deal. A failure never fails the push (the deal +
-// products + fields are the critical parts); it flags billingPdfPending and a re-push
-// retries (the GET /files dup check keeps it to one per deal).
-
-var BILLING_PDF_TMP_TAB = '_BILLING_PDF';
-
-/** Filesystem-safe, DATE-FREE billing PDF filename for a deal/group (so idempotency matches). */
-function billingPdfFilename_(dealerName, group) {
-  var clean = String(dealerName || 'Order').replace(/[\\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
-  var name = 'Billing - ' + (clean || 'Order');
-  if (group && group !== 'PRIMARY') name += ' (' + group + ')';
-  return name + '.pdf';
-}
-
-/**
- * Parses an already-rendered BILLING / BILLING_<group> sheet into a structured object.
- * Mirrors renderBillingSheet_'s layout: section markers in col B; values col C; the
- * not-found list col D; the duplicate-detail table at col F (Year/Make/Model/Stock/VIN/
- * URL/Prior Orders); produced VINs one-per-row in col B under the PRODUCED VINS header.
- * @return {Object|null} {summary, byType, bySource, duplicates, dupDetail, producedVins, producedCount}
- */
-function readBillingForPdf_(outputDoc, sheetName) {
-  var sheet = outputDoc.getSheetByName(sheetName || 'BILLING');
-  if (!sheet) return null;
-  var lastRow = sheet.getLastRow();
-  if (lastRow < 1) return null;
-  var vals = sheet.getRange(1, 1, lastRow, 12).getValues();   // A–L
-
-  var data = {
-    summary:      { ordered: '', matched: '', notFoundCount: '', notFoundList: '' },
-    byType:       [],
-    bySource:     [],
-    duplicates:   { byType: [], total: '' },
-    dupDetail:    { hasRows: false, rows: [] },
-    producedVins: [],
-    producedCount: 0
-  };
-
-  var section = '';
-  for (var r = 0; r < vals.length; r++) {
-    var b = String(vals[r][1] == null ? '' : vals[r][1]).trim();   // col B
-    var c = vals[r][2];                                            // col C
-    var d = vals[r][3];                                            // col D
-    if (b.indexOf('──') === 0) {
-      // Check DUPLICATES before BY TYPE — "── DUPLICATES BY TYPE ──" contains "BY TYPE".
-      if      (b.indexOf('ORDER SUMMARY')      !== -1) section = 'summary';
-      else if (b.indexOf('DUPLICATES')         !== -1) section = 'dupes';
-      else if (b.indexOf('BY SOURCE')          !== -1) section = 'bysource';
-      else if (b.indexOf('BY TYPE')            !== -1) section = 'bytype';
-      else if (b.indexOf('PRODUCED VINS')      !== -1) {
-        section = 'vins';
-        var m = b.match(/\((\d+)\)/); data.producedCount = m ? Number(m[1]) : 0;
-      } else section = '';
-      continue;
-    }
-    if (!b) continue;   // blank spacer
-    if (section === 'summary') {
-      if      (b === 'Total Ordered')            data.summary.ordered = c;
-      else if (b === 'Total Matched in Scraper') data.summary.matched = c;
-      else if (b === 'Not Found in Scraper')   { data.summary.notFoundCount = c; data.summary.notFoundList = String(d == null ? '' : d); }
-    } else if (section === 'bytype') {
-      if (b.indexOf('Total Matched (check)') !== 0) data.byType.push({ label: b, count: c });
-    } else if (section === 'bysource') {
-      data.bySource.push({ label: b, count: c });
-    } else if (section === 'dupes') {
-      if (b === 'Total Duplicates') data.duplicates.total = c;
-      else data.duplicates.byType.push({ label: b, count: c });
-    } else if (section === 'vins') {
-      if (b !== 'No vehicles produced.') data.producedVins.push(b);
-    }
-  }
-
-  // Duplicate-detail table at col F (index 5): a marker row, then either a 'Year…' header
-  // + detail rows, or 'No duplicates in this order.'. URL (col K) is dropped for the PDF.
-  for (var r2 = 0; r2 < vals.length; r2++) {
-    var f = String(vals[r2][5] == null ? '' : vals[r2][5]).trim();
-    if (!f || f.indexOf('── DUPLICATE DETAIL') !== -1 || f === 'Year') continue;
-    if (f.indexOf('No duplicates') !== -1) break;
-    data.dupDetail.hasRows = true;
-    data.dupDetail.rows.push([
-      String(vals[r2][5]  == null ? '' : vals[r2][5]),    // Year  (F)
-      String(vals[r2][6]  == null ? '' : vals[r2][6]),    // Make  (G)
-      String(vals[r2][7]  == null ? '' : vals[r2][7]),    // Model (H)
-      String(vals[r2][8]  == null ? '' : vals[r2][8]),    // Stock (I)
-      String(vals[r2][9]  == null ? '' : vals[r2][9]),    // VIN   (J)
-      String(vals[r2][11] == null ? '' : vals[r2][11])    // Prior Order #s (L)
-    ]);
-  }
-  return data;
-}
-
-/**
- * Lays produced VINs out column-major into a grid `cols` wide: fill the first column
- * top-to-bottom to a generous height (≥ MIN_PER_COL) before wrapping into the next column —
- * there's ample vertical space, so prefer tall columns over many short ones. Column height
- * grows past the minimum only when there are more than MIN_PER_COL × cols VINs (which caps
- * the grid at `cols` columns for page width). Returns a 2D array (gridHeight × cols).
- */
-function billingVinGrid_(vins, cols) {
-  var MIN_PER_COL = 15;
-  var n = vins.length;
-  if (n === 0) return [];
-  var perCol  = Math.max(MIN_PER_COL, Math.ceil(n / cols));   // column height
-  var numCols = Math.ceil(n / perCol);
-  var gridH   = (numCols >= 2) ? perCol : n;                  // single column: exactly n rows, no trailing blanks
-  var grid = [];
-  for (var rr = 0; rr < gridH; rr++) {
-    var line = [];
-    for (var cc = 0; cc < cols; cc++) {
-      var idx = cc * perCol + rr;   // column-major: fill col 0 fully, then col 1, …
-      line.push(idx < n ? vins[idx] : '');
-    }
-    grid.push(line);
-  }
-  return grid;
-}
-
-/**
- * Builds a polished, formatted layout of the billing data in a temp tab and returns it.
- * Two-column page: Band A = Order Summary ‖ By Type (+ By Source), Band B = Duplicates
- * by Type ‖ Duplicate Detail — pairing the short tables side by side frees vertical
- * space for orders with many VINs/duplicates. Produced VINs follow full-width in a
- * column-major grid placed only in VIN-wide columns (a 17-char VIN at 9pt measures
- * ~135px; Sheets CLIPS when the neighbor cell is filled, so every VIN-bearing column
- * gets explicit width). Backgrounds/fonts/borders are applied as batched matrices
- * (runs once per push). Caller exports + deletes it.
- */
-function buildBillingPdfTab_(outputDoc, data, meta) {
-  var existing = outputDoc.getSheetByName(BILLING_PDF_TMP_TAB);
-  if (existing) outputDoc.deleteSheet(existing);
-  var sheet = outputDoc.insertSheet(BILLING_PDF_TMP_TAB);
-
-  // Page grid: left block (cols 1-2) · gutter (col 3) · right block (cols 4-7).
-  var W = 7;
-  var LEFT = { c0: 0, w: 2 }, RIGHT = { c0: 3, w: 4 };
-  // A 17-char VIN at Arial 9pt measures ~135px in Sheets (field-measured: 16 chars
-  // clipped at 118px) — every VIN-bearing column (1/2/4/6) gets 140. Col 5 is empty
-  // in every table, so Vehicle (col 4) overflows into it: ~215px effective.
-  var COL_WIDTHS = [140, 140, 20, 175, 40, 140, 108];
-  var VIN_COLS = [0, 1, 3, 5];                          // grid slots for produced VINs (0-based)
-  // Lot Sherpa brand (the SharedUtils light-theme tokens — print is light):
-  // Coquelicot accent, Licorice ink, warm paper surfaces, Rufous emphasis.
-  var ACCENT = '#fd410d',                    // Coquelicot — title bar
-      HEAD   = '#221a14',                    // Licorice — section headers + body ink
-      SUBH   = '#efeae4', BAND = '#f7f5f2',  // warm sand (surface-2) / warm paper (surface)
-      WHITE  = '#ffffff', GREY = '#5c544c',  // text-2 — subtitle
-      INK    = '#221a14', LINE = '#d9d3cd',  // border-2
-      RUFOUS = '#a52b0f';                    // total-row emphasis
-  // Brand type: Poppins headings, Montserrat body; VINs in Roboto Mono
-  // (Montserrat runs ~8% wider than Arial and would re-clip the 140px VIN
-  // columns; a mono 17-char VIN measures ~130px at 9pt).
-  var F_HEAD = 'Poppins', F_BODY = 'Montserrat', F_MONO = 'Roboto Mono';
-
-  var values = [], bgs = [], colors = [], weights = [], sizes = [], aligns = [], fams = [];
-  var mergeSpans = [], borderBlocks = [];
-
-  function newRow() {
-    var v = [], b = [], c = [], w = [], s = [], a = [], f = [];
-    for (var i = 0; i < W; i++) { v.push(''); b.push(WHITE); c.push(INK); w.push('normal'); s.push(10); a.push('left'); f.push(F_BODY); }
-    values.push(v); bgs.push(b); colors.push(c); weights.push(w); sizes.push(s); aligns.push(a); fams.push(f);
-    return values.length - 1;   // 0-based row index
-  }
-  function put(r, c, sp) {
-    if (sp.v !== undefined) values[r][c] = sp.v;
-    if (sp.bg) bgs[r][c] = sp.bg;
-    if (sp.fc) colors[r][c] = sp.fc;
-    if (sp.fw) weights[r][c] = sp.fw;
-    if (sp.fs) sizes[r][c] = sp.fs;
-    if (sp.al) aligns[r][c] = sp.al;
-    if (sp.ff) fams[r][c] = sp.ff;
-  }
-  function blank() { return newRow(); }
-
-  // A block table = { rows: [cellSpec[] per row, block-width], borderFrom: relative row }.
-  // Section titles overflow across their block's empty same-bg cells — no merges needed.
-  function sectionCells(title, w) {
-    var cells = []; for (var i = 0; i < w; i++) cells.push({ bg: HEAD });
-    cells[0] = { v: title, bg: HEAD, fc: WHITE, fw: 'bold', fs: 11, ff: F_HEAD };
-    return cells;
-  }
-  // Left-block key/value table. Pair: [label, value, fs?, monoLeft?] — monoLeft
-  // left-aligns the value in the mono face (VIN lists). boldLast = total row
-  // (bold + Rufous value).
-  function kvTable(title, pairs, opts) {
-    opts = opts || {};
-    var rows = [sectionCells(title, LEFT.w)];
-    pairs.forEach(function(p, i) {
-      var bg = (i % 2 === 0) ? WHITE : BAND, fs = p[2] || 10;
-      var last = opts.boldLast && i === pairs.length - 1;
-      rows.push([{ v: p[0], fw: 'bold', fs: fs, bg: bg },
-                 { v: p[1], fw: (last ? 'bold' : 'normal'), fs: fs, bg: bg,
-                   al: (p[3] ? 'left' : 'right'),
-                   ff: (p[3] ? F_MONO : F_BODY), fc: (last ? RUFOUS : INK) }]);
-    });
-    return { rows: rows, borderFrom: 1 };
-  }
-  // Right-block label……qty table (labels overflow across the empty middle cells).
-  function countTable(title, header, items) {
-    var rows = [sectionCells(title, RIGHT.w)];
-    rows.push([{ v: header[0], bg: SUBH, fw: 'bold' }, { bg: SUBH }, { bg: SUBH },
-               { v: header[1], bg: SUBH, fw: 'bold', al: 'right' }]);
-    items.forEach(function(t, i) {
-      var bg = (i % 2 === 0) ? WHITE : BAND;
-      rows.push([{ v: t.label, bg: bg }, { bg: bg }, { bg: bg },
-                 { v: t.count, al: 'right', bg: bg }]);
-    });
-    return { rows: rows, borderFrom: 1 };
-  }
-  function dupDetailTable(detailRows) {
-    // No Stock column — VIN + prior orders are the table's identity; Vehicle
-    // overflows into the empty col 5 for the extra room.
-    var rows = [sectionCells('DUPLICATE DETAIL', RIGHT.w)];
-    rows.push([{ v: 'Vehicle', bg: SUBH, fw: 'bold', fs: 9 }, { bg: SUBH },
-               { v: 'VIN', bg: SUBH, fw: 'bold', fs: 9 }, { v: 'Prior Orders', bg: SUBH, fw: 'bold', fs: 9 }]);
-    detailRows.forEach(function(rw, i) {
-      var bg = (i % 2 === 0) ? WHITE : BAND;
-      var vehicle = [rw[0], rw[1], rw[2]].filter(Boolean).join(' ');   // Year Make Model in one cell
-      rows.push([{ v: vehicle, bg: bg, fs: 9 }, { bg: bg },
-                 { v: rw[4], bg: bg, fs: 9, ff: F_MONO }, { v: rw[5], bg: bg, fs: 9 }]);
-    });
-    return { rows: rows, borderFrom: 1 };
-  }
-
-  // Stack a side's tables (one spacer row between) and paste both sides row-aligned.
-  function stackSide(tables) {
-    var rows = [], borders = [];
-    tables.forEach(function(t, i) {
-      if (i > 0) rows.push(null);
-      borders.push({ from: rows.length + t.borderFrom, to: rows.length + t.rows.length - 1 });
-      rows = rows.concat(t.rows);
-    });
-    return { rows: rows, borders: borders };
-  }
-  function emitBand(leftTables, rightTables) {
-    var L = stackSide(leftTables), R = stackSide(rightTables);
-    var h = Math.max(L.rows.length, R.rows.length);
-    var base = values.length;
-    for (var i = 0; i < h; i++) newRow();
-    [{ s: L, blk: LEFT }, { s: R, blk: RIGHT }].forEach(function(side) {
-      side.s.rows.forEach(function(cells, r) {
-        if (!cells) return;
-        cells.forEach(function(sp, j) { if (sp) put(base + r, side.blk.c0 + j, sp); });
-      });
-      side.s.borders.forEach(function(b) {
-        borderBlocks.push({ top: base + b.from, bottom: base + b.to, c0: side.blk.c0, c1: side.blk.c0 + side.blk.w - 1 });
-      });
-    });
-  }
-
-  // ── Title + subtitle ──
-  var rTitle = newRow();
-  for (var tc = 0; tc < W; tc++) put(rTitle, tc, { bg: ACCENT });
-  put(rTitle, 0, { v: 'BILLING SUMMARY', bg: ACCENT, fc: WHITE, fw: 'bold', fs: 18, al: 'center', ff: F_HEAD });
-  mergeSpans.push(rTitle);
-  var sub = [];
-  if (meta && meta.dealerName) sub.push(meta.dealerName);
-  if (meta && meta.dealId)     sub.push('Deal #' + meta.dealId);
-  if (meta && meta.group && meta.group !== 'PRIMARY') sub.push(meta.group);
-  sub.push(Utilities.formatDate(new Date(), 'America/Chicago', 'MMMM d, yyyy'));
-  var rSub = newRow();
-  put(rSub, 0, { v: sub.join('   •   '), fc: GREY, fs: 10, al: 'center' });
-  mergeSpans.push(rSub);
-  blank();
-
-  // ── Band A: Order Summary ‖ By Type (+ By Source) ──
-  var sumPairs = [['Total Ordered', data.summary.ordered],
-                  ['Total Matched', data.summary.matched],
-                  ['Not Found', data.summary.notFoundCount]];
-  if (data.summary.notFoundList && data.summary.notFoundList !== '—' && data.summary.notFoundList !== '') {
-    // One VIN per row (no wrapped cell — a wrapped row's height would stretch the
-    // band and inflate whatever row the right-side table has at the same position).
-    data.summary.notFoundList.split(',').map(function(v) { return v.trim(); }).filter(Boolean)
-      .forEach(function(v, i) { sumPairs.push([i === 0 ? 'Not Found VINs' : '', v, 9, true]); });
-  }
-  var rightA = [countTable('BY TYPE (GROSS)', ['Type', 'Quantity'], data.byType)];
-  if (data.bySource && data.bySource.length) {
-    rightA.push(countTable('BY SOURCE (QTY PER SKU)', ['Source — Type', 'Quantity'], data.bySource));
-  }
-  emitBand([kvTable('ORDER SUMMARY', sumPairs)], rightA);
-  blank();
-
-  // ── Band B: Duplicates by Type ‖ Duplicate Detail ──
-  var dupPairs = data.duplicates.byType.map(function(t) { return [t.label, t.count]; });
-  dupPairs.push(['Total Duplicates', data.duplicates.total]);
-  var rightB = (data.dupDetail.hasRows && data.dupDetail.rows.length)
-    ? [dupDetailTable(data.dupDetail.rows)] : [];
-  emitBand([kvTable('DUPLICATES BY TYPE', dupPairs, { boldLast: true })], rightB);
-  blank();
-
-  // ── Produced VINs — full-width, column-major grid in the VIN-wide columns only ──
-  var rVins = newRow();
-  for (var vc = 0; vc < W; vc++) put(rVins, vc, { bg: HEAD });
-  put(rVins, 0, { v: 'PRODUCED VINS (' + data.producedCount + ')', bg: HEAD, fc: WHITE, fw: 'bold', fs: 11, ff: F_HEAD });
-  var vins = data.producedVins || [];
-  if (!vins.length) {
-    put(newRow(), 0, { v: 'No vehicles produced.', fs: 10 });
-  } else {
-    // Banded only (no outer border) so a narrow grid of full columns doesn't draw a
-    // wide mostly-empty box; the alternating row shading carries the structure.
-    billingVinGrid_(vins, VIN_COLS.length).forEach(function(line, rr) {
-      var r = newRow();
-      var bg = (rr % 2 === 0) ? WHITE : BAND;
-      for (var c = 0; c < W; c++) put(r, c, { bg: bg, fs: 9 });
-      line.forEach(function(v, k) { if (v) put(r, VIN_COLS[k], { v: v, ff: F_MONO }); });
-    });
-  }
-
-  // ── Apply (batched) ──
-  var n = values.length;
-  var rng = sheet.getRange(1, 1, n, W);
-  rng.setNumberFormat('@');   // VIN/Stock mixed-type rule: never let a numeric-looking VIN re-type
-  rng.setValues(values);
-  rng.setBackgrounds(bgs);
-  rng.setFontColors(colors);
-  rng.setFontWeights(weights);
-  rng.setFontSizes(sizes);
-  rng.setHorizontalAlignments(aligns);
-  rng.setFontFamilies(fams);
-  rng.setVerticalAlignment('middle');
-
-  mergeSpans.forEach(function(r) { sheet.getRange(r + 1, 1, 1, W).merge(); });
-  sheet.setRowHeight(rTitle + 1, 34);
-  borderBlocks.forEach(function(b) {
-    sheet.getRange(b.top + 1, b.c0 + 1, b.bottom - b.top + 1, b.c1 - b.c0 + 1)
-         .setBorder(true, true, true, true, false, false, LINE, SpreadsheetApp.BorderStyle.SOLID);
-  });
-
-  COL_WIDTHS.forEach(function(px, i) { sheet.setColumnWidth(i + 1, px); });
-
-  SpreadsheetApp.flush();
-  return sheet;
-}
 
 /** Export URL for one tab as CSV — byte-identical to File > Download > CSV. */
 function csvExportUrl_(spreadsheetId, gid) {
@@ -7853,32 +7515,13 @@ function exportCsvTabsToFolder_(outputDoc, outputFolderId) {
   return written;
 }
 
-/**
- * Opens the run output doc, reads the billing sheet, builds the formatted temp tab,
- * exports it to PDF, deletes the temp tab, and returns {ok, blob, filename}.
- * The temp tab is always removed (even on export failure).
- */
-function generateBillingPdf_(outputDocId, sheetName, meta) {
-  var doc;
-  try { doc = SpreadsheetApp.openById(outputDocId); }
-  catch (e) { return { ok: false, error: 'open output doc: ' + e.message }; }
-  var data = readBillingForPdf_(doc, sheetName);
-  if (!data) return { ok: false, error: 'billing sheet "' + sheetName + '" not found' };
-
-  var filename = (meta && meta.filename) || billingPdfFilename_(meta && meta.dealerName, meta && meta.group);
-  var sheet = null;
-  try {
-    sheet = buildBillingPdfTab_(doc, data, meta);
-    SpreadsheetApp.flush();
-    var exp = exportSheetPdf_(outputDocId, sheet.getSheetId());
-    try { doc.deleteSheet(sheet); } catch (e2) {}
-    if (!exp.ok) return { ok: false, error: exp.error };
-    return { ok: true, blob: exp.blob.setName(filename), filename: filename };
-  } catch (e) {
-    if (sheet) { try { doc.deleteSheet(sheet); } catch (e3) {} }
-    return { ok: false, error: 'build/export: ' + e.message };
-  }
-}
+// ── Billing CSV: attach the run's BILLING sheet to the deal as a CSV file ──
+//
+// A best-effort, idempotent supplement to the push. Exports the live BILLING /
+// BILLING_<group> tab exactly as File > Download > CSV would and attaches it
+// to the Pipedrive deal. A failure never fails the push (the deal + products +
+// fields are the critical parts); it flags billingCsvPending and a re-push
+// retries (the GET /files dup check keeps it to one per deal).
 
 /** Filesystem-safe, DATE-FREE billing CSV filename for a deal/group (so idempotency matches). */
 function billingCsvFilename_(dealerName, group) {
@@ -7899,8 +7542,8 @@ function csvExportFileName_(outputDocName, tabName) {
   return outputDocName + ' - ' + tabName + '.csv';
 }
 
-/** True if a billing PDF (by filename) is already attached to the deal. Best-effort (false on error). */
-function pdDealHasBillingPdf_(dealId, filename) {
+/** True if a file with this exact name is already attached to the deal. Best-effort (false on error). */
+function pdDealHasBillingFile_(dealId, filename) {
   try {
     var res = pdFetch_('get', '/files?deal_id=' + encodeURIComponent(dealId));
     if (!res.ok || !res.data || !res.data.length) return false;
@@ -7913,13 +7556,13 @@ function pdDealHasBillingPdf_(dealId, filename) {
 }
 
 /**
- * Uploads a PDF Blob to Pipedrive and associates it with the deal (POST /files,
+ * Uploads a file Blob to Pipedrive and associates it with the deal (POST /files,
  * multipart/form-data — GAS auto-builds the body from a Blob payload field; pdFetch_
  * is JSON-only so this is a raw fetch). Returns {ok} or {ok:false, error}.
  */
 function pdAttachFileToDeal_(dealId, blob, filename) {
   if (ENV.name !== 'prod') { // dev: fake the upload — the ONE Pipedrive call that bypasses pdFetch_ (multipart).
-    // Save the PDF to DEV_OUTPUT instead so layout work has a real artifact to inspect
+    // Save the file to DEV_OUTPUT instead so the billing CSV has a real artifact to inspect
     // (prod-identical filename; date-free, so repeat runs stack same-named files — sort by created).
     try { DriveApp.getFolderById(ENV.OUTPUT_FOLDER_ID).createFile(blob.setName(filename)); }
     catch (e) { Logger.log('dev billing PDF save failed (non-fatal): ' + e.message); }
@@ -7941,19 +7584,22 @@ function pdAttachFileToDeal_(dealId, blob, filename) {
 }
 
 /**
- * Generates the billing PDF for a run and attaches it to the deal. Idempotent — skips if a
- * billing PDF (same filename) is already on the deal. Returns {ok} | {ok, skipped} | {ok:false, error}.
+ * Exports the run's billing sheet as CSV and attaches it to the deal. Idempotent —
+ * skips if a billing CSV (same filename) is already on the deal.
+ * Returns {ok} | {ok, skipped} | {ok:false, error}.
  */
-function attachBillingPdfToDeal_(dealId, outputDocId, group, meta) {
+function attachBillingCsvToDeal_(dealId, outputDocId, group, meta) {
   var sheetName = (group === 'PRIMARY') ? 'BILLING' : ('BILLING_' + group);
-  var filename  = billingPdfFilename_(meta && meta.dealerName, group);
-  if (pdDealHasBillingPdf_(dealId, filename)) return { ok: true, skipped: true };
-  var gen = generateBillingPdf_(outputDocId, sheetName, {
-    dealerName: (meta && meta.dealerName) || '', dealId: dealId, group: group, filename: filename
-  });
-  if (!gen.ok) return { ok: false, error: gen.error };
-  var att = pdAttachFileToDeal_(dealId, gen.blob, gen.filename);
-  return att.ok ? { ok: true } : { ok: false, error: att.error };
+  var filename  = billingCsvFilename_(meta && meta.dealerName, group);
+  if (pdDealHasBillingFile_(dealId, filename)) return { ok: true, skipped: true };
+  var doc;
+  try { doc = SpreadsheetApp.openById(outputDocId); }
+  catch (e) { return { ok: false, error: 'open output doc: ' + e.message }; }
+  var sheet = doc.getSheetByName(sheetName);
+  if (!sheet) return { ok: false, error: 'billing sheet "' + sheetName + '" not found' };
+  var exp = exportSheetCsv_(outputDocId, sheet.getSheetId());
+  if (!exp.ok) return { ok: false, error: exp.error };
+  return pdAttachFileToDeal_(dealId, exp.blob, filename);
 }
 
 // ============================================================================
