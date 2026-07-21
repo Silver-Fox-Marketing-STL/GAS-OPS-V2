@@ -1644,7 +1644,7 @@
             '<td>' + rvTypePill(d.type) + '</td>' +
             '<td>' + escHtml(d.stock) + '</td>' +
             '<td class="rv-vin">' + escHtml(lines[j]) + '</td>' +
-            '<td>' + escHtml(d.status) + (isDupe ? ' · in VIN log' : '') + '</td>' +
+            '<td>' + escHtml(d.status) + (isDupe ? ' · ALREADY PRINTED' : '') + '</td>' +
             '<td class="rv-link">' + urlCell + '</td>' +
             featCell +
             editCells +
@@ -1666,7 +1666,7 @@
       }
       body.innerHTML = html;
       if (countEl) countEl.textContent = lines.length + ' VINs · ' + found + ' found · ' + (lines.length - found) + ' not found' +
-        (dupes ? ' · ' + dupes + ' in VIN log' : '');
+        (dupes ? ' · ' + dupes + ' ALREADY PRINTED' : '');
       if (dedupeBtn) {
         dedupeBtn.style.display = dupes ? '' : 'none';
         dedupeBtn.textContent = 'Remove Duplicates (' + dupes + ')';

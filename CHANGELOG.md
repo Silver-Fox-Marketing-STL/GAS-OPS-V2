@@ -13,7 +13,7 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ### Added
 - Run Order dupe guard: the Inventory match table highlights rows whose VIN
   (or stock number — same identifier logic as the billing dupe flags) already
-  appears in the dealer's VIN log (`row-dup` warning tone, "· in VIN log"
+  appears in the dealer's VIN log (`row-dup` danger tone, "· ALREADY PRINTED"
   status suffix, count in the match line), every row gets a ✕ button that
   removes that vehicle from the order, and a "Remove Duplicates (N)" button
   in the table header clears all flagged rows at once. Server:
