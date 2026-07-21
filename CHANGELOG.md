@@ -29,6 +29,13 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   `VIEW_LEFT` registry in the App shell (nav-away hook beside
   `VIEW_INITS`/`VIEW_SHOWN`). Harness: 90/90 (`summarizeRunDraft_`).
 
+### Removed
+- Home "Workflows" launcher cards (and their section label) — redundant with the
+  sidebar/Start nav and taking vertical space from the HUD. The Encarta/Luna
+  card overrides and the `data-arrange="desktop"` icon-grid rules went with
+  them (the `arrange` theme axis itself stays); the Home grid is now
+  `status → hud`.
+
 ### Changed
 - VIN Inbox: VIN correction is live — the card's validity/inventory tags, vehicle
   line, warning border, and the batch "N valid" chip update as you type (ViewRun's

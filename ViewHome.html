@@ -1,6 +1,8 @@
 <!-- ════════════════════════════════════════════════════════════════════════════
-     HOME VIEW — status strip + workflow launcher cards + HUD dashboard
+     HOME VIEW — status strip + HUD dashboard
      (all-time / today / this-week stat tiles + per-dealer focus card)
+     (The Workflows launcher cards were removed July 2026 — redundant with the
+      sidebar/Start nav.)
 ════════════════════════════════════════════════════════════════════════════ -->
 <div class="view" id="view-home" data-layout="data" hidden>
   <div class="home-scroll app-measure">
@@ -8,35 +10,6 @@
     <div class="home-status" id="homeStatus">
       <span class="dot">&#9679;</span>
       <span id="homeStatusText">Loading dashboard&hellip;</span>
-    </div>
-
-    <div class="home-section-label home-wflabel">Workflows</div>
-    <div class="home-cards">
-      <div class="home-card" onclick="navTo('view-run')">
-        <div class="card-icon">&#9654;</div>
-        <div class="card-title">Run Order</div>
-        <div class="card-desc">Run a dealer order — CAO pre-fill or manual VINs, QR codes, CSV output.</div>
-      </div>
-      <div class="home-card" onclick="navTo('view-import')">
-        <div class="card-icon">&#11014;</div>
-        <div class="card-title">Import Data</div>
-        <div class="card-desc">Import scraper CSVs — replace everything or merge new files into the current data.</div>
-      </div>
-      <div class="home-card" onclick="navTo('view-vinlog')">
-        <div class="card-icon">&#128203;</div>
-        <div class="card-title">VIN Logs</div>
-        <div class="card-desc">Commit or roll back run results, and add VINs to a log manually.</div>
-      </div>
-      <div class="home-card" onclick="navTo('view-rules')">
-        <div class="card-icon">&#9881;</div>
-        <div class="card-title">Dealer Rules</div>
-        <div class="card-desc">Edit a dealer's type rules, filters, and targeting conditions.</div>
-      </div>
-      <div class="home-card" onclick="navTo('view-norm')">
-        <div class="card-icon">Aa</div>
-        <div class="card-title">Normalization</div>
-        <div class="card-desc">Manage the maps that clean up raw scraper values at import time.</div>
-      </div>
     </div>
 
     <div class="home-hud" id="homeHud">
@@ -105,12 +78,10 @@
        Named areas let a theme reorder sections with no markup change. */
     display: grid;
     grid-template-columns: 1fr;
-    grid-template-areas: "status" "wflabel" "cards" "hud";
+    grid-template-areas: "status" "hud";
     align-content: start;
   }
   #view-home .home-status { grid-area: status; justify-self: start; }  /* no-op: keep the inline-flex pill content-width (grid items default to stretch) */
-  #view-home .home-wflabel { grid-area: wflabel; }
-  #view-home .home-cards { grid-area: cards; }
   #view-home .home-hud { grid-area: hud; }
 
   #view-home .home-status {
@@ -128,37 +99,6 @@
   #view-home .home-status .dot { color: var(--text-muted); font-size: 10px; }
   #view-home .home-status.fresh .dot { color: var(--success); }
   #view-home .home-status.stale .dot { color: var(--warning); }
-
-  #view-home .home-section-label {
-    font-size: 11px;
-    font-weight: bold;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--text-3);
-    margin-bottom: 10px;
-  }
-
-  #view-home .home-cards {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(215px, 260px));   /* cap card growth — calm trailing space, not giant slabs at 2560 */
-    gap: 14px;
-    margin-bottom: 28px;
-  }
-  #view-home .home-card {
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 16px;
-    cursor: pointer;
-    background: var(--bg);
-    transition: box-shadow 0.12s, border-color 0.12s;
-    user-select: none;
-  }
-  #view-home .home-card:hover {
-    border-color: var(--accent);
-  }
-  #view-home .card-icon { font-size: 20px; margin-bottom: 8px; color: var(--accent); font-weight: bold; }
-  #view-home .card-title { font-size: 14px; font-weight: bold; margin-bottom: 5px; }
-  #view-home .card-desc { font-size: 11.5px; color: var(--text-2); line-height: 1.5; }
 
   /* ── HUD: System Stats left half | Dealer Focus right half; the schedule
      band spans both. EXPLICIT two tracks — the previous auto-fit minmax(440px)

@@ -270,7 +270,6 @@
     :root[data-viewport="mobile"] #view-vinlog .layout { grid-template-columns: 1fr; grid-template-areas: "main" "side"; }
     :root[data-viewport="mobile"] #view-vinlog .col-main { border-right: none; border-bottom: 1px solid var(--border); }
     :root[data-viewport="mobile"] #view-import .import-cols { grid-template-columns: 1fr; grid-template-areas: "left" "right"; }
-    :root[data-viewport="mobile"] #view-home .home-cards { grid-template-columns: 1fr; }
 
     /* Trim oversized desktop padding; let wide tables scroll instead of overflowing the screen. */
     :root[data-viewport="mobile"] #view-run .rv-wrap,
@@ -375,7 +374,6 @@
        otherwise — a theme is the legitimate top layer of intent here. */
     /* Cards / panels → raised gray 3D group-boxes (no soft shadow). */
     :root[data-theme="encarta"] .filter-card,
-    :root[data-theme="encarta"] .home-card,
     :root[data-theme="encarta"] .ps-card,
     :root[data-theme="encarta"] .ps-group,
     :root[data-theme="encarta"] .ps-rule {
@@ -419,16 +417,9 @@
     :root[data-theme="luna"] input:not([type=checkbox]):not([type=radio]):not([type=range]),
     :root[data-theme="luna"] select, :root[data-theme="luna"] textarea { background: #fff; border: 1px solid #7f9db9; border-radius: 2px; box-shadow: none; }
 
-    /* data-arrange="desktop" — Home cards become a grid of captioned desktop icons.
-       Theme-agnostic LAYOUT on the axis; any future "desktop" theme reuses it. */
-    :root[data-arrange="desktop"] #view-home .home-cards { grid-template-columns: repeat(auto-fill, 96px); gap: 18px; padding: 14px; }
-    :root[data-arrange="desktop"] #view-home .home-card { background: transparent; border: none; box-shadow: none; text-align: center; padding: 6px 2px; }
-    :root[data-arrange="desktop"] #view-home .home-card .card-icon { font-size: 40px; margin-bottom: 4px; }
-    :root[data-arrange="desktop"] #view-home .home-card .card-desc { display: none; }
-    :root[data-arrange="desktop"] #view-home .home-wflabel { display: none; } /* only the Workflows caption — HUD section labels stay */
-    /* Luna pairs the desktop with a blue background + light captions. */
+    /* (The data-arrange="desktop" home-card icon rules died with the Workflows
+       cards, July 2026 — the arrange axis itself stays on the theme registry.) */
     :root[data-theme="luna"] #view-home, :root[data-theme="luna"] #appContent { background: linear-gradient(180deg,#5a7edc,#4a6fc8); }
-    :root[data-theme="luna"] #view-home .home-card .card-title { color: #fff; text-shadow: 1px 1px 2px rgba(0,0,0,.6); }
     /* Luna mirrors the Run body — VIN column on the right, Explorer-style
        (the rail is retired; base order is "vin table"). */
     :root[data-theme="luna"] #view-run .rv-body { grid-template-columns: 1fr var(--rv-vin-w); grid-template-areas: "table vin"; }
