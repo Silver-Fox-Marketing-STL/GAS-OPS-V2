@@ -10,6 +10,15 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## [Unreleased]
 
+### Changed
+- VIN Inbox: VIN correction is live — the card's validity/inventory tags, vehicle
+  line, warning border, and the batch "N valid" chip update as you type (ViewRun's
+  preload idiom: one `getDealerVinData` call per dealer in the inbox, then pure-local
+  lookups against a client twin of `isValidVin_`). Blur/Enter persists the correction
+  via the existing `updateVinSubmissionStatus` with no full-inbox reload; the
+  **Re-check** button is gone. Card de-clutter: the header VIN (redundant with the
+  input) and the per-card email · timestamp (the batch-level stamp stays) are removed.
+
 ### Added
 - Run Order dupe guard: the Inventory match table highlights rows whose VIN
   (or stock number — same identifier logic as the billing dupe flags) already
