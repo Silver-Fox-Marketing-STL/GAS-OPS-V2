@@ -3711,7 +3711,7 @@ function getFilterFieldIndex_() {
 var FILTER_NUMERIC_FIELDS = { price: true, msrp: true, year: true };
 // Condition operators usable in a targeting_rules predicate. (drop_on_import is no
 // longer an op — "drop on import" is now a rule ACTION; see TARGETING_ACTIONS.)
-var FILTER_OPS = ['in', 'not_in', 'contains', 'not_contains', 'gte', 'lte', 'gt', 'lt'];
+var FILTER_OPS = ['in', 'not_in', 'contains', 'not_contains', 'starts_with', 'not_starts_with', 'gte', 'lte', 'gt', 'lt'];
 // Rule actions: what to DO when a targeting rule's condition group matches.
 var TARGETING_ACTIONS = ['drop_on_import', 'exclude_cao', 'exclude_order'];
 
@@ -4113,6 +4113,8 @@ function conditionMatches_(row, cond) {
     case 'not_in':       return lowerVals.indexOf(cellLower) === -1;
     case 'contains':     return lowerVals.some(function(v) { return v !== '' && cellLower.indexOf(v) !== -1; });
     case 'not_contains': return lowerVals.every(function(v) { return v === '' || cellLower.indexOf(v) === -1; });
+    case 'starts_with':     return lowerVals.some(function(v)  { return v !== '' && cellLower.indexOf(v) === 0; });
+    case 'not_starts_with': return lowerVals.every(function(v) { return v === '' || cellLower.indexOf(v) !== 0; });
     default:
       Logger.log('conditionMatches_: unknown op "' + cond.op + '" — no match (fail-safe).');
       return false;
