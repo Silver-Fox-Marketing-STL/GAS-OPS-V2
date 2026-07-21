@@ -6263,6 +6263,123 @@ function setPipedriveSettingValue_(key, value) {
   sh.getRange(sh.getLastRow() + 1, 1, 1, 2).setValues([[key, value]]);
 }
 
+// ── Print Schedule (Home HUD band) ─────────────────────────────────────────
+// Each dealer's PRIMARY Pipedrive org carries a "Print Schedule" multi-select
+// (set) field of weekday options. The Home HUD asks which active dealers are
+// scheduled today. Org→days is cached 6h (day-agnostic — midnight rollover
+// needs no invalidation); VIN-Inbox pending counts are always read live.
+
+var PD_SCHED_FIELD_SETTING = 'print_schedule_field_key';
+var PD_SCHED_CACHE_KEY     = 'pd_print_schedule_v1';
+
+/**
+ * The org "Print Schedule" field key: PIPEDRIVE_SETTINGS first, else
+ * auto-discover by name and persist the key (stable-key invariant — the name
+ * only locates the key once; ids/keys do all comparing after that).
+ * Returns '' when the field doesn't exist / Pipedrive is unconfigured.
+ */
+function pdPrintScheduleFieldKey_() {
+  var key = getPipedriveSettingValue_(PD_SCHED_FIELD_SETTING);
+  if (key) return key;
+  var fields = pdListOrganizationFields_();
+  for (var i = 0; i < fields.length; i++) {
+    if (String(fields[i].name).trim().toLowerCase() === 'print schedule') {
+      setPipedriveSettingValue_(PD_SCHED_FIELD_SETTING, fields[i].key);
+      return fields[i].key;
+    }
+  }
+  return '';
+}
+
+/**
+ * Client-callable (Home HUD). Which active dealers print today, per the
+ * "Print Schedule" set field on each dealer's active PRIMARY org row.
+ * Returns { ok, configured, day, dealers:[{key,name,pending}] }.
+ * Never throws — a Pipedrive failure can never break the Home view.
+ * refresh=true bypasses the 6h org→days cache (HUD Refresh button).
+ */
+function getPrintSchedule(refresh) {
+  try {
+    var cache = CacheService.getScriptCache();
+    var payload = null;
+    if (!refresh) {
+      var hit = cache.get(PD_SCHED_CACHE_KEY);
+      if (hit) { try { payload = JSON.parse(hit); } catch (e) { payload = null; } }
+    }
+    if (!payload) {
+      var fieldKey = pdPrintScheduleFieldKey_();
+      if (!fieldKey) return { ok: true, configured: false, day: '', dealers: [] };
+      var field = null;
+      var fields = pdListOrganizationFields_();
+      for (var i = 0; i < fields.length; i++) if (fields[i].key === fieldKey) { field = fields[i]; break; }
+      if (!field) return { ok: true, configured: false, day: '', dealers: [] };
+      // ONE batched v2 list for every org's day set — never per-org GETs.
+      var orgs = pdListAllV2_('/organizations?custom_fields=' + encodeURIComponent(fieldKey));
+      // A configured account always has orgs — an empty list here means the
+      // fetch failed (pdListAllV2_ swallows errors), not an empty schedule.
+      if (!orgs.length) return { ok: false, configured: true, day: '', dealers: [], error: 'Pipedrive unavailable' };
+      var orgDays = {};
+      orgs.forEach(function(o) {
+        var raw = (o.custom_fields || {})[fieldKey];
+        if (!raw) return;
+        var arr = Array.isArray(raw) ? raw : [raw];
+        var ids = arr.map(function(v) {
+          if (v && typeof v === 'object') v = (v.id !== undefined) ? v.id : v.value;
+          return Number(v);
+        }).filter(function(n) { return !isNaN(n); });
+        if (ids.length) orgDays[String(o.id)] = ids;
+      });
+      payload = { fieldKey: fieldKey, options: field.options || [], orgDays: orgDays };
+      cache.put(PD_SCHED_CACHE_KEY, JSON.stringify(payload), 21600);
+    }
+
+    // Today's option id (America/Chicago): the label locates it, ids compare.
+    var todayName = Utilities.formatDate(new Date(), 'America/Chicago', 'EEEE');
+    var todayId = null;
+    (payload.options || []).forEach(function(op) {
+      if (String(op.label).trim().toLowerCase() === todayName.toLowerCase()) todayId = Number(op.id);
+    });
+    if (todayId === null) return { ok: true, configured: true, day: todayName, dealers: [] };
+
+    var orgByDealer = {};
+    var pdSheet = getPipedriveSheet_();
+    if (pdSheet) {
+      var pdData = pdSheet.getDataRange().getValues();
+      for (var r = 1; r < pdData.length; r++) {
+        if (String(pdData[r][PDCFG.GROUP] || 'PRIMARY').toUpperCase() !== 'PRIMARY') continue;
+        if (!isTrue_(pdData[r][PDCFG.ACTIVE])) continue;
+        if (pdData[r][PDCFG.ORG_ID] === '') continue;
+        orgByDealer[String(pdData[r][PDCFG.DEALER_KEY])] = String(pdData[r][PDCFG.ORG_ID]);
+      }
+    }
+
+    var pending = printSchedulePendingByDealer_();
+    var dealers = getConfigSS_().getSheetByName('DEALERS').getDataRange().getValues();
+    var out = [];
+    for (var d = 1; d < dealers.length; d++) {
+      if (!isTrue_(dealers[d][CFG.ACTIVE])) continue;
+      var key = String(dealers[d][CFG.KEY]);
+      var days = payload.orgDays[orgByDealer[key] || ''] || [];
+      if (days.indexOf(todayId) === -1) continue;
+      out.push({ key: key, name: String(dealers[d][CFG.NAME]), pending: pending[key] || 0 });
+    }
+    return { ok: true, configured: true, day: todayName, dealers: out };
+  } catch (e) {
+    Logger.log('getPrintSchedule failed: ' + e.message);
+    return { ok: false, configured: true, day: '', dealers: [], error: e.message };
+  }
+}
+
+/** Live count of 'submitted' VIN-Inbox rows per dealer_key ({} when unconfigured). */
+function printSchedulePendingByDealer_() {
+  var res = getVinSubmissions();   // default filter = submitted only
+  var counts = {};
+  if (res && res.ok && res.configured) {
+    res.submissions.forEach(function(s) { counts[s.dealerKey] = (counts[s.dealerKey] || 0) + 1; });
+  }
+  return counts;
+}
+
 // ── Vehicle-type registry ──────────────────────────────────────────────────
 // Single source of truth for the canonical vehicle types (built-ins + user-added).
 // Stored as a JSON array in the PIPEDRIVE_SETTINGS 'vehicle_types' row. Every place that

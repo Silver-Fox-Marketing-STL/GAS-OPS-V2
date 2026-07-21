@@ -41,10 +41,19 @@
 
     <div class="home-hud" id="homeHud">
 
+      <div class="home-hud-band" id="homeSchedule" hidden>
+        <div class="home-hud-head">
+          <div class="home-hud-title">Today's Print Schedule <span class="home-sched-day" id="homeSchedDay"></span></div>
+        </div>
+        <div class="home-sched-rows" id="homeSchedRows">
+          <div class="home-muted">Loading schedule&hellip;</div>
+        </div>
+      </div>
+
       <div class="home-hud-col">
         <div class="home-hud-head">
           <div class="home-hud-title">System Stats</div>
-          <button class="btn-secondary" id="homeRefresh" onclick="loadHomeHud()">&#8635; Refresh</button>
+          <button class="btn-secondary" id="homeRefresh" onclick="loadHomeHud(true)">&#8635; Refresh</button>
         </div>
 
         <div class="home-statgroup hero">
@@ -179,6 +188,35 @@
   }
   #view-home .home-muted { font-size: 12px; color: var(--text-3); }
 
+  /* ── Today's Print Schedule band: full-width above the two HUD columns ── */
+  #view-home .home-hud-band {
+    grid-column: 1 / -1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 12px 14px;
+  }
+  #view-home .home-hud-band .home-hud-head { min-height: 0; margin-bottom: 4px; }
+  #view-home .home-sched-day {   /* inherits the uppercase accent title — soften back to a muted suffix */
+    color: var(--text-3);
+    font-weight: 700;
+    text-transform: none;
+    letter-spacing: normal;
+    margin-left: 6px;
+  }
+  #view-home .home-sched-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-top: 1px solid var(--border);
+  }
+  #view-home .home-sched-row:first-child { border-top: 0; }
+  #view-home .home-sched-name { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; }
+  #view-home .home-sched-inbox { cursor: pointer; }
+
   /* Stat groups: surface panels that visibly separate from the page (border +
      shadow; tiles inside step up again to --surface-2). One accent left edge
      on the hero GROUP, not 14 accent tiles. */
@@ -292,10 +330,12 @@
 
   // Loads the HUD stats (one getHomeHud round-trip) and, if a dealer is picked,
   // reloads its summary in parallel. Re-runs on every visit to Home (VIEW_SHOWN)
-  // so numbers stay current after a run.
-  function loadHomeHud() {
+  // so numbers stay current after a run. refresh=true (the Refresh button) also
+  // bypasses the server-side print-schedule cache.
+  function loadHomeHud(refresh) {
     var btn = document.getElementById('homeRefresh');
     if (btn) btn.disabled = true;
+    homeLoadSchedule(refresh === true);   // parallel call — Pipedrive latency never blocks the stat tiles
     google.script.run
       .withSuccessHandler(function(res) {
         if (btn) btn.disabled = false;
@@ -375,6 +415,63 @@
       homeTile_('VINs Produced', b.vins) +
       homeTile_('Dealers Served', b.dealers) +
       homeTile_('Duplicates', b.dupes);
+  }
+
+  // ── Today's Print Schedule band ────────────────────────────────────────────
+  var homeSchedDealers = [];   // Run Order buttons index into this (never interpolate a name into onclick — apostrophe trap)
+  var homeSchedSeq = 0;        // stale-response guard (same idiom as homeSummarySeq)
+
+  function homeLoadSchedule(refresh) {
+    var seq = ++homeSchedSeq;
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (seq !== homeSchedSeq) return;
+        homeRenderSchedule_(res || { ok: false, configured: true });
+      })
+      .withFailureHandler(function() {
+        if (seq !== homeSchedSeq) return;
+        homeRenderSchedule_({ ok: false, configured: true });
+      })
+      .getPrintSchedule(refresh === true);
+  }
+
+  function homeRenderSchedule_(res) {
+    var band = document.getElementById('homeSchedule');
+    var rows = document.getElementById('homeSchedRows');
+    if (!res.configured) { band.hidden = true; return; }   // Pipedrive / field not set up — stay quiet
+    band.hidden = false;
+    document.getElementById('homeSchedDay').textContent = res.day ? '· ' + res.day : '';
+    homeSchedDealers = res.dealers || [];
+    if (!res.ok) {
+      rows.innerHTML = '<div class="home-muted">Schedule unavailable.</div>';
+      return;
+    }
+    if (!homeSchedDealers.length) {
+      rows.innerHTML = '<div class="home-muted">Nothing scheduled today.</div>';
+      return;
+    }
+    var html = '';
+    homeSchedDealers.forEach(function(d, i) {
+      html += '<div class="home-sched-row">' +
+        '<span class="home-sched-name">' + escHtml(d.name) + '</span>' +
+        (Number(d.pending)
+          ? '<span class="tag tone-warning home-sched-inbox" onclick="navTo(\'view-vin-inbox\')" title="Open the VIN Inbox">' +
+            Number(d.pending) + ' in VIN Inbox</span>'
+          : '') +
+        '<button class="btn-secondary" onclick="homeSchedRun_(' + i + ')">&#9654; Run Order</button>' +
+        '</div>';
+    });
+    rows.innerHTML = html;
+  }
+
+  // Mirrors viCreateOrder (VIN Inbox → Run): land on Run first, then drive the
+  // dealer select through the normal change flow. Empty VIN list = preselect only;
+  // the un-finalized-run guard reverts the select on Cancel by itself.
+  function homeSchedRun_(i) {
+    var d = homeSchedDealers[i];
+    if (!d) return;
+    navTo('view-run');
+    runPrefillFromInbox(d.key, []);
   }
 
   // ── Dealer Focus ───────────────────────────────────────────────────────────

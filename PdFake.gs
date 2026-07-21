@@ -35,6 +35,17 @@ var PD_FAKE_DUP_FIELD_KEY     = 'fake' + Array(33).join('0') + 'dup1'; // deal "
 var PD_FAKE_PROOF_FIELD_KEY   = 'fake' + Array(33).join('0') + 'prf1'; // deal "Proof" (enum)
 var PD_FAKE_ORG_FIELD_KEY     = 'fake' + Array(33).join('0') + 'org1'; // product "Customer" (org type)
 var PD_FAKE_INSTALL_FIELD_KEY = 'fake' + Array(33).join('0') + 'ins1'; // org "Program Install Cost" (enum)
+var PD_FAKE_SCHED_FIELD_KEY   = 'fake' + Array(33).join('0') + 'sch1'; // org "Print Schedule" (set)
+
+// Print Schedule day options + per-org day sets. Org 501 has ALL seven day ids
+// so the Home band renders in dev on any weekday; 502 is a partial set.
+// Fixed literals only — no new Date() tricks in the fake.
+var PD_FAKE_SCHED_OPTIONS = [
+  { id: 31, label: 'Monday' }, { id: 32, label: 'Tuesday' }, { id: 33, label: 'Wednesday' },
+  { id: 34, label: 'Thursday' }, { id: 35, label: 'Friday' }, { id: 36, label: 'Saturday' },
+  { id: 37, label: 'Sunday' }
+];
+var PD_FAKE_SCHED_DAYS = { 501: [31, 32, 33, 34, 35, 36, 37], 502: [31, 34] };
 
 // Canned catalog. tax = catalog "Tax %" (pdListProducts_/buildLineItems_ carry
 // it through to the line-item tax + tax_method:'exclusive' — keep non-zero on
@@ -228,7 +239,18 @@ function pdFakeFetch_(method, path, payload, opts) {
     // (install cost, copy/conditional deal fields, org conditions) fail-safes to skip.
     return pdFakeOk_({ id: Number(m[1]) || m[1], name: 'FAKE Org #' + m[1], custom_fields: {} });
   }
-  if (method === 'get' && p === '/organizations') return pdFakeOk_(PD_FAKE_ORGS.slice());
+  if (method === 'get' && p === '/organizations') {
+    // v2 list with ?custom_fields= (print schedule): attach each org's day set.
+    var withCf = String(qs.custom_fields || '').indexOf(PD_FAKE_SCHED_FIELD_KEY) !== -1;
+    return pdFakeOk_(PD_FAKE_ORGS.map(function (o) {
+      var org = { id: o.id, name: o.name };
+      if (withCf) {
+        org.custom_fields = {};
+        org.custom_fields[PD_FAKE_SCHED_FIELD_KEY] = (PD_FAKE_SCHED_DAYS[o.id] || []).slice();
+      }
+      return org;
+    }));
+  }
 
   // ── Products / fields ──
   m = p.match(/^\/products\/([^\/]+)\/variations$/);
@@ -255,7 +277,9 @@ function pdFakeFetch_(method, path, payload, opts) {
   if (method === 'get' && p === '/organizationFields') {
     return pdFakeOk_([
       { key: PD_FAKE_INSTALL_FIELD_KEY, name: 'Program Install Cost', field_type: 'enum',
-        options: [{ id: 21, label: 'Installed' }, { id: 22, label: 'Not Installed' }] }
+        options: [{ id: 21, label: 'Installed' }, { id: 22, label: 'Not Installed' }] },
+      { key: PD_FAKE_SCHED_FIELD_KEY, name: 'Print Schedule', field_type: 'set',
+        options: PD_FAKE_SCHED_OPTIONS.slice() }
     ]);
   }
 

@@ -1092,6 +1092,55 @@ Three read-only, client-invoked endpoints (Code.gs Section 34). `getHomeHud`/`ge
 
 `App.html`: the Luna `data-arrange="desktop"` caption-hide rule narrows from `.home-section-label` (every section caption, which would have blanked the new HUD's Today/This Week/Dealer Focus labels too) to **`.home-wflabel`** (the Workflows caption only) — HUD labels now survive Luna's desktop layout.
 
+#### Today's Print Schedule band *(July 21, 2026, branch `feat/print-schedule`)*
+
+Nick's per-day print schedule lives in Pipedrive: each dealer's **PRIMARY org** carries a
+**"Print Schedule" multi-select (set) custom field** of weekday options. The Home HUD's
+first element — `.home-hud-band`, `grid-column: 1 / -1`, above the two HUD columns — lists
+every active dealer scheduled **today** (America/Chicago), each row with a **Run Order**
+button and, when the dealer has `submitted` Lot-Scanner rows waiting, a clickable
+**"N in VIN Inbox"** `tag tone-warning` (→ `navTo('view-vin-inbox')`).
+
+- **`getPrintSchedule(refresh)`** *(client-callable, Code.gs Section 31)* →
+  `{ok, configured, day, dealers:[{key,name,pending}]}`. Never throws.
+  - **Field key**: `pdPrintScheduleFieldKey_()` — PIPEDRIVE_SETTINGS
+    `print_schedule_field_key` first; if empty, auto-discovers the org field named
+    `Print Schedule` (case-insensitive) via `pdListOrganizationFields_()` and persists
+    the key (stable-key invariant — the name only locates the key once; option **ids**
+    do all comparing after that). No field → `configured:false` → the band stays hidden.
+  - **Org→days map**: ONE batched `pdListAllV2_('/organizations?custom_fields=<key>')`
+    (never per-org GETs), normalized per the `pdOrgFieldValue_` shape rules (set value =
+    array of option ids; tolerates `{id}`/`{value}` members; `Number`-coerced). Cached in
+    ScriptCache **`pd_print_schedule_v1`** for **21600s (6h)** together with the field's
+    `options` — the payload is **day-agnostic**, so midnight rollover needs no
+    invalidation; the HUD **Refresh** button passes `refresh=true` to bypass. An empty
+    org list is treated as a fetch failure (`ok:false` — a configured account always has
+    orgs; `pdListAllV2_` swallows errors into `[]`).
+  - **Today**: `Utilities.formatDate(new Date(), 'America/Chicago', 'EEEE')` matched
+    against option **labels** to find today's option **id**; dealers join via active
+    DEALERS rows × active PRIMARY PIPEDRIVE-tab rows with a non-empty `org_id`, kept
+    when the org's day-id set contains today's id. DEALERS sheet order preserved.
+  - **Inbox pending**: `printSchedulePendingByDealer_()` reduces `getVinSubmissions()`
+    (default filter = `submitted` only) to per-`dealer_key` counts — **always live,
+    never cached** (orders arrive continuously); inbox unconfigured/error → all zeros,
+    band otherwise normal.
+- **Client** (`ViewHome.html`, `home*` prefix): `homeLoadSchedule(refresh)` runs in
+  parallel from `loadHomeHud()` (Pipedrive latency never blocks the stat tiles), with a
+  `homeSchedSeq` stale-response guard. Run Order buttons pass an **integer index** into
+  `homeSchedDealers` (never an interpolated name — apostrophe trap); `homeSchedRun_(i)`
+  mirrors `viCreateOrder`: `navTo('view-run')` then **`runPrefillFromInbox(key, [])`** —
+  the existing inbox handoff already does dealer-preselect-without-VINs (`appendVins([])`
+  early-returns; the synthetic `change` runs the un-finalized-run guard, which reverts
+  the select on Cancel by itself). States: `configured:false` → band hidden;
+  `ok:false` → one muted "Schedule unavailable." line; empty → "Nothing scheduled today."
+- **Dev**: PdFake serves a fake `Print Schedule` set field (`PD_FAKE_SCHED_FIELD_KEY`,
+  options ids 31–37 Mon–Sun) and per-org day sets on the `/organizations` list when
+  `?custom_fields=` names the key — org **501 has all seven days** so the band renders on
+  any weekday; 502 is partial (Mon/Thu). Dev setup: point an active dev dealer's PRIMARY
+  `org_id` at `501` in DEV_SF_DEALER_CONFIG. Dev's discovered fake key persists into
+  **DEV**_SF_DEALER_CONFIG's PIPEDRIVE_SETTINGS only (per-env config sheets — no prod
+  poisoning); prod discovers the real key on first Home load.
+
 ### Theme System *(`feature/theme-presets`, June 27–28, 2026 — 10 themes; committed `a27424a`; palette-only rework July 10, 2026 on `feature/ui-theme-vininbox`, `e9d6cf5`)*
 
 The App is themeable from a **single curated pick** — one `data-theme` slug on `<html>`, persisted per Google account by `saveThemePreference` (validated by `isThemeSlug_`, fail-safe to Light on an unknown id). Themes are **pure presentation** (CSS `var(--…)` token overrides) — they never touch view JS or any `google.script.run` call, so a theme **cannot break a backend link**. The registry, the axis engine, and the token blocks live in **`SharedUtils.html`**; the shell-structure CSS lives in **`App.html`**.

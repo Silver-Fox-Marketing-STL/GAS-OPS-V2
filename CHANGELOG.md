@@ -10,6 +10,23 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## [Unreleased]
 
+### Added
+- Today's Print Schedule band on the Home HUD: each dealer's PRIMARY Pipedrive
+  org carries a "Print Schedule" multi-select field of weekday options; the band
+  (full-width above the System Stats / Dealer Focus columns) lists the active
+  dealers scheduled today (America/Chicago) with a Run Order shortcut (jumps to
+  the Run view dealer-preselected via the existing `runPrefillFromInbox(key, [])`
+  handoff) and a clickable "N in VIN Inbox" tag when `submitted` scanner rows are
+  waiting. Server: `getPrintSchedule(refresh)` — field key auto-discovered by
+  name once then persisted in PIPEDRIVE_SETTINGS (`print_schedule_field_key`,
+  stable-key invariant), ONE batched v2 `/organizations?custom_fields=` list
+  (never per-org GETs), org→days cached 6h in ScriptCache
+  (`pd_print_schedule_v1`, day-agnostic so midnight needs no invalidation; the
+  HUD Refresh button bypasses), inbox counts always live. Fails quiet at every
+  layer — Pipedrive down renders one muted line, unconfigured hides the band;
+  Home never breaks. PdFake serves a fake Print Schedule set field (org 501 =
+  all seven days) so the band renders in dev with zero API traffic.
+
 ### Changed
 - Billing artifact on the Pipedrive deal is now a CSV of the live BILLING /
   BILLING_<group> tab (byte-identical to File > Download > CSV), replacing the
