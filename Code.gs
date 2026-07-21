@@ -4534,6 +4534,36 @@ function getLatestOrderId(dealerKey) {
 
 
 /**
+ * Returns every identifier (VIN or stock, col B) in the dealer's VIN log tab,
+ * uppercased. The Run Order table uses this to highlight already-produced
+ * vehicles pre-run. Non-fatal by design: any read failure returns an empty
+ * list — a log hiccup must never degrade the Run screen.
+ *
+ * @param {string} dealerKey - must match a tab name in SF_VIN_LOGS exactly
+ * @returns {{ identifiers: string[] }}
+ */
+function getLoggedIdentifiers(dealerKey) {
+  try {
+    var sheet = getVinLogsSS_().getSheetByName(dealerKey);
+    if (!sheet) return { identifiers: [] };
+
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return { identifiers: [] };
+
+    var values = sheet.getRange(2, 2, lastRow - 1, 1).getValues();
+    var out = [];
+    for (var i = 0; i < values.length; i++) {
+      var val = String(values[i][0]).trim().toUpperCase();
+      if (val !== '' && val !== 'VIN') out.push(val);
+    }
+    return { identifiers: out };
+  } catch (e) {
+    return { identifiers: [] };
+  }
+}
+
+
+/**
  * Manually appends a list of VINs/stock numbers to a dealer's VIN log.
  * Used by the VINLogUpdater modal's manual entry panel.
  *
