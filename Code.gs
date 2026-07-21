@@ -7830,6 +7830,25 @@ function generateBillingPdf_(outputDocId, sheetName, meta) {
   }
 }
 
+/** Filesystem-safe, DATE-FREE billing CSV filename for a deal/group (so idempotency matches). */
+function billingCsvFilename_(dealerName, group) {
+  var clean = String(dealerName || 'Order').replace(/[\\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
+  var name = 'Billing - ' + (clean || 'Order');
+  if (group && group !== 'PRIMARY') name += ' (' + group + ')';
+  return name + '.csv';
+}
+
+/** True for the per-schema CSV output tabs: CSV, CSV_<TYPE>, CSV_<TYPE>_<group>. */
+function isCsvTabName_(name) {
+  var n = String(name || '');
+  return n === 'CSV' || n.indexOf('CSV_') === 0;
+}
+
+/** Drive filename for an exported CSV tab: "<output doc name> - <TAB>.csv". */
+function csvExportFileName_(outputDocName, tabName) {
+  return outputDocName + ' - ' + tabName + '.csv';
+}
+
 /** True if a billing PDF (by filename) is already attached to the deal. Best-effort (false on error). */
 function pdDealHasBillingPdf_(dealId, filename) {
   try {
