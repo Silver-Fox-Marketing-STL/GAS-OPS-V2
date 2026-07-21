@@ -171,6 +171,9 @@
   #view-home .home-sched-card.done-sched { border-left: 3px solid var(--success); }   /* scheduled AND printed — visibly "moved over" */
   #view-home .home-sched-inbox { cursor: pointer; }
   #view-home #homeDraftsChip { cursor: pointer; }
+  /* .tag's own display beats the UA [hidden] rule (the .view[hidden] trap) —
+     re-pin it so the zero-drafts chip actually hides. */
+  #view-home #homeDraftsChip[hidden] { display: none !important; }
   #view-home .home-today-totals {   /* aggregate line beside the "Today" sub-label (tiles carry it in fallback mode) */
     text-transform: none;
     letter-spacing: normal;
