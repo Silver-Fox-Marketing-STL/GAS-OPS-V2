@@ -34,6 +34,7 @@
         </div>
 
         <div class="rv-topbar-actions">
+          <button id="rvSaveDraftBtn" class="btn-secondary" onclick="rvSaveDraft({manual:true})">&#128190; Save draft</button>
           <button id="caoBtn" class="btn-ghost" onclick="prefillFromCAO()" disabled>&#x21BA; Pre-fill from CAO</button>
           <button class="btn-primary" id="runBtn" onclick="runSelected()" disabled>Run Dealer</button>
         </div>
@@ -77,6 +78,11 @@
 
       </div>
     </div>
+
+    <!-- Order drafts — in-progress work saved per user (auto on dealer switch /
+         nav away / 15s after typing; deleted on a successful run). Hidden when
+         empty; rows render from rvDraftList by integer index. -->
+    <div id="rvDraftsBand" class="rv-drafts-band" hidden></div>
 
     <!-- BODY: VIN box | data table (the flow zone lives in the topbar now) -->
     <div class="rv-body">
@@ -165,6 +171,22 @@
     #view-run .rv-x { background: none; border: none; color: var(--text-3); cursor: pointer;
                       font-size: var(--fs-sm); line-height: 1; padding: 3px 6px; border-radius: var(--radius-sm); }
     #view-run .rv-x:hover { color: var(--danger); background: var(--danger-weak); }
+    /* Order-drafts band — one row per saved draft, natural height above the body.
+       display:flex beats the UA [hidden] rule (the .view[hidden] trap) — re-pin. */
+    #view-run .rv-drafts-band[hidden] { display: none !important; }
+    #view-run .rv-drafts-band { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2);
+                                padding: var(--space-2) var(--space-3);
+                                background: var(--surface); border: 1px solid var(--border-2); border-radius: var(--radius-sm); }
+    #view-run .rv-drafts-label { font-size: var(--fs-overline); text-transform: uppercase; letter-spacing: .04em; color: var(--text-3); }
+    #view-run .rv-draft-item { display: inline-flex; align-items: center; gap: var(--space-2);
+                               padding: 3px 8px; background: var(--bg); border: 1px solid var(--border);
+                               border-radius: var(--radius-sm); }
+    #view-run .rv-draft-name { font-weight: 600; }
+    #view-run .rv-draft-age { font-size: var(--fs-sm); color: var(--text-3); }
+    #view-run .rv-draft-item .btn-secondary { padding: 3px 10px !important; font-size: var(--fs-sm); }
+    #view-run .rv-draft-x { background: none; border: none; color: var(--text-3); cursor: pointer;
+                            font-size: var(--fs-sm); line-height: 1; padding: 3px 6px; border-radius: var(--radius-sm); }
+    #view-run .rv-draft-x:hover { color: var(--danger); background: var(--danger-weak); }
     #view-run .rv-matchcount { font-size: var(--fs-sm); color: var(--text-2); margin-top: var(--space-2); }
 
     /* Data table — token-bound, tabular figures, like the dash/runs tables */
@@ -585,6 +607,15 @@
     window.VIEW_INITS = window.VIEW_INITS || {};
     VIEW_INITS['view-run'] = initRunView;
 
+    // Re-fetch drafts on every visit (cheap; another device may have saved one),
+    // and auto-save typed work when navigating away from the view.
+    window.VIEW_SHOWN = window.VIEW_SHOWN || {};
+    VIEW_SHOWN['view-run'] = rvRefreshDrafts;
+    window.VIEW_LEFT = window.VIEW_LEFT || {};
+    VIEW_LEFT['view-run'] = function() {
+      try { if (rvVinData.dealerKey && rvDirty && rvHasWork()) rvSaveDraft(); } catch (e) {}
+    };
+
     // Close guards: a live run or un-finalized results should warn on exit.
     if (window.AppGuards) {
       AppGuards.register(function() {
@@ -607,7 +638,9 @@
     document.getElementById('vinInput').addEventListener('input', function() {
       if (rvDebounce) clearTimeout(rvDebounce);
       rvDebounce = setTimeout(rvRenderTable, 250);
+      rvMarkDirty();
     });
+    document.getElementById('bypassFilters').addEventListener('change', rvMarkDirty);
     // Features + editable-column inputs are re-created on every table render —
     // one delegated listener on the persistent tbody captures typing without
     // re-rendering (the caret never moves; values restore from rvFeatures /
@@ -623,6 +656,7 @@
         var max = t.getAttribute('data-max');
         if (max) t.classList.toggle('rv-over', t.value.length > Number(max));
       }
+      rvMarkDirty();   // only features/edit inputs live in this tbody
     });
     // Per-row ✕ buttons are re-created each render — delegate the click. The
     // VIN travels as a data attribute, never interpolated into an onclick.
@@ -638,6 +672,13 @@
       }
       var key = this.value;
       lastConfirmedDealer = key;
+      // Auto-save the OUTGOING dealer's typed work as a draft BEFORE the wipe
+      // below — an accidental switch must never lose typing. The payload is
+      // snapshotted synchronously inside rvSaveDraft; fire-and-forget, and a
+      // draft failure can never block the switch.
+      try {
+        if (rvVinData.dealerKey && rvVinData.dealerKey !== key && rvDirty && rvHasWork()) rvSaveDraft();
+      } catch (e) {}
       // Switching dealers abandons any pending VIN-Inbox batch link (the inbox
       // prefill itself passes this check — same key).
       if (window.viPendingBatch && window.viPendingBatch.dealerKey !== key) window.viPendingBatch = null;
@@ -1451,6 +1492,14 @@
           runBtn.textContent = 'Run Dealer';
           updateButtons();
           if (result) showFinalizePanel(result);
+          // The run materialized this work — its draft is stale. Clear the
+          // dirty state first so the pending autosave can't re-save it.
+          rvDirty = false;
+          if (rvAutosaveTimer) { clearTimeout(rvAutosaveTimer); rvAutosaveTimer = null; }
+          try {
+            google.script.run.withSuccessHandler(rvRefreshDrafts).withFailureHandler(function() {})
+              .deleteRunDraft(lastDealerKey);
+          } catch (e) {}
         })
         .withFailureHandler(function(e) {
           stopPolling();
@@ -1480,6 +1529,156 @@
     var rvEdits = {};      // {VIN(upper) → {code → text}} — editable-column values (seeded)
     var rvLoggedIds = null;   // {identifier(upper) → 1} from the dealer's VIN log; null until loaded
     var rvDebounce = null;
+
+    // ── Order drafts ──────────────────────────────────────────────────────────
+    // Per-user server-side drafts (DRAFTS tab) of typed VINs + features/edit
+    // text. Saved on dealer switch, on nav away, 15s after typing, or via the
+    // Save-draft button; deleted on a successful run. All fire-and-forget —
+    // only the manual button ever toasts a failure.
+    var rvDraftList = [];        // last getMyRunDrafts result; band buttons index into it
+    var rvDirty = false;         // typed work changed since last save / run
+    var rvAutosaveTimer = null;
+    var rvSaveInFlight = false;  // single-flight: retries carry their snapshot
+    var RV_AUTOSAVE_MS = 15000;
+
+    function rvHasWork() {
+      if (document.getElementById('vinInput').value.trim()) return true;
+      var k, c;
+      for (k in rvFeatures) if (String(rvFeatures[k] || '').trim()) return true;
+      for (k in rvEdits) for (c in rvEdits[k]) if (String(rvEdits[k][c] || '').trim()) return true;
+      return false;
+    }
+
+    function rvBuildDraftPayload() {
+      var d = dealersByKey[rvVinData.dealerKey];
+      return {
+        dealerKey: rvVinData.dealerKey,
+        dealerName: (d && d.name) || rvVinData.dealerKey,
+        vinText: document.getElementById('vinInput').value,
+        features: rvFeatures,
+        edits: rvEdits,
+        bypassFilters: document.getElementById('bypassFilters').checked,
+        savedAt: Date.now()
+      };
+    }
+
+    function rvMarkDirty() {
+      rvDirty = true;
+      if (rvAutosaveTimer) clearTimeout(rvAutosaveTimer);
+      rvAutosaveTimer = setTimeout(function() { rvSaveDraft(); }, RV_AUTOSAVE_MS);
+    }
+
+    // opts.manual → user clicked the button (toast results); opts.payload →
+    // internal retry carrying a pre-wipe snapshot (the dealer-switch path must
+    // save what the user is LEAVING, so a busy retry can't rebuild from the
+    // already-wiped live state).
+    function rvSaveDraft(opts) {
+      opts = opts || {};
+      if (rvAutosaveTimer) { clearTimeout(rvAutosaveTimer); rvAutosaveTimer = null; }
+      var payload = opts.payload;
+      if (!payload) {
+        if (!rvVinData.dealerKey || !rvHasWork()) {
+          if (opts.manual) toast('Nothing to save yet — type some VINs first.', 'info');
+          return;
+        }
+        payload = rvBuildDraftPayload();
+      }
+      if (rvSaveInFlight) {
+        setTimeout(function() { rvSaveDraft({ manual: opts.manual, payload: payload }); }, 2000);
+        return;
+      }
+      rvSaveInFlight = true;
+      google.script.run
+        .withSuccessHandler(function(res) {
+          rvSaveInFlight = false;
+          if (res && res.ok) {
+            rvDirty = false;
+            rvRefreshDrafts();
+            if (opts.manual) toast('Draft saved — resume it any time from the Drafts strip.', 'success');
+          } else if (opts.manual) {
+            toast(res && res.reason === 'too_large'
+              ? 'Draft too large to save — trim the features text.'
+              : 'Could not save the draft.', 'error');
+          }
+        })
+        .withFailureHandler(function() {
+          rvSaveInFlight = false;
+          if (opts.manual) toast('Could not save the draft.', 'error');
+        })
+        .saveRunDraft(JSON.stringify(payload));
+    }
+
+    function rvRefreshDrafts() {
+      google.script.run
+        .withSuccessHandler(function(res) {
+          rvDraftList = (res && res.drafts) || [];
+          rvRenderDraftsBand();
+        })
+        .withFailureHandler(function() {})   // band just keeps its last state
+        .getMyRunDrafts();
+    }
+
+    function rvAgeStr(ms) {
+      if (!ms) return '';
+      var m = Math.round((Date.now() - ms) / 60000);
+      if (m < 1) return 'just now';
+      if (m < 60) return m + 'm ago';
+      var h = Math.round(m / 60);
+      return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
+    }
+
+    function rvRenderDraftsBand() {
+      var band = document.getElementById('rvDraftsBand');
+      if (!band) return;
+      if (!rvDraftList.length) { band.hidden = true; band.innerHTML = ''; return; }
+      var html = '<span class="rv-drafts-label">Drafts</span>';
+      rvDraftList.forEach(function(d, i) {
+        html += '<span class="rv-draft-item">'
+          + '<span class="rv-draft-name"></span>'
+          + '<span class="tag tone-info">' + d.vinCount + ' VIN' + (d.vinCount === 1 ? '' : 's') + '</span>'
+          + (d.featCount ? '<span class="tag tone-warning">' + d.featCount + ' features</span>' : '')
+          + '<span class="rv-draft-age">' + rvAgeStr(d.updatedAt) + '</span>'
+          + '<button type="button" class="btn-secondary" onclick="rvResumeDraft(' + i + ')">Resume</button>'
+          + '<button type="button" class="rv-draft-x" title="Delete draft" onclick="rvDeleteDraft(' + i + ')">&#10005;</button>'
+          + '</span>';
+      });
+      band.innerHTML = html;
+      // Dealer names are user data — set via textContent, never interpolated HTML.
+      var names = band.querySelectorAll('.rv-draft-name');
+      for (var i = 0; i < names.length; i++) {
+        names[i].textContent = rvDraftList[i].dealerName || rvDraftList[i].dealerKey;
+      }
+      band.hidden = false;
+    }
+
+    // Mirrors runPrefillFromInbox: select the dealer through the normal change
+    // flow (guard + wipe + data load), THEN re-seed the saved state on top.
+    function rvResumeDraft(i) {
+      var d = rvDraftList[i];
+      if (!d || !d.payload) return;
+      var p = d.payload;
+      var sel = document.getElementById('runDealerSelect');
+      sel.value = d.dealerKey;
+      sel.dispatchEvent(new Event('change'));
+      if (window.CustomSelect) CustomSelect.refresh(sel);
+      // Guard cancelled, or the dealer is no longer in the active list.
+      if (sel.value !== d.dealerKey) return;
+      document.getElementById('vinInput').value = p.vinText || '';
+      rvFeatures = p.features || {};
+      rvEdits = p.edits || {};
+      document.getElementById('bypassFilters').checked = !!p.bypassFilters;
+      rvDirty = false;   // restored state matches the saved draft
+      updateRunVinCount(); updateButtons(); rvRenderTable();   // programmatic sets fire no events
+    }
+
+    function rvDeleteDraft(i) {
+      var d = rvDraftList[i];
+      if (!d) return;
+      if (!confirm('Delete the draft for ' + (d.dealerName || d.dealerKey) + '?')) return;
+      rvDraftList.splice(i, 1);
+      rvRenderDraftsBand();
+      google.script.run.withFailureHandler(function() {}).deleteRunDraft(d.dealerKey);
+    }
 
     function rvLoadDealerData(dealerKey) {
       if (rvVinData.dealerKey !== dealerKey) { rvFeatures = {}; rvEdits = {}; }   // new dealer → stale text out

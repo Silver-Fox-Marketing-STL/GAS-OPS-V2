@@ -10,6 +10,32 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## [Unreleased]
 
+### Added
+- Order Drafts: in-progress Run Order work (typed VINs, per-row FEATURES text,
+  editable-column edits, bypass checkbox) is saved per user as a draft — auto
+  on dealer switch and nav-away, 15 s after typing, or via a **Save draft**
+  button — so an accidental dealer switch or page reload can no longer lose
+  typing. One draft per (user, dealer), last-write-wins, stored as one JSON row
+  in a new `DRAFTS` tab of SF_SYSTEM_MASTER (`user_email | dealer_key |
+  payload_json | updated_at`, epochMs — no Dates cross `google.script.run`).
+  A Drafts strip above the Run body lists each draft (dealer, VIN/features
+  counts, age) with **Resume** (re-selects the dealer through the normal change
+  flow, then re-seeds the saved state — `runPrefillFromInbox` idiom) and delete;
+  a successful run deletes its dealer's draft. Home HUD shows an "📝 N drafts"
+  chip (piggybacked on `getHomeHud`, non-fatal). Server: `saveRunDraft` /
+  `getMyRunDrafts` / `deleteRunDraft` — all fail quiet (a draft hiccup can
+  never break a run, a switch, or the HUD), upserts race-guarded by ScriptLock
+  + a client single-flight whose retries carry their pre-wipe snapshot. New
+  `VIEW_LEFT` registry in the App shell (nav-away hook beside
+  `VIEW_INITS`/`VIEW_SHOWN`). Harness: 90/90 (`summarizeRunDraft_`).
+
+### Removed
+- Home "Workflows" launcher cards (and their section label) — redundant with the
+  sidebar/Start nav and taking vertical space from the HUD. The Encarta/Luna
+  card overrides and the `data-arrange="desktop"` icon-grid rules went with
+  them (the `arrange` theme axis itself stays); the Home grid is now
+  `status → hud`.
+
 ### Changed
 - VIN Inbox: VIN correction is live — the card's validity/inventory tags, vehicle
   line, warning border, and the batch "N valid" chip update as you type (ViewRun's
