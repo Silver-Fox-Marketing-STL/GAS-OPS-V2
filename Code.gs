@@ -7565,7 +7565,7 @@ function pdAttachFileToDeal_(dealId, blob, filename) {
     // Save the file to DEV_OUTPUT instead so the billing CSV has a real artifact to inspect
     // (prod-identical filename; date-free, so repeat runs stack same-named files — sort by created).
     try { DriveApp.getFolderById(ENV.OUTPUT_FOLDER_ID).createFile(blob.setName(filename)); }
-    catch (e) { Logger.log('dev billing PDF save failed (non-fatal): ' + e.message); }
+    catch (e) { Logger.log('dev billing file save failed (non-fatal): ' + e.message); }
     return { ok: true };
   }
   try {
