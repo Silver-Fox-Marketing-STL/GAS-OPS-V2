@@ -10,6 +10,29 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## [Unreleased]
 
+### Changed
+- Billing artifact on the Pipedrive deal is now a CSV of the live BILLING /
+  BILLING_<group> tab (byte-identical to File > Download > CSV), replacing the
+  formatted billing PDF. Same best-effort/idempotent attach: date-free filename
+  `Billing - <Dealer>[ (<group>)].csv`, GET /files dup check
+  (`pdDealHasBillingFile_`), `billingCsvPending` + re-push retry
+  (`attachBillingCsvToDeal_` → `exportSheetCsv_` → `pdAttachFileToDeal_`). The
+  persisted push-state key `billingPdfDone` keeps its legacy name (state compat;
+  now means "billing CSV attached").
+
+### Added
+- Run step 14b: every CSV* tab (`CSV`, `CSV_<TYPE>`, `CSV_<TYPE>_<group>`)
+  auto-exports as a real `.csv` file into the dealer's output folder
+  (`<output doc name> - <TAB>.csv`) — one batched `UrlFetchApp.fetchAll`
+  (`exportCsvTabsToFolder_`/`exportSheetsCsvBatch_`; tab-name gate
+  `isCsvTabName_`, filename `csvExportFileName_`), non-fatal — the manual
+  File > Download step, automated (tabs remain in the doc as fallback).
+
+### Removed
+- Billing-PDF machinery (`buildBillingPdfTab_`, `readBillingForPdf_`,
+  `generateBillingPdf_`, `exportSheetPdf_`, `billingPdfFilename_`,
+  `billingVinGrid_`, `BILLING_PDF_TMP_TAB`) — ~370 lines net; git history keeps it.
+
 ### Added
 - `FEATURES` field code → ORDERMATCH col W (23), the first user-typed CSV column: when the selected dealer's product map resolves any schema listing `FEATURES`, the Run Order inventory-match table gains a per-row text input (only on rows whose type needs it; values keyed by VIN in `rvFeatures` so re-renders never lose typed text — one delegated `input` listener on the persistent tbody, no inline handlers). The map travels `runSelected` → `pasteVinsAndRun` → `runDealer` step 9c (`writeFeatures_`: one batched col-W write, VIN-aligned to the QUERY spill) and out through `buildCSVSheet_` like any field code. Required per-row when the schema demands it: client blocks Run listing the missing VINs, and `pasteVinsAndRun` re-validates authoritatively (`collectMissingFeatures_`) BEFORE the ORDERS write / template copy — a validation failure creates zero artifacts. Manual-editor runs omit the map (col W blank; type directly in the sheet). New pure helpers `schemaCodesHaveFeatures_`/`schemaCodesHaveQR_`/`featuresTypesForDealer_`/`collectMissingFeatures_`/`runNeedsQR_` + 11-assertion `features + qr-skip` harness suite (fake config SS now also serves a synthetic CSV_SCHEMAS grid). For the no-QR order-form dealers (Spirit Lexus, Bommarito West County, Weber, Mini of St. Louis). (Originally landed on col V — a live-template audit found the undocumented `PRICE_MAINLINE` ARRAYFORMULA already occupying V/22 via the FIELD_CODES `ordermatch_col` overlay in BOTH environments; FEATURES moved to W/23 and the stale ORDERMATCH docs were corrected)
 

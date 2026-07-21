@@ -712,6 +712,32 @@ t('csvCellValue_: a user edit overrides the ORDERMATCH value for that VIN+code o
   assert.strictEqual(csvCellValue_('SOMETHING', 'VIN1', 'MODELTRIM', null), 'SOMETHING');
 });
 
+// ============================================================================
+// Suite: billing csv files — deal-attach filename + CSV tab discovery
+// (billing CSV replaces the billing PDF; per-schema CSV tabs export as real
+//  .csv files into the run's output folder)
+// ============================================================================
+suite('billing csv files');
+t('billingCsvFilename_: sanitized, date-free, group-suffixed, .csv', function () {
+  assert.strictEqual(billingCsvFilename_('Suntrup Ford', 'PRIMARY'), 'Billing - Suntrup Ford.csv');
+  assert.strictEqual(billingCsvFilename_('Suntrup Ford', 'SPRINTER'), 'Billing - Suntrup Ford (SPRINTER).csv');
+  assert.strictEqual(billingCsvFilename_('A/B:C*?"<>|', 'PRIMARY'), 'Billing - A B C.csv');
+  assert.strictEqual(billingCsvFilename_('', null), 'Billing - Order.csv');
+});
+t('isCsvTabName_: CSV / CSV_<TYPE> / CSV_<TYPE>_<group> in; everything else out', function () {
+  assert.strictEqual(isCsvTabName_('CSV'), true);
+  assert.strictEqual(isCsvTabName_('CSV_NEW'), true);
+  assert.strictEqual(isCsvTabName_('CSV_PO_AUTOLOANPRO'), true);
+  assert.strictEqual(isCsvTabName_('ORDERMATCH'), false);
+  assert.strictEqual(isCsvTabName_('BILLING'), false);
+  assert.strictEqual(isCsvTabName_('CSVX'), false);
+  assert.strictEqual(isCsvTabName_(null), false);
+});
+t('csvExportFileName_: "<doc name> - <TAB>.csv"', function () {
+  assert.strictEqual(csvExportFileName_('Suntrup Ford 2026-07-20 Order', 'CSV_NEW'),
+    'Suntrup Ford 2026-07-20 Order - CSV_NEW.csv');
+});
+
 // ── Report ───────────────────────────────────────────────────────────────────
 function report_() {
   var totalPass = 0, totalFail = 0;

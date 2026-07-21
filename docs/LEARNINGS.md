@@ -43,6 +43,8 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   `getSheetId()`, then **always delete the temp tab** (even on export failure).
   (`exportSheetPdf_` / `generateBillingPdf_`, for the Pipedrive billing-PDF.)
   Confirmed working live: portrait, `fitw=true`, `gridlines=false`, letter size.
+  (functions removed July 2026 — the same export-endpoint + getSheetId + OAuth-token
+  pattern lives on in exportSheetCsv_.)
 - **A comparison table inside a narrow, `overflow:hidden` card silently drops
   trailing columns.** The import conflict panel put cards in a 2-col grid
   (wide-canvas rework); each half-width card had `overflow:hidden`, and the
@@ -570,7 +572,8 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   exactly as type checks do CPO-EL before CPO. (`readBillingForPdf_`, which parses
   the rendered BILLING sheet for the Pipedrive billing-PDF — caught by a unit test.)
   Same lesson as the type substring trap: when one marker string is a substring of
-  another, the longer one must be tested first.
+  another, the longer one must be tested first. (function removed July 2026 with the
+  billing-PDF pivot to CSV.)
 - **`getValues()` returns real booleans** for TRUE/FALSE cells — compare with
   the `isTrue_()` helper, not string equality.
 - **`getValues()` returns numbers (and Dates) from non-`@` columns.** SCRAPERDATA
