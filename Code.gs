@@ -5114,6 +5114,159 @@ function saveUiPref(key, value) {
   }
 }
 
+// ─── Run Order drafts ────────────────────────────────────────────────────────
+// Per-user drafts of in-progress Run Order work (typed VINs + FEATURES text +
+// editable-column edits), so an accidental dealer switch or page reload can't
+// lose typing. One row per (user_email, dealer_key) in the DRAFTS tab of
+// SF_SYSTEM_MASTER, last-write-wins. Payload is one JSON cell; updated_at is
+// epochMs (a Date can't cross google.script.run). Every fn here fails quiet —
+// a draft hiccup must never break a run, a dealer switch, or the Home HUD.
+
+var DRAFTS_TAB = 'DRAFTS';
+var RUN_DRAFT_MAX_JSON = 45000;   // Sheets cell hard cap is 50k chars
+
+/** Active user's email, lowercased; '' when unavailable. */
+function runDraftEmail_() {
+  try { return String(Session.getActiveUser().getEmail() || '').trim().toLowerCase(); }
+  catch (e) { return ''; }
+}
+
+function getOrCreateDraftsSheet_() {
+  var ss = getMasterSS_();
+  var sh = ss.getSheetByName(DRAFTS_TAB);
+  if (!sh) {
+    sh = ss.insertSheet(DRAFTS_TAB);
+    sh.getRange(1, 1, 1, 4).setValues([['user_email', 'dealer_key', 'payload_json', 'updated_at']]);
+  }
+  return sh;
+}
+
+/**
+ * Pure summary of a draft payload for the Drafts band (harness-tested).
+ * vinCount mirrors getVins + submit dedupe (trim, drop blanks, dedupe upper);
+ * featCount = non-blank features values. Fail-safe: bad JSON → zeros.
+ * @param {string} payloadJson
+ * @returns {{dealerKey:string, dealerName:string, vinCount:number, featCount:number}}
+ */
+function summarizeRunDraft_(payloadJson) {
+  try {
+    var p = JSON.parse(payloadJson);
+    var seen = {};
+    String(p.vinText || '').split('\n').forEach(function(v) {
+      v = v.trim().toUpperCase();
+      if (v) seen[v] = true;
+    });
+    var featCount = 0;
+    var feats = p.features || {};
+    Object.keys(feats).forEach(function(k) {
+      if (String(feats[k] || '').trim()) featCount++;
+    });
+    return {
+      dealerKey:  String(p.dealerKey || ''),
+      dealerName: String(p.dealerName || ''),
+      vinCount:   Object.keys(seen).length,
+      featCount:  featCount
+    };
+  } catch (e) {
+    return { dealerKey: '', dealerName: '', vinCount: 0, featCount: 0 };
+  }
+}
+
+/**
+ * Client-callable. Upserts this user's draft for the payload's dealer.
+ * Never throws. @returns {{ok:boolean, reason?:string, savedAt?:number}}
+ */
+function saveRunDraft(payloadJson) {
+  try {
+    var me = runDraftEmail_();
+    if (!me) return { ok: false };
+    payloadJson = String(payloadJson || '');
+    var dealerKey = '';
+    try { dealerKey = String(JSON.parse(payloadJson).dealerKey || ''); } catch (e) {}
+    if (!dealerKey) return { ok: false };
+    if (payloadJson.length > RUN_DRAFT_MAX_JSON) return { ok: false, reason: 'too_large' };
+
+    var now = Date.now();
+    var lock = LockService.getScriptLock();
+    lock.waitLock(10000);   // racing autosaves must not append duplicate rows
+    try {
+      var sh = getOrCreateDraftsSheet_();
+      var vals = sh.getDataRange().getValues();
+      var rowNum = 0;
+      for (var i = 1; i < vals.length; i++) {
+        if (String(vals[i][0]).toLowerCase() === me && String(vals[i][1]) === dealerKey) { rowNum = i + 1; break; }
+      }
+      if (!rowNum) rowNum = sh.getLastRow() + 1;
+      sh.getRange(rowNum, 1, 1, 4).setValues([[me, dealerKey, payloadJson, now]]);
+      SpreadsheetApp.flush();
+    } finally {
+      lock.releaseLock();
+    }
+    return { ok: true, savedAt: now };
+  } catch (e) {
+    return { ok: false };
+  }
+}
+
+/**
+ * Client-callable. This user's drafts, newest first. Each entry carries the
+ * band summary plus the full parsed payload so Resume needs no second call.
+ * Never throws. @returns {{ok:boolean, drafts:Array<Object>}}
+ */
+function getMyRunDrafts() {
+  try {
+    var me = runDraftEmail_();
+    if (!me) return { ok: true, drafts: [] };
+    var sh = getMasterSS_().getSheetByName(DRAFTS_TAB);
+    if (!sh) return { ok: true, drafts: [] };
+    var vals = sh.getDataRange().getValues();
+    var drafts = [];
+    for (var i = 1; i < vals.length; i++) {
+      if (String(vals[i][0]).toLowerCase() !== me) continue;
+      var json = String(vals[i][2] || '');
+      var s = summarizeRunDraft_(json);
+      if (!s.dealerKey) continue;   // unparseable row — skip, never break the band
+      var payload = null;
+      try { payload = JSON.parse(json); } catch (e) {}
+      s.updatedAt = Number(vals[i][3]) || 0;
+      s.payload = payload;
+      drafts.push(s);
+    }
+    drafts.sort(function(a, b) { return b.updatedAt - a.updatedAt; });
+    return { ok: true, drafts: drafts };
+  } catch (e) {
+    return { ok: true, drafts: [] };
+  }
+}
+
+/**
+ * Client-callable. Deletes this user's draft for a dealer (all matches,
+ * bottom-up in case of legacy dupes). Never throws.
+ */
+function deleteRunDraft(dealerKey) {
+  try {
+    var me = runDraftEmail_();
+    dealerKey = String(dealerKey || '');
+    if (!me || !dealerKey) return { ok: false };
+    var lock = LockService.getScriptLock();
+    lock.waitLock(10000);
+    try {
+      var sh = getMasterSS_().getSheetByName(DRAFTS_TAB);
+      if (!sh) return { ok: true };
+      var vals = sh.getDataRange().getValues();
+      for (var i = vals.length - 1; i >= 1; i--) {
+        if (String(vals[i][0]).toLowerCase() === me && String(vals[i][1]) === dealerKey) sh.deleteRow(i + 1);
+      }
+      SpreadsheetApp.flush();
+    } finally {
+      lock.releaseLock();
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false };
+  }
+}
+
 // ============================================================================
 // SECTION 29: IMPORT HEALTH MONITORING
 // ============================================================================
@@ -9380,11 +9533,14 @@ function getHomeHud() {
   allTime.avgVinsPerRun = allTime.runs ? Math.round(allTime.vins / allTime.runs * 10) / 10 : 0;
 
   var st = getAppHomeStatus();
+  var draftCount = 0;
+  try { draftCount = getMyRunDrafts().drafts.length; } catch (e) {}
   return {
     lastImport: { date: st.lastImportDate, time: st.lastImportTime },
     today:      pack(today),
     week:       pack(week),
-    allTime:    allTime
+    allTime:    allTime,
+    draftCount: draftCount
   };
 }
 

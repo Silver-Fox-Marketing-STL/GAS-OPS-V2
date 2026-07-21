@@ -1208,4 +1208,5 @@
   // ── View registries (populated by each view fragment) ─────────────────────
   window.VIEW_INITS = window.VIEW_INITS || {};  // viewId -> init fn (run once, first nav)
   window.VIEW_SHOWN = window.VIEW_SHOWN || {};  // viewId -> fn run on every nav-in
+  window.VIEW_LEFT  = window.VIEW_LEFT  || {};  // viewId -> fn run on nav AWAY (e.g. Run Order draft autosave)
 </script>

@@ -53,6 +53,7 @@
       <div class="home-hud-col">
         <div class="home-hud-head">
           <div class="home-hud-title">System Stats</div>
+          <span id="homeDraftsChip" class="tag tone-info" onclick="navTo('view-run')" title="Resume from the Drafts strip in Run Order" hidden></span>
           <button class="btn-secondary" id="homeRefresh" onclick="loadHomeHud(true)">&#8635; Refresh</button>
         </div>
 
@@ -229,6 +230,7 @@
   #view-home .home-sched-card .btn-secondary { padding: 4px 10px; font-size: 11.5px; }
   #view-home .home-sched-card.done-sched { border-left: 3px solid var(--success); }   /* scheduled AND printed — visibly "moved over" */
   #view-home .home-sched-inbox { cursor: pointer; }
+  #view-home #homeDraftsChip { cursor: pointer; }
   #view-home .home-today-totals {   /* aggregate line beside the "Today" sub-label (tiles carry it in fallback mode) */
     text-transform: none;
     letter-spacing: normal;
@@ -428,6 +430,12 @@
       homeTile_('Rolled Back', at.rolledBack);
     renderHomeBucket_('homeWeek', res.week);
     renderHomeToday_();   // Today is owned jointly with the schedule response
+
+    // Saved Run Order drafts — chip jumps to the Run view's Drafts strip.
+    var chip = document.getElementById('homeDraftsChip');
+    var n = Number(res.draftCount) || 0;
+    chip.textContent = '📝 ' + n + ' draft' + (n === 1 ? '' : 's');
+    chip.hidden = (n === 0);
   }
 
   function renderHomeBucket_(id, b) {

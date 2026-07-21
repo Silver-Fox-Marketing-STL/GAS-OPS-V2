@@ -746,6 +746,30 @@ t('csvExportFileName_: "<doc name> - <TAB>.csv"', function () {
     'Suntrup Ford 2026-07-20 Order - CSV_NEW.csv');
 });
 
+// ============================================================================
+// Suite: run drafts — summarizeRunDraft_ (the Drafts band's summary parser)
+// ============================================================================
+suite('run drafts');
+t('summarizeRunDraft_: dedupes VINs (trim/case) and counts non-blank features only', function () {
+  var s = summarizeRunDraft_(JSON.stringify({
+    dealerKey: 'SUNTRUP_FORD',
+    dealerName: "O'Fallon Ford",
+    vinText: '  1FTEW1EP5MKD12345 \n\n1ftew1ep5mkd12345\n3GNAXKEV1LL333333\n',
+    features: { A: 'Moonroof', B: '   ', C: '', D: 'Tow pkg' }
+  }));
+  assert.strictEqual(s.dealerKey, 'SUNTRUP_FORD');
+  assert.strictEqual(s.dealerName, "O'Fallon Ford");
+  assert.strictEqual(s.vinCount, 2);    // dupe VIN collapses, blank lines dropped
+  assert.strictEqual(s.featCount, 2);   // whitespace-only and empty don't count
+});
+t('summarizeRunDraft_: fail-safe zeros on bad JSON and missing fields', function () {
+  var bad = summarizeRunDraft_('{not json');
+  assert.deepStrictEqual(bad, { dealerKey: '', dealerName: '', vinCount: 0, featCount: 0 });
+  var sparse = summarizeRunDraft_(JSON.stringify({ dealerKey: 'X' }));
+  assert.strictEqual(sparse.vinCount, 0);
+  assert.strictEqual(sparse.featCount, 0);
+});
+
 // ── Report ───────────────────────────────────────────────────────────────────
 function report_() {
   var totalPass = 0, totalFail = 0;

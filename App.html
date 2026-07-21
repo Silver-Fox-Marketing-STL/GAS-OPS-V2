@@ -680,6 +680,14 @@
         return;
       }
 
+      // On-leave hook for the view being navigated away from (e.g. Run Order
+      // auto-saves typed work as a draft). Computed from the DOM — no extra
+      // "current view" state to keep in sync.
+      var leaving = document.querySelector('#appContent .view:not([hidden])');
+      if (leaving && leaving.id !== viewId && window.VIEW_LEFT && VIEW_LEFT[leaving.id]) {
+        try { VIEW_LEFT[leaving.id](); } catch (e) {}
+      }
+
       // Show/hide views
       var views = document.querySelectorAll('#appContent .view');
       for (var i = 0; i < views.length; i++) {
