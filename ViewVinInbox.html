@@ -2,12 +2,14 @@
      VIN INBOX VIEW — office-side processing of Lot Scanner submissions.
      Reads the shared SF_LOT_SUBMISSIONS sheet via getVinSubmissions; groups
      pending submissions by order batch (legacy/blank-batch rows fall back to
-     one group per dealer); lets the processor correct the OCR'd VIN
-     (updateVinSubmissionStatus), discard bad reads, or jump a batch's valid
-     VINs straight into Run Order ("Create order" → runPrefillFromInbox; the
-     batch is offered for discard once that order finalizes). (escHtml/toast
-     from SharedUtils; batch styling mirrors EomReportRenderer's .eomr-contact
-     idiom.)
+     one group per dealer); lets the processor correct the OCR'd VIN live —
+     validity + inventory match update as you type (ViewRun's preload idiom:
+     one getDealerVinData call per dealer, then pure-local lookups; blur
+     persists via updateVinSubmissionStatus, no reload) — discard bad reads,
+     or jump a batch's valid VINs straight into Run Order ("Create order" →
+     runPrefillFromInbox; the batch is offered for discard once that order
+     finalizes). (escHtml/toast from SharedUtils; batch styling mirrors
+     EomReportRenderer's .eomr-contact idiom.)
 ════════════════════════════════════════════════════════════════════════════ -->
 <div class="view" id="view-vin-inbox" hidden>
   <div class="vi-scroll">
@@ -51,10 +53,8 @@
   #view-vin-inbox .vi-card.miss { border-color: var(--warning); }
   #view-vin-inbox .vi-thumb { width: 72px; height: 72px; flex-shrink: 0; border-radius: var(--radius-sm); object-fit: cover; background: var(--surface-3); border: 1px solid var(--border); }
   #view-vin-inbox .vi-info { flex: 1; min-width: 0; }
-  #view-vin-inbox .vi-vin { font-family: var(--font-mono, ui-monospace, monospace); font-weight: 700; word-break: break-all; }
   #view-vin-inbox .vi-tags { display: flex; gap: var(--space-2); margin: var(--space-1) 0; flex-wrap: wrap; }
   #view-vin-inbox .vi-veh { font-size: var(--fs-sm); color: var(--text-2); }
-  #view-vin-inbox .vi-meta { font-size: var(--fs-hint); color: var(--text-3); margin-top: 2px; }
   #view-vin-inbox .vi-actions { display: flex; gap: var(--space-2); margin-top: var(--space-2); flex-wrap: wrap; }
   #view-vin-inbox .vi-actions input { flex: 1; min-width: 130px; padding: 6px; font-family: var(--font-mono, ui-monospace, monospace); text-transform: uppercase; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); }
   /* Buttons: don't shrink next to the flex:1 VIN input. */
@@ -68,10 +68,27 @@
   VIEW_SHOWN['view-vin-inbox'] = function () { viLoad(); };   // reload pending on every visit
 
   var viSubs = [], viGroupNames = [];
+  var viVinMaps = {};        // dealerKey → {VIN→vehicle} | 'loading'
+  var viPendingChecks = {};  // sid → 1: cards typed-into before their map landed
+
+  // ── Client VIN check (mirror of server isValidVin_; same twin as lot-scan's vpValidVin) ──
+  var VI_TRANSLIT = { A:1,B:2,C:3,D:4,E:5,F:6,G:7,H:8,J:1,K:2,L:3,M:4,N:5,P:7,R:9,S:2,T:3,U:4,V:5,W:6,X:7,Y:8,Z:9,
+    '0':0,'1':1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9 };
+  var VI_WEIGHTS = [8,7,6,5,4,3,2,10,0,9,8,7,6,5,4,3,2];
+  function viValidVin(vin) {
+    vin = String(vin || '').toUpperCase();
+    if (!/^[A-HJ-NPR-Z0-9]{17}$/.test(vin)) return false;
+    var sum = 0;
+    for (var i = 0; i < 17; i++) { var v = VI_TRANSLIT[vin.charAt(i)]; if (v === undefined) return false; sum += v * VI_WEIGHTS[i]; }
+    var r = sum % 11, cd = (r === 10) ? 'X' : String(r);
+    return vin.charAt(8) === cd;
+  }
 
   function viLoad() {
     var body = document.getElementById('viBody');
     if (!body) return;
+    viVinMaps = {};          // refetch inventory each visit — same freshness as the submission list
+    viPendingChecks = {};
     body.innerHTML = '<p class="u-hint">Loading&hellip;</p>';
     google.script.run
       .withSuccessHandler(viRender)
@@ -125,7 +142,7 @@
       if (isBatch && doneCount < rows.length) {
         html += '<span class="tag tone-info">' + doneCount + '/' + rows.length + ' read</span>';
       }
-      html += '<span class="eomr-chip"><b>' + validCount + '</b> valid</span>';
+      html += '<span class="eomr-chip"><b id="vivalid_' + gi + '">' + validCount + '</b> valid</span>';
       html += '</span>';
       html += '<span class="vi-batch-actions">';
       html += '<button type="button" class="btn-secondary" onclick="viCreateOrder(' + gi + ', event)">Create order</button>';
@@ -137,6 +154,36 @@
       html += '</div></div></details>';
     });
     body.innerHTML = html;
+    viLoadMaps();
+  }
+
+  // One getDealerVinData call per distinct dealer in the inbox (typically 1–2);
+  // after that every keystroke checks locally. Fail-safe: {} on error (mirrors ViewRun).
+  function viLoadMaps() {
+    var keys = {};
+    viSubs.forEach(function (s) { if (s.dealerKey) keys[s.dealerKey] = 1; });
+    Object.keys(keys).forEach(function (dk) {
+      if (viVinMaps[dk] !== undefined) return;
+      viVinMaps[dk] = 'loading';
+      google.script.run
+        .withSuccessHandler(function (res) {
+          viVinMaps[dk] = (res && res.vinData) || {};
+          viRunPendingChecks_();
+        })
+        .withFailureHandler(function (e) {
+          viVinMaps[dk] = {};
+          toast('Could not load inventory: ' + escHtml((e && e.message) || String(e)), 'error');
+          viRunPendingChecks_();
+        })
+        .getDealerVinData(dk);
+    });
+  }
+
+  // Re-run live checks for cards edited while their dealer's map was loading.
+  function viRunPendingChecks_() {
+    var ids = Object.keys(viPendingChecks);
+    viPendingChecks = {};
+    ids.forEach(function (sid) { viLiveCheck(sid); });   // still-loading dealers re-queue themselves
   }
 
   // Grouping key: batch id when present, else one bucket per dealer (legacy/blank-batch rows).
@@ -154,37 +201,86 @@
         'src="https://drive.google.com/thumbnail?id=' + encodeURIComponent(s.photoFileId) + '&sz=w200" ' +
         'onerror="this.style.display=\'none\'"></a>'
       : '';
-    var veh = '';
-    if (s.matched) {
-      var line = [s.year, s.make, s.model, s.type].filter(Boolean).join(' ');
-      if (s.stock) line += ' · Stock ' + s.stock;
-      veh = '<div class="vi-veh">' + escHtml(line) + '</div>';
-    }
-    var meta = '<div class="vi-meta">' + escHtml(s.email || '') + (s.ts ? (' · ' + escHtml(s.ts)) : '') + '</div>';
     var queued = (s.ocrState === 'queued');
     var h = '';
-    h += '<div class="vi-card' + (queued || s.matched ? '' : ' miss') + '">';
+    h += '<div class="vi-card' + (queued || s.matched ? '' : ' miss') + '" id="vicard_' + s.id + '">';
     h += thumb;
     h += '<div class="vi-info">';
-    h += '<div class="vi-vin">' + escHtml(s.vin || (queued ? '(processing…)' : '(no VIN)')) + '</div>';
-    h += '<div class="vi-tags">';
-    if (queued) {
-      h += '<span class="tag tone-neutral">still processing…</span>';
-    } else {
-      h += '<span class="tag ' + (s.valid ? 'tone-success' : 'tone-danger') + '">' + (s.valid ? 'valid VIN' : 'invalid VIN') + '</span>';
-      h += '<span class="tag ' + (s.matched ? 'tone-success' : 'tone-danger') + '">' + (s.matched ? 'in inventory' : 'not in inventory') + '</span>';
-    }
-    h += '</div>';
-    h += veh + meta;
+    h += '<div id="vistat_' + s.id + '">' + viStatusHtml(s, false) + '</div>';
     if (!queued) {
       h += '<div class="vi-actions">';
-      h += '<input id="vivin_' + s.id + '" type="text" maxlength="17" value="' + escHtml(s.vin || '') + '" placeholder="Correct VIN…">';
-      h += '<button type="button" class="btn-secondary" onclick="viRecheck(\'' + s.id + '\')">Re-check</button>';
+      h += '<input id="vivin_' + s.id + '" type="text" maxlength="17" value="' + escHtml(s.vin || '') + '" placeholder="Correct VIN…"' +
+        ' oninput="viLiveCheck(\'' + s.id + '\')" onchange="viSaveVin(\'' + s.id + '\')">';
       h += '<button type="button" class="btn-secondary" onclick="viDiscard(\'' + s.id + '\')">Discard</button>';
       h += '</div>';
     }
     h += '</div></div>';
     return h;
+  }
+
+  // Tags + vehicle line — shared by the initial render and every live re-check.
+  function viStatusHtml(s, mapPending) {
+    var h = '<div class="vi-tags">';
+    if (s.ocrState === 'queued') {
+      h += '<span class="tag tone-neutral">still processing…</span>';
+    } else {
+      h += '<span class="tag ' + (s.valid ? 'tone-success' : 'tone-danger') + '">' + (s.valid ? 'valid VIN' : 'invalid VIN') + '</span>';
+      h += mapPending
+        ? '<span class="tag tone-neutral">checking inventory…</span>'
+        : '<span class="tag ' + (s.matched ? 'tone-success' : 'tone-danger') + '">' + (s.matched ? 'in inventory' : 'not in inventory') + '</span>';
+    }
+    h += '</div>';
+    if (s.matched) {
+      var line = [s.year, s.make, s.model, s.type].filter(Boolean).join(' ');
+      if (s.stock) line += ' · Stock ' + s.stock;
+      h += '<div class="vi-veh">' + escHtml(line) + '</div>';
+    }
+    return h;
+  }
+
+  function viFindSub_(sid) {
+    for (var i = 0; i < viSubs.length; i++) if (String(viSubs[i].id) === String(sid)) return viSubs[i];
+    return null;
+  }
+
+  // Pure-local check on every keystroke: validity via viValidVin, inventory via the
+  // preloaded dealer map. Updates the card in place + the in-memory row (so Create
+  // order / batch chips use the corrected values immediately). No server calls.
+  function viLiveCheck(sid) {
+    var s = viFindSub_(sid);
+    var el = document.getElementById('vivin_' + sid);
+    if (!s || !el) return;
+    var v = el.value.toUpperCase().replace(/[^A-Z0-9]/g, '');   // same normalize as the server (updateVinSubmissionStatus)
+    var map = viVinMaps[s.dealerKey];
+    var pending = (map === undefined || map === 'loading');
+    if (pending) viPendingChecks[sid] = 1;
+    var veh = (!pending && map[v]) || null;
+    s.vin = v;
+    s.valid = viValidVin(v);
+    s.matched = !!veh;
+    s.year = veh ? veh.year : ''; s.make = veh ? veh.make : ''; s.model = veh ? veh.model : '';
+    s.type = veh ? veh.type : ''; s.stock = veh ? veh.stock : '';
+    var stat = document.getElementById('vistat_' + sid);
+    if (stat) stat.innerHTML = viStatusHtml(s, pending);
+    var card = document.getElementById('vicard_' + sid);
+    if (card) card.classList.toggle('miss', !s.matched);
+    var gi = viGroupNames.indexOf(viGroupKey(s));
+    var chip = document.getElementById('vivalid_' + gi);
+    if (chip) chip.textContent = viSubs.filter(function (r) { return viGroupKey(r) === viGroupNames[gi] && r.valid; }).length;
+  }
+
+  // Blur/Enter → persist the correction (server re-validates + rewrites the row —
+  // the sheet stays authoritative). Fire-and-forget: client state is already right,
+  // so success is silent and there is NO viLoad() reload.
+  function viSaveVin(sid) {
+    var el = document.getElementById('vivin_' + sid);
+    if (!el) return;
+    google.script.run
+      .withSuccessHandler(function (res) {
+        if (!res || !res.ok) toast('VIN save failed: ' + escHtml((res && res.error) || '?'), 'error');
+      })
+      .withFailureHandler(function (e) { toast('VIN save failed: ' + escHtml((e && e.message) || String(e)), 'error'); })
+      .updateVinSubmissionStatus(sid, 'submitted', el.value);
   }
 
   function viCreateOrder(gi, evt) {
@@ -250,10 +346,6 @@
       .updateVinSubmissionStatus(sid, status, vin || '');
   }
 
-  function viRecheck(sid) {
-    var el = document.getElementById('vivin_' + sid);
-    viAction(sid, 'submitted', el ? el.value : '', 'VIN updated.');   // keep it open in the queue
-  }
   function viDiscard(sid) { if (confirm('Discard this submission?')) viAction(sid, 'discarded', '', 'Discarded.'); }
 
   function viDeleteBatch(gi, evt) {
