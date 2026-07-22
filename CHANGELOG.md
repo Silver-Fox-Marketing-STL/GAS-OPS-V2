@@ -10,6 +10,14 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## [Unreleased]
 
+### Fixed
+- Split-schema runs no longer leave the universal template's blank `CSV` tab in
+  the output doc — split dealers write only `CSV_<SCHEMA>` tabs, so the unused
+  blank tab survived and step 14b exported it as an empty `.csv` file into the
+  dealer's output folder. `buildCSVSheet_` now deletes the `CSV` tab when it is
+  still completely empty after all partitions are written (a written CSV tab
+  always has at least a header row, so single-schema dealers are unaffected).
+
 ### Added
 - Order Drafts: in-progress Run Order work (typed VINs, per-row FEATURES text,
   editable-column edits, bypass checkbox) is saved per user as a draft — auto

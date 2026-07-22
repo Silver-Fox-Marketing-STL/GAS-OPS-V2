@@ -2260,7 +2260,15 @@ function buildCSVSheet_(outputDoc, typeRules, sourceSplit, mainProductMap, secon
     });
   }
 
-  if (!sourceSplit) { writePartition_(omData, mainProductMap, ''); return; }
+  // The template ships a blank 'CSV' tab; split-schema runs write only
+  // CSV_<SCHEMA> tabs, so the blank one survived and step 14b exported it as
+  // an empty .csv. A written CSV tab always has at least a header row.
+  function dropBlankCsvTab_() {
+    var s = outputDoc.getSheetByName('CSV');
+    if (s && s.getLastRow() === 0) outputDoc.deleteSheet(s);
+  }
+
+  if (!sourceSplit) { writePartition_(omData, mainProductMap, ''); dropBlankCsvTab_(); return; }
 
   // Dual-site source split: partition by URL FIRST, then group each side by its own resolved
   // schema. The main uses the dealer's product map; the secondary uses the source_product_map
@@ -2273,6 +2281,7 @@ function buildCSVSheet_(outputDoc, typeRules, sourceSplit, mainProductMap, secon
   });
   writePartition_(main,      mainProductMap,      '');
   writePartition_(secondary, secondaryProductMap, '_' + sourceSplit.groupName);
+  dropBlankCsvTab_();
 }
 
 /**
