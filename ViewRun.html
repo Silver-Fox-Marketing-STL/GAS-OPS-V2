@@ -165,13 +165,17 @@
     #view-run .rv-vinzone { grid-area: vin; display: flex; flex-direction: column; min-height: 0; }
     #view-run .rv-tablezone { grid-area: table; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
     #view-run .rv-zone-label { font-size: var(--fs-overline); text-transform: uppercase; letter-spacing: .04em; color: var(--text-3); margin-bottom: var(--space-2); }
-    /* Remove Duplicates overlays the sticky table header instead of taking a
-       row of its own (it was pushing the finalize zone into a scroll). Anchored
-       to the wrap — NOT the scroll box — so it stays pinned over the header
-       while the table scrolls; right inset clears the vertical scrollbar. */
+    /* Remove Duplicates is a "cap" on the sticky table header's right end —
+       full header height, square except the container's own top-right radius,
+       so it reads as a segment of the header bar. Anchored to the wrap — NOT
+       the scroll box — so it stays pinned while the table scrolls. Header
+       height is made deterministic (line-height pin below): 1px container
+       border + 7px + 12px + 7px = the button's 27px. */
     #view-run .rv-table-wrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
-    #view-run #rvDedupeBtn { position: absolute; top: 3px; right: 16px; z-index: 2;
-                             padding: 2px 7px !important; font-size: 11px; }  /* compact; base .btn-danger padding is !important */
+    #view-run #vinDataTable thead th { line-height: 12px; }
+    #view-run #rvDedupeBtn { position: absolute; top: 0; right: 0; z-index: 2; height: 27px;
+                             padding: 0 12px !important; font-size: 11px;
+                             border-radius: 0 var(--radius-sm) 0 0; }  /* base .btn-danger padding is !important */
     /* Per-row remove — compact table control, view-scoped like the other views' X buttons */
     #view-run #vinDataTable td.rv-x-cell { text-align: center; padding-top: 0; padding-bottom: 0; }
     #view-run .rv-x { background: none; border: none; color: var(--text-3); cursor: pointer;

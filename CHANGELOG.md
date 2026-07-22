@@ -15,8 +15,11 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   page's fixed-height flow zone (the "ONE height knob", `.rv-flow`) went
   190px → 235px, sized to a fully-finalized card (radios + deal input +
   Logged ✓ + Linked lines) plus the button row. The zone had been outgrown
-  by the finalize card's post-link status lines. Remove Duplicates button
-  also slimmed (11px text).
+  by the finalize card's post-link status lines. Remove Duplicates reworked
+  into a header "cap": flush to the table's top-right, full header height,
+  rounded only at the container's top-right corner — a segment of the header
+  bar rather than a floating pill (11px text; header line-height pinned
+  view-scoped so the cap height is deterministic).
 - The "Remove Duplicates (N)" button no longer takes a row of its own above the
   Inventory match table — that extra height pushed the finalize decision box
   into a scroll, cutting off its bottom. It now overlays the top-right of the
