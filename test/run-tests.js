@@ -399,6 +399,19 @@ t('fail-safe: unparseable filtering_rules JSON falls back to defaults (nothing f
   assert.deepStrictEqual(fr.targetingRules, []);
   assert.strictEqual(applyFilteringRules_(rows_(), fr, 'run').passed.length, 10);
 });
+t('buildFilteredVinMap_ mirrors the run phase exactly (VIN_UPPER → reason, WILL BE FILTERED flag)', function () {
+  var map = buildFilteredVinMap_(rows_(), phaseRules);
+  var rej = applyFilteringRules_(rows_(), phaseRules, 'run').rejected;
+  assert.strictEqual(Object.keys(map).length, rej.length);   // 2 CPO rows, nothing else
+  rej.forEach(function (r) {
+    var vin = String(r.row[0]).trim().toUpperCase();
+    assert.ok(map[vin], 'rejected VIN missing from map: ' + vin);
+    assert.strictEqual(map[vin].indexOf('rule:exclude_order'), 0);
+  });
+});
+t('buildFilteredVinMap_ fail-safe: bad inputs → {} (table load can never break)', function () {
+  assert.deepStrictEqual(buildFilteredVinMap_(null, null), {});
+});
 
 // ============================================================================
 // Suite: pipedrive line items — buildLineItems_/bySourceToBilling_/mergeLineItems_

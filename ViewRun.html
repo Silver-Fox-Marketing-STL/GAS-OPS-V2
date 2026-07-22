@@ -100,10 +100,9 @@
       </div>
 
       <div class="rv-tablezone">
-        <div class="rv-zone-row">
-          <div class="rv-zone-label">Inventory match</div>
-          <button type="button" id="rvDedupeBtn" class="btn-danger" style="display:none" onclick="rvRemoveDuplicates()">Remove Duplicates</button>
-        </div>
+        <div class="rv-zone-label">Inventory match</div>
+        <div class="rv-table-wrap">
+        <button type="button" id="rvDedupeBtn" class="btn-danger" style="display:none" onclick="rvRemoveDuplicates()">Remove Duplicates</button>
         <div class="rv-table-scroll">
           <table id="vinDataTable" class="table-u">
             <thead>
@@ -118,6 +117,7 @@
               <tr class="rv-empty-row"><td colspan="9">Select a dealer, then enter VINs to check them.</td></tr>
             </tbody>
           </table>
+        </div>
         </div>
       </div>
 
@@ -162,10 +162,13 @@
     #view-run .rv-vinzone { grid-area: vin; display: flex; flex-direction: column; min-height: 0; }
     #view-run .rv-tablezone { grid-area: table; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
     #view-run .rv-zone-label { font-size: var(--fs-overline); text-transform: uppercase; letter-spacing: .04em; color: var(--text-3); margin-bottom: var(--space-2); }
-    /* Table-header row: zone label left, Remove Duplicates right */
-    #view-run .rv-zone-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-2); }
-    #view-run .rv-zone-row .rv-zone-label { margin-bottom: 0; }
-    #view-run #rvDedupeBtn { padding: 3px 10px !important; font-size: var(--fs-sm); }  /* compact; base .btn-danger padding is !important */
+    /* Remove Duplicates overlays the sticky table header instead of taking a
+       row of its own (it was pushing the finalize zone into a scroll). Anchored
+       to the wrap — NOT the scroll box — so it stays pinned over the header
+       while the table scrolls; right inset clears the vertical scrollbar. */
+    #view-run .rv-table-wrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    #view-run #rvDedupeBtn { position: absolute; top: 3px; right: 16px; z-index: 2;
+                             padding: 2px 8px !important; font-size: var(--fs-sm); }  /* compact; base .btn-danger padding is !important */
     /* Per-row remove — compact table control, view-scoped like the other views' X buttons */
     #view-run #vinDataTable td.rv-x-cell { text-align: center; padding-top: 0; padding-bottom: 0; }
     #view-run .rv-x { background: none; border: none; color: var(--text-3); cursor: pointer;
@@ -641,6 +644,8 @@
       rvMarkDirty();
     });
     document.getElementById('bypassFilters').addEventListener('change', rvMarkDirty);
+    // Bypass toggles the WILL BE FILTERED flags live in the match table.
+    document.getElementById('bypassFilters').addEventListener('change', rvRenderTable);
     // Features + editable-column inputs are re-created on every table render —
     // one delegated listener on the persistent tbody captures typing without
     // re-rendering (the caret never moves; values restore from rvFeatures /
@@ -1685,7 +1690,7 @@
 
     function rvLoadDealerData(dealerKey) {
       if (rvVinData.dealerKey !== dealerKey) { rvFeatures = {}; rvEdits = {}; }   // new dealer → stale text out
-      rvVinData = { dealerKey: dealerKey, map: {}, featuresTypes: {}, editCodes: {}, editSeeds: {} };   // clear immediately
+      rvVinData = { dealerKey: dealerKey, map: {}, featuresTypes: {}, editCodes: {}, editSeeds: {}, filtered: {} };   // clear immediately
       rvLoggedIds = null;
       rvRenderTable();
       if (!dealerKey) return;
@@ -1700,7 +1705,8 @@
             map: (res && res.vinData) || {},
             featuresTypes: (res && res.featuresTypes) || {},
             editCodes: (res && res.editCodes) || {},
-            editSeeds: (res && res.editSeeds) || {}
+            editSeeds: (res && res.editSeeds) || {},
+            filtered: (res && res.filtered) || {}
           };
           rvRenderTable();
         })
@@ -1805,12 +1811,18 @@
         return;
       }
 
-      var html = '', found = 0, dupes = 0;
+      // Filtered flags mirror the run's actual behavior: server precomputes the
+      // drop set with the same engine/phase; Bypass checked = flags cleared.
+      var bypass = document.getElementById('bypassFilters').checked;
+
+      var html = '', found = 0, dupes = 0, filteredN = 0;
       for (var j = 0; j < lines.length; j++) {
         var key = lines[j].toUpperCase();
         var d = rvVinData.map[key];
         var isDupe = rvIsDupe(key);
         if (isDupe) dupes++;
+        var filtReason = (!bypass && d && rvVinData.filtered) ? (rvVinData.filtered[key] || '') : '';
+        if (filtReason) filteredN++;
         var xCell = '<td class="rv-x-cell"><button type="button" class="rv-x" data-vin="' +
           escHtml(key) + '" title="Remove from order">✕</button></td>';
         if (d) {
@@ -1839,14 +1851,15 @@
               editCells += '<td>—</td>';
             }
           });
-          html += '<tr' + (isDupe ? ' class="row-dup"' : '') + '>' +
+          html += '<tr' + (isDupe ? ' class="row-dup"' : filtReason ? ' class="row-warn"' : '') + '>' +
             '<td>' + escHtml(d.year)  + '</td>' +
             '<td>' + escHtml(d.make)  + '</td>' +
             '<td>' + escHtml(d.model) + '</td>' +
             '<td>' + rvTypePill(d.type) + '</td>' +
             '<td>' + escHtml(d.stock) + '</td>' +
             '<td class="rv-vin">' + escHtml(lines[j]) + '</td>' +
-            '<td>' + escHtml(d.status) + (isDupe ? ' · ALREADY PRINTED' : '') + '</td>' +
+            '<td>' + escHtml(d.status) + (isDupe ? ' · ALREADY PRINTED' : '') +
+              (filtReason ? ' · ⚠ WILL BE FILTERED (' + escHtml(filtReason) + ')' : '') + '</td>' +
             '<td class="rv-link">' + urlCell + '</td>' +
             featCell +
             editCells +
@@ -1868,7 +1881,8 @@
       }
       body.innerHTML = html;
       if (countEl) countEl.textContent = lines.length + ' VINs · ' + found + ' found · ' + (lines.length - found) + ' not found' +
-        (dupes ? ' · ' + dupes + ' ALREADY PRINTED' : '');
+        (dupes ? ' · ' + dupes + ' ALREADY PRINTED' : '') +
+        (filteredN ? ' · ' + filteredN + ' will be filtered' : '');
       if (dedupeBtn) {
         dedupeBtn.style.display = dupes ? '' : 'none';
         dedupeBtn.textContent = 'Remove Duplicates (' + dupes + ')';

@@ -1439,19 +1439,37 @@ function buildVinDataMap_(rows) {
 }
 
 /**
+ * Pure: runs inventory rows through the dealer's filtering rules — same engine,
+ * same 'run' phase as runDealer step 8.5 — and returns {VIN_UPPER → "reason"}
+ * for rows the run would REMOVE. Powers the Run table's WILL BE FILTERED flag
+ * (cleared client-side when Bypass filtering rules is checked). Fail-safe → {}.
+ */
+function buildFilteredVinMap_(rows, filterRules) {
+  var out = {};
+  try {
+    applyFilteringRules_(rows, filterRules, 'run').rejected.forEach(function(rej) {
+      var vin = String(rej.row[0] == null ? '' : rej.row[0]).trim().toUpperCase();
+      if (vin && vin !== '*') out[vin] = rej.reason + (rej.detail ? ' — ' + rej.detail : '');
+    });
+  } catch (e) { Logger.log('buildFilteredVinMap_: ' + e.message); }
+  return out;
+}
+
+/**
  * Client-callable. Returns the selected dealer's inventory + per-row edit
  * config for the Run Order live table:
  *   { vinData:       {VIN→row},
  *     featuresTypes: {type→true},                 // types needing manual FEATURES text
  *     editCodes:     {type→[{code,max}]},         // schema columns flagged `edit`
- *     editSeeds:     {VIN→{code→seed}} }          // advisory previews (computeEditSeed_)
+ *     editSeeds:     {VIN→{code→seed}},           // advisory previews (computeEditSeed_)
+ *     filtered:      {VIN→reason} }               // rows the run's filtering would drop
  * Cheap config-sheet reads only (PIPEDRIVE/CSV_SCHEMAS tabs, no Pipedrive HTTP).
  * Fail-safe: empty shapes on any error (the table shows VINs as "not found").
  */
 function getDealerVinData(dealerKey) {
   try {
     var config = getDealerConfig_(dealerKey);
-    if (!config) return { vinData: {}, featuresTypes: {}, editCodes: {}, editSeeds: {} };
+    if (!config) return { vinData: {}, featuresTypes: {}, editCodes: {}, editSeeds: {}, filtered: {} };
     var loc = config[CFG.SCRAPER_LOCATION];
     var rows = loc ? (getDealerScraperData_(loc) || []) : [];
     var maps = getCsvProductMaps_(config[CFG.KEY], getSourceSplit_(config));
@@ -1473,11 +1491,12 @@ function getDealerVinData(dealerKey) {
       vinData: buildVinDataMap_(rows),
       featuresTypes: featuresTypesForDealer_(typeRules, maps.main),
       editCodes: editCodes,
-      editSeeds: editSeeds
+      editSeeds: editSeeds,
+      filtered: buildFilteredVinMap_(rows, getDealerFilterRules_(config))
     };
   } catch (e) {
     Logger.log('getDealerVinData failed for ' + dealerKey + ': ' + e.message);
-    return { vinData: {}, featuresTypes: {}, editCodes: {}, editSeeds: {} };
+    return { vinData: {}, featuresTypes: {}, editCodes: {}, editSeeds: {}, filtered: {} };
   }
 }
 
