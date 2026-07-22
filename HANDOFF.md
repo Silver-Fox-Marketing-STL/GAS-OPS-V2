@@ -17,12 +17,14 @@ What it contains — the first-ever end-user documentation for the system, in
 - `field-crew-handbook.md` — Lot Scanner phone app: first-time setup, scan a lot,
   fix/resend a draft. Calls out the data-loss trap (in-app photos aren't in the
   camera roll — "finish WITHOUT them?" destroys failed shots).
-- `office-operator-handbook.md` — the big one: start-your-day (Today's Print
-  Schedule), the FOUR order-origination paths (CAO-only / VIN Inbox / inbox+CAO
-  combined / manual paste) feeding one common run flow, finalize decision box,
-  output files, VIN log commit/rollback, drafts, troubleshooting table.
-- `import-handbook.md` — Replace vs Merge, per-file column matching, conflict
-  panel, health check (🔴 = stop and tell Nick before running orders).
+- `office-operator-handbook.md` — the big one: scraper import as §1 (Replace vs
+  Merge, per-file column matching, conflict panel, health check — 🔴 = stop and
+  tell Nick before running orders; merged in from the former standalone
+  `import-handbook.md` at Nick's request, 2026-07-22), start-your-day (Today's
+  Print Schedule), the FOUR order-origination paths (CAO-only / VIN Inbox /
+  inbox+CAO combined / manual paste) feeding one common run flow, finalize
+  decision box, output files, VIN log commit/rollback, drafts, troubleshooting
+  table.
 
 Every quoted on-screen label was extracted from the live view fragments
 (ViewRun/ViewVinInbox/ViewImport/ViewVinLog/ViewHome/App + lot-scan/Capture.html)
@@ -47,7 +49,7 @@ start / Steps / What good looks like / If something goes wrong.
 
 ## Immediately pending — Nick (in order)
 
-1. **Review the three handbooks** (office one first — it encodes your judgment
+1. **Review the two handbooks** (office one first — it encodes your judgment
    calls). Best test: someone runs one task per book following only the doc.
 2. **Fill the per-dealer routine table** in office handbook §1 (`[NICK: fill in]`
    rows — which dealers are CAO vs scanned vs manual vs combo). The vault's

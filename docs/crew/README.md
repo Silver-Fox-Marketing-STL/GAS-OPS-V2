@@ -4,8 +4,8 @@ These markdown files are the **crew-facing job aids** for GAS ShortCut OPS. They
 written for the production crew, not developers — no function names, no column letters.
 
 - `field-crew-handbook.md` — Lot Scanner phone app (scan VINs on dealer lots)
-- `office-operator-handbook.md` — VIN Inbox, Run Order, Finalize, output files, VIN Log
-- `import-handbook.md` — scraper CSV import
+- `office-operator-handbook.md` — scraper CSV import, VIN Inbox, Run Order, Finalize,
+  output files, VIN Log
 
 **Maintenance contract:** any feature merge that changes a crew-visible flow updates the
 matching recipe here **in the same PR** (same rule as CHANGELOG.md).

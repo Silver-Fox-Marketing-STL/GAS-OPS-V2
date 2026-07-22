@@ -1,18 +1,110 @@
 # Office Operator Handbook — SilverFox App
 
-This is the handbook for running dealer orders in the SilverFox app: turning a VIN list
-into the printed-graphics files, logging the order, and getting it into billing.
+This is the handbook for running orders in the SilverFox app: importing the
+day's inventory, turning a VIN list into the printed-graphics files, logging the
+order, and sending it to Pipedrive.
 
-The sidebar views you'll use: **Home**, **Run Order**, **VIN Inbox**, **VIN Logs**.
-(**Import Data** has its own handbook.)
+The sidebar views you'll use: **Import Data**, **Home**, **Run Order**, **VIN Inbox**,
+**VIN Logs**.
 
-> **Hands off one area:** everything under **⚙ System Settings** (Dealer Rules,
-> Pipedrive Settings, Normalization, etc.) is Nick's — don't change anything there.
-> Every other button in this handbook is yours to use.
+> **Hands off one area:** everything under **⚙ System Settings** aside from UI Settings (Dealer Rules,
+> Pipedrive Settings, Normalization, etc.) — don't change anything there
+without talking to Nick first. 
+
 
 ---
 
-## 1 · Start your day
+## 1 · Import scraper data — do this first
+
+The **Import Data** view loads the scraper's inventory CSV files into the system.
+Everything else — CAO pre-fills, inventory matching, the Home dashboard — runs off
+this data, so a bad or stale import shows up everywhere. Import first, run orders
+second. The scraper is managed by Barrett, check with him about the status of the current data.
+The data lives in a shared google drive which everyone should already have access to. 
+
+### 1a · Import scraper CSVs
+
+**When you do this:** whenever fresh scraper files arrive — normally before the
+day's orders.
+
+**Before you start:** have the CSV file(s) downloaded, and make sure nobody else is
+mid-run (the app will block with "A dealer run is in progress — wait for it to
+finish before importing.").
+
+1. Open **Import Data** in the sidebar.
+   [SCREENSHOT: Import Data view — mode cards + file picker]
+2. Pick the mode:
+   - **Main Import (Replace)** — the normal choice. Clears the old snapshot and
+     loads the new files as the current dataset.
+   - **Merge with Existing** — adds files on top of what's there. Use for a late
+     extra file. Merge never removes sold vehicles, so don't run on Merge forever —
+     do a replace daily.
+3. Click **Select CSV File(s)** and pick one or more files. Each file gets a card
+   showing **"N rows · N/21 columns matched"**:
+   - **"✓ All 21 columns matched"** — perfect.
+   - **"Missing (will be blank): …"** — those fields import blank. A missing minor
+     column is fine; missing Price or Stock on a whole file is worth a question.
+   - A red **✗** error ("No VIN column found — this file cannot be imported.",
+     "File appears empty…") — that file won't import; deselect or fix it.
+4. When the totals line says **"N files ready · N total rows"**, click **Import Data**.
+5. If the **Resolve N Conflicting VINs** panel appears, work it (Section 1b). Otherwise
+   the review panel appears — read the health check (Section 1c).
+
+**What good looks like:** **✓ Import Complete**, a vehicle total in the right
+ballpark for the number of files, and **"✓ Data Health: No issues detected"**.
+
+### 1b · Resolve same-VIN conflicts
+
+**When you see this:** the same VIN appeared more than once with *different* data - 
+same VIN, different Location, Stock, Price, etc. Look for the newest date in stock.
+(identical duplicates are removed automatically). **Nothing has been written yet** —
+the import is paused waiting on your choices, and **Cancel** abandons it harmlessly.
+
+[SCREENSHOT: conflict panel — diff table with keep-existing / keep-new radios]
+
+1. Each conflict card shows the VIN and a field-by-field difference: **Existing** vs
+   **New**, with only the differing fields listed.
+2. Pick a side per VIN — **Keep existing** or **Keep new**. Usual logic: the newer
+   date in stock is usually right (price drops, status changes).
+3. Lots of conflicts? **Keep All Existing** / **Keep All New** applies one choice to
+   everything — including any overflow conflicts not shown on screen.
+4. Click **Apply & Import** (it stays disabled until every conflict has a choice).
+
+### 1c · Read the review + health check
+
+The **Import Complete** panel is your receipt. Give it 30 seconds — it catches
+scraper problems before they become order problems.
+
+1. **Import Summary** badges: files, mode, duplicates removed, dropped on import,
+   conflicts resolved, rows without VIN. A handful of "rows without VIN" is normal
+   junk; hundreds is not.
+2. **Vehicle Types** / **Status Values**: types should be the usual New / PO / CPO
+   / CPO-EL / Courtesy; an unexpected type gets a warning color — mention it to Nick.
+3. **Breakdown by Location**: every dealer location the scraper covers should have a
+   sane count. Check VS. website if totals are unusual.
+4. **Health check** — the important part:
+   - **"✓ Data Health: No issues detected"** → done.
+   - **"⚠ Data Health: N issues detected"** → read each line:
+     - 🟡 **warning** (count dropped vs. the usual, new type appeared) — proceed,
+       but tell Nick if it looks odd.
+     - 🔴 **error** (a location dropped to zero, or huge missing-stock/missing-price
+       percentages) — **stop and investigate before running orders** for the affected
+       dealers. A zeroed location usually means the scraper broke, and CAO for that
+       dealer would order nothing.
+   [SCREENSHOT: review panel — health check with one warning row]
+5. **Browse Current Data** (or the **Inventory Snapshot** card) lets you spot-check
+   what's actually loaded, filtered by location and type.
+
+**If something goes wrong:**
+- **"Import cancelled — nothing was written."** — exactly what it says; the old data
+  is untouched. Fix and retry.
+- An **"Error: …"** mid-import — screenshot it and tell Nick before retrying.
+- Imported the wrong file on **Replace**? The old snapshot is gone — re-run the
+  import with the right file(s), then tell Nick what happened.
+
+---
+
+## 2 · Start your day
 
 **When you do this:** first thing, to see what's due.
 
@@ -20,32 +112,90 @@ The sidebar views you'll use: **Home**, **Run Order**, **VIN Inbox**, **VIN Logs
    [SCREENSHOT: Home view — print schedule band + system stats]
 2. Check the status strip at the top: **"Last scraper import: …"** should be a green
    dot (today's data). Amber/stale or "No scraper import recorded yet." → run an
-   import first (see the Import handbook) or check with Nick.
+   import first (Section 1) or check with Nick.
 3. **Today's Print Schedule** shows every dealer scheduled today that hasn't been run
    yet. Each card has a **▶ Run Order** button that jumps straight to the Run page
    with that dealer selected. A **"N in inbox"** tag means lot-scan photos are waiting
-   for that dealer — work the inbox first (Section 2b).
+   for that dealer — work the inbox first (Section 3b).
 4. A **"📝 N drafts"** chip means you have unfinished orders saved — click it to
-   resume from the Drafts strip (Section 7).
+   resume from the Drafts strip (Section 8).
 5. When the band says **"All scheduled orders printed. ✓"** — you're caught up.
 
-**Which dealers work which way** — the routine per dealer:
+**Which dealers work which way** — the routine per dealer ("How the order usually
+starts" is one of: CAO / Lot scan / Manual / Combo):
 
 | Dealer | How the order usually starts | Notes |
 |---|---|---|
-| [NICK: fill in] | CAO / Lot scan / Manual / Combo | |
-| [NICK: fill in] | | |
+| Audi Rancho Mirage | | |
+| Auffenberg Hyundai | | |
+| AutoLoanPRO | | |
+| BMW of Columbia | | |
+| BMW of West St. Louis | | |
+| Bommarito Cadillac | | |
+| Bommarito West County | | |
+| CDJR of Columbia | | |
+| Columbia Honda | | |
+| Dave Sinclair Lincoln | | |
+| Dave Sinclair Lincoln St. Peters | | |
+| Dean Team Brentwood | | |
+| Frank Leta Honda | | |
+| Glendale CDJR | | |
+| Honda of Frontenac | | |
+| Honda of Jefferson City | | |
+| HW Kia of West County | | |
+| Hyundai of Jefferson City | | |
+| indiGO Auto Group | | |
+| Jaguar Rancho Mirage | | |
+| Joe Machens Hyundai | | |
+| Joe Machens Nissan | | |
+| Joe Machens Toyota | | |
+| Kia of Columbia | | |
+| Land Rover Rancho Mirage | | |
+| Mazda of Columbia | | |
+| Mercedes-Benz of Creve Coeur | | |
+| Mini of St. Louis | | |
+| Nissan of Jefferson City | | |
+| Pappas Toyota | | |
+| Porsche St. Louis | | |
+| Pundmann Ford | | |
+| Rusty Drewing Cadillac | | |
+| Rusty Drewing Chevrolet Buick GMC | | |
+| Serra Honda | | |
+| SoCo DCJR | | |
+| Spirit Lexus | | |
+| Suntrup Buick GMC | | |
+| Suntrup Ford Kirkwood | | |
+| Suntrup Ford Westport | | |
+| Suntrup Hyundai South | | |
+| Suntrup Kia South | | |
+| Thoroughbred Ford | | |
+| Tom Stehouwer Auto Sales | | |
+| Twin City Toyota | | |
+| Volvo Cars West County | | |
+| Weber Creve Coeur | | |
 
 *(Ask Nick if a dealer isn't in this table yet.)*
 
 ---
 
-## 2 · Where the VINs come from — four ways an order starts
+## 3 · Where the VINs come from — four ways an order starts
 
 Every order ends up in the same place — the **Run Order** VIN box — but the VINs can
-arrive four different ways. All four paths feed the same run flow (Section 3).
+arrive four different ways. All four paths feed the same run flow (Section 4).
 
-### 2a · CAO-only (the computer picks the vehicles)
+**Before you start — is the VIN log caught up?** The app's "already printed" checks
+(CAO dedup, the ALREADY PRINTED flags) only know what's in the VIN log, so confirm
+the dealer's latest Shortcut order actually made it in before filling the VIN box:
+
+1. In Pipedrive, open the dealer's **Organization** → **view all deals** and find
+   the most recent **VDP SC/SCP** (Shortcut) deal.
+2. On the Run Order screen (after picking the dealer), check the **"Most recent
+   order in log:"** line — verify it shows that same order.
+3. Not matching? The last order was never committed — commit it first (Section 7),
+   or find out who ran it. If you skip this check, CAO can re-order vehicles that were
+   already printed.
+
+### 3a · CAO-only (the computer picks the vehicles)
 
 **When:** dealers whose orders come straight from current inventory.
 
@@ -58,9 +208,9 @@ arrive four different ways. All four paths feed the same run flow (Section 3).
    [SCREENSHOT: CAO summary card with the Filtered out popover open]
 4. Sanity-check the count. If it says **"No net-new vehicles found after filters and
    dedup."**, there's genuinely nothing new — or the inventory is stale (check Home).
-5. Continue at Section 3.
+5. Continue at Section 4.
 
-### 2b · Lot scan → VIN Inbox (photos from the field)
+### 3b · Lot scan → VIN Inbox (photos from the field)
 
 **When:** the field crew scanned a lot and a batch is sitting in **VIN Inbox**.
 
@@ -77,33 +227,33 @@ arrive four different ways. All four paths feed the same run flow (Section 3).
    - Hopeless photo (unreadable, duplicate, not a VIN) → **Discard** that card.
 4. When the batch looks right, click **Create order**. The batch's valid VINs jump
    into **Run Order** with the dealer preselected.
-5. Continue at Section 3. After you finalize the run, the app offers to discard the
+5. Continue at Section 4. After you finalize the run, the app offers to discard the
    batch — say yes so the inbox stays clean.
 
-### 2c · Inbox + CAO combined
+### 3c · Inbox + CAO combined
 
 **When:** a dealer gets both — scanned vehicles the office can't see in the feed,
 plus whatever CAO finds in inventory.
 
-1. Do the inbox first: work the batch and click **Create order** (Section 2b). The
+1. Do the inbox first: work the batch and click **Create order** (Section 3b). The
    inbox VINs are now in the Run Order box.
 2. Now click **↺ Pre-fill from CAO**. CAO **appends** its net-new VINs to what's
    already in the box — it never wipes your list — and skips anything already entered
-   or already printed. Any duplicates get removed automatically (you'll see
+   or already printed. Any duplicates get removed automatically when you run the order (you'll see
    "Removed N duplicate VINs from the order.").
-3. One order, both sources. Continue at Section 3.
+3. One order, both sources. Continue at Section 4.
 
-### 2d · Manual VIN list
+### 3d · Manual VIN list
 
 **When:** the dealer (or Nick) hands you VINs directly — email, text, printed sheet.
 
 1. **Run Order** → set **Running as** and the **Dealer**.
 2. Paste the VINs into the big box — **one per line** (stock numbers work too).
-3. Continue at Section 3.
+3. Continue at Section 4.
 
 ---
 
-## 3 · Run a dealer order — the common core
+## 4 · Run a dealer order — the common core
 
 By now you have: **Running as** = you, a **Dealer**, and VINs in the box. Whatever
 path they came from, the rest is identical.
@@ -116,7 +266,7 @@ path they came from, the rest is identical.
    - **⚠ not in this dealer** — the VIN isn't in this dealer's inventory. Check for
      a typo; remove the row with **✕** if it doesn't belong.
    - A red row with **· ALREADY PRINTED** — this vehicle is already in the dealer's
-     VIN log (it was printed on an earlier order). Reprinting is sometimes right
+     VIN log (it was printed on an earlier order). Reprinting is usually right
      (damaged banner, dealer request) — if that's not why it's here, click
      **Remove Duplicates (N)** to drop them all, or **✕** per row. Note: dupes that
      stay in the order still get billed.
@@ -129,11 +279,11 @@ path they came from, the rest is identical.
    this run — so don't leave it on by habit.
 5. Click **Run Dealer**. The progress card walks through the steps (usually well
    under a minute). When the header says **"Done! <dealer> order complete — finalize
-   or abandon below."**, move to Section 4.
+   or abandon below."**, move to Section 5.
 
 **If something goes wrong:**
 - **"A data import is in progress …"** — someone's mid-import; finish or cancel that
-  first (Import handbook).
+  first (Section 1).
 - The run stops with an **Error:** message about product mapping or configuration →
   screenshot it and tell Nick. That's a dealer-setup problem, not something you did.
 - Almost everything filtered out unexpectedly → check the CAO summary reasons; if it
@@ -141,7 +291,7 @@ path they came from, the rest is identical.
 
 ---
 
-## 4 · Finalize the run
+## 5 · Finalize the run
 
 After a run, one or more **finalize cards** appear (a dealer with split billing gets
 one card per billing account). **Nothing is logged or billed until you finalize.**
@@ -175,7 +325,7 @@ one card per billing account). **Nothing is logged or billed until you finalize.
 
 ---
 
-## 5 · Get the output files
+## 6 · Get the output files
 
 **When you do this:** right after finalizing, to hand the order to printing.
 
@@ -195,7 +345,7 @@ linked image, no "missing file" warnings.
 
 ---
 
-## 6 · Commit the VIN log
+## 7 · Commit the VIN log
 
 The VIN log is the dealer's permanent record of what's been printed — it powers the
 ALREADY PRINTED warnings and billing dupe checks. **It is never written automatically.**
@@ -223,7 +373,7 @@ rollback, fix, re-commit — and tell Nick what happened.
 
 ---
 
-## 7 · Order drafts — never lose a half-built order
+## 8 · Order drafts — never lose a half-built order
 
 The Run page auto-saves your work-in-progress (typed VINs, feature text, edits)
 whenever you switch dealers or leave the page, and every 15 seconds while you type.
@@ -238,7 +388,7 @@ whenever you switch dealers or leave the page, and every 15 seconds while you ty
 
 ---
 
-## 8 · When a run goes wrong — quick reference
+## 9 · When a run goes wrong — quick reference
 
 | You see | What it means | What to do |
 |---|---|---|
