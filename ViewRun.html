@@ -641,6 +641,8 @@
       rvMarkDirty();
     });
     document.getElementById('bypassFilters').addEventListener('change', rvMarkDirty);
+    // Bypass toggles the WILL BE FILTERED flags live in the match table.
+    document.getElementById('bypassFilters').addEventListener('change', rvRenderTable);
     // Features + editable-column inputs are re-created on every table render —
     // one delegated listener on the persistent tbody captures typing without
     // re-rendering (the caret never moves; values restore from rvFeatures /
@@ -1685,7 +1687,7 @@
 
     function rvLoadDealerData(dealerKey) {
       if (rvVinData.dealerKey !== dealerKey) { rvFeatures = {}; rvEdits = {}; }   // new dealer → stale text out
-      rvVinData = { dealerKey: dealerKey, map: {}, featuresTypes: {}, editCodes: {}, editSeeds: {} };   // clear immediately
+      rvVinData = { dealerKey: dealerKey, map: {}, featuresTypes: {}, editCodes: {}, editSeeds: {}, filtered: {} };   // clear immediately
       rvLoggedIds = null;
       rvRenderTable();
       if (!dealerKey) return;
@@ -1700,7 +1702,8 @@
             map: (res && res.vinData) || {},
             featuresTypes: (res && res.featuresTypes) || {},
             editCodes: (res && res.editCodes) || {},
-            editSeeds: (res && res.editSeeds) || {}
+            editSeeds: (res && res.editSeeds) || {},
+            filtered: (res && res.filtered) || {}
           };
           rvRenderTable();
         })
@@ -1805,12 +1808,18 @@
         return;
       }
 
-      var html = '', found = 0, dupes = 0;
+      // Filtered flags mirror the run's actual behavior: server precomputes the
+      // drop set with the same engine/phase; Bypass checked = flags cleared.
+      var bypass = document.getElementById('bypassFilters').checked;
+
+      var html = '', found = 0, dupes = 0, filteredN = 0;
       for (var j = 0; j < lines.length; j++) {
         var key = lines[j].toUpperCase();
         var d = rvVinData.map[key];
         var isDupe = rvIsDupe(key);
         if (isDupe) dupes++;
+        var filtReason = (!bypass && d && rvVinData.filtered) ? (rvVinData.filtered[key] || '') : '';
+        if (filtReason) filteredN++;
         var xCell = '<td class="rv-x-cell"><button type="button" class="rv-x" data-vin="' +
           escHtml(key) + '" title="Remove from order">✕</button></td>';
         if (d) {
@@ -1839,14 +1848,15 @@
               editCells += '<td>—</td>';
             }
           });
-          html += '<tr' + (isDupe ? ' class="row-dup"' : '') + '>' +
+          html += '<tr' + (isDupe ? ' class="row-dup"' : filtReason ? ' class="row-warn"' : '') + '>' +
             '<td>' + escHtml(d.year)  + '</td>' +
             '<td>' + escHtml(d.make)  + '</td>' +
             '<td>' + escHtml(d.model) + '</td>' +
             '<td>' + rvTypePill(d.type) + '</td>' +
             '<td>' + escHtml(d.stock) + '</td>' +
             '<td class="rv-vin">' + escHtml(lines[j]) + '</td>' +
-            '<td>' + escHtml(d.status) + (isDupe ? ' · ALREADY PRINTED' : '') + '</td>' +
+            '<td>' + escHtml(d.status) + (isDupe ? ' · ALREADY PRINTED' : '') +
+              (filtReason ? ' · ⚠ WILL BE FILTERED (' + escHtml(filtReason) + ')' : '') + '</td>' +
             '<td class="rv-link">' + urlCell + '</td>' +
             featCell +
             editCells +
@@ -1868,7 +1878,8 @@
       }
       body.innerHTML = html;
       if (countEl) countEl.textContent = lines.length + ' VINs · ' + found + ' found · ' + (lines.length - found) + ' not found' +
-        (dupes ? ' · ' + dupes + ' ALREADY PRINTED' : '');
+        (dupes ? ' · ' + dupes + ' ALREADY PRINTED' : '') +
+        (filteredN ? ' · ' + filteredN + ' will be filtered' : '');
       if (dedupeBtn) {
         dedupeBtn.style.display = dupes ? '' : 'none';
         dedupeBtn.textContent = 'Remove Duplicates (' + dupes + ')';

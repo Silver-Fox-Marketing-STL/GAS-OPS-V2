@@ -27,6 +27,18 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   always has at least a header row, so single-schema dealers are unaffected).
 
 ### Added
+- Run Order match table now flags vehicles the run's filtering rules would
+  remove: an amber `row-warn` row with "⚠ WILL BE FILTERED (reason)" in the
+  status cell, plus an "N will be filtered" count in the match line. Previously
+  a pasted VIN that was in inventory but hit a rule (e.g. `exclude_order`)
+  showed as a normal found row and silently vanished from the final order —
+  confusing anyone who didn't know the rules. Flags clear live when **Bypass
+  filtering rules** is checked (the intended decision loop). Server:
+  `getDealerVinData` returns a `filtered` map built by new pure helper
+  `buildFilteredVinMap_` (the SAME `applyFilteringRules_` engine and `'run'`
+  phase as runDealer step 8.5, so the flag can't drift from run behavior;
+  fail-safe `{}`). One new `.row-warn` tone in SharedUtils next to `row-dup`.
+  Harness: 92/92 (mirror + fail-safe tests).
 - Crew handbooks (`docs/crew/`) — first end-user documentation: role-based job
   aids for the production crew in task-recipe format, quoting on-screen labels
   verbatim. `field-crew-handbook.md` (Lot Scanner), `office-operator-handbook.md`
