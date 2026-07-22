@@ -32,7 +32,7 @@ mid-run (the app will block with "A dealer run is in progress — wait for it to
 finish before importing.").
 
 1. Open **Import Data** in the sidebar.
-   [SCREENSHOT: Import Data view — mode cards + file picker]
+   ![Import Data view — mode cards + file picker](screenshots/import-mode-cards.png)
 2. Pick the mode:
    - **Main Import (Replace)** — the normal choice. Clears the old snapshot and
      loads the new files as the current dataset.
@@ -60,7 +60,7 @@ same VIN, different Location, Stock, Price, etc. Look for the newest date in sto
 (identical duplicates are removed automatically). **Nothing has been written yet** —
 the import is paused waiting on your choices, and **Cancel** abandons it harmlessly.
 
-[SCREENSHOT: conflict panel — diff table with keep-existing / keep-new radios]
+![Conflict panel — Existing vs New diff with keep-existing / keep-new radios](screenshots/import-conflict-panel.png)
 
 1. Each conflict card shows the VIN and a field-by-field difference: **Existing** vs
    **New**, with only the differing fields listed.
@@ -91,7 +91,7 @@ scraper problems before they become order problems.
        percentages) — **stop and investigate before running orders** for the affected
        dealers. A zeroed location usually means the scraper broke, and CAO for that
        dealer would order nothing.
-   [SCREENSHOT: review panel — health check with one warning row]
+   ![Health check flagging issues after an import — the stop-and-investigate case](screenshots/import-health-check.png)
 5. **Browse Current Data** (or the **Inventory Snapshot** card) lets you spot-check
    what's actually loaded, filtered by location and type.
 
@@ -109,7 +109,7 @@ scraper problems before they become order problems.
 **When you do this:** first thing, to see what's due.
 
 1. Open the app — you land on **Home**.
-   [SCREENSHOT: Home view — print schedule band + system stats]
+   ![Home — Today's Print Schedule band + system stats](screenshots/home-print-schedule.png)
 2. Check the status strip at the top: **"Last scraper import: …"** should be a green
    dot (today's data). Amber/stale or "No scraper import recorded yet." → run an
    import first (Section 1) or check with Nick.
@@ -204,7 +204,7 @@ the dealer's latest Shortcut order actually made it in before filling the VIN bo
 3. Read the CAO summary card: **Total inventory → After filters → Already printed →
    Net new (pre-filled)**. Click **"Filtered out (N) ▾"** to see exactly why vehicles
    were excluded (missing price, not yet seasoned, type not allowed, and so on).
-   [SCREENSHOT: CAO summary card with the Filtered out popover open]
+   ![CAO summary card with the Filtered out breakdown open](screenshots/cao-summary-filtered-out.png)
 4. Sanity-check the count. If it says **"No net-new vehicles found after filters and
    dedup."**, there's genuinely nothing new — or the inventory is stale (check Home).
 5. Continue at Section 4.
@@ -218,7 +218,7 @@ the dealer's latest Shortcut order actually made it in before filling the VIN bo
 2. If the header shows **Run OCR (N queued)**, click it — that reads the VINs from
    the photos (up to 15 per click; click again until the queue is empty). Cards still
    waiting show a **"still processing…"** tag.
-   [SCREENSHOT: VIN Inbox — one batch expanded with tags visible]
+   ![VIN Inbox — a batch expanded, tags showing valid VIN / in inventory / not in inventory](screenshots/vin-inbox-batch.png)
 3. Review each card. The tags tell you everything:
    - **valid VIN** + **in inventory** → good to go (you'll see the Year Make Model line).
    - **invalid VIN** or **not in inventory** → click into the VIN field and fix it
@@ -260,7 +260,7 @@ path they came from, the rest is identical.
 1. Watch the match table fill in below the VIN box. The count line reads like
    **"12 VINs · 11 found · 1 not found"**. Every row shows Year / Make / Model /
    Type / Stock / VIN / Status.
-   [SCREENSHOT: Run Order — inventory match table with a dupe row flagged]
+   ![Inventory match table with ALREADY PRINTED rows flagged red](screenshots/run-match-table-dupes.png)
 2. Fix what the table flags:
    - **⚠ not in this dealer** — the VIN isn't in this dealer's inventory. Check for
      a typo; remove the row with **✕** if it doesn't belong.
@@ -295,7 +295,7 @@ path they came from, the rest is identical.
 After a run, one or more **finalize cards** appear (a dealer with split billing gets
 one card per billing account). **Nothing is logged or billed until you finalize.**
 
-[SCREENSHOT: finalize card with the three method options]
+![Finalize card with the New Deal / Existing / Test order options](screenshots/finalize-card.png)
 
 1. On each card, check the count line ("N units / N ordered") looks right.
 2. Pick the method — **this is the decision that matters:**
@@ -359,7 +359,7 @@ finalized cards at once and locks to **"✓ Added N VINs"**.
 1. Pick the **Dealer** (or browse All Dealers), find the run in **Order Runs** —
    status shows **pending** / **committed** / **rolled_back**.
 2. Select it → **Commit to VIN Log**.
-   [SCREENSHOT: VIN Logs — run selected, action panel showing Commit]
+   ![VIN Logs — run selected, action panel showing Commit / Rollback](screenshots/vin-logs-commit.png)
 3. Committed the wrong run? Select it → **Rollback**. That removes exactly that
    run's entries and marks it rolled_back (you can re-commit later).
 4. **＋ Manually add VINs to log** covers work done outside the system: enter the

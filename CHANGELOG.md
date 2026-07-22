@@ -35,7 +35,8 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   finalize decision box, output files, VIN log, drafts, troubleshooting),
   plus a `README.md` maintenance contract (crew-visible flow changes
   update the matching recipe in the same PR; published to Drive for the crew).
-  `[SCREENSHOT: …]` markers are placeholders pending a capture pass.
+  Per-dealer routine table filled in (CAO / lot scan / combo per dealer) and all
+  12 screenshots captured and embedded (`docs/crew/screenshots/`).
 - Order Drafts: in-progress Run Order work (typed VINs, per-row FEATURES text,
   editable-column edits, bypass checkbox) is saved per user as a draft — auto
   on dealer switch and nav-away, 15 s after typing, or via a **Save draft**

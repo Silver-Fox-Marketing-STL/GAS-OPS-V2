@@ -21,7 +21,7 @@ on his end, not yours.
    shows a permissions screen — approve it.
 3. You should see the app: **Lot Scan** at the top, with a **Dealer** dropdown and a
    **▶ Start New Order** button.
-   [SCREENSHOT: Lot Scanner idle screen — dealer picker + Start New Order]
+   ![Lot Scanner idle screen — dealer picker + Start New Order](screenshots/lotscan-idle.png)
 4. Optional: tap **Theme ▾** (top right) to pick a look (Light, Dark, Midnight HC,
    Encarta, Sage, Gruvbox, Slate, Windows XP). It remembers your choice.
 5. The first time you tap **📷 Take photo**, your phone asks for camera permission —
@@ -53,7 +53,7 @@ per dealer visit.
    - Fill the frame with the VIN label.
    - Avoid glare — angle slightly if the sun is hitting the glass.
    - Hold still; blurry photos mean the office can't read the VIN.
-   [SCREENSHOT: capture screen with session stats card mid-order]
+   ![Capture screen mid-order with the Photos / Saved / Failed stats card](screenshots/lotscan-capture.png)
 4. Watch the stats card: **Photos / Saved / Failed**. Each shot briefly shows
    "reading…", "uploading…", "saving…", then **saved**. You don't need to wait
    between shots — keep moving; uploads run in the background ("N in progress…").
@@ -89,7 +89,7 @@ or you need to add or remove photos before the office sees them.
 1. Open the **Drafts** tab (on a phone; on a bigger screen Drafts is always visible
    on the right). Unsent batches also appear on the home screen under
    **Unsent drafts** with **Resume** and **Send** buttons.
-   [SCREENSHOT: Drafts view with one batch card expanded]
+   ![Drafts view with one batch card expanded](screenshots/lotscan-drafts.png)
 2. Tap a batch to expand it. Each photo row shows the decoded VIN (or "Photo 1",
    "Photo 2"… if the barcode didn't read — the office will read those manually,
    that's fine). Tags you might see:
