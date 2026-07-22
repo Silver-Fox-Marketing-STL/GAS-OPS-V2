@@ -10,6 +10,22 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## [Unreleased]
 
+### Fixed
+- Abandoning a run now also trashes its exported `.csv` files (step 14b), not
+  just the output doc and QR PNGs — a stale CSV from an abandoned order could
+  otherwise be confused with the replacement run's files. Same exact-ID idiom
+  as `qrFileIds`: `exportCsvTabsToFolder_` returns the created Drive file IDs,
+  the run carries them as `csvFileIds` on each pendingRuns entry, and
+  `abandonRun` (plus the inline failed-run cleanup) batch-trashes them — never
+  a name scan, which could hit a same-day sibling run's identically-named
+  files. Pending entries from before this change simply skip the CSV step.
+- Split-schema runs no longer leave the universal template's blank `CSV` tab in
+  the output doc — split dealers write only `CSV_<SCHEMA>` tabs, so the unused
+  blank tab survived and step 14b exported it as an empty `.csv` file into the
+  dealer's output folder. `buildCSVSheet_` now deletes the `CSV` tab when it is
+  still completely empty after all partitions are written (a written CSV tab
+  always has at least a header row, so single-schema dealers are unaffected).
+
 ### Added
 - Order Drafts: in-progress Run Order work (typed VINs, per-row FEATURES text,
   editable-column edits, bypass checkbox) is saved per user as a draft — auto

@@ -1322,19 +1322,21 @@
       }
 
       // Last live card and nothing finalized — abandoning deletes the run's artifacts.
-      if (!confirm('Abandon this run? Nothing will be logged, and the output document ' +
-                   'and QR codes will be deleted (moved to Drive trash).')) return;
+      if (!confirm('Abandon this run? Nothing will be logged, and the output document, ' +
+                   'QR codes, and exported CSV files will be deleted (moved to Drive trash).')) return;
 
       cardStates[i].state = 'abandoning';
       setCardBusy(i, true);
-      statusEl.textContent = 'Deleting output doc and QR codes...';
+      statusEl.textContent = 'Deleting output doc, QR codes, and CSV files...';
       statusEl.className = 'finalize-card-status';
 
       google.script.run
         .withSuccessHandler(function(res) {
           cardStates[i].state = 'abandoned';
-          statusEl.textContent = 'Abandoned — output doc and ' + res.trashedQrs +
-                                 ' QR PNG' + (res.trashedQrs === 1 ? '' : 's') + ' moved to Drive trash.';
+          statusEl.textContent = 'Abandoned — output doc, ' + res.trashedQrs +
+                                 ' QR PNG' + (res.trashedQrs === 1 ? '' : 's') + ', and ' +
+                                 (res.trashedCsvs || 0) + ' CSV file' +
+                                 (res.trashedCsvs === 1 ? '' : 's') + ' moved to Drive trash.';
           markCardAbandoned(i);
           var link = document.getElementById('driveFolderBtn');
           link.removeAttribute('href');
@@ -1349,7 +1351,8 @@
           statusEl.className = 'finalize-card-status error';
         })
         .abandonRun(lastDealerKey, lastRunResult.pendingRuns[i].outputDocId,
-                    lastRunResult.pendingRuns[i].qrFileIds || null);
+                    lastRunResult.pendingRuns[i].qrFileIds || null,
+                    lastRunResult.pendingRuns[i].csvFileIds || null);
     }
 
     function getCommittableRows() {

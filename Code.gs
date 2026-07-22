@@ -1165,7 +1165,7 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     //     schema actually emits a QR column. LINKBUILDER's sole consumer is QR
     //     generation, so a no-QR dealer skips the whole block (and its blank
     //     QR_FOLDER_ID / QR_PREFIX / UTM_BASE_URL config is never touched).
-    var links = [], qrFileIds = [];
+    var links = [], qrFileIds = [], csvFileIds = [];
     if (runNeedsQR_(typeRules, csvProductMaps.main)) {
       setProgress_(runId, 'Building link formulas...', 56);
       links = buildLinks_(outputDoc, config, typeRules);
@@ -1208,7 +1208,8 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     setProgress_(runId, 'Exporting CSV files...', 92);
     SpreadsheetApp.flush();
     try {
-      Logger.log('CSV files exported to output folder: ' + exportCsvTabsToFolder_(outputDoc, outputFolderId));
+      csvFileIds = exportCsvTabsToFolder_(outputDoc, outputFolderId);
+      Logger.log('CSV files exported to output folder: ' + csvFileIds.length);
     } catch (e) { Logger.log('CSV file export failed (non-fatal): ' + e.message); }
 
     // 15. Read billing totals back from the sheet(s) we just wrote
@@ -1259,6 +1260,7 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
         prefillDealId: dealId || '',
         outputDocId:   outputDocId,
         qrFileIds:     qrFileIds,
+        csvFileIds:    csvFileIds,
         durationSec:   duration,
         errors:        errors
       });
@@ -1275,6 +1277,7 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
         prefillDealId: splitDealId || '',
         outputDocId:   outputDocId,
         qrFileIds:     qrFileIds,
+        csvFileIds:    csvFileIds,
         durationSec:   duration,
         errors:        errors
       });
@@ -1293,6 +1296,7 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
         prefillDealId: dealId || '',
         outputDocId:   outputDocId,
         qrFileIds:     qrFileIds,
+        csvFileIds:    csvFileIds,
         durationSec:   duration,
         errors:        errors
       });
@@ -1326,6 +1330,7 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
       if (outputDoc) {
         DriveApp.getFileById(outputDoc.getId()).setTrashed(true);
         if (qrFileIds && qrFileIds.length) trashFilesParallel_(qrFileIds);
+        if (csvFileIds && csvFileIds.length) trashFilesParallel_(csvFileIds);
         Logger.log('runDealer: failed-run artifacts trashed (30-day recovery).');
       }
     } catch (cleanupErr) {
@@ -2260,7 +2265,15 @@ function buildCSVSheet_(outputDoc, typeRules, sourceSplit, mainProductMap, secon
     });
   }
 
-  if (!sourceSplit) { writePartition_(omData, mainProductMap, ''); return; }
+  // The template ships a blank 'CSV' tab; split-schema runs write only
+  // CSV_<SCHEMA> tabs, so the blank one survived and step 14b exported it as
+  // an empty .csv. A written CSV tab always has at least a header row.
+  function dropBlankCsvTab_() {
+    var s = outputDoc.getSheetByName('CSV');
+    if (s && s.getLastRow() === 0) outputDoc.deleteSheet(s);
+  }
+
+  if (!sourceSplit) { writePartition_(omData, mainProductMap, ''); dropBlankCsvTab_(); return; }
 
   // Dual-site source split: partition by URL FIRST, then group each side by its own resolved
   // schema. The main uses the dealer's product map; the secondary uses the source_product_map
@@ -2273,6 +2286,7 @@ function buildCSVSheet_(outputDoc, typeRules, sourceSplit, mainProductMap, secon
   });
   writePartition_(main,      mainProductMap,      '');
   writePartition_(secondary, secondaryProductMap, '_' + sourceSplit.groupName);
+  dropBlankCsvTab_();
 }
 
 /**
@@ -3120,19 +3134,22 @@ function appCleanUpOutputDocs() {
 }
 
 /**
- * Deletes a fully-abandoned run's artifacts: trashes the output doc and the
- * dealer's QR PNGs (Drive trash — recoverable for 30 days, not a hard delete).
+ * Deletes a fully-abandoned run's artifacts: trashes the output doc, the
+ * dealer's QR PNGs, and the exported .csv files (Drive trash — recoverable
+ * for 30 days, not a hard delete). CSVs are trashed by the exact IDs captured
+ * at export time (csvFileIds on the pendingRuns entry) — never a name scan,
+ * which could hit a same-day sibling run's identically-named files.
  *
  * Called by the finalization panel ONLY when abandonment leaves no live cards
  * for the run (nothing finalized, nothing pending). A partially-abandoned
  * split run never reaches here — the finalized sibling still references the
- * shared output doc and QR batch.
+ * shared output doc, QR batch, and CSV exports.
  *
  * @param {string} dealerKey
  * @param {string} outputDocId - from the pending run entry
- * @return {Object} {trashedDoc, trashedQrs}
+ * @return {Object} {trashedDoc, trashedQrs, trashedCsvs}
  */
-function abandonRun(dealerKey, outputDocId, qrFileIds) {
+function abandonRun(dealerKey, outputDocId, qrFileIds, csvFileIds) {
   var config = getDealerConfig_(dealerKey);
   if (!config) throw new Error('Dealer key not found: ' + dealerKey);
 
@@ -3174,9 +3191,18 @@ function abandonRun(dealerKey, outputDocId, qrFileIds) {
     Logger.log('abandonRun: QR cleanup skipped (' + e.message + ')');
   }
 
+  // Trash the run's exported .csv files (step 14b). Exact IDs only — entries
+  // from before csvFileIds existed simply skip this (no fallback scan).
+  var trashedCsvs = 0;
+  try {
+    if (csvFileIds && csvFileIds.length > 0) trashedCsvs = trashFilesParallel_(csvFileIds);
+  } catch (e) {
+    Logger.log('abandonRun: CSV cleanup skipped (' + e.message + ')');
+  }
+
   Logger.log('abandonRun [' + dealerKey + ']: doc trashed=' + trashedDoc +
-             ', QR PNGs trashed=' + trashedQrs);
-  return { trashedDoc: trashedDoc, trashedQrs: trashedQrs };
+             ', QR PNGs trashed=' + trashedQrs + ', CSVs trashed=' + trashedCsvs);
+  return { trashedDoc: trashedDoc, trashedQrs: trashedQrs, trashedCsvs: trashedCsvs };
 }
 
 
@@ -7835,21 +7861,23 @@ function exportSheetsCsvBatch_(spreadsheetId, gids) {
  * Exports every CSV* tab of the output doc as a real .csv file into the run's
  * output folder ("<doc name> - <TAB>.csv") — the manual File > Download step,
  * automated. Best-effort: failed tabs are logged and skipped; the tabs stay in
- * the doc as the manual fallback. Returns the count written.
+ * the doc as the manual fallback. Returns the created Drive file IDs — the
+ * run carries them on its pendingRuns entry so abandonRun/failed-run cleanup
+ * can trash exactly this run's files (same idiom as qrFileIds; a name-pattern
+ * scan could hit a same-day sibling run's identically-named CSVs).
  */
 function exportCsvTabsToFolder_(outputDoc, outputFolderId) {
   var tabs = outputDoc.getSheets().filter(function (s) { return isCsvTabName_(s.getName()); });
-  if (!tabs.length) return 0;
+  if (!tabs.length) return [];
   var results = exportSheetsCsvBatch_(outputDoc.getId(), tabs.map(function (s) { return s.getSheetId(); }));
   var folder  = DriveApp.getFolderById(outputFolderId);
   var docName = outputDoc.getName();
-  var written = 0;
+  var fileIds = [];
   results.forEach(function (r, i) {
     if (!r.ok) { Logger.log('CSV export skipped [' + tabs[i].getName() + ']: ' + r.error); return; }
-    folder.createFile(r.blob.setName(csvExportFileName_(docName, tabs[i].getName())));
-    written++;
+    fileIds.push(folder.createFile(r.blob.setName(csvExportFileName_(docName, tabs[i].getName()))).getId());
   });
-  return written;
+  return fileIds;
 }
 
 // ── Billing CSV: attach the run's BILLING sheet to the deal as a CSV file ──
