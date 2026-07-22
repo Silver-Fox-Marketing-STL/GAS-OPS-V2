@@ -100,10 +100,9 @@
       </div>
 
       <div class="rv-tablezone">
-        <div class="rv-zone-row">
-          <div class="rv-zone-label">Inventory match</div>
-          <button type="button" id="rvDedupeBtn" class="btn-danger" style="display:none" onclick="rvRemoveDuplicates()">Remove Duplicates</button>
-        </div>
+        <div class="rv-zone-label">Inventory match</div>
+        <div class="rv-table-wrap">
+        <button type="button" id="rvDedupeBtn" class="btn-danger" style="display:none" onclick="rvRemoveDuplicates()">Remove Duplicates</button>
         <div class="rv-table-scroll">
           <table id="vinDataTable" class="table-u">
             <thead>
@@ -118,6 +117,7 @@
               <tr class="rv-empty-row"><td colspan="9">Select a dealer, then enter VINs to check them.</td></tr>
             </tbody>
           </table>
+        </div>
         </div>
       </div>
 
@@ -162,10 +162,13 @@
     #view-run .rv-vinzone { grid-area: vin; display: flex; flex-direction: column; min-height: 0; }
     #view-run .rv-tablezone { grid-area: table; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
     #view-run .rv-zone-label { font-size: var(--fs-overline); text-transform: uppercase; letter-spacing: .04em; color: var(--text-3); margin-bottom: var(--space-2); }
-    /* Table-header row: zone label left, Remove Duplicates right */
-    #view-run .rv-zone-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-2); }
-    #view-run .rv-zone-row .rv-zone-label { margin-bottom: 0; }
-    #view-run #rvDedupeBtn { padding: 3px 10px !important; font-size: var(--fs-sm); }  /* compact; base .btn-danger padding is !important */
+    /* Remove Duplicates overlays the sticky table header instead of taking a
+       row of its own (it was pushing the finalize zone into a scroll). Anchored
+       to the wrap — NOT the scroll box — so it stays pinned over the header
+       while the table scrolls; right inset clears the vertical scrollbar. */
+    #view-run .rv-table-wrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    #view-run #rvDedupeBtn { position: absolute; top: 3px; right: 16px; z-index: 2;
+                             padding: 2px 8px !important; font-size: var(--fs-sm); }  /* compact; base .btn-danger padding is !important */
     /* Per-row remove — compact table control, view-scoped like the other views' X buttons */
     #view-run #vinDataTable td.rv-x-cell { text-align: center; padding-top: 0; padding-bottom: 0; }
     #view-run .rv-x { background: none; border: none; color: var(--text-3); cursor: pointer;

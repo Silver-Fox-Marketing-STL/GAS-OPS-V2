@@ -11,6 +11,12 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Fixed
+- The "Remove Duplicates (N)" button no longer takes a row of its own above the
+  Inventory match table — that extra height pushed the finalize decision box
+  into a scroll, cutting off its bottom. It now overlays the top-right of the
+  table's sticky header (new `.rv-table-wrap` positioning anchor; the button
+  stays pinned over the header while the table scrolls). Behavior unchanged —
+  same id, same show/hide and click wiring.
 - Abandoning a run now also trashes its exported `.csv` files (step 14b), not
   just the output doc and QR PNGs — a stale CSV from an abandoned order could
   otherwise be confused with the replacement run's files. Same exact-ID idiom
