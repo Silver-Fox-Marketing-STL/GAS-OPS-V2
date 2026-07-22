@@ -11,6 +11,12 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Fixed
+- Finalize cards no longer scroll internally / clip at the bottom: the Run
+  page's fixed-height flow zone (the "ONE height knob", `.rv-flow`) went
+  190px → 235px, sized to a fully-finalized card (radios + deal input +
+  Logged ✓ + Linked lines) plus the button row. The zone had been outgrown
+  by the finalize card's post-link status lines. Remove Duplicates button
+  also slimmed (11px text).
 - The "Remove Duplicates (N)" button no longer takes a row of its own above the
   Inventory match table — that extra height pushed the finalize decision box
   into a scroll, cutting off its bottom. It now overlays the top-right of the
