@@ -117,8 +117,14 @@ for (const rel of mdFiles) {
   try {
     const md = fs.readFileSync(rel, 'utf8');
     const base = path.basename(rel).replace(/\.md$/i, '');
+    // Relative image links (e.g. the crew handbooks' screenshots/) would break —
+    // the HTML renders from a tmp dir. Resolve them against the source .md's folder.
+    const srcDir = path.dirname(path.resolve(rel));
+    const body = marked.parse(md).replace(
+      /(<img [^>]*src=")(?!https?:|file:|data:|\/)([^"]+)/g,
+      (m, pre, src) => pre + 'file:///' + path.resolve(srcDir, src).replace(/\\/g, '/'));
     const html = '<!doctype html><html><head><meta charset="utf-8"><title>' + base + '</title>' +
-                 CSS + '</head><body>' + marked.parse(md) + '</body></html>';
+                 CSS + '</head><body>' + body + '</body></html>';
     const htmlPath = path.join(tmp, base + '.html');
     fs.writeFileSync(htmlPath, html);
     const pdfPath = path.resolve(outDir, base + '.pdf').replace(/\\/g, '/');

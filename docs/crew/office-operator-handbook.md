@@ -258,24 +258,33 @@ By now you have: **Running as** = you, a **Dealer**, and VINs in the box. Whatev
 path they came from, the rest is identical.
 
 1. Watch the match table fill in below the VIN box. The count line reads like
-   **"12 VINs · 11 found · 1 not found"**. Every row shows Year / Make / Model /
-   Type / Stock / VIN / Status.
+   **"12 VINs · 11 found · 1 not found"** — it also counts any flagged rows
+   (**ALREADY PRINTED**, **will be filtered**).
    ![Inventory match table with ALREADY PRINTED rows flagged red](screenshots/run-match-table-dupes.png)
+   <!-- SCREENSHOT re-capture due: Remove Duplicates now sits ON the table header
+        (top-right), and an amber WILL BE FILTERED row should be in frame. -->
 2. Fix what the table flags:
    - **⚠ not in this dealer** — the VIN isn't in this dealer's inventory. Check for
      a typo; remove the row with **✕** if it doesn't belong.
    - A red row with **· ALREADY PRINTED** — this vehicle is already in the dealer's
      VIN log (it was printed on an earlier order). Reprinting is usually right
      (damaged banner, dealer request) — if that's not why it's here, click
-     **Remove Duplicates (N)** to drop them all, or **✕** per row. Note: dupes that
-     stay in the order still get billed.
+     **Remove Duplicates (N)** (top-right corner of the table header) to drop them
+     all, or **✕** per row. Note: dupes that stay in the order still get billed.
+   - An amber row with **· ⚠ WILL BE FILTERED (reason)** — the vehicle IS in this
+     dealer's inventory, but the dealer's filter rules will remove it when you run;
+     the reason is right there in the row (missing price, too new on the lot, and
+     so on). Usually the rules are right: leave it alone and it drops off the final
+     order by itself. If you *know* it belongs on the order, tick **Bypass
+     filtering rules** (step 4) — the amber flags clear the moment you tick it.
 3. **Features column** (only some dealers): if the table shows a **Features** column,
    type the feature text for every row — the run won't start without it (you'll see
    "Enter Features for N rows before running: …"). Some dealers also show extra
    editable columns; the pre-filled text is a suggestion you can overwrite.
 4. **Bypass filtering rules** checkbox: use it only when a vehicle you *know* belongs
-   in the order keeps getting filtered out. It skips the dealer's filter rules for
-   this run — so don't leave it on by habit.
+   in the order shows the amber **WILL BE FILTERED** flag (or keeps getting filtered
+   out). It skips the dealer's filter rules for this run — so don't leave it on by
+   habit. Ticking it clears the amber flags in the table; unticking brings them back.
 5. Click **Run Dealer**. The progress card walks through the steps (usually well
    under a minute). When the header says **"Done! <dealer> order complete — finalize
    or abandon below."**, move to Section 5.
@@ -397,6 +406,7 @@ whenever you switch dealers or leave the page, and every 15 seconds while you ty
 | Error mentioning product mapping / configuration | Dealer setup problem | Screenshot → Nick. Not your fault |
 | "No net-new vehicles found after filters and dedup." | CAO found nothing new | Usually fine; if suspicious, check Home import freshness |
 | Red row · ALREADY PRINTED | Vehicle already in the VIN log | Keep only if a reprint is intended; it will bill |
+| Amber row · ⚠ WILL BE FILTERED (reason) | The dealer's filter rules will drop it when you run | Usually correct — let it drop. If it truly belongs, tick **Bypass filtering rules** |
 | "Finalize failed — nothing was logged." | Finalize didn't take | Just try again |
 | Pipedrive push failed (after "Logged ✓") | Order logged; billing push didn't | **Retry** on the card, or VIN Logs → Push to Pipedrive |
 | "Could not load …" anywhere | Network/Google hiccup | ↺ Refresh; if it persists, tell Nick |
