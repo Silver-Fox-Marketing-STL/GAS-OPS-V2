@@ -16,7 +16,7 @@ If a step below fails, stop and tell Nick — it's almost always a permissions t
 on his end, not yours.
 
 1. Open the Lot Scanner link Nick sent you (save it to your home screen — in your
-   phone browser use **Share → Add to Home Screen** so it opens like an app).
+   phone browser (only works with Safari if you're on iPhone) use **Share → Add to Home Screen** so it opens like an app).
 2. Sign in with your **work Google account** when Google asks. The first time, Google
    shows a permissions screen — approve it.
 3. You should see the app: **Lot Scan** at the top, with a **Dealer** dropdown and a

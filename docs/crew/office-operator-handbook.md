@@ -126,53 +126,52 @@ starts" is one of: CAO / Lot scan / Manual / Combo):
 
 | Dealer | How the order usually starts | Notes |
 |---|---|---|
-| Audi Rancho Mirage | | |
-| Auffenberg Hyundai | | |
-| AutoLoanPRO | | |
-| BMW of Columbia | | |
-| BMW of West St. Louis | | |
-| Bommarito Cadillac | | |
-| Bommarito West County | | |
-| CDJR of Columbia | | |
-| Columbia Honda | | |
-| Dave Sinclair Lincoln | | |
-| Dave Sinclair Lincoln St. Peters | | |
-| Dean Team Brentwood | | |
-| Frank Leta Honda | | |
-| Glendale CDJR | | |
-| Honda of Frontenac | | |
-| Honda of Jefferson City | | |
-| HW Kia of West County | | |
-| Hyundai of Jefferson City | | |
-| indiGO Auto Group | | |
-| Jaguar Rancho Mirage | | |
-| Joe Machens Hyundai | | |
-| Joe Machens Nissan | | |
-| Joe Machens Toyota | | |
-| Kia of Columbia | | |
-| Land Rover Rancho Mirage | | |
-| Mazda of Columbia | | |
-| Mercedes-Benz of Creve Coeur | | |
-| Mini of St. Louis | | |
-| Nissan of Jefferson City | | |
-| Pappas Toyota | | |
-| Porsche St. Louis | | |
-| Pundmann Ford | | |
-| Rusty Drewing Cadillac | | |
-| Rusty Drewing Chevrolet Buick GMC | | |
-| Serra Honda | | |
-| SoCo DCJR | | |
-| Spirit Lexus | | |
-| Suntrup Buick GMC | | |
-| Suntrup Ford Kirkwood | | |
-| Suntrup Ford Westport | | |
-| Suntrup Hyundai South | | |
-| Suntrup Kia South | | |
-| Thoroughbred Ford | | |
-| Tom Stehouwer Auto Sales | | |
-| Twin City Toyota | | |
-| Volvo Cars West County | | |
-| Weber Creve Coeur | | |
+| Audi Rancho Mirage |INACTIVE| |
+| Auffenberg Hyundai |LOT SCAN + CAO| |
+| BMW of Columbia |CAO| |
+| BMW of West St. Louis |LOT SCAN| |
+| Bommarito Cadillac |LOT SCAN(NEW) + CAO (USED)| |
+| Bommarito West County |CAO| |
+| CDJR of Columbia |LOT SCAN(NEW) + CAO(USED)|2 OUTPUTS, NEW(SC) + USED(SCP) |
+| Columbia Honda |CAO| |
+| Dave Sinclair Lincoln |LOT SCAN| |
+| Dave Sinclair Lincoln St. Peters |LOT SCAN(NEW) + CAO(USED) | |
+| Dean Team Brentwood |CAO (CURRENTLY ON HOLD)| |
+| Frank Leta Honda |LOT SCAN| This dealer will have 2 CSV outputs, FL Honda and AutoLoanPro|
+| Glendale CDJR |CAO| |
+| Honda of Frontenac |CAO| |
+| Honda of Jefferson City |CAO| |
+| HW Kia of West County |CAO | |
+| Hyundai of Jefferson City |CAO| |
+| indiGO Auto Group |INACTIVE | |
+| Jaguar Rancho Mirage |INACTIVE| |
+| Joe Machens Hyundai |INACTIVE| |
+| Joe Machens Nissan |CAO| |
+| Joe Machens Toyota |CAO| |
+| Kia of Columbia |CAO| |
+| Land Rover Rancho Mirage |INACTIVE| |
+| Mazda of Columbia |CAO| |
+| Mercedes-Benz of Creve Coeur |LOT SCAN|2 OUTPUTS, USED & SPRINTER(SCP) + CPO, CPO-EL(SC); separate PD deal for Sprinter(Automatic)|
+| Mini of St. Louis |CAO| |
+| Nissan of Jefferson City |CAO| |
+| Pappas Toyota |CAO| |
+| Porsche St. Louis |CAO| |
+| Pundmann Ford |LOT SCAN(NEW)+ CAO(USED)| |
+| Rusty Drewing Cadillac |INACTIVE| |
+| Rusty Drewing Chevrolet Buick GMC |INACTIVE| |
+| Serra Honda |LOT SCAN + CAO|2 OUTPUTS, NEW(SC) + USED(SCP)|
+| SoCo DCJR |CAO| |
+| Spirit Lexus |CAO|2 OUTPUTS, LOGO 1 & LOGO 3|
+| Suntrup Buick GMC |INACTIVE| |
+| Suntrup Ford Kirkwood |INACTIVE| |
+| Suntrup Ford Westport |INACTIVE| |
+| Suntrup Hyundai South |INACTIVE| |
+| Suntrup Kia South |LOT SCAN (AS ORDERED)| |
+| Thoroughbred Ford |LOT SCAN + CAO (BRETT SENDS PHOTOS, ASK KALEB/JOE IF NICK IS GONE)| |
+| Tom Stehouwer Auto Sales |INACTIVE| |
+| Twin City Toyota |INACTIVE| |
+| Volvo Cars West County |CAO| |
+| Weber Creve Coeur |CAO| |
 
 *(Ask Nick if a dealer isn't in this table yet.)*
 
