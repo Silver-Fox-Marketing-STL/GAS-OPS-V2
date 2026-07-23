@@ -10,6 +10,15 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## [Unreleased]
 
+### Added
+- **CSV Schemas settings page** (`ViewCsvSchemas.html`): edit/create CSV_SCHEMAS
+  rows through a structured editor — field-code dropdown (effective FIELD_CODES
+  registry), optional header override, `edit[N]` editable flag, reorder, used-by
+  dealer counts from PIPEDRIVE product maps. Untouched columns are written back
+  as their original raw cell strings (byte-identical no-op saves). Server:
+  `getCsvSchemasEditorData` / `saveCsvSchema` + pure `serializeSchemaCell_`,
+  `schemaCellToEditor_`, `buildCsvSchemaCells_` (harness round-trip suite).
+
 ### Fixed
 - "Most recent order in log" (Run Order + VIN Log Updater) now reports the
   HIGHEST numeric ORDER_ID in the dealer's VIN log, not the physically last

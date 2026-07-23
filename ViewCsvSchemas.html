@@ -1,0 +1,460 @@
+<!-- ════════════════════════════════════════════════════════════════════════════
+     CSV SCHEMAS VIEW — edits CSV_SCHEMAS rows (key | description | ordered
+     CODE[:HEADER[:edit[N]]] cells) through a structured editor: field-code
+     dropdown, header override, editable flag + max chars, reorder. Untouched
+     columns keep their `raw` cell string and are written back verbatim.
+     Modeled on ViewFieldCodes: top-bar / add-bar / status / scrollable area /
+     footer. All CSS scoped under #view-csvschemas; all top-level JS prefixed `cs`.
+════════════════════════════════════════════════════════════════════════════ -->
+<div class="view" id="view-csvschemas" data-layout="data" hidden>
+
+  <div class="top-bar app-measure">
+    <span class="title">CSV Schemas</span>
+    <span id="csCount"></span>
+    <span class="intro">Each schema is the ordered column list of ONE template/job file's CSV. Pick field codes, optionally override the printed header (VersaWorks VDP names), and flag pre-run editable columns.</span>
+  </div>
+
+  <!-- List-mode add bar -->
+  <div class="add-bar app-measure" id="csAddBar">
+    <div class="add-field add-field-key">
+      <label>New schema key</label>
+      <input type="text" id="csAddKey" placeholder="e.g.  BOMM_WC_C" />
+    </div>
+    <div class="add-field add-field-desc">
+      <label>Description <span class="opt">(optional)</span></label>
+      <input type="text" id="csAddDesc" placeholder="e.g.  Bommarito WC — third template" />
+    </div>
+    <div class="add-buttons">
+      <button class="btn-primary" onclick="csCreate()">+ Create</button>
+    </div>
+  </div>
+
+  <!-- Editor-mode header bar (hidden in list mode) -->
+  <div class="add-bar app-measure" id="csEditBar" hidden>
+    <div class="add-field add-field-key">
+      <label>Schema key</label>
+      <span class="ed-key" id="csEdKey"></span>
+    </div>
+    <div class="add-field add-field-desc">
+      <label>Description <span class="opt">(optional)</span></label>
+      <input type="text" id="csEdDesc" placeholder="(optional)" />
+    </div>
+    <div class="add-buttons">
+      <button class="btn-secondary" onclick="csAddColumn()">+ Add Column</button>
+      <button class="btn-secondary" onclick="csCancel()">Cancel</button>
+      <button class="btn-primary"   onclick="csSave()">Save</button>
+    </div>
+  </div>
+
+  <div id="csStatus" class="empty app-measure"></div>
+
+  <div class="table-wrap app-measure" id="csTableWrap">
+    <!-- List mode -->
+    <table class="table-u" id="csListTable">
+      <thead>
+        <tr>
+          <th class="col-key">Schema Key</th>
+          <th class="col-desc">Description</th>
+          <th class="col-cols">Columns</th>
+          <th class="col-used">Used By</th>
+          <th class="col-actions">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="csListBody">
+        <tr class="state-row"><td colspan="5">Loading…</td></tr>
+      </tbody>
+    </table>
+    <!-- Editor mode -->
+    <table class="table-u" id="csEditTable" hidden>
+      <thead>
+        <tr>
+          <th class="col-num">#</th>
+          <th class="col-code">Field Code</th>
+          <th class="col-header">Header Override</th>
+          <th class="col-edit">Editable</th>
+          <th class="col-max">Max Chars</th>
+          <th class="col-actions">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="csEditBody"></tbody>
+    </table>
+  </div>
+
+  <div class="footer app-measure" id="csFooter">
+    <span class="footer-note" id="csFooterNote">Changes apply on each dealer's next run. A schema row = one template/job file — same-layout templates keep separate rows.</span>
+  </div>
+
+</div>
+
+<style>
+  #view-csvschemas * { box-sizing: border-box; margin: 0; padding: 0; }
+  #view-csvschemas {
+    font-family: var(--font-body);
+    font-size: 13px;
+    color: var(--text);
+    background: var(--bg);
+  }
+
+  /* ── Top bar ─────────────────────────────────────────────────────────── */
+  #view-csvschemas .top-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  #view-csvschemas .top-bar .title { font-weight: bold; white-space: nowrap; }
+  #view-csvschemas #csCount { font-size: 12px; color: var(--text-3); white-space: nowrap; }
+  #view-csvschemas .top-bar .intro {
+    font-size: 11px; color: var(--text-3); margin-left: auto;
+    font-style: italic; text-align: right;
+  }
+
+  /* ── Add / editor bars ───────────────────────────────────────────────── */
+  #view-csvschemas .add-bar {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  #view-csvschemas .add-field { display: flex; flex-direction: column; gap: 3px; }
+  #view-csvschemas .add-field-key  { flex: 1; }
+  #view-csvschemas .add-field-desc { flex: 2; }
+  #view-csvschemas .add-field label { font-size: 11px; font-weight: bold; color: var(--text-2); white-space: nowrap; }
+  #view-csvschemas .add-field label .opt { font-weight: normal; color: var(--text-3); }
+  #view-csvschemas .add-field input[type="text"] {
+    padding: 6px 8px;
+    font-size: 12px;
+    font-family: var(--font-mono);
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius-sm);
+    width: 100%;
+  }
+  #view-csvschemas .add-field input[type="text"]:focus { outline: none; box-shadow: var(--focus-ring); }
+  #view-csvschemas .add-buttons { display: flex; gap: 6px; flex-shrink: 0; padding-bottom: 1px; }
+  #view-csvschemas .ed-key {
+    font-family: var(--font-mono); font-weight: bold; font-size: 13px;
+    padding: 6px 0; color: var(--accent);
+  }
+
+  /* ── Status bar ──────────────────────────────────────────────────────── */
+  #view-csvschemas #csStatus {
+    font-size: 12px;
+    padding: 5px 16px;
+    height: 28px;
+    line-height: 18px;
+  }
+  #view-csvschemas #csStatus.empty   { background: none; }
+  #view-csvschemas #csStatus.info    { background: var(--accent-weak); color: var(--accent); }
+  #view-csvschemas #csStatus.success { background: var(--success-weak); color: var(--success); }
+  #view-csvschemas #csStatus.error   { background: var(--danger-weak); color: var(--danger); }
+
+  /* ── Tables ──────────────────────────────────────────────────────────── */
+  #view-csvschemas .table-wrap { overflow-y: auto; padding-inline: var(--space-4); }
+  #view-csvschemas table { table-layout: fixed; }
+
+  #view-csvschemas #csListTable thead th.col-key     { width: 18%; }
+  #view-csvschemas #csListTable thead th.col-desc    { width: 24%; }
+  #view-csvschemas #csListTable thead th.col-cols    { width: 38%; }
+  #view-csvschemas #csListTable thead th.col-used    { width: 10%; }
+  #view-csvschemas #csListTable thead th.col-actions { width: 10%; text-align: center; }
+
+  #view-csvschemas #csEditTable thead th.col-num     { width: 5%; }
+  #view-csvschemas #csEditTable thead th.col-code    { width: 26%; }
+  #view-csvschemas #csEditTable thead th.col-header  { width: 27%; }
+  #view-csvschemas #csEditTable thead th.col-edit    { width: 9%; text-align: center; }
+  #view-csvschemas #csEditTable thead th.col-max     { width: 11%; }
+  #view-csvschemas #csEditTable thead th.col-actions { width: 22%; text-align: center; white-space: nowrap; }
+
+  #view-csvschemas td { word-break: break-word; }
+  #view-csvschemas td.col-key  { font-family: var(--font-mono); font-weight: bold; color: var(--text); }
+  #view-csvschemas td.col-desc { color: var(--text-2); }
+  #view-csvschemas td.col-desc.muted { color: var(--text-muted); font-style: italic; }
+  #view-csvschemas td.col-cols { font-family: var(--font-mono); font-size: 11px; color: var(--text-2); }
+  #view-csvschemas td.col-cols .count { color: var(--accent); font-weight: bold; }
+  #view-csvschemas td.col-used { text-align: center; }
+  #view-csvschemas td.col-num  { color: var(--text-3); font-variant-numeric: tabular-nums; }
+  #view-csvschemas td.col-edit { text-align: center; }
+  #view-csvschemas td.col-actions { text-align: center; white-space: nowrap; }
+
+  #view-csvschemas .used-pill {
+    display: inline-block;
+    padding: 2px 8px;
+    font-size: 10px;
+    font-weight: bold;
+    border-radius: 10px;
+    border: 1px solid var(--border-2);
+    color: var(--text-3);
+    background: var(--surface-2);
+    cursor: default;
+  }
+  #view-csvschemas .used-pill.active { color: var(--accent); background: var(--accent-weak); border-color: var(--accent); }
+
+  /* Editor inputs */
+  #view-csvschemas .ed-input, #view-csvschemas .ed-select {
+    width: 100%;
+    padding: 4px 6px;
+    font-size: 12px;
+    font-family: var(--font-mono);
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius-sm);
+  }
+  #view-csvschemas .ed-input:focus, #view-csvschemas .ed-select:focus { outline: none; box-shadow: var(--focus-ring); }
+  #view-csvschemas .ed-input:disabled { opacity: 0.4; }
+  #view-csvschemas input[type="checkbox"].ed-check { width: 15px; height: 15px; accent-color: var(--accent); }
+
+  /* Compact table action buttons (ViewFieldCodes .btn-icon idiom) */
+  #view-csvschemas .btn-icon           { padding: 3px 8px; font-size: 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 2px; color: var(--text-2); margin: 0 1px; }
+  #view-csvschemas .btn-icon:hover     { background: var(--border); }
+  #view-csvschemas .btn-icon.del       { background: var(--danger-weak); color: var(--danger); border-color: var(--danger); }
+  #view-csvschemas .btn-icon.del:hover { background: var(--danger); color: var(--on-danger); }
+  #view-csvschemas .btn-icon:disabled  { opacity: 0.4; cursor: default; }
+
+  #view-csvschemas .state-row td { text-align: center; padding: 28px; color: var(--text-muted); font-size: 12px; }
+
+  /* ── Footer ──────────────────────────────────────────────────────────── */
+  #view-csvschemas .footer {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    justify-content: flex-end;
+    padding: 10px 16px;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+  }
+  #view-csvschemas .footer .footer-note { font-size: 11px; color: var(--text-3); margin-right: auto; font-style: italic; }
+
+  /* themed root (overrides the interim .view light guard) */
+  #view-csvschemas { background: var(--bg); color: var(--text); }
+
+  /* ── Mobile (data-viewport="mobile") ─────────────────────────────────── */
+  :root[data-viewport="mobile"] #view-csvschemas .add-bar { flex-wrap: wrap; }
+  :root[data-viewport="mobile"] #view-csvschemas .add-field { flex: 1 1 100%; }
+  :root[data-viewport="mobile"] #view-csvschemas .add-buttons { flex: 1 1 100%; justify-content: flex-end; }
+  :root[data-viewport="mobile"] #view-csvschemas .top-bar { flex-wrap: wrap; }
+  :root[data-viewport="mobile"] #view-csvschemas .top-bar .intro { margin-left: 0; text-align: left; flex: 1 1 100%; }
+  :root[data-viewport="mobile"] #view-csvschemas .footer { flex-wrap: wrap; }
+  :root[data-viewport="mobile"] #view-csvschemas .footer .footer-note { margin-right: 0; flex: 1 1 100%; }
+  :root[data-viewport="mobile"] #view-csvschemas .table-wrap { overflow-x: auto; }
+  :root[data-viewport="mobile"] #view-csvschemas table { min-width: 560px; font-size: 11px; }
+  :root[data-viewport="mobile"] #view-csvschemas td,
+  :root[data-viewport="mobile"] #view-csvschemas thead th { padding: 5px 6px; }
+  :root[data-viewport="mobile"] #view-csvschemas .btn-icon { padding: 3px 5px; font-size: 11px; margin: 1px; }
+</style>
+
+<script>
+  // csData: {schemas, fieldCodes, usedBy} from getCsvSchemasEditorData.
+  // csEditKey null = list mode; else the schema key open in the editor.
+  // csCols: working copy of the edited schema's columns — each
+  // {code, header|null, edit, max|null, raw|null}; any user change nulls `raw`
+  // so only touched columns get re-serialized server-side (round-trip rule).
+  var csData    = null;
+  var csEditKey = null;
+  var csCols    = [];
+
+  // ── Height calculation (ViewFieldCodes fcSizeTable pattern) ─────────────
+  function csSizeArea() {
+    var view = document.getElementById('view-csvschemas');
+    if (!view || view.hidden) return;
+    var used = 0;
+    ['.top-bar', '#csAddBar', '#csEditBar', '.footer'].forEach(function (sel) {
+      var el = view.querySelector(sel);
+      if (el && !el.hidden) used += el.getBoundingClientRect().height;
+    });
+    var st = document.getElementById('csStatus');
+    if (st) used += st.getBoundingClientRect().height;
+    var available = view.getBoundingClientRect().height - used - 2;
+    document.getElementById('csTableWrap').style.height = Math.max(available, 120) + 'px';
+  }
+  window.addEventListener('resize', csSizeArea);
+
+  // ── Init (lazy — first nav into the view) ───────────────────────────────
+  function csInitView() { csSizeArea(); csLoad(); }
+  window.VIEW_INITS = window.VIEW_INITS || {};
+  window.VIEW_SHOWN = window.VIEW_SHOWN || {};
+  VIEW_INITS['view-csvschemas'] = csInitView;
+  VIEW_SHOWN['view-csvschemas'] = csSizeArea;
+
+  // ── Load ────────────────────────────────────────────────────────────────
+  function csLoad() {
+    document.getElementById('csListBody').innerHTML =
+      '<tr class="state-row"><td colspan="5">Loading…</td></tr>';
+    document.getElementById('csCount').textContent = '';
+    google.script.run
+      .withSuccessHandler(function (result) { csData = result; csRender(); })
+      .withFailureHandler(function (e) { csSetStatus(e.message, 'error'); })
+      .getCsvSchemasEditorData();
+  }
+
+  // ── Mode switch + render ────────────────────────────────────────────────
+  function csRender() {
+    var editing = csEditKey !== null;
+    document.getElementById('csAddBar').hidden    = editing;
+    document.getElementById('csEditBar').hidden   = !editing;
+    document.getElementById('csListTable').hidden = editing;
+    document.getElementById('csEditTable').hidden = !editing;
+    if (editing) csRenderEditor(); else csRenderList();
+    csSizeArea();
+  }
+
+  function csRenderList() {
+    var schemas = (csData && csData.schemas) || [];
+    document.getElementById('csCount').textContent =
+      schemas.length + (schemas.length === 1 ? ' schema' : ' schemas');
+    if (!schemas.length) {
+      document.getElementById('csListBody').innerHTML =
+        '<tr class="state-row"><td colspan="5">No schemas yet — create one above.</td></tr>';
+      return;
+    }
+    var html = '';
+    schemas.forEach(function (s, idx) {
+      var used = (csData.usedBy && csData.usedBy[s.key]) || [];
+      var preview = s.columns.map(function (c) { return c.code; }).join(', ');
+      var descCls = s.description ? 'col-desc' : 'col-desc muted';
+      html += '<tr>' +
+        '<td class="col-key" title="' + escHtml(s.key) + '">' + escHtml(s.key) + '</td>' +
+        '<td class="' + descCls + '">' + (s.description ? escHtml(s.description) : '—') + '</td>' +
+        '<td class="col-cols" title="' + escHtml(preview) + '"><span class="count">' +
+          s.columns.length + '</span> · ' + escHtml(preview) + '</td>' +
+        '<td class="col-used"><span class="used-pill' + (used.length ? ' active' : '') +
+          '" title="' + escHtml(used.join(', ') || 'No dealer product maps reference this schema') + '">' +
+          used.length + '</span></td>' +
+        '<td class="col-actions"><button class="btn-icon" onclick="csEnterEditIdx(' + idx + ')">✏ Edit</button></td>' +
+        '</tr>';
+    });
+    document.getElementById('csListBody').innerHTML = html;
+  }
+
+  function csRenderEditor() {
+    document.getElementById('csCount').textContent = 'editing';
+    document.getElementById('csEdKey').textContent = csEditKey;
+    var html = '';
+    if (!csCols.length) {
+      html = '<tr class="state-row"><td colspan="6">No columns yet — “+ Add Column”.</td></tr>';
+    }
+    csCols.forEach(function (c, i) {
+      // ponytail: native <select> on purpose — tbody re-renders would fight CustomSelect enhancement
+      var opts = '<option value=""' + (c.code ? '' : ' selected') + '>— choose —</option>';
+      csData.fieldCodes.forEach(function (f) {
+        opts += '<option value="' + escHtml(f.fieldCode) + '"' +
+          (f.fieldCode === c.code ? ' selected' : '') + ' title="' + escHtml(f.description || '') + '">' +
+          escHtml(f.fieldCode) + ' (' + escHtml(f.colLetter) + ')</option>';
+      });
+      html += '<tr>' +
+        '<td class="col-num">' + (i + 1) + '</td>' +
+        '<td><select class="ed-select" onchange="csColChanged(' + i + ', \'code\', this.value)">' + opts + '</select></td>' +
+        '<td><input class="ed-input" value="' + escHtml(c.header || '') + '" placeholder="' + escHtml(c.code || 'defaults to code') + '"' +
+          ' oninput="csColChanged(' + i + ', \'header\', this.value)" /></td>' +
+        '<td class="col-edit"><input type="checkbox" class="ed-check"' + (c.edit ? ' checked' : '') +
+          ' onchange="csColChanged(' + i + ', \'edit\', this.checked)" /></td>' +
+        '<td><input class="ed-input" type="number" min="1" value="' + (c.max != null ? c.max : '') + '"' +
+          (c.edit ? '' : ' disabled') + ' placeholder="—" oninput="csColChanged(' + i + ', \'max\', this.value)" /></td>' +
+        '<td class="col-actions">' +
+          '<button class="btn-icon" onclick="csMoveCol(' + i + ', -1)"' + (i === 0 ? ' disabled' : '') + ' title="Move up">↑</button>' +
+          '<button class="btn-icon" onclick="csMoveCol(' + i + ', 1)"' + (i === csCols.length - 1 ? ' disabled' : '') + ' title="Move down">↓</button>' +
+          '<button class="btn-icon del" onclick="csRemoveCol(' + i + ')" title="Remove column">✕</button>' +
+        '</td></tr>';
+    });
+    document.getElementById('csEditBody').innerHTML = html;
+  }
+
+  // ── Editor state (text edits land here via oninput — state is authoritative,
+  //    so re-renders from move/remove/checkbox never lose typed work) ────────
+  function csColChanged(i, field, value) {
+    var c = csCols[i];
+    if (!c) return;
+    c.raw = null;  // touched — server re-serializes this column
+    if (field === 'header')    c.header = String(value).trim() === '' ? null : value;
+    else if (field === 'max')  c.max    = String(value).trim() === '' ? null : value;
+    else if (field === 'edit') { c.edit = !!value; if (!c.edit) c.max = null; csRenderEditor(); }
+    else                       c.code   = value;
+  }
+  function csMoveCol(i, d) {
+    var j = i + d;
+    if (j < 0 || j >= csCols.length) return;
+    var tmp = csCols[i]; csCols[i] = csCols[j]; csCols[j] = tmp;
+    csRenderEditor();
+  }
+  function csRemoveCol(i) { csCols.splice(i, 1); csRenderEditor(); }
+  function csAddColumn() {
+    csCols.push({ code: '', header: null, edit: false, max: null, raw: null });
+    csRenderEditor();
+    csSizeArea();
+  }
+
+  // ── Enter / leave editor ────────────────────────────────────────────────
+  function csEnterEditIdx(idx) { csEnterEdit(csData.schemas[idx].key); }
+  function csEnterEdit(key) {
+    var s = null;
+    (csData.schemas || []).forEach(function (x) { if (x.key === key) s = x; });
+    if (!s) { csSetStatus('Schema "' + key + '" not found — reloading.', 'error'); csLoad(); return; }
+    csEditKey = key;
+    csCols = s.columns.map(function (c) {
+      return { code: c.code, header: c.header, edit: c.edit, max: c.max, raw: c.raw };
+    });
+    document.getElementById('csEdDesc').value = s.description || '';
+    csSetStatus('', 'empty');
+    csRender();
+  }
+  function csCancel() { csEditKey = null; csCols = []; csSetStatus('', 'empty'); csRender(); }
+
+  // ── Create / Save ───────────────────────────────────────────────────────
+  function csCreate() {
+    var key  = document.getElementById('csAddKey').value.trim();
+    var desc = document.getElementById('csAddDesc').value.trim();
+    if (!key) { csSetStatus('A schema key is required.', 'error'); return; }
+    csSetStatus('Creating…', 'info');
+    google.script.run
+      .withSuccessHandler(function (result) {
+        csData = result;
+        document.getElementById('csAddKey').value  = '';
+        document.getElementById('csAddDesc').value = '';
+        csEnterEdit(key);
+        csSetStatus('“' + key + '” created — add columns and Save.', 'success');
+      })
+      .withFailureHandler(function (e) { csSetStatus(e.message, 'error'); })
+      .saveCsvSchema(key, desc, [], true);
+  }
+
+  function csSave() {
+    if (!csCols.length) { csSetStatus('A schema needs at least one column.', 'error'); return; }
+    for (var i = 0; i < csCols.length; i++) {
+      if (csCols[i].raw == null && !String(csCols[i].code || '').trim()) {
+        csSetStatus('Column ' + (i + 1) + ': choose a field code.', 'error'); return;
+      }
+    }
+    var used = (csData.usedBy && csData.usedBy[csEditKey]) || [];
+    if (used.length && !confirm('“' + csEditKey + '” is used by ' + used.length +
+        ' dealer(s):\n' + used.join(', ') + '\n\nChanges apply on their next run. Save?')) return;
+
+    var cols = csCols.map(function (c) {
+      return (c.raw != null && c.raw !== '')
+        ? { raw: c.raw }
+        : { code: c.code, header: c.header, edit: !!c.edit, max: c.max };
+    });
+    var savedKey = csEditKey;
+    csSetStatus('Saving…', 'info');
+    google.script.run
+      .withSuccessHandler(function (result) {
+        csData = result;
+        csEditKey = null; csCols = [];
+        csRender();
+        csSetStatus('“' + savedKey + '” saved.', 'success');
+      })
+      .withFailureHandler(function (e) { csSetStatus(e.message, 'error'); })
+      .saveCsvSchema(savedKey, document.getElementById('csEdDesc').value.trim(), cols, false);
+  }
+
+  // ── Helpers ─────────────────────────────────────────────────────────────
+  function csSetStatus(msg, type) {
+    var el = document.getElementById('csStatus');
+    el.textContent = msg || '';
+    el.className   = (type || 'empty') + ' app-measure';
+  }
+</script>
