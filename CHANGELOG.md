@@ -51,6 +51,14 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   always has at least a header row, so single-schema dealers are unaffected).
 
 ### Added
+- `ui-screenshot-repro` project skill (`.claude/skills/`) — builds a standalone
+  HTML repro from the real SharedUtils + view-fragment CSS and screenshots it
+  in headless Chrome at multiple widths, so UI iteration is verified against
+  pixels before any deploy. Includes the reusable `build-repro.js` and the
+  PowerShell/Chrome gotcha table. Mandated in CLAUDE.md after one failed
+  attempt at matching a described design (the dedupe-button saga: 4 blind
+  deploys, root-caused by the first screenshot). Skill instructions verified
+  by a cold-context agent run; its ambiguity findings folded back in.
 - Run Order match table now flags vehicles the run's filtering rules would
   remove: an amber `row-warn` row with "⚠ WILL BE FILTERED (reason)" in the
   status cell, plus an "N will be filtered" count in the match line. Previously
