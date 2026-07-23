@@ -20,8 +20,10 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   column — the column auto-widens to fit it, so it can never cover a data
   column header (its floating-overlay predecessor sat on top of "Link"), and
   it scrolls with the table; the container's rounded-corner clip rounds its
-  top corner. Per-row ✕ buttons right-align under it — that column is now the
-  dedicated right-edge control gutter.
+  top corner. It fills the header row's full height flush top-to-bottom
+  (XP-Start-button style — display:block kills the inline line-box gap, its
+  padding defines the row height). Per-row ✕ buttons right-align under it —
+  that column is now the dedicated right-edge control gutter.
 - WILL BE FILTERED reasons are compact: a targeting rule shows just the
   fields it tests joined by its operator ("type AND price" — new pure
   `ruleFieldsSummary_`, carried via an additive `rule` ref on the engine's

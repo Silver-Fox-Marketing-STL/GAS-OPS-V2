@@ -168,8 +168,11 @@
        scrolls WITH the table (no absolute positioning, no height math). The
        scroll container's rounded-corner clip rounds the cap's top corner. */
     #view-run #vinDataTable th#rvXHead { padding: 0; }
-    #view-run #rvDedupeBtn { width: 100%; white-space: nowrap; border-radius: 0;
-                             padding: 6px 10px !important; font-size: 11px; line-height: 12px; }  /* base .btn-danger padding is !important */
+    /* display:block (kills the inline line-box gap) + tallest-in-row padding =
+       the button DEFINES the header row height, so it sits flush top-to-bottom
+       like an XP Start button — no header background peeking around it. */
+    #view-run #rvDedupeBtn { display: block; white-space: nowrap; border-radius: 0;
+                             padding: 7px 8px !important; font-size: 11px; line-height: 12px; }  /* base .btn-danger padding is !important */
     /* Per-row remove — compact table control, view-scoped like the other views' X buttons */
     #view-run #vinDataTable td.rv-x-cell { text-align: right; padding-top: 0; padding-bottom: 0; }
     #view-run .rv-x { background: none; border: none; color: var(--text-3); cursor: pointer;
