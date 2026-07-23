@@ -4596,15 +4596,28 @@ function getLatestOrderId(dealerKey) {
   if (lastRow < 2) return { latestOrderId: null };
 
   var values = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  return { latestOrderId: latestOrderIdFrom_(values) };
+}
 
-  for (var i = values.length - 1; i >= 0; i--) {
-    var val = String(values[i][0]).trim();
-    if (val !== '' && val !== 'ORDER_ID') {
-      return { latestOrderId: val };
-    }
+/**
+ * Highest numeric ORDER_ID in the log, as a string. Commits append at commit
+ * time, not run order — an older run committed late lands on the bottom row,
+ * so "physically last" lies (MB Creve Coeur, July 2026). Falls back to the
+ * last non-blank value for a log with no numeric ids at all.
+ *
+ * @param {Array<Array>} colA - VIN log col A values (rows 2+)
+ * @returns {string|null}
+ */
+function latestOrderIdFrom_(colA) {
+  var maxId = null, lastNonBlank = null;
+  for (var i = 0; i < colA.length; i++) {
+    var val = String(colA[i][0]).trim();
+    if (val === '' || val === 'ORDER_ID') continue;
+    lastNonBlank = val;
+    var n = Number(val);
+    if (isFinite(n) && (maxId === null || n > maxId)) maxId = n;
   }
-
-  return { latestOrderId: null };
+  return maxId !== null ? String(maxId) : lastNonBlank;
 }
 
 
