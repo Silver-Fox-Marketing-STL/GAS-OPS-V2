@@ -11,6 +11,13 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Fixed
+- "Most recent order in log" (Run Order + VIN Log Updater) now reports the
+  HIGHEST numeric ORDER_ID in the dealer's VIN log, not the physically last
+  row. Commits append at commit time, not run order, so committing an older
+  run after a newer one (MB Creve Coeur: 4183/4193 committed after 4244/4245)
+  put an old id on the bottom row and the banner reported it as "most recent".
+  New pure `latestOrderIdFrom_` (falls back to last non-blank for logs with no
+  numeric ids); `getLatestOrderId` unchanged otherwise. Harness 96/96.
 - Finalize cards no longer scroll internally / clip at the bottom: the Run
   page's fixed-height flow zone (the "ONE height knob", `.rv-flow`) went
   190px → 235px, sized to a fully-finalized card (radios + deal input +
