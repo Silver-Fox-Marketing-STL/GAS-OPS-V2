@@ -812,6 +812,40 @@ t('latestOrderIdFrom_: all-non-numeric log falls back to last non-blank', functi
   assert.strictEqual(latestOrderIdFrom_([['ABC-1'], ['ABC-2']]), 'ABC-2');
 });
 
+// ============================================================================
+// Suite: CSV schema editor cells — parse/serialize round-trip
+// ============================================================================
+suite('CSV schema editor cells');
+t('serializeSchemaCell_ bare code', function () {
+  assert.strictEqual(serializeSchemaCell_({ code: 'YEAR', header: null, edit: false, max: null }), 'YEAR');
+});
+t('serializeSchemaCell_ header override', function () {
+  assert.strictEqual(serializeSchemaCell_({ code: 'YEAR', header: 'VDP_A', edit: false, max: null }), 'YEAR:VDP_A');
+});
+t('serializeSchemaCell_ editable with max', function () {
+  assert.strictEqual(serializeSchemaCell_({ code: 'MODELTRIM', header: 'VDP_B', edit: true, max: 18 }), 'MODELTRIM:VDP_B:edit18');
+});
+t('serializeSchemaCell_ editable without max', function () {
+  assert.strictEqual(serializeSchemaCell_({ code: 'MODELTRIM', header: 'VDP_B', edit: true, max: null }), 'MODELTRIM:VDP_B:edit');
+});
+t('serializeSchemaCell_ editable without header uses :: (header falls back to code on parse)', function () {
+  assert.strictEqual(serializeSchemaCell_({ code: 'MODELTRIM', header: null, edit: true, max: 12 }), 'MODELTRIM::edit12');
+});
+t('schemaCellToEditor_ carries raw + nulls header when no override', function () {
+  var e = schemaCellToEditor_('YEARMODELSTOCK');
+  assert.deepStrictEqual(e, { code: 'YEARMODELSTOCK', header: null, edit: false, max: null, raw: 'YEARMODELSTOCK' });
+});
+t('schemaCellToEditor_ parses full syntax', function () {
+  var e = schemaCellToEditor_('MODELTRIM:VDP_B:edit18');
+  assert.deepStrictEqual(e, { code: 'MODELTRIM', header: 'VDP_B', edit: true, max: 18, raw: 'MODELTRIM:VDP_B:edit18' });
+});
+t('round-trip is byte-identical for every standard cell form', function () {
+  ['YEAR', 'YEAR:VDP_A', 'MODELTRIM:VDP_B:edit', 'MODELTRIM:VDP_B:edit18',
+   'MODELTRIM::edit', 'CODE:HEA:DER'].forEach(function (cell) {
+    assert.strictEqual(serializeSchemaCell_(schemaCellToEditor_(cell)), cell, cell);
+  });
+});
+
 // ── Report ───────────────────────────────────────────────────────────────────
 function report_() {
   var totalPass = 0, totalFail = 0;

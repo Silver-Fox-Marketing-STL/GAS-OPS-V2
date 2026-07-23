@@ -2424,6 +2424,39 @@ function parseSchemaCell_(cell) {
 }
 
 /**
+ * Pure: serializes one editor column back to CSV_SCHEMAS cell syntax —
+ * the inverse of parseSchemaCell_ for every editor-producible shape.
+ * `CODE`, `CODE:HEADER`, `CODE:HEADER:edit[N]`, and header-less editable
+ * `CODE::edit[N]` (parses back with header = code).
+ */
+function serializeSchemaCell_(col) {
+  var code   = String(col.code == null ? '' : col.code).trim();
+  var header = col.header == null ? '' : String(col.header).trim();
+  if (header === code) header = '';
+  var s = code + (header ? ':' + header : '');
+  if (col.edit) s += (header ? '' : ':') + ':edit' + (col.max ? col.max : '');
+  return s;
+}
+
+/**
+ * Pure: one CSV_SCHEMAS cell → the CSV Schemas editor's column shape.
+ * `header` is null when the cell has no override (header === code); `raw`
+ * keeps the original cell string so an UNTOUCHED column can be written back
+ * verbatim on save (round-trip guarantee — see saveCsvSchema).
+ */
+function schemaCellToEditor_(cell) {
+  var raw = String(cell == null ? '' : cell).trim();
+  var p = parseSchemaCell_(raw);
+  return {
+    code:   p.code,
+    header: p.header === p.code ? null : p.header,
+    edit:   !!p.edit,
+    max:    (p.edit && p.edit.max) ? p.edit.max : null,
+    raw:    raw
+  };
+}
+
+/**
  * Returns the per-type editable columns from a dealer's resolved schemas:
  * `{type: [{code, max}]}`. Same resolution as the CSV builder; a type with no
  * `edit`-flagged columns is omitted. Fail-safe {} on no rules.
