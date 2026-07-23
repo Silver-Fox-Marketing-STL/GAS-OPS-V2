@@ -21,6 +21,10 @@ test/**
 # Visual-brainstorming companion scratch (local-only mockups; never Apps Script source)
 .superpowers/**
 
+# Claude project skills — local tooling (Node), never Apps Script source. Without this,
+# clasp pushes .claude/skills/**/*.js as .gs and the push fails on Node syntax.
+.claude/**
+
 # Standalone Lot Scanner — its OWN Apps Script project (lot-scan/.clasp.json), pushed
 # separately from inside lot-scan/. Must NOT be pushed into the main project or its
 # Code.gs / SharedUtils.html would collide (Apps Script's file namespace is flat).
