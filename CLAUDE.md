@@ -60,6 +60,10 @@ exact schemas/mechanism/history — NOT in context).
   pushes code + bumps the versioned `/exec` deployment). Rollback = redeploy a
   prior version in the prod script's Manage Deployments (see
   `docs/dev-environment.md`); never "roll back" with `clasp push` — it targets DEV.
+- **UI changes are verified by pixels, not theory.** After ONE failed attempt at
+  matching a UI design Nick described or mocked, use the `ui-screenshot-repro`
+  skill (headless-Chrome render of the real view CSS) before deploying another
+  attempt. Born from a 4-deploy blind CSS loop (July 2026).
 - **Sheets MCP:** never edit anything outside the "Claude Sandbox" Drive folder;
   reads are fine anywhere.
 - **Pipedrive is read-only for Claude.** Claude writes the scripts/functions that

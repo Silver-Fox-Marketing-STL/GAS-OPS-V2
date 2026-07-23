@@ -1442,17 +1442,45 @@ function buildVinDataMap_(rows) {
  * Pure: runs inventory rows through the dealer's filtering rules — same engine,
  * same 'run' phase as runDealer step 8.5 — and returns {VIN_UPPER → "reason"}
  * for rows the run would REMOVE. Powers the Run table's WILL BE FILTERED flag
- * (cleared client-side when Bypass filtering rules is checked). Fail-safe → {}.
+ * (cleared client-side when Bypass filtering rules is checked). Reasons are
+ * COMPACT — the Status cell has no room for full rule descriptions: targeting
+ * rules render as their field names ("type AND price"), everything else as a
+ * short label. Fail-safe → {}.
  */
 function buildFilteredVinMap_(rows, filterRules) {
   var out = {};
+  var SHORT = { no_stock: 'no stock #', no_price: 'no price', no_url: 'no URL',
+                type: 'type', status: 'status', price_low: 'price low',
+                price_high: 'price high', seasoning: 'seasoning' };
   try {
     applyFilteringRules_(rows, filterRules, 'run').rejected.forEach(function(rej) {
       var vin = String(rej.row[0] == null ? '' : rej.row[0]).trim().toUpperCase();
-      if (vin && vin !== '*') out[vin] = rej.reason + (rej.detail ? ' — ' + rej.detail : '');
+      if (!vin || vin === '*') return;
+      out[vin] = rej.rule ? ruleFieldsSummary_(rej.rule) : (SHORT[rej.reason] || rej.reason);
     });
   } catch (e) { Logger.log('buildFilteredVinMap_: ' + e.message); }
   return out;
+}
+
+/**
+ * Pure: compact one-line description of a targeting rule for the Run table
+ * flag — just the fields it tests, joined by the TOP-LEVEL group operator:
+ * {type in [PO,CPO] AND price lt 35000} → "type AND price". Nested groups
+ * flatten into the same list (unique, first-seen order). Fail-safe string.
+ */
+function ruleFieldsSummary_(rule) {
+  var fields = [];
+  try {
+    (function walk(grp) {
+      (grp.children || []).forEach(function(c) {
+        if (!c) return;
+        if (c.field) { if (fields.indexOf(String(c.field)) === -1) fields.push(String(c.field)); }
+        else if (c.children) walk(c);
+      });
+    })((rule && rule.group) || {});
+  } catch (e) {}
+  if (!fields.length) return 'filter rule';
+  return fields.join(String(((rule && rule.group) || {}).match).toLowerCase() === 'any' ? ' OR ' : ' AND ');
 }
 
 /**
@@ -4080,7 +4108,9 @@ function applyFilteringRules_(vehicles, filterRules, phase) {
                       (action === 'exclude_cao' && phase === 'cao');
         if (!applies) continue;
         if (ruleMatches_(row, rule)) {
-          rejected.push({ row: row, reason: 'rule:' + action, detail: describeRule_(rule) });
+          // `rule` rides along (additive) so buildFilteredVinMap_ can render a
+          // compact field-name summary; reason/detail readers are unaffected.
+          rejected.push({ row: row, reason: 'rule:' + action, detail: describeRule_(rule), rule: rule });
           excludedByRule = true;
           break;
         }

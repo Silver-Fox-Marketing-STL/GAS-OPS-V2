@@ -11,6 +11,24 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Fixed
+- Finalize cards no longer scroll internally / clip at the bottom: the Run
+  page's fixed-height flow zone (the "ONE height knob", `.rv-flow`) went
+  190px → 235px, sized to a fully-finalized card (radios + deal input +
+  Logged ✓ + Linked lines) plus the button row. The zone had been outgrown
+  by the finalize card's post-link status lines. Remove Duplicates reworked
+  into a header "cap" that lives INSIDE the last header cell, over the ✕
+  column — the column auto-widens to fit it, so it can never cover a data
+  column header (its floating-overlay predecessor sat on top of "Link"), and
+  it scrolls with the table; the container's rounded-corner clip rounds its
+  top corner. It fills the header row's full height flush top-to-bottom
+  (XP-Start-button style — display:block kills the inline line-box gap, its
+  padding defines the row height). Per-row ✕ buttons right-align under it —
+  that column is now the dedicated right-edge control gutter.
+- WILL BE FILTERED reasons are compact: a targeting rule shows just the
+  fields it tests joined by its operator ("type AND price" — new pure
+  `ruleFieldsSummary_`, carried via an additive `rule` ref on the engine's
+  rejected entries), other reasons show a short label ("no price"). The full
+  `describeRule_` text was overflowing the Status column. Harness 93/93.
 - The "Remove Duplicates (N)" button no longer takes a row of its own above the
   Inventory match table — that extra height pushed the finalize decision box
   into a scroll, cutting off its bottom. It now overlays the top-right of the
@@ -33,6 +51,14 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   always has at least a header row, so single-schema dealers are unaffected).
 
 ### Added
+- `ui-screenshot-repro` project skill (`.claude/skills/`) — builds a standalone
+  HTML repro from the real SharedUtils + view-fragment CSS and screenshots it
+  in headless Chrome at multiple widths, so UI iteration is verified against
+  pixels before any deploy. Includes the reusable `build-repro.js` and the
+  PowerShell/Chrome gotcha table. Mandated in CLAUDE.md after one failed
+  attempt at matching a described design (the dedupe-button saga: 4 blind
+  deploys, root-caused by the first screenshot). Skill instructions verified
+  by a cold-context agent run; its ambiguity findings folded back in.
 - Run Order match table now flags vehicles the run's filtering rules would
   remove: an amber `row-warn` row with "⚠ WILL BE FILTERED (reason)" in the
   status cell, plus an "N will be filtered" count in the match line. Previously

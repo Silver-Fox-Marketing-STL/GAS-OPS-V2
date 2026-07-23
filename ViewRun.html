@@ -101,8 +101,6 @@
 
       <div class="rv-tablezone">
         <div class="rv-zone-label">Inventory match</div>
-        <div class="rv-table-wrap">
-        <button type="button" id="rvDedupeBtn" class="btn-danger" style="display:none" onclick="rvRemoveDuplicates()">Remove Duplicates</button>
         <div class="rv-table-scroll">
           <table id="vinDataTable" class="table-u">
             <thead>
@@ -110,14 +108,13 @@
                 <th>Year</th><th>Make</th><th>Model</th><th>Type</th>
                 <th>Stock</th><th>VIN</th><th>Status</th><th>Link</th>
                 <th id="rvFeatHead" style="display:none">Features</th>
-                <th id="rvXHead"></th>
+                <th id="rvXHead"><button type="button" id="rvDedupeBtn" class="btn-danger" style="display:none" onclick="rvRemoveDuplicates()">Remove Duplicates</button></th>
               </tr>
             </thead>
             <tbody id="vinDataBody">
               <tr class="rv-empty-row"><td colspan="9">Select a dealer, then enter VINs to check them.</td></tr>
             </tbody>
           </table>
-        </div>
         </div>
       </div>
 
@@ -153,7 +150,10 @@
        horizontally; it never wraps or grows taller. min-width:0 is
        load-bearing: long text must wrap/clip, not stretch the 1fr track. */
     #view-run .rv-flow { display: flex; align-items: stretch; gap: var(--space-2); min-width: 0;
-                         height: 190px;   /* ponytail: ≈ the input cluster's height — the ONE height knob */
+                         /* ponytail: the ONE height knob. 235px = a fully-finalized card
+                            (radios + deal input + Logged ✓ + Linked lines) + the button row —
+                            at the old 190px the card scrolled internally (bottom cut off). */
+                         height: 235px;
                          overflow-x: auto; overflow-y: hidden; }
     #view-run .rv-topbar-actions { flex-shrink: 0; display: flex; flex-direction: column; gap: var(--space-2); padding-top: 18px; }
     #view-run .rv-topbar-actions button { width: 100%; white-space: nowrap; }
@@ -162,15 +162,29 @@
     #view-run .rv-vinzone { grid-area: vin; display: flex; flex-direction: column; min-height: 0; }
     #view-run .rv-tablezone { grid-area: table; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
     #view-run .rv-zone-label { font-size: var(--fs-overline); text-transform: uppercase; letter-spacing: .04em; color: var(--text-3); margin-bottom: var(--space-2); }
-    /* Remove Duplicates overlays the sticky table header instead of taking a
-       row of its own (it was pushing the finalize zone into a scroll). Anchored
-       to the wrap — NOT the scroll box — so it stays pinned over the header
-       while the table scrolls; right inset clears the vertical scrollbar. */
-    #view-run .rv-table-wrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
-    #view-run #rvDedupeBtn { position: absolute; top: 3px; right: 16px; z-index: 2;
-                             padding: 2px 8px !important; font-size: var(--fs-sm); }  /* compact; base .btn-danger padding is !important */
+    /* Dedicated right-edge control gutter: the Remove Duplicates "cap" lives
+       INSIDE the last header cell, directly over the ✕ column — the column
+       auto-widens to fit it, so it can never cover a data column, and it
+       scrolls WITH the table (no absolute positioning, no height math). The
+       scroll container's rounded-corner clip rounds the cap's top corner. */
+    /* width:0 = shrink-to-content hint so this column never hoards the table's
+       slack width (auto layout hands extra space to wide-content columns);
+       overflow:hidden is the "mask" — it clips the oversized button below. */
+    #view-run #vinDataTable th#rvXHead { padding: 0; width: 0; overflow: hidden; }
+    /* The header-edge "mask" look: the button paints TALLER than the header row
+       (big vertical padding) while negative vertical margins cancel the extra
+       layout height, and the cell's overflow:hidden cuts it flush at the bar's
+       top/bottom edges — no header background can peek regardless of theme
+       fonts. A block BUTTON still shrinks to fit-content (unlike a div) —
+       margin-left:auto pins it against the cell's RIGHT edge; right side is
+       cut square (no right border), the container's corner clip finishes the
+       top-right curve, left corners keep the button radius. */
+    #view-run #rvDedupeBtn { display: block; margin: -8px 0 -8px auto; white-space: nowrap;
+                             padding: 15px 8px !important; font-size: 11px; line-height: 12px;
+                             border-right: 0;
+                             border-radius: var(--radius-sm) 0 0 var(--radius-sm); }  /* base .btn-danger padding is !important */
     /* Per-row remove — compact table control, view-scoped like the other views' X buttons */
-    #view-run #vinDataTable td.rv-x-cell { text-align: center; padding-top: 0; padding-bottom: 0; }
+    #view-run #vinDataTable td.rv-x-cell { text-align: right; padding-top: 0; padding-bottom: 0; }
     #view-run .rv-x { background: none; border: none; color: var(--text-3); cursor: pointer;
                       font-size: var(--fs-sm); line-height: 1; padding: 3px 6px; border-radius: var(--radius-sm); }
     #view-run .rv-x:hover { color: var(--danger); background: var(--danger-weak); }

@@ -399,15 +399,26 @@ t('fail-safe: unparseable filtering_rules JSON falls back to defaults (nothing f
   assert.deepStrictEqual(fr.targetingRules, []);
   assert.strictEqual(applyFilteringRules_(rows_(), fr, 'run').passed.length, 10);
 });
-t('buildFilteredVinMap_ mirrors the run phase exactly (VIN_UPPER → reason, WILL BE FILTERED flag)', function () {
+t('buildFilteredVinMap_ mirrors the run phase exactly (VIN_UPPER → compact reason)', function () {
   var map = buildFilteredVinMap_(rows_(), phaseRules);
   var rej = applyFilteringRules_(rows_(), phaseRules, 'run').rejected;
   assert.strictEqual(Object.keys(map).length, rej.length);   // 2 CPO rows, nothing else
   rej.forEach(function (r) {
     var vin = String(r.row[0]).trim().toUpperCase();
-    assert.ok(map[vin], 'rejected VIN missing from map: ' + vin);
-    assert.strictEqual(map[vin].indexOf('rule:exclude_order'), 0);
+    // compact form: the rule's field list, not the verbose describeRule_ text
+    assert.strictEqual(map[vin], 'type');
   });
+});
+t('ruleFieldsSummary_: field list joined by the top-level operator, nested groups flatten', function () {
+  assert.strictEqual(ruleFieldsSummary_({ group: { match: 'all', children: [
+    { field: 'type', op: 'in', values: ['PO', 'CPO'] },
+    { field: 'price', op: 'lt', values: [35000] }
+  ] } }), 'type AND price');
+  assert.strictEqual(ruleFieldsSummary_({ group: { match: 'any', children: [
+    { field: 'type', op: 'in', values: ['New'] },
+    { match: 'all', children: [{ field: 'price', op: 'lt', values: [1] }, { field: 'type', op: 'in', values: ['PO'] }] }
+  ] } }), 'type OR price');
+  assert.strictEqual(ruleFieldsSummary_(null), 'filter rule');   // fail-safe
 });
 t('buildFilteredVinMap_ fail-safe: bad inputs → {} (table load can never break)', function () {
   assert.deepStrictEqual(buildFilteredVinMap_(null, null), {});
