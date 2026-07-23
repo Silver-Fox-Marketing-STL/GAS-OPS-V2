@@ -168,17 +168,19 @@
        scrolls WITH the table (no absolute positioning, no height math). The
        scroll container's rounded-corner clip rounds the cap's top corner. */
     /* width:0 = shrink-to-content hint so this column never hoards the table's
-       slack width (auto layout hands extra space to wide-content columns). */
-    #view-run #vinDataTable th#rvXHead { padding: 0; width: 0; }
-    /* display:block (kills the inline line-box gap) + tallest-in-row padding =
-       the button DEFINES the header row height, so it fills it flush. A block
-       BUTTON still shrinks to fit-content (unlike a div) — margin-left:auto is
-       what pins it against the cell's RIGHT edge. Shaped as if slid right under
-       the header-edge "mask": left corners keep the button radius, right side
-       is cut off square (no right border) and the container's corner clip
-       finishes the top-right curve. */
-    #view-run #rvDedupeBtn { display: block; margin-left: auto; white-space: nowrap;
-                             padding: 7px 8px !important; font-size: 11px; line-height: 12px;
+       slack width (auto layout hands extra space to wide-content columns);
+       overflow:hidden is the "mask" — it clips the oversized button below. */
+    #view-run #vinDataTable th#rvXHead { padding: 0; width: 0; overflow: hidden; }
+    /* The header-edge "mask" look: the button paints TALLER than the header row
+       (big vertical padding) while negative vertical margins cancel the extra
+       layout height, and the cell's overflow:hidden cuts it flush at the bar's
+       top/bottom edges — no header background can peek regardless of theme
+       fonts. A block BUTTON still shrinks to fit-content (unlike a div) —
+       margin-left:auto pins it against the cell's RIGHT edge; right side is
+       cut square (no right border), the container's corner clip finishes the
+       top-right curve, left corners keep the button radius. */
+    #view-run #rvDedupeBtn { display: block; margin: -8px 0 -8px auto; white-space: nowrap;
+                             padding: 15px 8px !important; font-size: 11px; line-height: 12px;
                              border-right: 0;
                              border-radius: var(--radius-sm) 0 0 var(--radius-sm); }  /* base .btn-danger padding is !important */
     /* Per-row remove — compact table control, view-scoped like the other views' X buttons */
