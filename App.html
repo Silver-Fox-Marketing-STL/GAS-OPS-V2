@@ -595,6 +595,9 @@
           <div class="nav-item nav-sub" id="nav-view-fieldcodes" onclick="navTo('view-fieldcodes')">
             <span class="icon">&#35;</span> Field Codes
           </div>
+          <div class="nav-item nav-sub" id="nav-view-csvschemas" onclick="navTo('view-csvschemas')">
+            <span class="icon">&#128203;</span> CSV Schemas
+          </div>
         </div>
       </div>
       <div class="nav-spacer"></div>
@@ -631,6 +634,7 @@
         <?!= include_('ViewUtilities') ?>
         <?!= include_('ViewPipedriveSettings') ?>
         <?!= include_('ViewFieldCodes') ?>
+        <?!= include_('ViewCsvSchemas') ?>
         <?!= include_('ViewUiSettings') ?>
       </div>
     </div>
@@ -660,6 +664,7 @@
       'view-utilities': 'Utilities',
       'view-pipedrive-settings': 'Pipedrive Settings',
       'view-fieldcodes': 'Field Codes',
+      'view-csvschemas': 'CSV Schemas',
       'view-ui-settings': 'UI Settings'
     };
     var _viewInited = {};
