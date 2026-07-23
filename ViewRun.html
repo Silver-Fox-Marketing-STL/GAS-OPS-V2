@@ -169,14 +169,14 @@
        scroll container's rounded-corner clip rounds the cap's top corner. */
     #view-run #vinDataTable th#rvXHead { padding: 0; }
     /* display:block (kills the inline line-box gap) + tallest-in-row padding =
-       the button DEFINES the header row height, so it sits flush top-to-bottom
-       like an XP Start button — no header background peeking around it. The
-       danger-weak fill tints the header bar red (not the app-bg fill of stock
-       .btn-danger, which punched a bg-colored hole in the inverted header). */
-    #view-run #rvDedupeBtn { display: block; white-space: nowrap; border-radius: 0;
+       the button DEFINES the header row height, so it fills it flush. Shaped
+       as if slid right under the header-edge "mask": left corners keep the
+       button radius, right side is cut off square (no right border) and the
+       container's corner clip finishes the top-right curve. */
+    #view-run #rvDedupeBtn { display: block; white-space: nowrap;
                              padding: 7px 8px !important; font-size: 11px; line-height: 12px;
-                             background: var(--danger-weak); }  /* base .btn-danger padding is !important */
-    #view-run #rvDedupeBtn:hover:not(:disabled) { background: var(--danger); color: var(--bg); }
+                             border-right: 0;
+                             border-radius: var(--radius-sm) 0 0 var(--radius-sm); }  /* base .btn-danger padding is !important */
     /* Per-row remove — compact table control, view-scoped like the other views' X buttons */
     #view-run #vinDataTable td.rv-x-cell { text-align: right; padding-top: 0; padding-bottom: 0; }
     #view-run .rv-x { background: none; border: none; color: var(--text-3); cursor: pointer;
