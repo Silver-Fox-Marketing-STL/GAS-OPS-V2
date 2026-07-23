@@ -69,12 +69,25 @@ var CSV_SCHEMAS_ROWS = [
 var fakeCsvSchemasSheet = {
   getDataRange: function () { return { getValues: function () { return CSV_SCHEMAS_ROWS; } }; }
 };
+// Synthetic FIELD_CODES (col A field_code, B description, `ordermatch_col`
+// overlay) mirroring SF_DEALER_CONFIG live: MODELTRIM (col X/24) lives ONLY in
+// the overlay, not the FIELD_TO_COL constant — so getFieldToCol_() resolves it
+// offline exactly as it does live (needed to validate MODELTRIM schema cells).
+var FIELD_CODES_ROWS = [
+  ['field_code', 'description', 'ordermatch_col'],
+  ['MODELTRIM',  'model + trim (VDP)', 24]
+];
+var fakeFieldCodesSheet = {
+  getLastRow: function () { return FIELD_CODES_ROWS.length; },
+  getDataRange: function () { return { getValues: function () { return FIELD_CODES_ROWS; } }; }
+};
 globalThis.SpreadsheetApp = {
   openById: function () {
     return {
       getSheetByName: function (name) {
         if (name === 'NORM_MAPS') return fakeNormSheet;
         if (name === 'CSV_SCHEMAS') return fakeCsvSchemasSheet;
+        if (name === 'FIELD_CODES') return fakeFieldCodesSheet;
         return null;
       }
     };
@@ -862,6 +875,28 @@ t('getCsvSchemasEditorData ships field codes and empty usedBy offline', function
   assert.ok(d.fieldCodes.length > 10, 'built-in field codes expected');
   assert.ok(d.fieldCodes.some(function (f) { return f.fieldCode === 'YEARMODELSTOCK'; }));
   assert.deepStrictEqual(d.usedBy, {});
+});
+t('buildCsvSchemaCells_ serializes valid columns and passes raw verbatim', function () {
+  var cells = buildCsvSchemaCells_([
+    { raw: 'CODE:HEA:DER' },                                        // untouched — no validation
+    { code: 'YEAR', header: 'VDP_A', edit: false, max: null },
+    { code: 'MODELTRIM', header: null, edit: true, max: 18 }
+  ], getFieldToCol_());
+  assert.deepStrictEqual(cells, ['CODE:HEA:DER', 'YEAR:VDP_A', 'MODELTRIM::edit18']);
+});
+t('buildCsvSchemaCells_ rejects unknown code, colon header, bad max', function () {
+  var codes = getFieldToCol_();
+  assert.throws(function () { buildCsvSchemaCells_([{ code: 'NOPE' }], codes); }, /unknown field code/i);
+  assert.throws(function () { buildCsvSchemaCells_([{ code: 'YEAR', header: 'A:B' }], codes); }, /cannot contain/i);
+  assert.throws(function () { buildCsvSchemaCells_([{ code: 'YEAR', edit: true, max: 0 }], codes); }, /positive whole number/i);
+  assert.throws(function () { buildCsvSchemaCells_([{ code: 'YEAR', edit: false, max: 5 }], codes); }, /requires the Editable flag/i);
+  assert.throws(function () { buildCsvSchemaCells_([{ code: '' }], codes); }, /field code is required/i);
+});
+t('buildCsvSchemaCells_ allows duplicate codes (GLENDALE two-frame pattern)', function () {
+  var cells = buildCsvSchemaCells_([
+    { code: 'YEARMODELSTOCK' }, { code: 'YEARMODELSTOCK' }
+  ], getFieldToCol_());
+  assert.deepStrictEqual(cells, ['YEARMODELSTOCK', 'YEARMODELSTOCK']);
 });
 
 // ── Report ───────────────────────────────────────────────────────────────────

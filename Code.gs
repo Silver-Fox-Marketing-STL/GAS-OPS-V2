@@ -2517,6 +2517,84 @@ function getCsvSchemasEditorData() {
 }
 
 /**
+ * Pure: validates the editor's columns and returns the serialized CSV_SCHEMAS
+ * cell strings. A column carrying `raw` is an UNTOUCHED original cell — written
+ * back verbatim with no validation (it came from the sheet; this is what makes
+ * a no-op edit byte-identical, colon-headers and legacy codes included).
+ * Throws a clear Error naming the offending column on any invalid input.
+ */
+function buildCsvSchemaCells_(columns, validCodes) {
+  if (!Array.isArray(columns)) throw new Error('Columns must be a list.');
+  return columns.map(function (col, i) {
+    var n = 'Column ' + (i + 1);
+    if (!col || typeof col !== 'object') throw new Error(n + ' is invalid.');
+    if (col.raw != null && String(col.raw).trim() !== '') return String(col.raw).trim();
+
+    var code = String(col.code == null ? '' : col.code).trim();
+    if (!code) throw new Error(n + ': a field code is required.');
+    if (!validCodes[code]) throw new Error(n + ': unknown field code "' + code + '".');
+
+    var header = col.header == null ? '' : String(col.header).trim();
+    if (header.indexOf(':') !== -1) throw new Error(n + ': the header override cannot contain ":".');
+
+    var max = null;
+    if (col.max != null && String(col.max).trim() !== '') {
+      max = Number(col.max);
+      if (!isFinite(max) || max < 1 || max !== Math.floor(max)) {
+        throw new Error(n + ': max chars must be a positive whole number.');
+      }
+      if (!col.edit) throw new Error(n + ': max chars requires the Editable flag.');
+    }
+    return serializeSchemaCell_({ code: code, header: header || null, edit: !!col.edit, max: max });
+  });
+}
+
+/**
+ * Client-callable upsert for the CSV Schemas settings page. isNew=true creates
+ * (key must not exist; 0 columns allowed — the client drops straight into the
+ * editor); isNew=false edits (key must exist; ≥1 column required). Validates
+ * FULLY before any write. Writes key/description/cells as ONE row write whose
+ * width spans the sheet, so stale trailing cells from a previously-longer
+ * schema are cleared in the same setValues. Returns the refreshed editor data.
+ */
+function saveCsvSchema(key, description, columns, isNew) {
+  key = String(key == null ? '' : key).trim();
+  if (!key) throw new Error('A schema key is required.');
+  if (!/^[A-Za-z0-9_]+$/.test(key)) {
+    throw new Error('Schema key "' + key + '" is invalid — use only letters, digits, and underscores.');
+  }
+  description = String(description == null ? '' : description).trim();
+
+  var cells = buildCsvSchemaCells_(columns || [], getFieldToCol_());
+
+  var sheet = getConfigSS_().getSheetByName('CSV_SCHEMAS');
+  if (!sheet) throw new Error('CSV_SCHEMAS tab not found.');
+  var data = sheet.getDataRange().getValues();
+
+  var rowIdx = -1;
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]).trim() === key) { rowIdx = i + 1; break; }
+  }
+  if (isNew && rowIdx !== -1) throw new Error('Schema "' + key + '" already exists.');
+  if (!isNew && rowIdx === -1) throw new Error('Schema "' + key + '" not found.');
+  if (!isNew && cells.length === 0) throw new Error('A schema needs at least one column.');
+  if (rowIdx === -1) rowIdx = sheet.getLastRow() + 1;
+
+  var need = 2 + cells.length;
+  if (need > sheet.getMaxColumns()) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), need - sheet.getMaxColumns());
+  }
+  // One write spanning max(need, current sheet width): new cells + '' padding
+  // clears any stale trailing cells from a previously-longer schema.
+  var width = Math.max(need, data[0] ? data[0].length : 2);
+  var rowVals = [key, description].concat(cells);
+  while (rowVals.length < width) rowVals.push('');
+  sheet.getRange(rowIdx, 1, 1, rowVals.length).setValues([rowVals]);
+
+  return getCsvSchemasEditorData();
+}
+
+/**
  * Returns the per-type editable columns from a dealer's resolved schemas:
  * `{type: [{code, max}]}`. Same resolution as the CSV builder; a type with no
  * `edit`-flagged columns is omitted. Fail-safe {} on no rules.
