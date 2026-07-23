@@ -696,7 +696,7 @@
         items[j].classList.toggle('active', items[j].id === 'nav-' + viewId);
       }
       // Keep the System Settings group open when navigating to one of its children.
-      if (['view-ui-settings', 'view-rules', 'view-norm', 'view-datasources', 'view-pipedrive-settings', 'view-fieldcodes'].indexOf(viewId) !== -1) {
+      if (['view-ui-settings', 'view-rules', 'view-norm', 'view-datasources', 'view-pipedrive-settings', 'view-fieldcodes', 'view-csvschemas'].indexOf(viewId) !== -1) {
         var sg = document.getElementById('nav-group-settings');
         if (sg) sg.classList.remove('collapsed');
       }

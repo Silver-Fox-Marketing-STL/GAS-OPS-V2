@@ -339,6 +339,7 @@
       html = '<tr class="state-row"><td colspan="6">No columns yet — “+ Add Column”.</td></tr>';
     }
     csCols.forEach(function (c, i) {
+      // ponytail: native <select> on purpose — tbody re-renders would fight CustomSelect enhancement
       var opts = '<option value=""' + (c.code ? '' : ' selected') + '>— choose —</option>';
       csData.fieldCodes.forEach(function (f) {
         opts += '<option value="' + escHtml(f.fieldCode) + '"' +
