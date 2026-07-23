@@ -2457,6 +2457,66 @@ function schemaCellToEditor_(cell) {
 }
 
 /**
+ * Client-callable bootstrap for the CSV Schemas settings page — ONE round trip.
+ * Returns every CSV_SCHEMAS row parsed to editor columns, the effective
+ * field-code list (constant + FIELD_CODES overlay) for the code dropdown, and
+ * a best-effort usedBy map from the PIPEDRIVE tab's product_map /
+ * source_product_map schema references (non-fatal: a malformed JSON cell can
+ * never take down the page).
+ */
+function getCsvSchemasEditorData() {
+  var data = getConfigSS_().getSheetByName('CSV_SCHEMAS').getDataRange().getValues();
+  var schemas = [];
+  for (var i = 1; i < data.length; i++) {
+    var key = String(data[i][0]).trim();
+    if (!key) continue;
+    schemas.push({
+      key: key,
+      description: String(data[i][1] == null ? '' : data[i][1]).trim(),
+      columns: data[i].slice(2)
+        .filter(function (v) { return String(v).trim() !== ''; })
+        .map(schemaCellToEditor_)
+    });
+  }
+
+  var fieldCodes = getFieldCodeMappings().rows.map(function (r) {
+    return { fieldCode: r.fieldCode, colLetter: r.colLetter, description: r.description };
+  });
+
+  var usedBy = {};
+  try {
+    var sh = getPipedriveSheet_();
+    if (sh && sh.getLastRow() >= 2) {
+      var pd = sh.getDataRange().getValues();
+      for (var j = 1; j < pd.length; j++) {
+        var dk = String(pd[j][PDCFG.DEALER_KEY] || '').trim();
+        if (!dk) continue;
+        var add = function (entry) {
+          if (!entry || typeof entry !== 'object' || !entry.schema) return;
+          var s = String(entry.schema).trim();
+          if (!s) return;
+          usedBy[s] = usedBy[s] || [];
+          if (usedBy[s].indexOf(dk) === -1) usedBy[s].push(dk);
+        };
+        var pm = pdParseJson_(pd[j][PDCFG.PRODUCT_MAP], {});
+        if (pm && typeof pm === 'object') {
+          Object.keys(pm).forEach(function (t) { add(pm[t]); });
+        }
+        var spm = pdParseJson_(pd[j][PDCFG.SOURCE_PRODUCT_MAP], {});
+        if (spm && typeof spm === 'object') {
+          Object.keys(spm).forEach(function (g) {
+            var m = spm[g];
+            if (m && typeof m === 'object') Object.keys(m).forEach(function (t) { add(m[t]); });
+          });
+        }
+      }
+    }
+  } catch (e) { Logger.log('getCsvSchemasEditorData usedBy (non-fatal): ' + e.message); }
+
+  return { schemas: schemas, fieldCodes: fieldCodes, usedBy: usedBy };
+}
+
+/**
  * Returns the per-type editable columns from a dealer's resolved schemas:
  * `{type: [{code, max}]}`. Same resolution as the CSV builder; a type with no
  * `edit`-flagged columns is omitted. Fail-safe {} on no rules.

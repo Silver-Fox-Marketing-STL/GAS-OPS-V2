@@ -845,6 +845,24 @@ t('round-trip is byte-identical for every standard cell form', function () {
     assert.strictEqual(serializeSchemaCell_(schemaCellToEditor_(cell)), cell, cell);
   });
 });
+t('getCsvSchemasEditorData parses every fake schema row', function () {
+  var d = getCsvSchemasEditorData();
+  var byKey = {};
+  d.schemas.forEach(function (s) { byKey[s.key] = s; });
+  assert.ok(byKey.SCP && byKey.VDP_EDIT, 'expected fake schemas present');
+  assert.strictEqual(byKey.SCP.description, 'standard qr');
+  assert.deepStrictEqual(
+    byKey.SCP.columns.map(function (c) { return c.code; }),
+    ['YEARMODELSTOCK', 'TYPEVIN', '@QR']);
+  var mt = byKey.VDP_EDIT.columns[1];
+  assert.deepStrictEqual(mt, { code: 'MODELTRIM', header: 'VDP_B', edit: true, max: 18, raw: 'MODELTRIM:VDP_B:edit18' });
+});
+t('getCsvSchemasEditorData ships field codes and empty usedBy offline', function () {
+  var d = getCsvSchemasEditorData();
+  assert.ok(d.fieldCodes.length > 10, 'built-in field codes expected');
+  assert.ok(d.fieldCodes.some(function (f) { return f.fieldCode === 'YEARMODELSTOCK'; }));
+  assert.deepStrictEqual(d.usedBy, {});
+});
 
 // ── Report ───────────────────────────────────────────────────────────────────
 function report_() {
