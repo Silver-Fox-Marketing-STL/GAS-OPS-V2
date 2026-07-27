@@ -808,12 +808,36 @@ t('summarizeRunDraft_: fail-safe zeros on bad JSON and missing fields', function
 });
 
 // ============================================================================
-// Suite: vin log latest order — latestOrderIdFrom_ (highest numeric id wins;
-// commits append at commit time, so the physically-last row can be an OLD
-// order committed late — MB Creve Coeur, July 2026)
+// Suite: vin log latest order — latestOrderIdFrom_ (latest order_date col D
+// wins; legacy-system ids with an extra digit beat every new id numerically,
+// and physically-last lies for an old run committed late — both July 2026)
 // ============================================================================
 suite('vin log latest order');
-t('latestOrderIdFrom_: highest numeric id wins over the physically-last row', function () {
+function vlRow(id, date) { return [id, 'VIN', '', date || '']; }
+t('latestOrderIdFrom_: latest order_date wins over a bigger legacy id', function () {
+  assert.strictEqual(latestOrderIdFrom_([
+    vlRow('41833', ''),                       // legacy system, extra digit, no date
+    vlRow('4244', '2026-07-20 09:00:00'),
+    vlRow('4245', '2026-07-25 09:00:00')
+  ]), '4245');
+});
+t('latestOrderIdFrom_: latest order_date wins over the physically-last row', function () {
+  assert.strictEqual(latestOrderIdFrom_([
+    vlRow('4245', '2026-07-25 09:00:00'),
+    vlRow('4183', '2026-06-01 09:00:00')      // old run committed late
+  ]), '4245');
+  assert.strictEqual(latestOrderIdFrom_([     // Date cells (Sheets auto-parses)
+    vlRow(4245, new Date(2026, 6, 25)),
+    vlRow(4183, new Date(2026, 5, 1))
+  ]), '4245');
+});
+t('latestOrderIdFrom_: order_date tie broken by higher numeric id', function () {
+  assert.strictEqual(latestOrderIdFrom_([
+    vlRow('4246', '2026-07-25 09:00:00'),
+    vlRow('4245', '2026-07-25 09:00:00')
+  ]), '4246');
+});
+t('latestOrderIdFrom_: no dated rows falls back to highest numeric id', function () {
   assert.strictEqual(latestOrderIdFrom_([['4244'], ['4245'], ['4183'], ['4193']]), '4245');
   assert.strictEqual(latestOrderIdFrom_([[4244], [4245], [4183], [4193]]), '4245');  // numeric cells
 });
@@ -823,6 +847,13 @@ t('latestOrderIdFrom_: skips blanks + mid-file headers; empty log is null', func
 });
 t('latestOrderIdFrom_: all-non-numeric log falls back to last non-blank', function () {
   assert.strictEqual(latestOrderIdFrom_([['ABC-1'], ['ABC-2']]), 'ABC-2');
+});
+t('orderDateTime_: Date, string, blank, garbage', function () {
+  assert.strictEqual(orderDateTime_(new Date(2026, 6, 25)), new Date(2026, 6, 25).getTime());
+  assert.strictEqual(orderDateTime_('2026-07-25 09:00:00'), new Date(2026, 6, 25, 9).getTime());
+  assert.strictEqual(orderDateTime_(''), null);
+  assert.strictEqual(orderDateTime_(undefined), null);
+  assert.strictEqual(orderDateTime_('not a date'), null);
 });
 
 // ============================================================================
