@@ -20,6 +20,18 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   `schemaCellToEditor_`, `buildCsvSchemaCells_` (harness round-trip suite).
 
 ### Fixed
+- "Most recent order in log" now picks by ORDER DATE, not id heuristics. The
+  VIN log gains an `order_date` column (col D, append-only widening): commits
+  stamp the run's own RUN_LOG timestamp (an old run committed late keeps its
+  old date), manual entries stamp now. `latestOrderIdFrom_` returns the id
+  with the latest order_date (numeric-id tiebreak; the old numeric-max logic
+  survives only as the fallback for logs with no dated rows). Fixes legacy
+  previous-system order ids — one digit longer, so numerically bigger than
+  every new Pipedrive deal id — permanently winning the "most recent" banner
+  under the highest-numeric-id rule. One-time `backfillVinLogOrderDates()`
+  (run from the script editor) fills col D from RUN_LOG history + writes the
+  header on every tab; legacy ids have no RUN_LOG row and stay blank/excluded.
+  Harness 113/113.
 - "Most recent order in log" (Run Order + VIN Log Updater) now reports the
   HIGHEST numeric ORDER_ID in the dealer's VIN log, not the physically last
   row. Commits append at commit time, not run order, so committing an older

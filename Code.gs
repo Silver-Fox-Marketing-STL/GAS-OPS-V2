@@ -4569,7 +4569,7 @@ function getRunsForDealer(dealerKey) {
   return runs;
 }
 
-function commitRunToVINLog(dealerKey, runRowIndex, dealId, producedVins) {
+function commitRunToVINLog(dealerKey, runRowIndex, dealId, producedVins, orderDate) {
   if (!producedVins || producedVins.length === 0) {
     throw new Error('No VINs to commit for this run.');
   }
@@ -4579,11 +4579,13 @@ function commitRunToVINLog(dealerKey, runRowIndex, dealId, producedVins) {
   if (!logSheet) throw new Error('No VIN log tab found for: ' + dealerKey);
 
   var committedAt = Utilities.formatDate(new Date(), 'America/Chicago', 'yyyy-MM-dd HH:mm:ss');
+  // order_date (col D) = when the order happened (run timestamp), NOT when it
+  // was committed — an old run committed late must keep its old date.
   var appendData  = producedVins.map(function(vin) {
-    return [dealId, vin, committedAt];
+    return [dealId, vin, committedAt, orderDate || committedAt];
   });
 
-  logSheet.getRange(logSheet.getLastRow() + 1, 1, appendData.length, 3).setValues(appendData);
+  logSheet.getRange(logSheet.getLastRow() + 1, 1, appendData.length, 4).setValues(appendData);
 
   SpreadsheetApp.getActiveSpreadsheet()
     .getSheetByName('RUN_LOG')
@@ -4632,6 +4634,7 @@ function commitLatestRun(dealerKey, runRowIndex) {
   var row   = sheet.getRange(runRowIndex, 1, 1, 23).getValues()[0];
 
   var dealId          = String(row[3]).trim();
+  var runTimestamp    = row[0];                  // A: run_timestamp (Date or string)
   var producedVinsCSV = String(row[21]).trim();  // V: produced_vins
   var status          = String(row[22]).trim();  // W: vin_log_status
 
@@ -4645,7 +4648,7 @@ function commitLatestRun(dealerKey, runRowIndex) {
   if (producedVins.length === 0) throw new Error('No produced VINs found for this run.');
   if (!dealId)                   throw new Error('No Deal ID on this run log entry.');
 
-  return commitRunToVINLog(dealerKey, runRowIndex, dealId, producedVins);
+  return commitRunToVINLog(dealerKey, runRowIndex, dealId, producedVins, runTimestamp);
 }
 
 /**
@@ -4766,31 +4769,107 @@ function getLatestOrderId(dealerKey) {
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return { latestOrderId: null };
 
-  var values = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  var values = sheet.getRange(2, 1, lastRow - 1, 4).getValues();
   return { latestOrderId: latestOrderIdFrom_(values) };
 }
 
 /**
- * Highest numeric ORDER_ID in the log, as a string. Commits append at commit
- * time, not run order — an older run committed late lands on the bottom row,
- * so "physically last" lies (MB Creve Coeur, July 2026). Falls back to the
- * last non-blank value for a log with no numeric ids at all.
+ * Most recent ORDER_ID in the log, by order_date (col D) — the run timestamp
+ * stamped at commit, i.e. when the order actually happened. Rows without an
+ * order_date (legacy pre-system imports) can never win. Two id heuristics both
+ * failed before this column existed: physically-last lies when an old run is
+ * committed late (MB Creve Coeur, July 2026), and highest-numeric lies when
+ * legacy-system ids carry an extra digit (July 2026). Highest numeric id
+ * breaks order_date ties; the old numeric-max logic remains only as the
+ * fallback for a log with no dated rows at all.
  *
- * @param {Array<Array>} colA - VIN log col A values (rows 2+)
+ * @param {Array<Array>} rows - VIN log rows 2+, cols A-D (id, vin, committed_at, order_date)
  * @returns {string|null}
  */
-function latestOrderIdFrom_(colA) {
+function latestOrderIdFrom_(rows) {
+  var bestId = null, bestTime = null;
   var maxId = null, lastNonBlank = null;
-  for (var i = 0; i < colA.length; i++) {
-    var val = String(colA[i][0]).trim();
+  for (var i = 0; i < rows.length; i++) {
+    var val = String(rows[i][0]).trim();
     if (val === '' || val === 'ORDER_ID') continue;
     lastNonBlank = val;
     var n = Number(val);
     if (isFinite(n) && (maxId === null || n > maxId)) maxId = n;
+    var time = orderDateTime_(rows[i][3]);
+    if (time === null) continue;
+    if (bestTime === null || time > bestTime ||
+        (time === bestTime && isFinite(n) && Number(bestId) < n)) {
+      bestTime = time;
+      bestId = val;
+    }
   }
+  if (bestId !== null) return bestId;
   return maxId !== null ? String(maxId) : lastNonBlank;
 }
 
+/**
+ * Order-date cell → comparable epoch ms, or null for blank/unparseable.
+ * Cells arrive as Dates (Sheets auto-parses timestamps) or as the
+ * 'yyyy-MM-dd HH:mm:ss' strings the committers write.
+ */
+function orderDateTime_(cell) {
+  if (cell instanceof Date) return cell.getTime();
+  var s = String(cell == null ? '' : cell).trim();
+  if (s === '') return null;
+  var t = new Date(s.replace(' ', 'T')).getTime();
+  return isFinite(t) ? t : null;
+}
+
+
+/**
+ * ONE-TIME BACKFILL — run manually from the script editor after deploying the
+ * order_date column. Fills VIN log col D from RUN_LOG (deal id → earliest
+ * run_timestamp for that dealer) and writes the order_date header on every
+ * tab. Legacy-system ids have no RUN_LOG row, so they stay blank — correctly
+ * excluded from "most recent". Idempotent: only blank cells are filled.
+ */
+function backfillVinLogOrderDates() {
+  var runLog = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('RUN_LOG')
+    .getDataRange().getValues();
+
+  // dealer_key → deal id → earliest run timestamp (first run ≈ order date)
+  var dates = {};
+  for (var i = 1; i < runLog.length; i++) {
+    var dealer = String(runLog[i][1]).trim();   // B: dealer_key
+    var dealId = String(runLog[i][3]).trim();   // D: order_id
+    var ts     = runLog[i][0];                  // A: run_timestamp
+    if (!dealer || !dealId || dealId.toLowerCase() === 'test') continue;
+    if (orderDateTime_(ts) === null) continue;
+    if (!dates[dealer]) dates[dealer] = {};
+    var prev = dates[dealer][dealId];
+    if (!prev || orderDateTime_(ts) < orderDateTime_(prev)) dates[dealer][dealId] = ts;
+  }
+
+  var summary = [];
+  getVinLogsSS_().getSheets().forEach(function(sheet) {
+    var dealer = sheet.getName();
+    sheet.getRange(1, 4).setValue('order_date');
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return;
+
+    var rows   = sheet.getRange(2, 1, lastRow - 1, 4).getValues();
+    var filled = 0;
+    var colD   = rows.map(function(r) {
+      var existing = String(r[3] == null ? '' : r[3]).trim();
+      if (existing !== '' || !dates[dealer]) return [r[3]];
+      var ts = dates[dealer][String(r[0]).trim()];
+      if (ts === undefined) return [r[3]];
+      filled++;
+      return [ts];
+    });
+
+    if (filled > 0) sheet.getRange(2, 4, colD.length, 1).setValues(colD);
+    summary.push(dealer + ': ' + filled + ' of ' + rows.length);
+  });
+
+  Logger.log('backfillVinLogOrderDates:\n' + summary.join('\n'));
+  return summary;
+}
 
 /**
  * Returns every identifier (VIN or stock, col B) in the dealer's VIN log tab,
@@ -4854,11 +4933,12 @@ function manualCommitToVINLog(dealerKey, orderId, vins) {
 
   var committedAt = Utilities.formatDate(new Date(), 'America/Chicago', 'yyyy-MM-dd HH:mm:ss');
   var appendData  = cleaned.map(function(vin) {
-    return [String(orderId).trim(), vin, committedAt];
+    // Manual entries are typed in near order time — order_date = now.
+    return [String(orderId).trim(), vin, committedAt, committedAt];
   });
 
   var startRow = sheet.getLastRow() + 1;
-  sheet.getRange(startRow, 1, appendData.length, 3).setValues(appendData);
+  sheet.getRange(startRow, 1, appendData.length, 4).setValues(appendData);
 
   Logger.log('manualCommitToVINLog: wrote ' + cleaned.length + ' VINs to ' +
              dealerKey + ' under order ' + orderId);
