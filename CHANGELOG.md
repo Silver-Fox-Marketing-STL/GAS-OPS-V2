@@ -20,6 +20,13 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   "⚠ Not In Dealer Inventory" (was "⚠ not in this dealer").
 
 ### Added
+- **Scanner batch note**: field crew can type an optional "Note to office"
+  (500-char cap) on the Lot Scanner capture screen; it's stamped into the
+  existing `notes` column on every row of the batch at Finish
+  (`sendDraftBatch` note param / new `setBatchNote` for finish-without-send),
+  pre-fills on Resume, shows read-only on the draft card, and displays on the
+  VIN Inbox batch header (reader already returned `notes` — display-only
+  main-app change). No schema change.
 - **CSV Schemas settings page** (`ViewCsvSchemas.html`): edit/create CSV_SCHEMAS
   rows through a structured editor — field-code dropdown (effective FIELD_CODES
   registry), optional header override, `edit[N]` editable flag, reorder, used-by

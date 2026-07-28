@@ -23,16 +23,25 @@ is the system's idiom.
 
 ## Scanner (lot-scan project)
 
+*Amended 2026-07-28 (implementation): the note is stamped at **Finish**, not at
+commit — `commitQueuedBatch` is untouched.*
+
 - **Capture screen:** optional "Note to office" text input in the batch/queue
   area. Plain text, trimmed, client-capped at 500 chars. Cleared when a new
   batch starts.
-- **`commitQueuedBatch(dealerKey, batchId, items, note)`** — new 4th param.
-  Every chunk of the same batch carries the same note; `buildRow` writes it
-  to the notes column instead of `''`. Idempotency/dedupe/locking unchanged.
+- **Stamped at Finish, in one pass over the batch's draft rows:**
+  - **`sendDraftBatch(batchId, note)`** — optional 2nd param, written to the
+    notes column inside the existing draft→submitted status-flip loop
+    (Finish & Send). No extra pass, no extra call.
+  - **`setBatchNote(batchId, note)`** — new, covers Finish-without-send: same
+    owner/batch/`draft` row filter, writes the notes column only.
+  - `commitQueuedBatch` keeps its 3-param signature; chunks still write `''`.
+    Photo commits stay on the hot path, and the note is read once from the
+    live input at Finish, so mid-shoot edits can't split across chunks.
 - **`getMyDrafts`** returns `note` per draft row; the draft batch card shows
   it read-only (first non-empty in the batch) so crew can confirm it
-  persisted. It must persist at commit because drafts can be sent after an
-  app reload — a client-held note would be lost.
+  persisted, and Resume pre-fills the capture input from it — so a draft
+  sent after an app reload still carries its note.
 
 ## Main app (VIN Inbox)
 
@@ -44,8 +53,11 @@ is the system's idiom.
 ## Edge cases
 
 - Blank note → blank column → header renders nothing. Legacy rows unaffected.
-- Note edited mid-batch after some chunks committed → later rows carry newer
-  text; display uses first non-empty, stays coherent.
+- *(Amended 2026-07-28: chunk divergence no longer applies — one stamp at
+  Finish writes every row.)* A page reload mid-shoot loses an untyped/unsaved
+  note, the same way unsaved photos are lost. Clearing a previously
+  saved note back to empty does not propagate (an empty note is skipped rather
+  than written) — known, deferred.
 - Note display is escape-only (no markdown/HTML).
 
 ## Testing
