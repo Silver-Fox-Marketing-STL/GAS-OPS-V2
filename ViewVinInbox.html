@@ -17,6 +17,8 @@
       <h2 class="u-h2" style="margin:0;">VIN Inbox</h2>
       <div class="vi-head-actions">
         <button type="button" class="btn-ghost" id="viOcrBtn" onclick="viRunOcr()" hidden>Run OCR (<span id="viOcrCount">0</span> queued)</button>
+        <button type="button" class="btn-danger" id="viSelDiscardBtn" onclick="viSelDiscard()" hidden>Discard selected (<span id="viSelCount">0</span>)</button>
+        <button type="button" class="btn-ghost" id="viSelBtn" onclick="viSelToggle()">Select</button>
         <button type="button" class="btn-ghost" onclick="viLoad()">&#8635; Refresh</button>
       </div>
     </div>
@@ -61,6 +63,10 @@
   /* Buttons: don't shrink next to the flex:1 VIN input. */
   #view-vin-inbox .vi-actions button { flex-shrink: 0; }
   #view-vin-inbox .vi-empty { color: var(--text-3); margin-top: var(--space-5); }
+
+  /* Select mode: checkboxes only exist visually while the mode is on. */
+  #view-vin-inbox .vi-check { display: none; width: 18px; height: 18px; margin: 0; flex-shrink: 0; align-self: center; cursor: pointer; }
+  #view-vin-inbox.vi-select-mode .vi-check { display: inline-block; }
 </style>
 
 <script>
@@ -99,7 +105,7 @@
       .getVinSubmissions();   // no filter = submitted only (drafts stay field-owned until Send to office)
   }
 
-  var viSelectMode = false;   // Task: select mode — declared here for the refresh guard
+  var viSelectMode = false;   // select mode (Select/Cancel toggle) — also gates viRefresh
   var viRefreshing = false;
   // Bumped by every optimistic LOCAL mutation (discard, VIN save). A refresh
   // snapshot taken before the bump is stale: confirm() blocks the JS thread, so
@@ -186,6 +192,7 @@
       // Collapsed by default (no `open` attr) — native <details> = no JS toggle state to manage.
       html += '<details class="vi-batch" data-key="' + escHtml(key) + '">';
       html += '<summary>';
+      html += '<input type="checkbox" class="vi-check vi-check-batch" onclick="event.stopPropagation()" aria-label="Select batch">';
       html += '<span class="vi-caret">&#9656;</span>';
       html += '<span class="vi-batch-title"><span class="vi-dealer">' + escHtml(name) + '</span>';
       if (isBatch) {
@@ -213,6 +220,7 @@
     });
     body.innerHTML = html;
     viLoadMaps();
+    viSelCountUpdate();   // re-render clears checkmarks — sync the count
   }
 
   // One getDealerVinData call per distinct dealer in the inbox (typically 1–2);
@@ -262,6 +270,7 @@
     var queued = (s.ocrState === 'queued');
     var h = '';
     h += '<div class="vi-card' + (queued || s.matched ? '' : ' miss') + '" id="vicard_' + s.id + '">';
+    h += '<input type="checkbox" class="vi-check vi-check-card" data-id="' + escHtml(s.id) + '" aria-label="Select photo">';
     h += thumb;
     h += '<div class="vi-info">';
     h += '<div id="vistat_' + s.id + '">' + viStatusHtml(s, false) + '</div>';
@@ -332,6 +341,7 @@
     }
     if (!viSubs.length) document.getElementById('viBody').innerHTML = '<p class="vi-empty">No open submissions.</p>';
     viRefreshOcrBtn();
+    viSelCountUpdate();   // a checked card can be removed via its own Discard button mid-select
   }
 
   // Optimistic bulk discard: rows vanish immediately; the server call runs in
@@ -492,4 +502,59 @@
       })
       .runInboxOcr(10);
   }
+
+  // ── Select mode — bulk discard across batches ──
+  function viSelToggle(skipRefresh) {
+    viSelectMode = !viSelectMode;
+    document.getElementById('view-vin-inbox').classList.toggle('vi-select-mode', viSelectMode);
+    var selBtn = document.getElementById('viSelBtn');
+    if (selBtn) selBtn.textContent = viSelectMode ? 'Cancel' : 'Select';
+    var dBtn = document.getElementById('viSelDiscardBtn');
+    if (dBtn) dBtn.hidden = !viSelectMode;
+    if (viSelectMode) { viSelCountUpdate(); return; }
+    // Exiting: clear leftover checks, then catch up on refreshes the mode blocked
+    // (skipRefresh: bulk discard passes true — a refetch would race the server
+    // write and momentarily resurrect the discarded rows).
+    var boxes = document.querySelectorAll('#viBody .vi-check:checked');
+    for (var i = 0; i < boxes.length; i++) boxes[i].checked = false;
+    if (!skipRefresh) viRefresh();
+  }
+
+  function viSelCountUpdate() {
+    var n = document.querySelectorAll('#viBody .vi-check-card:checked').length;
+    var span = document.getElementById('viSelCount');
+    if (span) span.textContent = n;
+    var dBtn = document.getElementById('viSelDiscardBtn');
+    if (dBtn) dBtn.disabled = (n === 0);
+  }
+
+  function viSelDiscard() {
+    var boxes = document.querySelectorAll('#viBody .vi-check-card:checked');
+    if (!boxes.length) return;
+    if (!confirm('Discard ' + boxes.length + ' selected submission' + (boxes.length === 1 ? '' : 's') + '?')) return;
+    var ids = [];
+    for (var i = 0; i < boxes.length; i++) ids.push(boxes[i].getAttribute('data-id'));
+    viSelToggle(true);   // exit select mode without the catch-up refresh
+    viDiscardIds(ids);
+  }
+
+  // One delegated listener — survives every innerHTML re-render of #viBody.
+  // Batch box drives its cards; a card change re-derives its batch box.
+  document.getElementById('viBody').addEventListener('change', function (e) {
+    var t = e.target;
+    if (!t || !t.classList || !t.classList.contains('vi-check')) return;
+    var det = t.closest('.vi-batch');
+    if (t.classList.contains('vi-check-batch')) {
+      if (det) {
+        var cards = det.querySelectorAll('.vi-check-card');
+        for (var i = 0; i < cards.length; i++) cards[i].checked = t.checked;
+      }
+    } else if (det) {
+      var all = det.querySelectorAll('.vi-check-card');
+      var checked = det.querySelectorAll('.vi-check-card:checked');
+      var bb = det.querySelector('.vi-check-batch');
+      if (bb) bb.checked = (all.length > 0 && checked.length === all.length);
+    }
+    viSelCountUpdate();
+  });
 </script>
