@@ -130,7 +130,7 @@
       var doneCount = rows.filter(function (r) { return r.ocrState !== 'queued'; }).length;
       var validCount = rows.filter(function (r) { return r.valid; }).length;
       // Collapsed by default (no `open` attr) — native <details> = no JS toggle state to manage.
-      html += '<details class="vi-batch">';
+      html += '<details class="vi-batch" data-key="' + escHtml(key) + '">';
       html += '<summary>';
       html += '<span class="vi-caret">&#9656;</span>';
       html += '<span class="vi-batch-title"><span class="vi-dealer">' + escHtml(name) + '</span>';
@@ -142,7 +142,7 @@
       }
       html += '</span>';
       html += '<span class="eomr-chips">';
-      html += '<span class="eomr-chip"><b>' + rows.length + '</b> submission' + (rows.length === 1 ? '' : 's') + '</span>';
+      html += '<span class="eomr-chip" id="visubs_' + gi + '">' + viSubsChip_(rows.length) + '</span>';
       if (isBatch && doneCount < rows.length) {
         html += '<span class="tag tone-info">' + doneCount + '/' + rows.length + ' read</span>';
       }
@@ -247,6 +247,54 @@
     return null;
   }
 
+  function viSubsChip_(n) {
+    return '<b>' + n + '</b> submission' + (n === 1 ? '' : 's');
+  }
+
+  // Optimistic removal: drop rows from viSubs + the DOM in place — no reload.
+  // viGroupNames is deliberately untouched (gi indices baked into inline
+  // handlers stay valid); an emptied group's <details> is removed here, so its
+  // stale handlers can't fire.
+  function viRemoveRows(ids) {
+    var gone = {};
+    ids.forEach(function (id) { gone[String(id)] = 1; });
+    viSubs = viSubs.filter(function (s) { return !gone[String(s.id)]; });
+    ids.forEach(function (id) {
+      var card = document.getElementById('vicard_' + id);
+      if (card && card.parentNode) card.parentNode.removeChild(card);
+    });
+    var batches = document.querySelectorAll('#viBody .vi-batch');
+    for (var i = 0; i < batches.length; i++) {
+      var det = batches[i];
+      var key = det.getAttribute('data-key');
+      var left = viSubs.filter(function (s) { return viGroupKey(s) === key; });
+      if (!left.length) { det.parentNode.removeChild(det); continue; }
+      var gi = viGroupNames.indexOf(key);
+      var subsChip = document.getElementById('visubs_' + gi);
+      if (subsChip) subsChip.innerHTML = viSubsChip_(left.length);
+      var validB = document.getElementById('vivalid_' + gi);
+      if (validB) validB.textContent = left.filter(function (s) { return s.valid; }).length;
+    }
+    if (!viSubs.length) document.getElementById('viBody').innerHTML = '<p class="vi-empty">No open submissions.</p>';
+    viRefreshOcrBtn();
+  }
+
+  // Optimistic bulk discard: rows vanish immediately; the server call runs in
+  // the background. Failure (thrown or !ok) → toast + full viLoad resync — the
+  // sheet stays authoritative, we never surgically roll back.
+  function viDiscardIds(ids) {
+    viRemoveRows(ids);
+    google.script.run
+      .withSuccessHandler(function (res) {
+        if (!res || !res.ok) { toast('Discard failed: ' + escHtml((res && res.error) || '?'), 'error'); viLoad(); return; }
+        var msg = 'Discarded ' + res.updated + ' submission' + (res.updated === 1 ? '' : 's') + '.';
+        if (res.photosFailed > 0) msg += ' (' + res.photosFailed + ' photo(s) couldn\'t be deleted)';
+        toast(msg, 'success');
+      })
+      .withFailureHandler(function (e) { toast('Discard failed: ' + escHtml((e && e.message) || String(e)), 'error'); viLoad(); })
+      .updateVinSubmissionStatuses(ids, 'discarded');
+  }
+
   // Pure-local check on every keystroke: validity via viValidVin, inventory via the
   // preloaded dealer map. Updates the card in place + the in-memory row (so Create
   // order / batch chips use the corrected values immediately). No server calls.
@@ -333,24 +381,7 @@
       .updateVinSubmissionStatuses(b.ids, 'discarded');
   }
 
-  function viAction(sid, status, vin, okMsg) {
-    google.script.run
-      .withSuccessHandler(function (res) {
-        if (res && res.ok) {
-          if (okMsg) {
-            var msg = okMsg, tone = 'success';
-            if (res.photoTrashed === false) { msg += ' (photo not deleted)'; tone = 'info'; }
-            toast(msg, tone);
-          }
-          viLoad();
-        }
-        else { toast('Failed: ' + escHtml((res && res.error) || '?'), 'error'); }
-      })
-      .withFailureHandler(function (e) { toast('Failed: ' + escHtml((e && e.message) || String(e)), 'error'); })
-      .updateVinSubmissionStatus(sid, status, vin || '');
-  }
-
-  function viDiscard(sid) { if (confirm('Discard this submission?')) viAction(sid, 'discarded', '', 'Discarded.'); }
+  function viDiscard(sid) { if (confirm('Discard this submission?')) viDiscardIds([sid]); }
 
   function viDeleteBatch(gi, evt) {
     // Button lives inside <summary> — prevent the click from also toggling the batch open/closed.
@@ -359,28 +390,7 @@
     var rows = viSubs.filter(function (s) { return viGroupKey(s) === key; });
     if (!rows.length) return;
     if (!confirm('Discard all ' + rows.length + ' submissions in this batch?')) return;
-    var btn = evt && evt.currentTarget;
-    if (btn) btn.disabled = true;
-    toast('Discarding ' + rows.length + ' submissions…', 'info');
-    google.script.run
-      .withSuccessHandler(function (res) {
-        if (btn) btn.disabled = false;
-        if (!res || !res.ok) {
-          toast('Batch discard failed: ' + escHtml((res && res.error) || '?'), 'error');
-          viLoad();
-          return;
-        }
-        var msg = 'Discarded ' + res.updated + ' submission' + (res.updated === 1 ? '' : 's') + '.';
-        if (res.photosFailed > 0) msg += ' (' + res.photosFailed + ' photo(s) couldn\'t be deleted)';
-        toast(msg, 'success');
-        viLoad();
-      })
-      .withFailureHandler(function (e) {
-        if (btn) btn.disabled = false;
-        toast('Batch discard failed: ' + escHtml((e && e.message) || String(e)), 'error');
-        viLoad();
-      })
-      .updateVinSubmissionStatuses(rows.map(function (s) { return s.id; }), 'discarded');
+    viDiscardIds(rows.map(function (s) { return s.id; }));
   }
 
   // ── Run OCR — office-side manual trigger (scanner no longer OCRs its own queue) ──
