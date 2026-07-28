@@ -138,7 +138,7 @@
         html += '<span class="vi-group-sub">' + escHtml(rows[0].email || '') + (rows[0].ts ? (' · ' + escHtml(rows[0].ts)) : '') + '</span>';
         var batchNote = '';
         for (var ni = 0; ni < rows.length; ni++) { if (rows[ni].notes) { batchNote = rows[ni].notes; break; } }
-        if (batchNote) html += '<span class="vi-note">&#128221; ' + escHtml(batchNote) + '</span>';
+        if (batchNote) html += '<span class="vi-note" title="' + escHtml(batchNote) + '">&#128221; ' + escHtml(batchNote) + '</span>';
       }
       html += '</span>';
       html += '<span class="eomr-chips">';

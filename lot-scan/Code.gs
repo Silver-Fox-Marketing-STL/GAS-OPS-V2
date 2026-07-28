@@ -412,6 +412,7 @@ function sendDraftBatch(batchId, note) {
   try {
     var me = getActiveEmail_();
     var noteStr = String(note || '').trim().slice(0, 500);
+    if (noteStr.charAt(0) === '=') noteStr = "'" + noteStr;   // never store user text as a live formula
     var sh = getOrCreateLotSubmissionsSheet_();
     var data = sh.getDataRange().getValues();
     var n = 0;
@@ -436,6 +437,7 @@ function setBatchNote(batchId, note) {
   try {
     var me = getActiveEmail_();
     var noteStr = String(note || '').trim().slice(0, 500);
+    if (noteStr.charAt(0) === '=') noteStr = "'" + noteStr;   // never store user text as a live formula
     var sh = getOrCreateLotSubmissionsSheet_();
     var data = sh.getDataRange().getValues();
     var n = 0;
