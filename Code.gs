@@ -907,6 +907,8 @@ function getActiveDealersForUI() {
       });
     }
   }
+  // Alphabetical everywhere — dropdowns render in the order the server returns.
+  dealers.sort(function(a, b) { return String(a.name).localeCompare(String(b.name)); });
   return dealers;
 }
 
@@ -4969,6 +4971,7 @@ function getRulesEditorBootstrap() {
       dealers.push({ key: dealerData[i][CFG.KEY], name: dealerData[i][CFG.NAME] });
     }
   }
+  dealers.sort(function(a, b) { return String(a.name).localeCompare(String(b.name)); });
 
   var schemaData = configSS.getSheetByName('CSV_SCHEMAS').getDataRange().getValues();
   var schemas = [];

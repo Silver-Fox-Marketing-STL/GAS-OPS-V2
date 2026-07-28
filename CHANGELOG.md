@@ -10,6 +10,15 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## [Unreleased]
 
+### Changed
+- **Dealer dropdowns sort alphabetically** (by dealer name) instead of DEALERS
+  sheet order. Sorted server-side in the list builders so every consumer gets
+  it: `getActiveDealersForUI` (App bootstrap — Run Order, VIN Log, Home,
+  Import/Data Sources), `getRulesEditorBootstrap` (Dealer Rules), and the Lot
+  Scanner's `getActiveDealersForScanner_` (needs its own lot-scan deploy).
+- Run Order inventory-match table: unmatched VINs now read
+  "⚠ Not In Dealer Inventory" (was "⚠ not in this dealer").
+
 ### Added
 - **CSV Schemas settings page** (`ViewCsvSchemas.html`): edit/create CSV_SCHEMAS
   rows through a structured editor — field-code dropdown (effective FIELD_CODES

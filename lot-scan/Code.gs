@@ -112,6 +112,7 @@ function getActiveDealersForScanner_() {
   for (var i = 1; i < data.length; i++) {
     if (isTrue_(data[i][CFG.ACTIVE])) out.push({ key: data[i][CFG.KEY], name: data[i][CFG.NAME] });
   }
+  out.sort(function(a, b) { return String(a.name).localeCompare(String(b.name)); });
   return out;
 }
 
