@@ -16,8 +16,11 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   Single-card discard now routes through the bulk endpoint.
 - **VIN Inbox OCR progress is live**: cards update after each Run OCR chunk,
   and a 15s background poll (only while the view is visible AND queued photos
-  exist) picks up OCR run from other sessions. Refreshes keep loaded inventory
-  maps and open batches, and skip while typing a VIN or in Select mode.
+  exist, and never in a hidden browser tab) picks up OCR run from other
+  sessions. Refreshes keep loaded inventory maps and open batches, and skip
+  while typing a VIN, in Select mode, or while an optimistic discard/VIN-save
+  write hasn't answered yet (otherwise a refresh that starts after the local
+  removal but before the sheet write commits resurrects the cards).
 - **Dealer dropdowns sort alphabetically** (by dealer name) instead of DEALERS
   sheet order. Sorted server-side in the list builders so every consumer gets
   it: `getActiveDealersForUI` (App bootstrap — Run Order, VIN Log, Home,

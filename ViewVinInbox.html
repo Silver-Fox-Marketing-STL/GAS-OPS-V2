@@ -65,7 +65,7 @@
   #view-vin-inbox .vi-empty { color: var(--text-3); margin-top: var(--space-5); }
 
   /* Select mode: checkboxes only exist visually while the mode is on. */
-  #view-vin-inbox .vi-check { display: none; width: 18px; height: 18px; margin: 0; flex-shrink: 0; align-self: center; cursor: pointer; }
+  #view-vin-inbox .vi-check { display: none; width: 18px; height: 18px; margin: 0; flex-shrink: 0; align-self: center; cursor: pointer; accent-color: var(--accent); }
   #view-vin-inbox.vi-select-mode .vi-check { display: inline-block; }
 </style>
 
@@ -114,11 +114,18 @@
   // Stale snapshots are dropped, not merged; local state is already right and
   // the server agrees within a round trip.
   var viMutSeq = 0;
+  // viMutSeq only catches refreshes STARTED BEFORE a mutation. This counter
+  // catches the other window: a refresh started AFTER the local mutation but
+  // BEFORE its server write commits (updateVinSubmissionStatuses is seconds of
+  // per-row setValues + photo trashing) still reads the old rows and would
+  // resurrect discarded cards / revert a saved VIN. Non-zero = no refreshes.
+  var viWritesInFlight = 0;
 
   // True while an innerHTML re-render would destroy user state (checkmarks in
   // select mode, or an in-flight VIN edit). Checked before AND after the fetch.
   function viRefreshBlocked_() {
     if (viSelectMode) return true;
+    if (viWritesInFlight) return true;
     var ae = document.activeElement;
     return !!(ae && ae.id && ae.id.indexOf('vivin_') === 0);
   }
@@ -152,6 +159,7 @@
   // manual refresh. The tick is free (no server call) unless the view is
   // showing and queued rows exist.
   setInterval(function () {
+    if (document.hidden) return;   // background tab — nothing to see, don't burn quota
     var view = document.getElementById('view-vin-inbox');
     if (!view || view.hidden) return;
     var queued = false;
@@ -351,14 +359,16 @@
   // sheet stays authoritative, we never surgically roll back.
   function viDiscardIds(ids) {
     viRemoveRows(ids);
+    viWritesInFlight++;   // block refreshes until the sheet actually says 'discarded'
     google.script.run
       .withSuccessHandler(function (res) {
+        viWritesInFlight--;
         if (!res || !res.ok) { toast('Discard failed: ' + escHtml((res && res.error) || '?'), 'error'); viLoad(); return; }
         var msg = 'Discarded ' + res.updated + ' submission' + (res.updated === 1 ? '' : 's') + '.';
         if (res.photosFailed > 0) msg += ' (' + res.photosFailed + ' photo(s) couldn\'t be deleted)';
         toast(msg, 'success');
       })
-      .withFailureHandler(function (e) { toast('Discard failed: ' + escHtml((e && e.message) || String(e)), 'error'); viLoad(); })
+      .withFailureHandler(function (e) { viWritesInFlight--; toast('Discard failed: ' + escHtml((e && e.message) || String(e)), 'error'); viLoad(); })
       .updateVinSubmissionStatuses(ids, 'discarded');
   }
 
@@ -395,11 +405,13 @@
     var el = document.getElementById('vivin_' + sid);
     if (!el) return;
     viMutSeq++;   // the edited VIN is local-only until this save lands — don't let a pre-edit snapshot revert it
+    viWritesInFlight++;   // …and don't let a refresh STARTED after the edit but before the write commits revert it either
     google.script.run
       .withSuccessHandler(function (res) {
+        viWritesInFlight--;
         if (!res || !res.ok) toast('VIN save failed: ' + escHtml((res && res.error) || '?'), 'error');
       })
-      .withFailureHandler(function (e) { toast('VIN save failed: ' + escHtml((e && e.message) || String(e)), 'error'); })
+      .withFailureHandler(function (e) { viWritesInFlight--; toast('VIN save failed: ' + escHtml((e && e.message) || String(e)), 'error'); })
       .updateVinSubmissionStatus(sid, 'submitted', el.value);
   }
 
