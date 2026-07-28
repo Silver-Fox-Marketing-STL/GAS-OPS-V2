@@ -10,7 +10,23 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## [Unreleased]
 
+### Changed
+- **Dealer dropdowns sort alphabetically** (by dealer name) instead of DEALERS
+  sheet order. Sorted server-side in the list builders so every consumer gets
+  it: `getActiveDealersForUI` (App bootstrap — Run Order, VIN Log, Home,
+  Import/Data Sources), `getRulesEditorBootstrap` (Dealer Rules), and the Lot
+  Scanner's `getActiveDealersForScanner_` (needs its own lot-scan deploy).
+- Run Order inventory-match table: unmatched VINs now read
+  "⚠ Not In Dealer Inventory" (was "⚠ not in this dealer").
+
 ### Added
+- **Scanner batch note**: field crew can type an optional "Note to office"
+  (500-char cap) on the Lot Scanner capture screen; it's stamped into the
+  existing `notes` column on every row of the batch at Finish
+  (`sendDraftBatch` note param / new `setBatchNote` for finish-without-send),
+  pre-fills on Resume, shows read-only on the draft card, and displays on the
+  VIN Inbox batch header (reader already returned `notes` — display-only
+  main-app change). No schema change.
 - **CSV Schemas settings page** (`ViewCsvSchemas.html`): edit/create CSV_SCHEMAS
   rows through a structured editor — field-code dropdown (effective FIELD_CODES
   registry), optional header override, `edit[N]` editable flag, reorder, used-by

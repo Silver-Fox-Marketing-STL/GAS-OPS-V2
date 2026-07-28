@@ -112,6 +112,7 @@ function getActiveDealersForScanner_() {
   for (var i = 1; i < data.length; i++) {
     if (isTrue_(data[i][CFG.ACTIVE])) out.push({ key: data[i][CFG.KEY], name: data[i][CFG.NAME] });
   }
+  out.sort(function(a, b) { return String(a.name).localeCompare(String(b.name)); });
   return out;
 }
 
@@ -369,7 +370,8 @@ function getMyDrafts() {
         vin: String(r[LOTC.VIN_FINAL] || ''), valid: isTrue_(r[LOTC.VALID]), matched: isTrue_(r[LOTC.MATCHED]),
         year: String(r[LOTC.YEAR] || ''), make: String(r[LOTC.MAKE] || ''), model: String(r[LOTC.MODEL] || ''),
         type: String(r[LOTC.TYPE] || ''), stock: String(r[LOTC.STOCK] || ''),
-        ocrState: String(r[LOTC.OCR_STATE] || ''), ts: String(r[LOTC.TS] || '')
+        ocrState: String(r[LOTC.OCR_STATE] || ''), ts: String(r[LOTC.TS] || ''),
+        note: String(r[LOTC.NOTES] || '')
       });
     }
     return { ok: true, drafts: out };
@@ -404,9 +406,13 @@ function discardBatch(batchId) {
 }
 
 // Field "Send to office" — flip this user's draft rows in a batch to submitted.
-function sendDraftBatch(batchId) {
+// Optional note (batch note typed during capture): stamped on every row in the
+// same pass. Empty/absent note = leave the notes column untouched.
+function sendDraftBatch(batchId, note) {
   try {
     var me = getActiveEmail_();
+    var noteStr = String(note || '').trim().slice(0, 500);
+    if (noteStr.charAt(0) === '=') noteStr = "'" + noteStr;   // never store user text as a live formula
     var sh = getOrCreateLotSubmissionsSheet_();
     var data = sh.getDataRange().getValues();
     var n = 0;
@@ -415,11 +421,36 @@ function sendDraftBatch(batchId) {
       if (String(data[i][LOTC.BATCH_ID]) !== String(batchId)) continue;
       if (String(data[i][LOTC.STATUS]) !== 'draft') continue;
       sh.getRange(i + 1, LOTC.STATUS + 1).setValue('submitted');
+      if (noteStr) sh.getRange(i + 1, LOTC.NOTES + 1).setValue(noteStr);
       n++;
     }
     return { ok: true, sent: n };
   } catch (e) {
     Logger.log('sendDraftBatch failed: ' + e.message);
+    return { ok: false, error: e.message };
+  }
+}
+
+// Stamp/replace the batch note on this user's draft rows (Finish-without-send
+// path — Finish & Send stamps via sendDraftBatch instead).
+function setBatchNote(batchId, note) {
+  try {
+    var me = getActiveEmail_();
+    var noteStr = String(note || '').trim().slice(0, 500);
+    if (noteStr.charAt(0) === '=') noteStr = "'" + noteStr;   // never store user text as a live formula
+    var sh = getOrCreateLotSubmissionsSheet_();
+    var data = sh.getDataRange().getValues();
+    var n = 0;
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][LOTC.EMAIL]) !== me) continue;
+      if (String(data[i][LOTC.BATCH_ID]) !== String(batchId)) continue;
+      if (String(data[i][LOTC.STATUS]) !== 'draft') continue;
+      sh.getRange(i + 1, LOTC.NOTES + 1).setValue(noteStr);
+      n++;
+    }
+    return { ok: true, updated: n };
+  } catch (e) {
+    Logger.log('setBatchNote failed: ' + e.message);
     return { ok: false, error: e.message };
   }
 }
