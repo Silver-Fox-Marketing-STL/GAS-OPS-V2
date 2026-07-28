@@ -11,6 +11,13 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Changed
+- **VIN Inbox discards are optimistic**: cards/batches vanish immediately
+  (no full reload between deletes); server failure resyncs via reload.
+  Single-card discard now routes through the bulk endpoint.
+- **VIN Inbox OCR progress is live**: cards update after each Run OCR chunk,
+  and a 15s background poll (only while the view is visible AND queued photos
+  exist) picks up OCR run from other sessions. Refreshes keep loaded inventory
+  maps and open batches, and skip while typing a VIN or in Select mode.
 - **Dealer dropdowns sort alphabetically** (by dealer name) instead of DEALERS
   sheet order. Sorted server-side in the list builders so every consumer gets
   it: `getActiveDealersForUI` (App bootstrap — Run Order, VIN Log, Home,
@@ -20,6 +27,9 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   "⚠ Not In Dealer Inventory" (was "⚠ not in this dealer").
 
 ### Added
+- **VIN Inbox Select mode**: checkboxes on photo cards and batch headers
+  (batch box selects its cards), cross-batch "Discard selected (N)" bulk
+  discard — one `updateVinSubmissionStatuses` call. Client-only.
 - **Scanner batch note**: field crew can type an optional "Note to office"
   (500-char cap) on the Lot Scanner capture screen; it's stamped into the
   existing `notes` column on every row of the batch at Finish
