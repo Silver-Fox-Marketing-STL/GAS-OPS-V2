@@ -123,6 +123,13 @@
     .ls-qchip.saved { background: var(--success-weak); color: var(--success); }
     .ls-qchip.failed { background: var(--danger-weak); color: var(--danger); cursor: pointer; text-decoration: underline; }
 
+    /* note to office (shooting pane) + its read-only echo on a draft card */
+    .ls-note { width: 100%; box-sizing: border-box; margin-top: var(--space-3);
+      padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius);
+      background: var(--surface); color: var(--text); font: inherit; resize: vertical; }
+    .ls-note::placeholder { opacity: .6; }   /* lot-scan's SharedUtils has no --text-dim token */
+    .ls-dnote { margin: 0 0 var(--space-2); padding: 0 var(--space-3); }   /* matches .ls-dbtns/.ls-drows card inset */
+
     .ls-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-4); }
     .ls-vin { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-lg); font-weight: 700;
               letter-spacing: .04em; word-break: break-all; }
@@ -264,6 +271,9 @@
 
         <div class="ls-qstrip" id="lsQueue"></div>
 
+        <textarea id="lsOrderNote" class="ls-note" rows="2" maxlength="500"
+          placeholder="Note to office (optional) — e.g. rush order, damaged vehicle, special placement"></textarea>
+
         <div class="ls-actions">
           <button type="button" class="ls-btn" id="lsFinishBtn" onclick="vpFinishOrder(false)">Finish order</button>
           <button type="button" class="ls-btn primary" id="lsFinishSendBtn" onclick="vpFinishOrder(true)">Finish &amp; Send</button>
@@ -372,12 +382,12 @@
       if (!dealerKey) { toast('Pick a dealer first.', 'info'); return; }
       var dealerName = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : dealerKey;
       var batchId = 'ord' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
-      vpBeginShooting(dealerKey, dealerName, batchId, dealerName + ' — new order');
+      vpBeginShooting(dealerKey, dealerName, batchId, dealerName + ' — new order', '');
     }
 
     // Enter the Shooting pane for a dealer + batchId — fresh pipeline, dealer lock. Shared by
     // vpStartOrder (new batchId) and vpResumeOrder (an existing draft's batchId).
-    function vpBeginShooting(dealerKey, dealerName, batchId, label) {
+    function vpBeginShooting(dealerKey, dealerName, batchId, label, note) {
       vpOrder = { dealerKey: dealerKey, dealerName: dealerName, batchId: batchId };
       vpQueue = []; vpPending = []; vpBuffer = [];
       vpEng = { decoding: false, inFlight: 0, committing: false };
@@ -388,6 +398,7 @@
       document.getElementById('lsShooting').hidden = false;
       document.getElementById('lsOrderDealer').textContent = label;
       document.getElementById('lsOrderBatch').textContent = '#' + (batchId.length > 12 ? batchId.substr(0, 12) : batchId);
+      document.getElementById('lsOrderNote').value = note || '';
       vpRenderQueue(); vpUpdateCount(); vpUpdateFinishUI();
     }
 
@@ -418,6 +429,8 @@
     function vpCompleteFinish() {
       var order = vpOrder, send = vpFinishing && vpFinishing.send;
       var savedN = vpQueue.filter(function (q) { return q.state === 'saved'; }).length;
+      var noteEl = document.getElementById('lsOrderNote');
+      var note = noteEl ? noteEl.value.trim().slice(0, 500) : '';   // read BEFORE vpEndOrder clears the pane
       vpFinishing = null;
       vpEndOrder();
       if (send) {
@@ -433,8 +446,17 @@
             }
           })
           .withFailureHandler(function (e) { toast('Send failed: ' + ((e && e.message) || e), 'error'); vpTab('drafts', order.batchId); })
-          .sendDraftBatch(order.batchId);
+          .sendDraftBatch(order.batchId, note);
       } else {
+        if (note) {
+          google.script.run
+            .withSuccessHandler(function (res) {
+              if (!res || !res.ok) toast('Note not saved: ' + ((res && res.error) || 'unknown') + ' — Resume the draft to retry.', 'error');
+              else vpLoadDrafts();   // draft card should show the fresh note
+            })
+            .withFailureHandler(function (e) { toast('Note not saved: ' + ((e && e.message) || e) + ' — Resume the draft to retry.', 'error'); })
+            .setBatchNote(order.batchId, note);
+        }
         vpTab('drafts', order.batchId);
       }
     }
@@ -444,6 +466,7 @@
       vpEng = { decoding: false, inFlight: 0, committing: false };
       vpFinishing = null;
       document.getElementById('lsQueue').innerHTML = '';
+      document.getElementById('lsOrderNote').value = '';
       document.getElementById('lsShooting').hidden = true;
       document.getElementById('lsIdle').hidden = false;
       document.getElementById('lsDealer').disabled = false;
@@ -743,7 +766,9 @@
       var html = '';
       g.order.forEach(function (bid) {
         var rows = g.groups[bid], dealer = rows[0].dealerName || rows[0].dealerKey || '';
-        vpDraftMeta[bid] = { dealerKey: rows[0].dealerKey || '', dealerName: dealer };
+        var note = '';
+        for (var ni = 0; ni < rows.length; ni++) { if (rows[ni].note) { note = rows[ni].note; break; } }
+        vpDraftMeta[bid] = { dealerKey: rows[0].dealerKey || '', dealerName: dealer, note: note };
         html += '<div class="ls-idrow">' +
           '<div class="info" onclick="vpTab(\'drafts\',\'' + escHtml(bid) + '\')">' +
             '<span class="t">' + escHtml(dealer) + '</span>' +
@@ -775,7 +800,9 @@
       var html = '';
       g.order.forEach(function (bid) {
         var rows = g.groups[bid], dealer = rows[0].dealerName || rows[0].dealerKey || '';
-        vpDraftMeta[bid] = { dealerKey: rows[0].dealerKey || '', dealerName: dealer };
+        var note = '';
+        for (var ni = 0; ni < rows.length; ni++) { if (rows[ni].note) { note = rows[ni].note; break; } }
+        vpDraftMeta[bid] = { dealerKey: rows[0].dealerKey || '', dealerName: dealer, note: note };
         var when = vpFmtTs(rows[0].ts);
         var shortId = bid.length > 12 ? bid.substr(0, 12) : bid;
         var isOpen = bid === openId || !!openIds[bid];
@@ -791,6 +818,8 @@
             '<button type="button" class="ls-btn" onclick="vpResumeOrder(\'' + escHtml(bid) + '\')">Add more photos</button>' +
             '<button type="button" class="ls-btn" onclick="vpDeleteBatch(\'' + escHtml(bid) + '\')">Delete batch</button>' +
           '</div>';
+        var gnote = (vpDraftMeta[bid] && vpDraftMeta[bid].note) || '';
+        if (gnote) html += '<div class="ls-hint ls-dnote">&#128221; ' + escHtml(gnote) + '</div>';
         html += '<div class="ls-drows">';
         rows.forEach(function (r, i) { html += vpDraftRow(r, i + 1); });
         html += '</div></details>';
@@ -866,7 +895,8 @@
       vpDealerKey = meta.dealerKey; vpVinMap = {}; vpSetStart();
       google.script.run.withSuccessHandler(function (m) { vpVinMap = m || {}; }).getDealerVinMap(meta.dealerKey);
       vpTab('capture');
-      vpBeginShooting(meta.dealerKey, meta.dealerName, bid, meta.dealerName + ' — adding to batch');
+      vpBeginShooting(meta.dealerKey, meta.dealerName, bid, meta.dealerName + ' — adding to batch',
+        (vpDraftMeta[bid] && vpDraftMeta[bid].note) || '');
     }
 
     function vpSendBatch(bid) {
