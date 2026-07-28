@@ -101,6 +101,13 @@
 
   var viSelectMode = false;   // Task: select mode — declared here for the refresh guard
   var viRefreshing = false;
+  // Bumped by every optimistic LOCAL mutation (discard, VIN save). A refresh
+  // snapshot taken before the bump is stale: confirm() blocks the JS thread, so
+  // an in-flight refresh response can queue behind the dialog and land AFTER the
+  // discard already dropped the row — re-rendering it would resurrect the card.
+  // Stale snapshots are dropped, not merged; local state is already right and
+  // the server agrees within a round trip.
+  var viMutSeq = 0;
 
   // True while an innerHTML re-render would destroy user state (checkmarks in
   // select mode, or an in-flight VIN edit). Checked before AND after the fetch.
@@ -117,10 +124,11 @@
     if (viRefreshing || viRefreshBlocked_()) return;
     if (!document.getElementById('viBody')) return;
     viRefreshing = true;
+    var seq = viMutSeq;
     google.script.run
       .withSuccessHandler(function (res) {
         viRefreshing = false;
-        if (viRefreshBlocked_()) return;   // state changed mid-flight — drop this snapshot
+        if (viRefreshBlocked_() || seq !== viMutSeq) return;   // state changed mid-flight — drop this snapshot
         var openKeys = {};
         var open = document.querySelectorAll('#viBody .vi-batch[open]');
         for (var i = 0; i < open.length; i++) openKeys[open[i].getAttribute('data-key')] = 1;
@@ -302,6 +310,7 @@
   // handlers stay valid); an emptied group's <details> is removed here, so its
   // stale handlers can't fire.
   function viRemoveRows(ids) {
+    viMutSeq++;   // invalidate any refresh snapshot taken before this removal
     var gone = {};
     ids.forEach(function (id) { gone[String(id)] = 1; });
     viSubs = viSubs.filter(function (s) { return !gone[String(s.id)]; });
@@ -373,6 +382,7 @@
   function viSaveVin(sid) {
     var el = document.getElementById('vivin_' + sid);
     if (!el) return;
+    viMutSeq++;   // the edited VIN is local-only until this save lands — don't let a pre-edit snapshot revert it
     google.script.run
       .withSuccessHandler(function (res) {
         if (!res || !res.ok) toast('VIN save failed: ' + escHtml((res && res.error) || '?'), 'error');
