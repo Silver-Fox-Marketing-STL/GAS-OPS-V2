@@ -161,15 +161,17 @@
 
   function viRender(res) {
     var body = document.getElementById('viBody');
-    if (!res || !res.ok) { body.innerHTML = '<p class="vi-empty">Error: ' + escHtml((res && res.error) || 'unknown') + '</p>'; viSubs = []; viRefreshOcrBtn(); return; }
+    // Every exit that rewrites #viBody destroys the checkboxes — resync the
+    // header count on each one, always AFTER the innerHTML write (it counts live DOM).
+    if (!res || !res.ok) { body.innerHTML = '<p class="vi-empty">Error: ' + escHtml((res && res.error) || 'unknown') + '</p>'; viSubs = []; viRefreshOcrBtn(); viSelCountUpdate(); return; }
     if (!res.configured) {
       body.innerHTML = '<p class="vi-empty">The submissions sheet isn’t linked yet. Set <code>LOT_SUBMISSIONS_SHEET_ID</code> in Code.gs (run the Lot Scanner’s <code>setupLotScannerResources()</code> once to create it).</p>';
-      viSubs = []; viRefreshOcrBtn();
+      viSubs = []; viRefreshOcrBtn(); viSelCountUpdate();
       return;
     }
     viSubs = res.submissions || [];
     viRefreshOcrBtn();
-    if (!viSubs.length) { body.innerHTML = '<p class="vi-empty">No open submissions.</p>'; return; }
+    if (!viSubs.length) { body.innerHTML = '<p class="vi-empty">No open submissions.</p>'; viSelCountUpdate(); return; }
 
     // Group by order batch (field app); legacy/blank-batch rows fall back to one group per dealer.
     var groups = {};
