@@ -99,6 +99,52 @@
       .getVinSubmissions();   // no filter = submitted only (drafts stay field-owned until Send to office)
   }
 
+  var viSelectMode = false;   // Task: select mode — declared here for the refresh guard
+  var viRefreshing = false;
+
+  // True while an innerHTML re-render would destroy user state (checkmarks in
+  // select mode, or an in-flight VIN edit). Checked before AND after the fetch.
+  function viRefreshBlocked_() {
+    if (viSelectMode) return true;
+    var ae = document.activeElement;
+    return !!(ae && ae.id && ae.id.indexOf('vivin_') === 0);
+  }
+
+  // Light refresh: like viLoad but keeps the per-dealer inventory maps (the
+  // expensive fetch — unchanged by OCR) and re-opens the batches the user had
+  // open. Used after each OCR chunk and by the background poll.
+  function viRefresh() {
+    if (viRefreshing || viRefreshBlocked_()) return;
+    if (!document.getElementById('viBody')) return;
+    viRefreshing = true;
+    google.script.run
+      .withSuccessHandler(function (res) {
+        viRefreshing = false;
+        if (viRefreshBlocked_()) return;   // state changed mid-flight — drop this snapshot
+        var openKeys = {};
+        var open = document.querySelectorAll('#viBody .vi-batch[open]');
+        for (var i = 0; i < open.length; i++) openKeys[open[i].getAttribute('data-key')] = 1;
+        viRender(res);
+        var all = document.querySelectorAll('#viBody .vi-batch');
+        for (var j = 0; j < all.length; j++) {
+          if (openKeys[all[j].getAttribute('data-key')]) all[j].setAttribute('open', '');
+        }
+      })
+      .withFailureHandler(function () { viRefreshing = false; })   // silent — poll/next chunk retries soon
+      .getVinSubmissions();
+  }
+
+  // Background poll: OCR run from ANOTHER session becomes visible without a
+  // manual refresh. The tick is free (no server call) unless the view is
+  // showing and queued rows exist.
+  setInterval(function () {
+    var view = document.getElementById('view-vin-inbox');
+    if (!view || view.hidden) return;
+    var queued = false;
+    for (var i = 0; i < viSubs.length; i++) if (viSubs[i].ocrState === 'queued') { queued = true; break; }
+    if (queued) viRefresh();
+  }, 15000);
+
   function viRender(res) {
     var body = document.getElementById('viBody');
     if (!res || !res.ok) { body.innerHTML = '<p class="vi-empty">Error: ' + escHtml((res && res.error) || 'unknown') + '</p>'; viSubs = []; viRefreshOcrBtn(); return; }
@@ -419,13 +465,14 @@
           return;
         }
         var total = doneSoFar + res.processed;
-        toast('OCR: ' + total + ' done, ' + res.remaining + ' remaining…', 'info');
         if (res.remaining > 0 && res.processed > 0) {
+          toast('OCR: ' + total + ' done, ' + res.remaining + ' remaining…', 'info');
+          viRefresh();          // cards flip to results chunk by chunk
           viOcrStep(total);
         } else {
           if (btn) btn.disabled = false;
           toast('OCR finished — ' + total + ' processed.', 'success');
-          viLoad();
+          viRefresh();          // inventory maps unchanged — no need for full viLoad
         }
       })
       .withFailureHandler(function (e) {
