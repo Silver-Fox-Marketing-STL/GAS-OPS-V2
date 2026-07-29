@@ -340,20 +340,22 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   (the owner) test it but fails for a field user, suspect a **missing per-user grant** on a
   sheet/folder before you suspect the code. Grant every user editor / Content-Manager on each
   written resource. (Lot Scanner submissions sheet + photos folder.)
-- **Safari multi-account sessions can bind a web app to a different Google identity than the one
-  you granted — and the per-user grant then "mysteriously" doesn't work.** Google serves
-  `/u/0`, `/u/1`, … account slots; a `USER_ACCESSING` web app (page load AND its
-  `google.script.run` XHRs) executes as whichever slot the session binds, which after an iOS
-  Safari multi-login (personal Gmail + work account, Google/Gmail apps silently re-adding
-  accounts) is not necessarily the account holding the Content-Manager/editor grant. Field
-  signature: a crew member can't reach the `/exec` URL at all until logging out of **every**
-  Google account and back into just the work account — and even after that, writes can still
-  fail if a second account creeps back in. Debug order: (1) read the real exception in the
-  script's Executions log (never let a client-facing catch reduce it to a generic string);
-  (2) compare the identity the run executed as (`Session.getActiveUser()` — now shown as
-  "Signed in as …" in the capture header) against the account that was granted; (3) list every
-  signed-in account at `accounts.google.com` on the device. Fix = one signed-in account (or a
-  dedicated browser profile for the work account), not more grants. (Lot Scanner crew-member
+- **A user can authorize a `USER_ACCESSING` web app with only SOME of its scopes — Google's
+  granular consent has per-scope checkboxes — and every call needing an unchecked scope then
+  throws `You do not have permission to call DriveApp.X`.** Each user grants scopes themselves
+  at first `/exec` access; the consent screen lets them uncheck individual permissions and still
+  "Allow". Field signature: the app loads and Sheets-backed features work (dealer list, drafts)
+  but every `DriveApp` call fails, for exactly one user, 100% of the time — while their
+  Shared-Drive/sheet sharing grants are verifiably correct (sharing grants can't compensate for
+  a missing OAuth scope; they're different layers). The real error is only visible in the
+  script's **Executions log** (never let a client-facing catch reduce it to a generic string —
+  that hid this for a full debugging round). Fix is on the USER'S account, not the script:
+  `myaccount.google.com/connections` → remove the app's access → reopen `/exec` → re-consent
+  with **all** checkboxes checked. An existing partial grant never re-prompts on its own.
+  Related trap from the same incident: iOS Safari multi-login (`/u/N` slots, Google/Gmail apps
+  silently re-adding accounts) can block `/exec` access outright or bind the session to the
+  wrong identity — the capture header's "Signed in as …" line (`Session.getActiveUser()`)
+  makes the executing identity visible in the field. (Lot Scanner crew-member
   100%-upload-failure incident, July 2026.)
 - **A retired `google.script.run` server function must be stubbed to THROW, not to return
   `{ok:false}`.** A soft-failure object reads as **success** in any caller that doesn't inspect

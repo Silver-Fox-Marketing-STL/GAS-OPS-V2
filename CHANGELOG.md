@@ -19,10 +19,11 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   reads e.g. "Upload failed: Could not save photo: Access denied…" (one toast
   per 5-wide burst, not five); (2) tapping a failed chip toasts the item's last
   error before retrying; (3) the capture header shows "Signed in as <email>"
-  (`getCaptureBootstrap` now returns `getActiveEmail_()`) — under
-  `executeAs: USER_ACCESSING` a Safari multi-account session executing as the
-  wrong identity is the prime per-user failure cause, and now it's visible at
-  a glance.
+  (`getCaptureBootstrap` now returns `getActiveEmail_()`) so a wrong-identity
+  Safari multi-account session is visible at a glance. Root cause of the
+  incident itself: the user had authorized the app with the Drive scope
+  UNCHECKED on Google's granular consent screen (see LEARNINGS) — fixed by
+  revoking the app at myaccount.google.com/connections and re-consenting.
 
 ### Changed
 - **Dealer dropdowns sort alphabetically** (by dealer name) instead of DEALERS
