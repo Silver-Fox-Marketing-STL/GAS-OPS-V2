@@ -30,6 +30,7 @@
     .ls-wrap { max-width: 560px; margin: 0 auto; min-height: 100%; display: flex; flex-direction: column;
                padding: var(--space-4); box-sizing: border-box; }
     .ls-head { display: flex; align-items: baseline; gap: var(--space-2); margin-bottom: var(--space-3); }
+    .ls-whoami { font-size: var(--fs-hint); color: var(--text-3); margin: -6px 0 var(--space-3); }
     .ls-title { font-family: var(--font-head); font-weight: 800; font-size: var(--fs-h2); margin: 0; }
     .ls-sub { flex: 1; min-width: 0; font-size: var(--fs-hint); color: var(--text-3);
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -217,6 +218,9 @@
         <ul id="themeMenu" class="theme-menu" role="listbox" aria-label="Theme" hidden></ul>
       </div>
     </div>
+    <!-- Which Google account this session executes as (USER_ACCESSING) — a wrong-account
+         Safari multi-login session is the #1 cause of "uploads fail only for me". -->
+    <div class="ls-whoami" id="lsWhoami" hidden></div>
 
     <div class="ls-tabs">
       <div class="ls-tab active" id="tabCapture" onclick="vpTab('capture')">Capture</div>
@@ -357,6 +361,8 @@
       (b.dealers || []).forEach(function (d) { html += '<option value="' + escHtml(d.key) + '">' + escHtml(d.name) + '</option>'; });
       sel.innerHTML = html;
       if (b.lastDealer) sel.value = b.lastDealer;
+      var who = document.getElementById('lsWhoami');
+      if (who) { who.textContent = 'Signed in as ' + (b.email || 'unknown account'); who.hidden = false; }
       if (window.CustomSelect) { try { CustomSelect.enhanceAll(document); } catch (e) {} }
       if (sel.value) vpDealerChange();
     }
@@ -530,9 +536,20 @@
       vpDecodeNext();
     }
 
+    // Uploads run 5-wide, so one broken account/session fails a whole burst at once —
+    // show ONE toast per burst, not five. The full error stays readable via the chip tap.
+    var vpLastErrToast = 0;
+    function vpUploadErrToast(msg) {
+      var now = Date.now();
+      if (now - vpLastErrToast < 4000) return;
+      vpLastErrToast = now;
+      toast('Upload failed: ' + msg, 'error');
+    }
+
     function vpRetryItem(i) {
       var item = vpQueue[i];
       if (!item || item.state !== 'failed') return;
+      if (item.error) toast('Last error: ' + item.error + ' — retrying', 'info');
       if (item.b64) { item.state = 'uploading'; vpRenderQueue(); vpUpdateCount(); vpFireUpload(item); }
       else { item.state = 'reading'; vpPending.push(item); vpRenderQueue(); vpUpdateCount(); vpDecodeNext(); }
     }
@@ -618,12 +635,14 @@
             vpBuffer.push(item);
           } else {
             item.state = 'failed'; item.error = (res && res.error) || 'upload not ok';
+            vpUploadErrToast(item.error);
           }
           vpRenderQueue(); vpUpdateCount(); vpTryCommit(); vpDecodeNext(); vpCheckFinishDrain();
         })
         .withFailureHandler(function (e) {
           vpEng.inFlight--;
           item.state = 'failed'; item.error = (e && e.message) || String(e);
+          vpUploadErrToast(item.error);
           vpRenderQueue(); vpUpdateCount(); vpDecodeNext(); vpCheckFinishDrain();
         })
         .uploadPhotoOnly(vpOrder.dealerKey, item.b64);
