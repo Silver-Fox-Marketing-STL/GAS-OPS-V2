@@ -587,14 +587,15 @@
       });
     }
 
-    // Lazy-load heic2any only when a HEIC decode actually fails (iOS Safari decodes HEIC
-    // natively, so the phone path never downloads it).
+    // Lazy-load heic-to only when a HEIC decode actually fails (iOS Safari decodes HEIC
+    // natively, so the phone path never downloads it). heic-to tracks current libheif —
+    // heic2any's frozen 2021 build rejected new-iPhone 10-bit HDR HEIC (ERR_LIBHEIF).
     function vpEnsureHeic(cb) {
-      if (window.heic2any) { cb(true); return; }
+      if (window.HeicTo) { cb(true); return; }
       if (window._vpHeicQ) { window._vpHeicQ.push(cb); return; }
       window._vpHeicQ = [cb];
       var s = document.createElement('script');
-      s.src = 'https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js';
+      s.src = 'https://cdn.jsdelivr.net/npm/heic-to@1.5.2/dist/iife/heic-to.js';
       s.onload = function () { var q = window._vpHeicQ || []; window._vpHeicQ = null; q.forEach(function (f) { f(true); }); };
       s.onerror = function () { var q = window._vpHeicQ || []; window._vpHeicQ = null; q.forEach(function (f) { f(false); }); };
       document.head.appendChild(s);
@@ -602,12 +603,11 @@
 
     function vpHeicFallbackQ(item) {
       vpEnsureHeic(function (ok) {
-        if (!ok || !window.heic2any) {
+        if (!ok || !window.HeicTo) {
           vpEng.decoding = false; item.state = 'failed'; item.error = 'decode failed [' + (item.file.type || '?') + '] ' + (item.file.name || '');
           vpRenderQueue(); vpUpdateCount(); vpDecodeNext(); vpCheckFinishDrain(); return;
         }
-        heic2any({ blob: item.file, toType: 'image/jpeg', quality: 0.85 }).then(function (out) {
-          var jpeg = (out && out.length) ? out[0] : out;   // heic2any returns a Blob or [Blob]
+        HeicTo({ blob: item.file, type: 'image/jpeg', quality: 0.85 }).then(function (jpeg) {
           var u2 = URL.createObjectURL(jpeg);
           var img2 = new Image();
           img2.onload = function () { vpDecodeLoaded(item, img2, u2); };

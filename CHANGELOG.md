@@ -11,6 +11,14 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Fixed
+- **Lot Scanner: desktop HEIC conversion handles new-iPhone photos** (needs a
+  lot-scan deploy). Batch gallery uploads of HEIC shot on recent iPhones failed
+  with `heic convert failed: ERR_LIBHEIF format not supported` — `heic2any@0.0.4`
+  bundles a libheif frozen in 2021 that can't decode the 10-bit HDR HEIF newer
+  iPhones shoot by default. Swapped the lazy-loaded CDN converter to
+  `heic-to@1.5.2` (libheif 1.22.2, actively tracked upstream); same load-on-first-
+  failure pattern, same call site, phones unaffected (iOS Safari decodes HEIC
+  natively and never downloads the library).
 - **Lot Scanner: upload failures now say WHY** (needs a lot-scan deploy). Born
   from a field incident: one crew member's uploads failed 100% while everyone
   else worked, and the phone showed only red "retry ↻" chips with no reason.
