@@ -10,6 +10,29 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## [Unreleased]
 
+### Fixed
+- **Lot Scanner: desktop HEIC conversion handles new-iPhone photos** (needs a
+  lot-scan deploy). Batch gallery uploads of HEIC shot on recent iPhones failed
+  with `heic convert failed: ERR_LIBHEIF format not supported` — `heic2any@0.0.4`
+  bundles a libheif frozen in 2021 that can't decode the 10-bit HDR HEIF newer
+  iPhones shoot by default. Swapped the lazy-loaded CDN converter to
+  `heic-to@1.5.2` (libheif 1.22.2, actively tracked upstream); same load-on-first-
+  failure pattern, same call site, phones unaffected (iOS Safari decodes HEIC
+  natively and never downloads the library).
+- **Lot Scanner: upload failures now say WHY** (needs a lot-scan deploy). Born
+  from a field incident: one crew member's uploads failed 100% while everyone
+  else worked, and the phone showed only red "retry ↻" chips with no reason.
+  Three visibility fixes, no behavior change: (1) `saveBlobToDrive_` returns the
+  real Drive exception message instead of swallowing it — the client toast now
+  reads e.g. "Upload failed: Could not save photo: Access denied…" (one toast
+  per 5-wide burst, not five); (2) tapping a failed chip toasts the item's last
+  error before retrying; (3) the capture header shows "Signed in as <email>"
+  (`getCaptureBootstrap` now returns `getActiveEmail_()`) so a wrong-identity
+  Safari multi-account session is visible at a glance. Root cause of the
+  incident itself: the user had authorized the app with the Drive scope
+  UNCHECKED on Google's granular consent screen (see LEARNINGS) — fixed by
+  revoking the app at myaccount.google.com/connections and re-consenting.
+
 ### Changed
 - **Dealer dropdowns sort alphabetically** (by dealer name) instead of DEALERS
   sheet order. Sorted server-side in the list builders so every consumer gets

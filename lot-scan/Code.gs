@@ -103,7 +103,9 @@ function doGet(e) {
 // BOOTSTRAP — active dealers + last-used dealer
 // ============================================================================
 function getCaptureBootstrap() {
-  return { dealers: getActiveDealersForScanner_(), lastDealer: getLastSelectedDealer() };
+  // email: the identity this session's writes execute as (USER_ACCESSING) — shown in the
+  // header so a wrong-account / multi-login session is visible in the field at a glance.
+  return { dealers: getActiveDealersForScanner_(), lastDealer: getLastSelectedDealer(), email: getActiveEmail_() };
 }
 
 function getActiveDealersForScanner_() {
@@ -272,7 +274,7 @@ function uploadPhotoOnly(dealerKey, base64Image) {
     var blob = Utilities.newBlob(Utilities.base64Decode(b64), 'image/jpeg',
                  'lotvin_' + dealerKey + '_' + new Date().getTime() + '.jpg');
     var saved = saveBlobToDrive_(dealerName, blob);
-    if (!saved.fileId) return { ok: false, error: 'Could not save photo.' };
+    if (!saved.fileId) return { ok: false, error: 'Could not save photo: ' + (saved.error || 'unknown') };
     return { ok: true, fileId: saved.fileId, url: saved.url };
   } catch (e) {
     Logger.log('uploadPhotoOnly failed: ' + e.message);
@@ -487,7 +489,7 @@ function saveBlobToDrive_(dealerName, blob) {
     return { fileId: id, url: 'https://drive.google.com/file/d/' + id + '/view' };
   } catch (e) {
     Logger.log('saveBlobToDrive_ failed (non-fatal): ' + e.message);
-    return { fileId: '', url: '' };
+    return { fileId: '', url: '', error: e.message };   // surface the real Drive error — the client shows it
   }
 }
 

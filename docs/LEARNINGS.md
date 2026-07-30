@@ -340,6 +340,23 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   (the owner) test it but fails for a field user, suspect a **missing per-user grant** on a
   sheet/folder before you suspect the code. Grant every user editor / Content-Manager on each
   written resource. (Lot Scanner submissions sheet + photos folder.)
+- **A user can authorize a `USER_ACCESSING` web app with only SOME of its scopes — Google's
+  granular consent has per-scope checkboxes — and every call needing an unchecked scope then
+  throws `You do not have permission to call DriveApp.X`.** Each user grants scopes themselves
+  at first `/exec` access; the consent screen lets them uncheck individual permissions and still
+  "Allow". Field signature: the app loads and Sheets-backed features work (dealer list, drafts)
+  but every `DriveApp` call fails, for exactly one user, 100% of the time — while their
+  Shared-Drive/sheet sharing grants are verifiably correct (sharing grants can't compensate for
+  a missing OAuth scope; they're different layers). The real error is only visible in the
+  script's **Executions log** (never let a client-facing catch reduce it to a generic string —
+  that hid this for a full debugging round). Fix is on the USER'S account, not the script:
+  `myaccount.google.com/connections` → remove the app's access → reopen `/exec` → re-consent
+  with **all** checkboxes checked. An existing partial grant never re-prompts on its own.
+  Related trap from the same incident: iOS Safari multi-login (`/u/N` slots, Google/Gmail apps
+  silently re-adding accounts) can block `/exec` access outright or bind the session to the
+  wrong identity — the capture header's "Signed in as …" line (`Session.getActiveUser()`)
+  makes the executing identity visible in the field. (Lot Scanner crew-member
+  100%-upload-failure incident, July 2026.)
 - **A retired `google.script.run` server function must be stubbed to THROW, not to return
   `{ok:false}`.** A soft-failure object reads as **success** in any caller that doesn't inspect
   `.ok` — a stale client pinned to the old endpoint would silently "submit" into a black hole.
