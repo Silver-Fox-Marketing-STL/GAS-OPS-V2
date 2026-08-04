@@ -34,6 +34,11 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   revoking the app at myaccount.google.com/connections and re-consenting.
 
 ### Changed
+- **Billing sheet/CSV: "PRODUCED VINS" → "PRODUCED GRAPHICS"**: the section now
+  lists each produced vehicle as `Year Model - Stock - VIN` (e.g.
+  `2017 Escape - P17376 - 1FMCU9J95HUA47141`) instead of a bare VIN list.
+  Flows into the Pipedrive billing CSV attachment unchanged (it exports the
+  BILLING tab as-is); no reader parses this section, so totals are unaffected.
 - **VIN Inbox discards are optimistic**: cards/batches vanish immediately
   (no full reload between deletes); server failure resyncs via reload.
   Single-card discard now routes through the bulk endpoint.
