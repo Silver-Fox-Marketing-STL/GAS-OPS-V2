@@ -3173,19 +3173,21 @@ function renderBillingSheet_(sheet, omRows, totalOrdered, notFoundList, logMap, 
   rows.push(['', 'Total Duplicates', totalDupes, '']);
   rows.push(BLANK);
 
-  // ── Produced VINs ─────────────────────────────────────────────────────────
-  // Every matched/produced vehicle's VIN (ORDERMATCH col E), one per row in col B.
-  // Includes VIN-log duplicates, since those are still printed/produced.
-  var producedVinList = omRows
-    .map(function(v) { return v.vin; })
-    .filter(function(v) { return v !== ''; });
+  // ── Produced Graphics ─────────────────────────────────────────────────────
+  // Every matched/produced vehicle as "Year Model - Stock - VIN", one per row
+  // in col B. Includes VIN-log duplicates, since those are still printed/produced.
+  var producedGraphicsList = omRows
+    .filter(function(v) { return v.vin !== ''; })
+    .map(function(v) {
+      return (String(v.year || '') + ' ' + v.model).trim() + ' - ' + v.stock + ' - ' + v.vin;
+    });
 
-  rows.push(['', '── PRODUCED VINS (' + producedVinList.length + ') ──', '', '']);
-  if (producedVinList.length === 0) {
+  rows.push(['', '── PRODUCED GRAPHICS (' + producedGraphicsList.length + ') ──', '', '']);
+  if (producedGraphicsList.length === 0) {
     rows.push(['', 'No vehicles produced.', '', '']);
   } else {
-    producedVinList.forEach(function(vin) {
-      rows.push(['', vin, '', '']);
+    producedGraphicsList.forEach(function(line) {
+      rows.push(['', line, '', '']);
     });
   }
 
