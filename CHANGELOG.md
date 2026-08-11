@@ -10,6 +10,29 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## [Unreleased]
 
+### Added
+- **Add Dealer wizard** (System Settings → Add Dealer): guided 3-panel flow that
+  provisions a new dealer end-to-end — DEALERS config row (created
+  `active=FALSE` with the baseline filtering rules), next free ORDERS column
+  (allocated max+1, header = dealer name, `@` format), SF_VIN_LOGS tab with
+  headers, and a QR Drive folder created under the same parent as existing
+  dealers' folders (never at Drive root). Every write is an idempotent
+  ensure-step inside one script lock, so `createDealer` doubles as the repair
+  action ("Create Missing Pieces"); an orphan VIN-log tab is reused with its
+  history intact. Panel 3 is a live setup checklist (`getDealerChecklist` —
+  sheet reads only) mirroring the run pipeline's real gates, incl.
+  `validateProductMapForRun_` over the dealer's allowed types and the
+  exact-match scraper-location probe; Pipedrive org + product map items jump
+  straight into Dealer Rules with the inactive dealer injected into its
+  dropdown (`rulesOpenDealer`). "Activate Dealer" re-runs the checklist
+  server-side before flipping DEALERS col L. Inactive dealers appear as a
+  resume strip on panel 1.
+- **Import review flags unconfigured scraper locations**: `importScraperData`
+  now returns `unconfiguredLocations` (live locations with no DEALERS row —
+  fail-soft, never fails an import), rendered as a warning banner in the
+  review panel with a per-location "Add dealer →" button that opens the wizard
+  prefilled with the location and a suggested dealer key.
+
 ### Fixed
 - **Lot Scanner: desktop HEIC conversion handles new-iPhone photos** (needs a
   lot-scan deploy). Batch gallery uploads of HEIC shot on recent iPhones failed

@@ -1001,6 +1001,7 @@
           populateDealerDropdown(data.dealers);
           renderTypePills();   // render Allowed Types + CAO pills from the registry
           document.getElementById('loadingOverlay').classList.add('hidden');
+          rulesApplyPendingOpen();   // a cross-view jump that arrived before the bootstrap landed
         })
         .withFailureHandler(function(e) {
           document.getElementById('loadingOverlay').textContent = 'Error loading data: ' + e.message;
@@ -1061,6 +1062,40 @@
         opt.textContent = d.name;
         sel.appendChild(opt);
       });
+    }
+
+    // ── Cross-view jump (Add Dealer wizard → this editor) ──────────────────────
+    // The dropdown is ACTIVE-only (getRulesEditorBootstrap), so a dealer still
+    // being set up isn't in it — inject its option client-side. The server side
+    // is already active-agnostic (getDealerRulesData / getPipedriveDealerEditorData
+    // resolve via getDealerConfig_, which scans every row).
+    var rulesPendingOpen = null;
+    function rulesOpenDealer(key, name, tab) {
+      if (!key) return;
+      rulesPendingOpen = { key: key, name: name || key, tab: tab || 'filter' };
+      rulesApplyPendingOpen();   // no-op while the bootstrap is still in flight
+    }
+    function rulesApplyPendingOpen() {
+      var p = rulesPendingOpen;
+      var sel = document.getElementById('rulesDealerSelect');
+      if (!p || !sel || sel.options.length < 2) return;   // still loading
+      rulesPendingOpen = null;
+      var found = false;
+      for (var i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value === p.key) { found = true; break; }
+      }
+      if (!found) {
+        var o = document.createElement('option');
+        o.value = p.key;
+        o.textContent = p.name + ' (inactive)';
+        sel.appendChild(o);
+      }
+      sel.value = p.key;
+      // The select is CustomSelect-enhanced — a programmatic value set fires no
+      // event and doesn't repaint the themed button label.
+      if (window.CustomSelect) CustomSelect.refresh(sel);
+      onDealerChange();
+      rulesTab(p.tab);
     }
 
     function onDealerChange() {

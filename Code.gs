@@ -598,6 +598,13 @@ function importScraperData(mappedData, mode, resolutions, fileNames, token) {
     // health baselines stay consistent.
     var review = computeImportReview_(finalRows);
 
+    // Locations with live inventory but no DEALERS row — surfaced in the review
+    // panel with an "Add dealer" jump. Fail-soft: never fails an import.
+    var unconfigured = [];
+    try {
+      unconfigured = ndUnconfiguredLocations_(Object.keys(review.locationDetail || {}));
+    } catch (e) { Logger.log('unconfigured-locations check failed: ' + e.message); }
+
     // ── Mutations begin here ──
     var colN    = getSchemaColCount_();   // canonical width (21 until a column is added)
     var lastRow = sheet.getLastRow();
@@ -656,7 +663,8 @@ function importScraperData(mappedData, mode, resolutions, fileNames, token) {
       droppedOnImport:   dropResult.dropped,
       conflictsResolved: resolutions ? d.conflicts.length : 0,
       blankVinCount:     d.blankVinCount,
-      fileCount:         (fileNames || []).length
+      fileCount:         (fileNames || []).length,
+      unconfiguredLocations: unconfigured
     };
   } finally {
     lock.releaseLock();
@@ -10076,6 +10084,514 @@ function getInventorySnapshot() {
   } catch (e) {
     return { headers: [], rows: [], totals: null, error: 'Snapshot read failed: ' + e.message };
   }
+}
+
+
+// ============================================================================
+// SECTION 35: ADD DEALER WIZARD
+// ============================================================================
+// Provisions a new dealer end-to-end from the App's Add Dealer view: DEALERS
+// row, ORDERS column, SF_VIN_LOGS tab, QR Drive folder. Every write is an
+// idempotent ensure-step (check-then-create), so createDealer is safely
+// re-runnable — the checklist doubles as the repair UI. Dealers are created
+// active=FALSE (runDealer hard-gates inactive dealers, so a half-built dealer
+// is inert); activateDealer flips the flag only after the checklist passes
+// server-side. Pipedrive org link + product map are configured in the existing
+// Dealer Rules editors — the checklist links there instead of duplicating them.
+
+// ── Pure helpers (offline-tested in test/run-tests.js) ───────────────────────
+
+/** ALL_CAPS dealer key from free text: "Joe Machens CDJR" → "JOE_MACHENS_CDJR". */
+function ndKeyFromName_(s) {
+  return String(s == null ? '' : s).toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+}
+
+/** QR filename prefix from free text, case preserved: "Auffenberg Hyundai" → "Auffenberg_Hyundai". */
+function ndPrefixFromName_(s) {
+  return String(s == null ? '' : s)
+    .replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+}
+
+/** Baseline filtering_rules (col W) for a brand-new dealer — the config nearly
+ *  all active dealers run. billing_split / source_split / targeting_rules are
+ *  intentionally absent (their parsers warn on empty objects). */
+function ndDefaultFilteringRules_() {
+  return JSON.stringify({
+    allowed_types:  ['New', 'PO', 'CPO'],
+    exclude_status: ['OFFLOT'],
+    require_stock:  true
+  });
+}
+
+/**
+ * Next free ORDERS column letter: max(used)+1. Never reuses a gap — a freed
+ * column can still hold stale VINs, and columns are cheap (18,278 ceiling).
+ * Own base-26 parser rather than normalizeOrderMatchCol_: that helper caps at
+ * column 100, and a silently-ignored high letter here would REUSE a live column.
+ */
+function ndNextOrdersCol_(usedLetters) {
+  var max = 0;
+  (usedLetters || []).forEach(function(raw) {
+    var s = String(raw == null ? '' : raw).trim().toUpperCase();
+    if (!/^[A-Z]+$/.test(s)) return;
+    var n = 0;
+    for (var i = 0; i < s.length; i++) n = n * 26 + (s.charCodeAt(i) - 64);
+    if (n > max) max = n;
+  });
+  return colNumberToLetter_(max + 1);
+}
+
+/**
+ * Pure diff: live scraper locations with no DEALERS row. Compared
+ * trim().toLowerCase() — same convention as getImportDropLocations_.
+ * @returns {Array<{location:string, suggestedKey:string}>}
+ */
+function ndDiffLocations_(liveLocations, configured) {
+  var set = {};
+  (configured || []).forEach(function(c) {
+    var k = String(c == null ? '' : c).trim().toLowerCase();
+    if (k) set[k] = true;
+  });
+  var out = [];
+  (liveLocations || []).forEach(function(loc) {
+    var raw = String(loc == null ? '' : loc).trim();
+    if (!raw || set[raw.toLowerCase()]) return;
+    out.push({ location: raw, suggestedKey: ndKeyFromName_(raw) });
+  });
+  return out;
+}
+
+/**
+ * Field-by-field payload validation. Returns [] when valid, else human messages.
+ * The key regex also excludes every character Sheets forbids in a tab name
+ * ([ ] * ? / \ :) and stays under the 100-char tab-name cap.
+ */
+function ndValidatePayload_(p, existingKeysUpper) {
+  var errs = [];
+  p = p || {};
+  var key = String(p.dealerKey || '').trim().toUpperCase();
+  if (!/^[A-Z][A-Z0-9_]{0,89}$/.test(key)) {
+    errs.push('Dealer key must start with a letter and use only A–Z, 0–9, _ (max 90 chars).');
+  } else if ((existingKeysUpper || []).indexOf(key) !== -1) {
+    errs.push('Dealer key "' + key + '" already exists.');
+  }
+  if (!String(p.dealerName || '').trim()) errs.push('Dealer name is required.');
+  if (!String(p.scraperLocationName || '').trim()) errs.push('Scraper location name is required.');
+  var lb = String(p.linkbuilderCol || 'B').trim().toUpperCase();
+  if (!/^[A-Z]{1,2}$/.test(lb)) errs.push('LinkBuilder column must be a column letter (usually B).');
+  var pref = String(p.qrLocalPrefix || '').trim();
+  if (pref && !/^[A-Za-z0-9_\-]+$/.test(pref)) {
+    errs.push('QR prefix may only use letters, numbers, _ and -.');
+  }
+  return errs;
+}
+
+// ── Sheet-reading wrappers ───────────────────────────────────────────────────
+
+/** Distinct live SCRAPERDATA Location values (col T), first-seen order. */
+function ndLiveScraperLocations_() {
+  var sheet = getMasterSS_().getSheetByName('SCRAPERDATA');
+  if (!sheet) return [];
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  var col = sheet.getRange(2, 20, lastRow - 1, 1).getValues();
+  var seen = {}, out = [];
+  for (var i = 0; i < col.length; i++) {
+    var v = String(col[i][0]).trim();
+    if (v && !seen[v]) { seen[v] = true; out.push(v); }
+  }
+  return out;
+}
+
+/** Locations (from the given list) with no DEALERS row — ALL rows counted, so a
+ *  dealer mid-setup (inactive) never re-flags as unconfigured. */
+function ndUnconfiguredLocations_(liveLocations) {
+  var data = getConfigSS_().getSheetByName('DEALERS').getDataRange().getValues();
+  var configured = [];
+  for (var i = 1; i < data.length; i++) configured.push(data[i][CFG.SCRAPER_LOCATION]);
+  return ndDiffLocations_(liveLocations, configured);
+}
+
+/** First derivable parent folder of any existing dealer's QR folder, or null.
+ *  New QR folders are created under this parent so they inherit the (Shared)
+ *  drive's ownership — a My-Drive folder would be trashable only by its owner. */
+function ndQrParentFolder_(dealersData) {
+  var attempts = 0;
+  for (var i = 1; i < dealersData.length && attempts < 5; i++) {
+    var id = String(dealersData[i][CFG.QR_FOLDER_ID] || '').trim();
+    if (!id || id.charAt(0) === '[') continue;   // blank or "[QR_FOLDER_ID]" placeholder
+    attempts++;
+    try {
+      var parents = DriveApp.getFolderById(id).getParents();
+      if (parents.hasNext()) return parents.next();
+    } catch (e) { /* deleted/inaccessible folder — try the next dealer */ }
+  }
+  return null;
+}
+
+// ── Client-callable endpoints ────────────────────────────────────────────────
+
+/**
+ * Client-callable. One round trip of everything the Add Dealer view needs.
+ * nextOrdersCol is a preview only — re-derived under lock at create time.
+ */
+function getAddDealerBootstrap() {
+  var data = getConfigSS_().getSheetByName('DEALERS').getDataRange().getValues();
+  var existingKeys = [], inactiveDealers = [], configuredLocations = [], usedCols = [];
+  for (var i = 1; i < data.length; i++) {
+    var key = String(data[i][CFG.KEY] || '').trim();
+    if (!key) continue;
+    existingKeys.push(key);
+    usedCols.push(data[i][CFG.ORDERS_COL]);
+    configuredLocations.push(data[i][CFG.SCRAPER_LOCATION]);
+    if (!isTrue_(data[i][CFG.ACTIVE])) {
+      inactiveDealers.push({ key: key, name: String(data[i][CFG.NAME] || key) });
+    }
+  }
+  var live = ndLiveScraperLocations_();
+  var parent = ndQrParentFolder_(data);
+  return {
+    existingKeys:           existingKeys,
+    inactiveDealers:        inactiveDealers,
+    scraperLocations:       live,
+    unconfiguredLocations:  ndDiffLocations_(live, configuredLocations),
+    nextOrdersCol:          ndNextOrdersCol_(usedCols),
+    qrParent:               parent ? { id: parent.getId(), name: parent.getName() } : null
+  };
+}
+
+/**
+ * Client-callable. Idempotent ensure of every dealer artifact: ORDERS column →
+ * DEALERS row (active=FALSE) → VIN log tab → QR folder. Re-running on an
+ * existing dealer only fills what's missing (never clobbers user edits).
+ * Throws only on payload validation failure; per-artifact failures are recorded
+ * in steps[] and repaired by re-running (the checklist's "Create missing pieces").
+ * @param {{dealerKey,dealerName,scraperLocationName,linkbuilderCol,qrLocalPrefix,notes}} payload
+ */
+function createDealer(payload) {
+  var p = payload || {};
+  var key      = String(p.dealerKey || '').trim().toUpperCase();
+  var name     = String(p.dealerName || '').trim();
+  var location = String(p.scraperLocationName || '').trim();
+  var lbCol    = (String(p.linkbuilderCol || 'B').trim().toUpperCase()) || 'B';
+  var prefix   = String(p.qrLocalPrefix || '').trim() || ndPrefixFromName_(name);
+  var notes    = String(p.notes || '').trim();
+
+  // Pre-lock validation read. Uniqueness is skipped when the row IS this key —
+  // that's the resume/repair case, where blank payload fields fall back to the
+  // existing row (the checklist's "Create missing pieces" sends only the key).
+  var configSS = getConfigSS_();
+  var preData = configSS.getSheetByName('DEALERS').getDataRange().getValues();
+  var existingKeysUpper = [];
+  for (var i = 1; i < preData.length; i++) {
+    var k = String(preData[i][CFG.KEY] || '').trim().toUpperCase();
+    if (!k) continue;
+    if (k !== key) {
+      existingKeysUpper.push(k);
+    } else {
+      name     = name     || String(preData[i][CFG.NAME] || '').trim();
+      location = location || String(preData[i][CFG.SCRAPER_LOCATION] || '').trim();
+      prefix   = prefix   || String(preData[i][CFG.QR_PREFIX] || '').trim() || ndPrefixFromName_(name);
+    }
+  }
+  var errs = ndValidatePayload_({
+    dealerKey: key, dealerName: name, scraperLocationName: location,
+    linkbuilderCol: lbCol, qrLocalPrefix: prefix
+  }, existingKeysUpper);
+  if (errs.length) throw new Error(errs.join(' '));
+
+  var steps = [];
+  function step(id, label, status, detail) {
+    steps.push({ id: id, label: label, status: status, detail: detail || '' });
+  }
+
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000);
+  } catch (e) {
+    throw new Error('Another dealer setup is running — try again in a moment.');
+  }
+  try {
+    // Everything below re-reads inside the lock (concurrent-append safety).
+    var sheet = configSS.getSheetByName('DEALERS');
+    var data = sheet.getDataRange().getValues();
+    var rowIdx = 0;   // 1-based sheet row of this dealer, 0 = not found
+    var usedCols = [];
+    for (var r = 1; r < data.length; r++) {
+      usedCols.push(data[r][CFG.ORDERS_COL]);
+      if (String(data[r][CFG.KEY] || '').trim().toUpperCase() === key) rowIdx = r + 1;
+    }
+    var existingRow = rowIdx ? data[rowIdx - 1] : null;
+
+    // 1. ORDERS column — reuse the row's letter if it has one, else allocate.
+    var ordersCol = existingRow ? String(existingRow[CFG.ORDERS_COL] || '').trim().toUpperCase() : '';
+    try {
+      // ORDERS access deliberately uses getActiveSpreadsheet() — the accessor
+      // getOrderVINs_/pasteVinsAndRun use (one-accessor invariant).
+      var ordersSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('ORDERS');
+      if (!ordersSheet) throw new Error('ORDERS sheet not found');
+      if (ordersCol) {
+        step('orders_col', 'ORDERS column', 'existing', 'Column ' + ordersCol);
+      } else {
+        ordersCol = ndNextOrdersCol_(usedCols);
+        var colNum = 0;
+        for (var c = 0; c < ordersCol.length; c++) colNum = colNum * 26 + (ordersCol.charCodeAt(c) - 64);
+        if (colNum > ordersSheet.getMaxColumns()) {
+          ordersSheet.insertColumnsAfter(ordersSheet.getMaxColumns(), colNum - ordersSheet.getMaxColumns());
+        }
+        // Header row 1 holds the dealer NAME (existing sheet convention);
+        // '@' format keeps pasted VINs plain text (QUERY mixed-type trap).
+        ordersSheet.getRange(1, colNum).setValue(name);
+        ordersSheet.getRange(ordersCol + '2:' + ordersCol).setNumberFormat('@');
+        step('orders_col', 'ORDERS column', 'created', 'Column ' + ordersCol);
+      }
+    } catch (e) {
+      step('orders_col', 'ORDERS column', 'failed', e.message);
+    }
+
+    // 2. DEALERS row — append, or fill only blank cells of the existing row.
+    try {
+      if (!existingRow) {
+        var row = [];
+        for (var w = 0; w < 23; w++) row.push('');
+        row[CFG.KEY]              = key;
+        row[CFG.NAME]             = name;
+        row[CFG.ORDERS_COL]       = ordersCol;
+        row[CFG.LINKBUILDER_COL]  = lbCol;
+        row[CFG.SCRAPER_LOCATION] = location;
+        row[CFG.QR_PREFIX]        = prefix;
+        row[CFG.ACTIVE]           = false;
+        row[CFG.NOTES]            = notes;
+        row[CFG.FILTER_RULES]     = ndDefaultFilteringRules_();
+        rowIdx = sheet.getLastRow() + 1;
+        sheet.getRange(rowIdx, 1, 1, 23).setValues([row]);
+        step('dealers_row', 'DEALERS config row', 'created', 'Row ' + rowIdx);
+      } else {
+        // Patch ONLY blank cells — a manual edit always wins over the wizard.
+        var patches = [
+          [CFG.NAME, name], [CFG.ORDERS_COL, ordersCol], [CFG.LINKBUILDER_COL, lbCol],
+          [CFG.SCRAPER_LOCATION, location], [CFG.QR_PREFIX, prefix], [CFG.NOTES, notes],
+          [CFG.FILTER_RULES, ndDefaultFilteringRules_()]
+        ];
+        var patched = 0;
+        patches.forEach(function(pr) {
+          if (String(existingRow[pr[0]] == null ? '' : existingRow[pr[0]]).trim() === '' && pr[1] !== '') {
+            sheet.getRange(rowIdx, pr[0] + 1).setValue(pr[1]);
+            patched++;
+          }
+        });
+        step('dealers_row', 'DEALERS config row', 'existing',
+             patched ? 'Filled ' + patched + ' blank cell' + (patched === 1 ? '' : 's') : 'Unchanged');
+      }
+    } catch (e) {
+      step('dealers_row', 'DEALERS config row', 'failed', e.message);
+    }
+
+    // 3. VIN log tab — reuse an existing tab AND its history (an orphan tab from
+    // a removed dealer means re-activation; never wipe committed VINs).
+    try {
+      var vinSS = getVinLogsSS_();
+      var vinTab = vinSS.getSheetByName(key);
+      if (vinTab) {
+        step('vin_log', 'VIN log tab', 'existing',
+             vinTab.getLastRow() > 1 ? (vinTab.getLastRow() - 1) + ' logged rows kept' : '');
+      } else {
+        vinTab = vinSS.insertSheet(key);
+        vinTab.getRange(1, 1, 1, 4).setValues([['ORDER_ID', 'VIN', 'committed_at', 'order_date']]);
+        vinTab.setFrozenRows(1);
+        step('vin_log', 'VIN log tab', 'created', 'Tab "' + key + '"');
+      }
+    } catch (e) {
+      step('vin_log', 'VIN log tab', 'failed', e.message);
+    }
+
+    // 4. QR folder — keep a resolvable col-D id; else find-or-create by name
+    // under the derived shared parent. NEVER create at Drive root (My-Drive
+    // ownership would make QR files trashable only by their uploader).
+    try {
+      if (!rowIdx) throw new Error('DEALERS row was not created — fix that step first, then re-run.');
+      var currentQr = existingRow ? String(existingRow[CFG.QR_FOLDER_ID] || '').trim() : '';
+      var qrOk = false;
+      if (currentQr && currentQr.charAt(0) !== '[') {
+        try { DriveApp.getFolderById(currentQr); qrOk = true; } catch (e2) {}
+      }
+      if (qrOk) {
+        step('qr_folder', 'QR Drive folder', 'existing', currentQr);
+      } else {
+        var parent = ndQrParentFolder_(data);
+        if (!parent) {
+          step('qr_folder', 'QR Drive folder', 'failed',
+               'Could not derive the QR parent folder from existing dealers — create a folder in Drive and paste its ID into DEALERS col D.');
+        } else {
+          var it = parent.getFoldersByName(key);
+          var folder = it.hasNext() ? it.next() : parent.createFolder(key);
+          sheet.getRange(rowIdx, CFG.QR_FOLDER_ID + 1).setValue(folder.getId());
+          step('qr_folder', 'QR Drive folder', 'created',
+               '"' + key + '" in ' + parent.getName());
+        }
+      }
+    } catch (e) {
+      step('qr_folder', 'QR Drive folder', 'failed', e.message);
+    }
+
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+
+  return { ok: true, dealerKey: key, steps: steps, checklist: getDealerChecklist(key) };
+}
+
+/**
+ * Client-callable. Completeness probe for one dealer — sheet reads only (no
+ * Pipedrive API), so it works even with no PD token configured. action names
+ * the editor that fixes a failing item ('rules-filter' | 'rules-pipedrive').
+ */
+function getDealerChecklist(dealerKey) {
+  var key = String(dealerKey || '').trim().toUpperCase();
+  var config = getDealerConfig_(key);
+  var items = [];
+  function item(id, label, ok, blocking, detail, action) {
+    items.push({ id: id, label: label, ok: !!ok, blocking: !!blocking,
+                 detail: detail || '', action: action || null });
+  }
+
+  if (!config) {
+    item('dealers_row', 'DEALERS config row', false, true, 'No row for "' + key + '"', null);
+    return { dealerKey: key, dealerName: key, active: false, canActivate: false, items: items };
+  }
+
+  var name = String(config[CFG.NAME] || key);
+  var coreOk = String(config[CFG.KEY] || '').trim() !== '' && name.trim() !== '' &&
+               String(config[CFG.ORDERS_COL] || '').trim() !== '' &&
+               String(config[CFG.SCRAPER_LOCATION] || '').trim() !== '';
+  item('dealers_row', 'DEALERS config row', coreOk, true,
+       coreOk ? '' : 'Key, name, ORDERS column and scraper location must all be set', null);
+
+  // ORDERS column exists on the sheet (pasteVinsAndRun getRange throws otherwise).
+  var ordersCol = String(config[CFG.ORDERS_COL] || '').trim().toUpperCase();
+  var ordersOk = false, ordersDetail = 'No column letter set';
+  if (/^[A-Z]+$/.test(ordersCol)) {
+    var colNum = 0;
+    for (var c = 0; c < ordersCol.length; c++) colNum = colNum * 26 + (ordersCol.charCodeAt(c) - 64);
+    try {
+      var ordersSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('ORDERS');
+      ordersOk = !!ordersSheet && ordersSheet.getMaxColumns() >= colNum;
+      ordersDetail = ordersOk ? 'Column ' + ordersCol
+                              : 'ORDERS sheet is only ' + (ordersSheet ? ordersSheet.getMaxColumns() : 0) + ' columns wide';
+    } catch (e) { ordersDetail = e.message; }
+  }
+  item('orders_col', 'ORDERS column', ordersOk, true, ordersDetail, null);
+
+  // VIN log tab (blocking: commitRunToVINLog throws without it).
+  var vinOk = false, vinDetail = '';
+  try {
+    vinOk = !!getVinLogsSS_().getSheetByName(key);
+    vinDetail = vinOk ? '' : 'No tab "' + key + '" in SF_VIN_LOGS';
+  } catch (e) { vinDetail = e.message; }
+  item('vin_log', 'VIN log tab', vinOk, true, vinDetail, null);
+
+  // Scraper location seen in live inventory — exact, case-sensitive match, the
+  // same comparison getDealerScraperData_ runs (a miss = zero inventory).
+  var location = String(config[CFG.SCRAPER_LOCATION] || '').trim();
+  var locOk = false, locBlocking = true, locDetail = '';
+  try {
+    var sheet = getMasterSS_().getSheetByName('SCRAPERDATA');
+    var lastRow = sheet ? sheet.getLastRow() : 0;
+    if (lastRow < 2) {
+      locBlocking = false;
+      locDetail = 'No inventory imported yet — will verify on the next import';
+    } else {
+      var col = sheet.getRange(2, 20, lastRow - 1, 1).getValues();
+      var count = 0;
+      for (var i = 0; i < col.length; i++) {
+        if (String(col[i][0]).trim() === location) count++;
+      }
+      locOk = count > 0;
+      locDetail = locOk ? count + ' vehicles in the current inventory'
+                        : 'No SCRAPERDATA rows match "' + location + '" exactly — check the feed\'s Location value';
+    }
+  } catch (e) { locDetail = e.message; }
+  item('scraper_location', 'Scraper location matches inventory', locOk, locBlocking, locDetail, null);
+
+  // filtering_rules parses to something real.
+  var rawRules = String(config[CFG.FILTER_RULES] == null ? '' : config[CFG.FILTER_RULES]).trim();
+  var rulesOk = false;
+  if (rawRules && rawRules !== '{}') {
+    try { JSON.parse(rawRules); rulesOk = true; } catch (e) {}
+  }
+  item('filtering_rules', 'Filtering rules', rulesOk, true,
+       rulesOk ? '' : 'Empty or invalid JSON in DEALERS col W', 'rules-filter');
+
+  // Pipedrive org link (PRIMARY row with an org id).
+  var orgOk = false, orgDetail = 'No Pipedrive row with an organization linked';
+  var pdRows = [];
+  try {
+    pdRows = getPipedriveDealerRows_(key);
+    for (var g = 0; g < pdRows.length; g++) {
+      if (pdRows[g].group === 'PRIMARY' && pdRows[g].orgId) { orgOk = true; orgDetail = pdRows[g].orgName || ('Org ' + pdRows[g].orgId); break; }
+    }
+  } catch (e) { orgDetail = e.message; }
+  item('pipedrive_org', 'Pipedrive organization linked', orgOk, true, orgDetail, 'rules-pipedrive');
+
+  // Product map covers every allowed type with product_id + schema — the exact
+  // validateProductMapForRun_ gate the run pipeline enforces.
+  var mapOk = false, mapDetail = '';
+  try {
+    var fr = getDealerFilterRules_(config);
+    var allowed = fr.allowedTypes || getCanonicalVehicleTypes_();
+    var maps = getCsvProductMaps_(key, getSourceSplit_(config));
+    var missing = validateProductMapForRun_(allowed, maps.main);
+    mapOk = missing.length === 0;
+    mapDetail = mapOk ? allowed.join(', ') + ' all mapped'
+                      : 'Missing product or schema for: ' + missing.join(', ');
+  } catch (e) { mapDetail = e.message; }
+  item('product_map', 'Product map (product + schema per type)', mapOk, true, mapDetail, 'rules-pipedrive');
+
+  // QR folder — warn only: runNeedsQR_ skips the whole QR block for schemas
+  // with no QR field code, so a non-QR dealer legitimately needs no folder.
+  var qrId = String(config[CFG.QR_FOLDER_ID] || '').trim();
+  var qrOk = false, qrDetail = 'Not set — only needed if the dealer\'s schema prints QR codes';
+  if (qrId && qrId.charAt(0) !== '[') {
+    try { DriveApp.getFolderById(qrId); qrOk = true; qrDetail = ''; }
+    catch (e) { qrDetail = 'Folder ID in col D is not reachable'; }
+  }
+  item('qr_folder', 'QR Drive folder', qrOk, false, qrDetail, null);
+
+  var canActivate = items.every(function(it) { return !it.blocking || it.ok; });
+  return {
+    dealerKey:   key,
+    dealerName:  name,
+    active:      isTrue_(config[CFG.ACTIVE]),
+    canActivate: canActivate,
+    items:       items
+  };
+}
+
+/**
+ * Client-callable. Flips DEALERS col L to TRUE — but only after re-running the
+ * checklist SERVER-side (the client's disabled button is not a trust boundary).
+ */
+function activateDealer(dealerKey) {
+  var key = String(dealerKey || '').trim().toUpperCase();
+  var checklist = getDealerChecklist(key);
+  if (!checklist.canActivate) {
+    var blocked = checklist.items.filter(function(it) { return it.blocking && !it.ok; })
+                                 .map(function(it) { return it.label; });
+    return { ok: false, message: 'Still incomplete: ' + blocked.join(', '), checklist: checklist };
+  }
+  var sheet = getConfigSS_().getSheetByName('DEALERS');
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][CFG.KEY] || '').trim().toUpperCase() === key) {
+      sheet.getRange(i + 1, CFG.ACTIVE + 1).setValue(true);
+      SpreadsheetApp.flush();
+      checklist.active = true;
+      return { ok: true, message: checklist.dealerName + ' is now active.', checklist: checklist };
+    }
+  }
+  return { ok: false, message: 'Dealer key not found: ' + key, checklist: checklist };
 }
 
 

@@ -930,6 +930,72 @@ t('buildCsvSchemaCells_ allows duplicate codes (GLENDALE two-frame pattern)', fu
   assert.deepStrictEqual(cells, ['YEARMODELSTOCK', 'YEARMODELSTOCK']);
 });
 
+// ============================================================================
+// Suite: Add Dealer wizard — pure provisioning helpers
+// ============================================================================
+suite('add dealer wizard');
+t('ndKeyFromName_ derives ALL_CAPS keys', function () {
+  assert.strictEqual(ndKeyFromName_('Joe Machens CDJR'), 'JOE_MACHENS_CDJR');
+  assert.strictEqual(ndKeyFromName_("O'Fallon Buick-GMC"), 'O_FALLON_BUICK_GMC');
+  assert.strictEqual(ndKeyFromName_('  spaced  '), 'SPACED');       // no leading/trailing _
+  assert.strictEqual(ndKeyFromName_(''), '');
+});
+t('ndPrefixFromName_ preserves case, underscores separators', function () {
+  assert.strictEqual(ndPrefixFromName_('Auffenberg Hyundai'), 'Auffenberg_Hyundai');
+  assert.strictEqual(ndPrefixFromName_('BMW of West St. Louis'), 'BMW_of_West_St_Louis');
+});
+t('default filtering_rules match the baseline and omit the optional keys', function () {
+  var parsed = JSON.parse(ndDefaultFilteringRules_());
+  assert.deepStrictEqual(parsed, {
+    allowed_types: ['New', 'PO', 'CPO'], exclude_status: ['OFFLOT'], require_stock: true
+  });
+  assert.ok(!('billing_split' in parsed) && !('source_split' in parsed) &&
+            !('targeting_rules' in parsed));
+});
+t('default filtering_rules round-trip through getDealerFilterRules_ (the run path parser)', function () {
+  var config = [];
+  config[CFG.KEY] = 'TEST';
+  config[CFG.FILTER_RULES] = ndDefaultFilteringRules_();
+  var fr = getDealerFilterRules_(config);
+  assert.deepStrictEqual(fr.allowedTypes, ['New', 'PO', 'CPO']);
+  assert.deepStrictEqual(fr.excludeStatus, ['OFFLOT']);
+  assert.strictEqual(fr.requireStock, true);
+  assert.strictEqual(fr.requirePrice, false);
+});
+t('ndNextOrdersCol_ allocates max+1, never reuses gaps', function () {
+  assert.strictEqual(ndNextOrdersCol_(['B', 'C', 'AQ']), 'AR');
+  assert.strictEqual(ndNextOrdersCol_(['AQ', 'B']), 'AR');          // order-independent
+  assert.strictEqual(ndNextOrdersCol_(['B', '', null, 'C']), 'D');  // blanks ignored
+  assert.strictEqual(ndNextOrdersCol_(['Z']), 'AA');                // base-26 rollover
+  assert.strictEqual(ndNextOrdersCol_([]), 'A');                    // empty sheet
+  assert.strictEqual(ndNextOrdersCol_(['CV', 'CW']), 'CX');         // past col 100 (no cap)
+});
+t('ndDiffLocations_ diffs case- and whitespace-insensitively, suggests keys', function () {
+  assert.deepStrictEqual(
+    ndDiffLocations_(['Foo Ford', 'Bar Kia'], ['  foo ford ']),
+    [{ location: 'Bar Kia', suggestedKey: 'BAR_KIA' }]);
+  assert.deepStrictEqual(ndDiffLocations_([], ['X']), []);
+  assert.deepStrictEqual(ndDiffLocations_(['', '  '], []), []);     // blank live rows dropped
+});
+t('ndValidatePayload_ rejects bad keys and duplicates, accepts a valid payload', function () {
+  var base = { dealerName: 'Test Dealer', scraperLocationName: 'Test Dealer STL',
+               linkbuilderCol: 'B', qrLocalPrefix: 'Test_Dealer' };
+  function withKey(k) { return Object.assign({ dealerKey: k }, base); }
+  assert.ok(ndValidatePayload_(withKey('1ABC'), []).length > 0);        // must start with a letter
+  assert.ok(ndValidatePayload_(withKey('ABC MOTORS'), []).length > 0);  // no spaces
+  assert.ok(ndValidatePayload_(withKey('ABC'), ['ABC']).length > 0);    // duplicate
+  assert.ok(ndValidatePayload_(Object.assign(withKey('ABC'), { dealerName: '' }), []).length > 0);
+  assert.deepStrictEqual(ndValidatePayload_(withKey('ABC'), ['XYZ']), []);
+});
+t('validateProductMapForRun_ over the wizard default types (checklist gate)', function () {
+  var allowed = JSON.parse(ndDefaultFilteringRules_()).allowed_types;
+  var full = { New: { product_id: 1, schema: 'SCP' }, PO: { product_id: 2, schema: 'SCP' },
+               CPO: { product_id: 3, schema: 'SCP' } };
+  assert.deepStrictEqual(validateProductMapForRun_(allowed, full), []);
+  delete full.CPO.schema;
+  assert.deepStrictEqual(validateProductMapForRun_(allowed, full), ['CPO']);
+});
+
 // ── Report ───────────────────────────────────────────────────────────────────
 function report_() {
   var totalPass = 0, totalFail = 0;
