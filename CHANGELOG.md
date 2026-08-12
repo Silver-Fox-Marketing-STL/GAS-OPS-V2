@@ -34,7 +34,15 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   prefilled with the location and a suggested dealer key.
 
 ### Fixed
-- **Run Order: FEATURES schema cells flagged `edit` no longer double-render**
+- **Add Dealer wizard: QR folder no longer created inside another dealer's
+  folder.** The original parent derivation walked up from an existing dealer's
+  `qr_folder_id` — but each QR folder's parent is that dealer's OWN folder, so
+  the wizard offered e.g. "MERCEDES_BENZ_OF_CHESTERFIELD in Audi Rancho Mirage"
+  (caught by Nick in the panel-2 preview post-promote). Folder creation is now
+  anchored on the env-bound `OUTPUT_FOLDER_ID` and mirrors the real structure:
+  find-or-create `<Dealer Name>` in the output folder, then "QR Codes" inside
+  it (col-D short-circuit and col-E dealer-folder reuse kept for repair). The
+  preview shows both folder rows; `ndQrParentFolder_` is gone.
   (seen live on Mini of St. Louis / Spirit Lexus): a `FEATURES:<header>:edit`
   CSV_SCHEMAS cell qualified for BOTH column systems — the dedicated Features
   input (`featuresTypesForDealer_` matches the code, ignores the edit flag)
