@@ -42,6 +42,15 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   old skip behavior. Percent semantics unchanged (`percent` empty → $0).
 
 ### Fixed
+- **Add Dealer wizard: run outputs now land in the dealer's own folder.** The
+  wizard created `<container>/<Dealer Name>/QR Codes` but only recorded the QR
+  folder id (DEALERS col D) — never the dealer folder id in col E
+  (`output_folder_id`), which is what `runDealer` routes the output spreadsheet
+  and exported CSVs by. Blank col E → outputs fell back to the container root
+  (MB of Chesterfield, Aug 2026). `createDealer` step 4 now ALWAYS ensures the
+  dealer folder and writes its id to col E when blank (a resolvable col-E id —
+  i.e. a manual edit — still wins), even when the QR folder already exists; so
+  re-running "Create Missing Pieces" is the repair for already-created dealers.
 - **Install line no longer silently dropped when the org read fails.**
   `pdApplyInstallCost_` treated an unreadable org (transient API error / rate
   limit — `pdFetch_` never throws) the same as "field not set" and returned

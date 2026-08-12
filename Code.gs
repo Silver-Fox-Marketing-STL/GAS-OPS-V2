@@ -10422,10 +10422,30 @@ function createDealer(payload) {
     // 4. Drive folders — <container>/<Dealer Name>/"QR Codes", anchored on the
     // env-bound OUTPUT_FOLDER_ID (never derived from another dealer's folders —
     // that once placed a new QR folder inside another dealer's folder — and
-    // never Drive root). A resolvable col-D id short-circuits everything; a
-    // resolvable col-E id is reused as the dealer folder (repair path).
+    // never Drive root). The dealer folder is ALWAYS ensured and its id recorded
+    // in col E (output_folder_id) when blank — runDealer routes the output doc
+    // + exported CSVs by col E, so leaving it blank sent a new dealer's outputs
+    // to the container root (MB of Chesterfield, Aug 2026). A resolvable col-E
+    // id is reused as the dealer folder (repair path; manual edit wins).
     try {
       if (!rowIdx) throw new Error('DEALERS row was not created — fix that step first, then re-run.');
+      var dealerFolder = null;
+      var currentOut = existingRow ? String(existingRow[CFG.OUTPUT_FOLDER] || '').trim() : '';
+      if (currentOut && currentOut.charAt(0) !== '[') {
+        try { dealerFolder = DriveApp.getFolderById(currentOut); } catch (e3) {}
+      }
+      if (dealerFolder) {
+        step('dealer_folder', 'Dealer Drive folder', 'existing', dealerFolder.getName());
+      } else {
+        var container = ndDealersContainerFolder_();
+        if (!container) throw new Error('The output folder (OUTPUT_FOLDER_ID) is unreachable — check Drive access.');
+        var dIt = container.getFoldersByName(name);
+        var dealerExisted = dIt.hasNext();
+        dealerFolder = dealerExisted ? dIt.next() : container.createFolder(name);
+        sheet.getRange(rowIdx, CFG.OUTPUT_FOLDER + 1).setValue(dealerFolder.getId());
+        step('dealer_folder', 'Dealer Drive folder', dealerExisted ? 'existing' : 'created',
+             '"' + name + '" in ' + container.getName() + ' → output_folder_id set');
+      }
       var currentQr = existingRow ? String(existingRow[CFG.QR_FOLDER_ID] || '').trim() : '';
       var qrOk = false;
       if (currentQr && currentQr.charAt(0) !== '[') {
@@ -10434,22 +10454,6 @@ function createDealer(payload) {
       if (qrOk) {
         step('qr_folder', 'QR Drive folder', 'existing', currentQr);
       } else {
-        var dealerFolder = null;
-        var currentOut = existingRow ? String(existingRow[CFG.OUTPUT_FOLDER] || '').trim() : '';
-        if (currentOut && currentOut.charAt(0) !== '[') {
-          try { dealerFolder = DriveApp.getFolderById(currentOut); } catch (e3) {}
-        }
-        if (dealerFolder) {
-          step('dealer_folder', 'Dealer Drive folder', 'existing', dealerFolder.getName());
-        } else {
-          var container = ndDealersContainerFolder_();
-          if (!container) throw new Error('The output folder (OUTPUT_FOLDER_ID) is unreachable — check Drive access.');
-          var dIt = container.getFoldersByName(name);
-          var dealerExisted = dIt.hasNext();
-          dealerFolder = dealerExisted ? dIt.next() : container.createFolder(name);
-          step('dealer_folder', 'Dealer Drive folder', dealerExisted ? 'existing' : 'created',
-               '"' + name + '" in ' + container.getName());
-        }
         var qIt = dealerFolder.getFoldersByName('QR Codes');
         var qrExisted = qIt.hasNext();
         var qrFolder = qrExisted ? qIt.next() : dealerFolder.createFolder('QR Codes');
