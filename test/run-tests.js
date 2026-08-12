@@ -64,7 +64,8 @@ var CSV_SCHEMAS_ROWS = [
   ['LOGO1', 'features, no qr',  'YEAR', 'YEARMODEL', 'FEATURES', 'MISC'],
   ['LOGO3', 'no features/qr',   'YEAR', 'YEARMODEL', 'MISC', ''],
   ['VDP1',  'versaworks vdp headers', 'YEAR:VDP_A', 'FEATURES:VDP_D', 'MISC:VDP_G', ''],
-  ['VDP_EDIT', 'editable modeltrim',  'YEAR:VDP_A', 'MODELTRIM:VDP_B:edit18', 'MISC:VDP_G', '']
+  ['VDP_EDIT', 'editable modeltrim',  'YEAR:VDP_A', 'MODELTRIM:VDP_B:edit18', 'MISC:VDP_G', ''],
+  ['VDP_FEAT_EDIT', 'FEATURES wrongly flagged editable', 'YEAR:VDP_A', 'FEATURES:VDP_D:edit', 'MODELTRIM:VDP_B:edit18', '']
 ];
 var fakeCsvSchemasSheet = {
   getDataRange: function () { return { getValues: function () { return CSV_SCHEMAS_ROWS; } }; }
@@ -928,6 +929,104 @@ t('buildCsvSchemaCells_ allows duplicate codes (GLENDALE two-frame pattern)', fu
     { code: 'YEARMODELSTOCK' }, { code: 'YEARMODELSTOCK' }
   ], getFieldToCol_());
   assert.deepStrictEqual(cells, ['YEARMODELSTOCK', 'YEARMODELSTOCK']);
+});
+
+// ============================================================================
+// Suite: Add Dealer wizard — pure provisioning helpers
+// ============================================================================
+suite('add dealer wizard');
+t('ndKeyFromName_ derives ALL_CAPS keys', function () {
+  assert.strictEqual(ndKeyFromName_('Joe Machens CDJR'), 'JOE_MACHENS_CDJR');
+  assert.strictEqual(ndKeyFromName_("O'Fallon Buick-GMC"), 'O_FALLON_BUICK_GMC');
+  assert.strictEqual(ndKeyFromName_('  spaced  '), 'SPACED');       // no leading/trailing _
+  assert.strictEqual(ndKeyFromName_(''), '');
+});
+t('ndPrefixFromName_ preserves case, underscores separators', function () {
+  assert.strictEqual(ndPrefixFromName_('Auffenberg Hyundai'), 'Auffenberg_Hyundai');
+  assert.strictEqual(ndPrefixFromName_('BMW of West St. Louis'), 'BMW_of_West_St_Louis');
+});
+t('default filtering_rules match the baseline and omit the optional keys', function () {
+  var parsed = JSON.parse(ndDefaultFilteringRules_());
+  assert.deepStrictEqual(parsed, {
+    allowed_types: ['New', 'PO', 'CPO'], exclude_status: ['OFFLOT'], require_stock: true
+  });
+  assert.ok(!('billing_split' in parsed) && !('source_split' in parsed) &&
+            !('targeting_rules' in parsed));
+});
+t('default filtering_rules round-trip through getDealerFilterRules_ (the run path parser)', function () {
+  var config = [];
+  config[CFG.KEY] = 'TEST';
+  config[CFG.FILTER_RULES] = ndDefaultFilteringRules_();
+  var fr = getDealerFilterRules_(config);
+  assert.deepStrictEqual(fr.allowedTypes, ['New', 'PO', 'CPO']);
+  assert.deepStrictEqual(fr.excludeStatus, ['OFFLOT']);
+  assert.strictEqual(fr.requireStock, true);
+  assert.strictEqual(fr.requirePrice, false);
+});
+t('ndNextOrdersCol_ allocates max+1, never reuses gaps', function () {
+  assert.strictEqual(ndNextOrdersCol_(['B', 'C', 'AQ']), 'AR');
+  assert.strictEqual(ndNextOrdersCol_(['AQ', 'B']), 'AR');          // order-independent
+  assert.strictEqual(ndNextOrdersCol_(['B', '', null, 'C']), 'D');  // blanks ignored
+  assert.strictEqual(ndNextOrdersCol_(['Z']), 'AA');                // base-26 rollover
+  assert.strictEqual(ndNextOrdersCol_([]), 'A');                    // empty sheet
+  assert.strictEqual(ndNextOrdersCol_(['CV', 'CW']), 'CX');         // past col 100 (no cap)
+});
+t('ndDiffLocations_ diffs case- and whitespace-insensitively, suggests keys', function () {
+  assert.deepStrictEqual(
+    ndDiffLocations_(['Foo Ford', 'Bar Kia'], ['  foo ford ']),
+    [{ location: 'Bar Kia', suggestedKey: 'BAR_KIA' }]);
+  assert.deepStrictEqual(ndDiffLocations_([], ['X']), []);
+  assert.deepStrictEqual(ndDiffLocations_(['', '  '], []), []);     // blank live rows dropped
+});
+t('ndValidatePayload_ rejects bad keys and duplicates, accepts a valid payload', function () {
+  var base = { dealerName: 'Test Dealer', scraperLocationName: 'Test Dealer STL',
+               linkbuilderCol: 'B', qrLocalPrefix: 'Test_Dealer' };
+  function withKey(k) { return Object.assign({ dealerKey: k }, base); }
+  assert.ok(ndValidatePayload_(withKey('1ABC'), []).length > 0);        // must start with a letter
+  assert.ok(ndValidatePayload_(withKey('ABC MOTORS'), []).length > 0);  // no spaces
+  assert.ok(ndValidatePayload_(withKey('ABC'), ['ABC']).length > 0);    // duplicate
+  assert.ok(ndValidatePayload_(Object.assign(withKey('ABC'), { dealerName: '' }), []).length > 0);
+  assert.deepStrictEqual(ndValidatePayload_(withKey('ABC'), ['XYZ']), []);
+});
+t('validateProductMapForRun_ over the wizard default types (checklist gate)', function () {
+  var allowed = JSON.parse(ndDefaultFilteringRules_()).allowed_types;
+  var full = { New: { product_id: 1, schema: 'SCP' }, PO: { product_id: 2, schema: 'SCP' },
+               CPO: { product_id: 3, schema: 'SCP' } };
+  assert.deepStrictEqual(validateProductMapForRun_(allowed, full), []);
+  delete full.CPO.schema;
+  assert.deepStrictEqual(validateProductMapForRun_(allowed, full), ['CPO']);
+});
+
+// ============================================================================
+// Suite: FEATURES never double-renders — an `edit` flag on a FEATURES schema
+// cell must NOT create a second dynamic edit column (the dedicated Features
+// column owns that code; the run gate only checks featuresMap).
+// ============================================================================
+suite('features edit-flag exclusion');
+t('editableCodesForDealer_ excludes FEATURES even when the cell is flagged edit', function () {
+  var rules = [{ match: 'New', csv_schema: '' }];
+  var map = { New: { product_id: 1, schema: 'VDP_FEAT_EDIT' } };
+  var codes = editableCodesForDealer_(rules, map);
+  // MODELTRIM (also flagged edit in the same schema) survives; FEATURES doesn't.
+  assert.deepStrictEqual(codes, { New: [{ code: 'MODELTRIM', max: 18 }] });
+});
+t('featuresTypesForDealer_ still flags the type (dedicated column keeps working)', function () {
+  var rules = [{ match: 'New', csv_schema: '' }];
+  var map = { New: { product_id: 1, schema: 'VDP_FEAT_EDIT' } };
+  assert.deepStrictEqual(featuresTypesForDealer_(rules, map), { New: true });
+});
+t('ordinary edit columns are unaffected (VDP_EDIT regression check)', function () {
+  var rules = [{ match: 'New', csv_schema: '' }];
+  var map = { New: { product_id: 1, schema: 'VDP_EDIT' } };
+  assert.deepStrictEqual(editableCodesForDealer_(rules, map), { New: [{ code: 'MODELTRIM', max: 18 }] });
+});
+t('CSV Schemas editor refuses the Editable flag on FEATURES (config side of the same guard)', function () {
+  var codes = getFieldToCol_();
+  assert.throws(function () {
+    buildCsvSchemaCells_([{ code: 'FEATURES', edit: true }], codes);
+  }, /FEATURES cannot be flagged Editable/);
+  // Plain FEATURES (no edit flag) still saves fine.
+  assert.deepStrictEqual(buildCsvSchemaCells_([{ code: 'FEATURES' }], codes), ['FEATURES']);
 });
 
 // ── Report ───────────────────────────────────────────────────────────────────

@@ -160,6 +160,8 @@
         <div id="reviewTable"></div>
       </div>
 
+      <div class="review-section" id="reviewUnconfigured" style="display:none;"></div>
+
       <div id="healthSection" style="display:none;"></div>
     </div>
 
@@ -679,6 +681,22 @@
       border-top-color: var(--success-weak);
     }
     #view-import .health-icon { flex-shrink: 0; font-size: 13px; line-height: 1.4; }
+    /* Unconfigured-locations banner — health-section styling in warning tones. */
+    #view-import #reviewUnconfigured {
+      border: 1px solid var(--warning);
+      border-radius: 5px;
+      overflow: hidden;
+    }
+    #view-import #reviewUnconfigured .review-section-title {
+      margin: 0;
+      padding: 7px 12px;
+      background: var(--warning-weak);
+      color: var(--warning);
+    }
+    #view-import #reviewUnconfigured .health-item {
+      align-items: center;
+      border-top-color: var(--warning-weak);
+    }
     #view-import .health-location { font-weight: bold; color: var(--text); }
     #view-import .health-msg { color: var(--text-2); }
 
@@ -1169,6 +1187,27 @@
       html += '</table></div>';
       document.getElementById('reviewTable').innerHTML = html;
 
+      // ── Unconfigured locations → Add Dealer wizard ────────────────────────
+      window.ndImportUnconfigured = result.unconfiguredLocations || [];
+      var unEl = document.getElementById('reviewUnconfigured');
+      if (!ndImportUnconfigured.length) {
+        unEl.style.display = 'none';
+        unEl.innerHTML = '';
+      } else {
+        var uh = '<div class="review-section-title">&#9888; ' + ndImportUnconfigured.length +
+                 ' location' + (ndImportUnconfigured.length === 1 ? '' : 's') +
+                 ' with no dealer configured</div>';
+        ndImportUnconfigured.forEach(function(u, i) {
+          // Integer index into the array — never interpolate the location string
+          // into an inline onclick (apostrophe trap).
+          uh += '<div class="health-item"><span class="health-icon">&#128663;</span>' +
+                '<span class="health-location">' + escHtml(u.location) + '</span>' +
+                '<button class="btn-ghost" style="margin-left:auto;" onclick="ndStartFromImport(' + i + ')">Add dealer &#8594;</button></div>';
+        });
+        unEl.innerHTML = uh;
+        unEl.style.display = 'block';
+      }
+
       // ── Health issues ─────────────────────────────────────────────────────
       var healthEl = document.getElementById('healthSection');
       var issues   = result.healthIssues || [];
@@ -1245,6 +1284,14 @@
 
     function escAttr(str) {
       return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    }
+
+    // Jump from the review panel into the Add Dealer wizard, prefilled.
+    function ndStartFromImport(i) {
+      var u = (window.ndImportUnconfigured || [])[i];
+      if (!u) return;
+      navTo('view-add-dealer');
+      if (typeof ndPrefill === 'function') ndPrefill(u.location, u.suggestedKey);
     }
 
     // Minimal CSV parser — handles quoted fields, commas inside quotes,

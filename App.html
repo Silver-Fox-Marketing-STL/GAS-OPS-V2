@@ -598,6 +598,9 @@
           <div class="nav-item nav-sub" id="nav-view-csvschemas" onclick="navTo('view-csvschemas')">
             <span class="icon">&#128203;</span> CSV Schemas
           </div>
+          <div class="nav-item nav-sub" id="nav-view-add-dealer" onclick="navTo('view-add-dealer')">
+            <span class="icon">&#10133;</span> Add Dealer
+          </div>
         </div>
       </div>
       <div class="nav-spacer"></div>
@@ -636,6 +639,7 @@
         <?!= include_('ViewFieldCodes') ?>
         <?!= include_('ViewCsvSchemas') ?>
         <?!= include_('ViewUiSettings') ?>
+        <?!= include_('ViewAddDealer') ?>
       </div>
     </div>
 
@@ -665,7 +669,8 @@
       'view-pipedrive-settings': 'Pipedrive Settings',
       'view-fieldcodes': 'Field Codes',
       'view-csvschemas': 'CSV Schemas',
-      'view-ui-settings': 'UI Settings'
+      'view-ui-settings': 'UI Settings',
+      'view-add-dealer': 'Add Dealer'
     };
     var _viewInited = {};
 
@@ -696,7 +701,7 @@
         items[j].classList.toggle('active', items[j].id === 'nav-' + viewId);
       }
       // Keep the System Settings group open when navigating to one of its children.
-      if (['view-ui-settings', 'view-rules', 'view-norm', 'view-datasources', 'view-pipedrive-settings', 'view-fieldcodes', 'view-csvschemas'].indexOf(viewId) !== -1) {
+      if (['view-ui-settings', 'view-rules', 'view-norm', 'view-datasources', 'view-pipedrive-settings', 'view-fieldcodes', 'view-csvschemas', 'view-add-dealer'].indexOf(viewId) !== -1) {
         var sg = document.getElementById('nav-group-settings');
         if (sg) sg.classList.remove('collapsed');
       }

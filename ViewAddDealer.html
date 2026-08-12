@@ -1,0 +1,646 @@
+<div class="view" id="view-add-dealer" data-layout="form-wide" hidden>
+
+  <!-- ════════════════════════════════════════════════════════════════════════════
+       PANEL 1 — BASICS
+  ════════════════════════════════════════════════════════════════════════════ -->
+  <div id="ndPanelBasics" class="app-measure" style="display:flex;flex-direction:column;height:100%;">
+
+    <div class="modal-header">
+      <h3>Add New Dealer</h3>
+      <div class="subtitle">Creates the DEALERS config row, ORDERS column, VIN log tab and QR folder — then walks you through the rest. The dealer stays inactive until every check passes.</div>
+    </div>
+
+    <div class="modal-body">
+      <div id="ndResumeStrip" class="nd-resume" style="display:none;">
+        <div class="nd-resume-label">Inactive dealers &mdash; open the setup checklist:</div>
+        <div id="ndResumeTags"></div>
+      </div>
+
+      <div class="nd-form">
+        <label class="nd-label" for="ndName">Dealer name</label>
+        <input type="text" id="ndName" placeholder="e.g. Joe Machens CDJR" autocomplete="off">
+        <div class="u-hint">Shown in dropdowns, billing and the ORDERS header.</div>
+
+        <label class="nd-label" for="ndKey">Dealer key</label>
+        <input type="text" id="ndKey" class="nd-mono" placeholder="JOE_MACHENS_CDJR" autocomplete="off">
+        <div class="u-hint" id="ndKeyHint">ALL_CAPS unique ID — also becomes the VIN log tab name. Auto-derived from the name.</div>
+
+        <label class="nd-label" for="ndLocation">Scraper location</label>
+        <select id="ndLocation"></select>
+        <input type="text" id="ndLocationOther" placeholder="Exact Location value from the scraper feed" autocomplete="off" style="display:none;margin-top:6px;">
+        <div class="u-hint">Must EXACTLY match the feed's Location column — an exact-match miss means zero inventory for this dealer.</div>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <div id="ndStatus1" class="status-bar empty">&nbsp;</div>
+      <button class="btn-primary" id="ndNextBtn" onclick="ndToDefaults()" disabled>Next &#8594;</button>
+    </div>
+
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════════════════════
+       PANEL 2 — DEFAULTS & CREATE
+  ════════════════════════════════════════════════════════════════════════════ -->
+  <div id="ndPanelDefaults" class="app-measure" style="display:none;flex-direction:column;height:100%;">
+
+    <div class="modal-header">
+      <h3>Review &amp; Create</h3>
+      <div class="subtitle" id="ndDefaultsSubtitle">Everything below is created in one pass. Re-running later only fills in whatever is missing.</div>
+    </div>
+
+    <div class="modal-body">
+      <div class="nd-preview" id="ndPreviewList"></div>
+
+      <div class="nd-form" style="margin-top:14px;">
+        <label class="nd-label" for="ndLinkCol">LinkBuilder column</label>
+        <input type="text" id="ndLinkCol" class="nd-mono nd-short" value="B" maxlength="2" autocomplete="off">
+        <div class="u-hint">B for nearly every dealer (C is a BMW of Columbia special case).</div>
+
+        <label class="nd-label" for="ndPrefix">QR filename prefix</label>
+        <input type="text" id="ndPrefix" class="nd-mono" autocomplete="off">
+        <div class="u-hint">Prefix for the QR PNG filenames, e.g. Auffenberg_Hyundai.</div>
+
+        <label class="nd-label" for="ndNotes">Notes (optional)</label>
+        <textarea id="ndNotes" rows="2"></textarea>
+      </div>
+
+      <div class="nd-rules-preview">
+        <div class="nd-label">Starting filtering rules</div>
+        <pre id="ndRulesPre"></pre>
+        <div class="u-hint">The baseline nearly all dealers run — editable any time in Dealer Rules.</div>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <div id="ndStatus2" class="status-bar empty">&nbsp;</div>
+      <button class="btn-ghost" onclick="ndShowPanel(1)">&#8592; Back</button>
+      <button class="btn-primary" id="ndCreateBtn" onclick="ndCreate()">Create Dealer</button>
+    </div>
+
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════════════════════
+       PANEL 3 — SETUP CHECKLIST
+  ════════════════════════════════════════════════════════════════════════════ -->
+  <div id="ndPanelChecklist" class="app-measure" style="display:none;flex-direction:column;height:100%;">
+
+    <div class="modal-header">
+      <h3 id="ndChecklistTitle">Setup Checklist</h3>
+      <div class="subtitle">All blocking checks must pass before the dealer can be activated. Pipedrive org + product map are set in Dealer Rules — the buttons jump straight there.</div>
+    </div>
+
+    <div class="modal-body">
+      <div id="ndStepsSummary" class="nd-steps" style="display:none;"></div>
+      <div id="ndChecklistBody"><div class="u-hint">Loading&hellip;</div></div>
+    </div>
+
+    <div class="modal-footer">
+      <div id="ndStatus3" class="status-bar empty">&nbsp;</div>
+      <button class="btn-ghost" onclick="ndReset()">&#8592; New Dealer</button>
+      <button class="btn-ghost" id="ndRecheckBtn" onclick="ndRecheck()">Re-check</button>
+      <button class="btn-secondary" id="ndRepairBtn" onclick="ndRepair()">Create Missing Pieces</button>
+      <button class="btn-primary" id="ndActivateBtn" onclick="ndActivate()" disabled>Activate Dealer</button>
+    </div>
+
+  </div>
+</div>
+
+<style>
+#view-add-dealer * { box-sizing: border-box; margin: 0; padding: 0; }
+#view-add-dealer {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+#view-add-dealer .modal-header {
+  padding: 14px 18px 10px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+#view-add-dealer .modal-header h3 { font-size: 14px; font-weight: bold; margin-bottom: 2px; }
+#view-add-dealer .modal-header .subtitle { font-size: 11px; color: var(--text-3); }
+
+#view-add-dealer .modal-body { flex: 1; overflow-y: auto; padding: 16px 18px; }
+
+#view-add-dealer .modal-footer {
+  border-top: 1px solid var(--border);
+  padding: 10px 18px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+#view-add-dealer .status-bar {
+  flex: 1;
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  min-height: 30px;
+  line-height: 18px;
+}
+#view-add-dealer .status-bar.empty   { background: none; color: transparent; }
+#view-add-dealer .status-bar.info    { background: var(--accent-weak);  color: var(--accent); }
+#view-add-dealer .status-bar.success { background: var(--success-weak); color: var(--success); }
+#view-add-dealer .status-bar.error   { background: var(--danger-weak);  color: var(--danger); }
+
+/* ── Form ── */
+#view-add-dealer .nd-form { max-width: 520px; }
+#view-add-dealer .nd-label {
+  display: block;
+  font-size: 11px;
+  font-weight: bold;
+  color: var(--text-2);
+  margin: 14px 0 4px;
+}
+#view-add-dealer .nd-form .nd-label:first-child { margin-top: 0; }
+#view-add-dealer input[type="text"],
+#view-add-dealer textarea,
+#view-add-dealer select {
+  width: 100%;
+  padding: 7px 9px;
+  font-size: 13px;
+  font-family: var(--font-body);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+#view-add-dealer input:focus,
+#view-add-dealer textarea:focus,
+#view-add-dealer select:focus { outline: none; box-shadow: var(--focus-ring); }
+#view-add-dealer .nd-mono { font-family: var(--font-mono); }
+#view-add-dealer .nd-short { width: 90px; }
+#view-add-dealer .u-hint { margin-top: 3px; }
+#view-add-dealer input.nd-invalid { border-color: var(--danger); }
+
+/* ── Resume strip ── */
+#view-add-dealer .nd-resume {
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+#view-add-dealer .nd-resume-label { font-size: 11px; color: var(--text-3); margin-bottom: 6px; }
+#view-add-dealer .nd-resume .tag { cursor: pointer; margin: 0 6px 4px 0; }
+
+/* ── Panel 2 preview ── */
+#view-add-dealer .nd-preview {
+  max-width: 520px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+#view-add-dealer .nd-preview-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+#view-add-dealer .nd-preview-row:last-child { border-bottom: none; }
+#view-add-dealer .nd-preview-row .k { color: var(--text-3); }
+#view-add-dealer .nd-preview-row .v { font-family: var(--font-mono); text-align: right; }
+#view-add-dealer .nd-preview-row .v.warn { color: var(--warning); font-family: var(--font-body); }
+#view-add-dealer .nd-rules-preview { max-width: 520px; margin-top: 14px; }
+#view-add-dealer .nd-rules-preview pre {
+  margin-top: 4px;
+  padding: 8px 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+}
+
+/* ── Panel 3 ── */
+#view-add-dealer .nd-steps {
+  margin-bottom: 14px;
+  padding: 8px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 12px;
+}
+#view-add-dealer .nd-steps .nd-step-line { padding: 2px 0; }
+#view-add-dealer .nd-check-table td { vertical-align: middle; }
+#view-add-dealer .nd-check-icon { font-size: 13px; width: 26px; text-align: center; }
+#view-add-dealer .nd-check-icon.ok   { color: var(--success); }
+#view-add-dealer .nd-check-icon.bad  { color: var(--danger); }
+#view-add-dealer .nd-check-icon.warn { color: var(--warning); }
+#view-add-dealer .nd-check-detail { font-size: 11px; color: var(--text-3); }
+/* !important: SharedUtils .btn-* carries its own !important padding defense. */
+#view-add-dealer .nd-check-table .btn-ghost { padding: 3px 10px !important; font-size: 11px; }
+
+/* Restore SharedUtils component padding under this view's wildcard reset —
+   #view-add-dealer * (1,0,0) beats the unscoped .tag/.table-u rules (0,1,0).
+   Same restore ViewImport carries for its snapshot table. */
+#view-add-dealer .tag { padding: 2px 8px; }
+#view-add-dealer .table-u th { padding: 7px 12px; }
+#view-add-dealer .table-u td { padding: 6px 12px; }
+</style>
+
+<script>
+// ── Add Dealer wizard (all globals nd-prefixed — one shared JS scope) ────────
+var ndBoot = null;            // getAddDealerBootstrap() result
+var ndCurrentKey = null;      // dealer being set up (panel 3)
+var ndCurrentName = null;
+var ndLastChecklist = null;
+var ndKeyTouched = false;     // user edited the key → stop auto-deriving
+var ndPrefixTouched = false;
+var ndPanel = 1;
+
+var ND_OTHER = '__other__';
+
+function ndShowPanel(n) {
+  ndPanel = n;
+  document.getElementById('ndPanelBasics').style.display    = (n === 1) ? 'flex' : 'none';
+  document.getElementById('ndPanelDefaults').style.display  = (n === 2) ? 'flex' : 'none';
+  document.getElementById('ndPanelChecklist').style.display = (n === 3) ? 'flex' : 'none';
+}
+
+function ndSetStatus(n, msg, type) {
+  var el = document.getElementById('ndStatus' + n);
+  el.textContent = msg || ' ';
+  el.className = 'status-bar ' + (type || 'empty');
+}
+
+// ── Bootstrap ────────────────────────────────────────────────────────────────
+function ndInit() {
+  ndLoadBootstrap_(null);
+}
+
+function ndShown() {
+  // Returning from Dealer Rules with the checklist open → auto re-check.
+  if (ndPanel === 3 && ndCurrentKey) { ndRecheck(); return; }
+  // Idle on panel 1 → refresh keys/locations (a new import may have landed).
+  if (ndPanel === 1) ndLoadBootstrap_(null);
+}
+
+function ndLoadBootstrap_(cb) {
+  google.script.run
+    .withSuccessHandler(function(boot) {
+      ndBoot = boot;
+      ndRenderResume_();
+      ndPopulateLocations_();
+      ndUpdateGate();
+      if (ndPendingPrefill) {   // a jump from the import review beat the bootstrap
+        var pp = ndPendingPrefill;
+        ndPendingPrefill = null;
+        ndPrefill(pp.location, pp.suggestedKey);
+      }
+      if (cb) cb();
+    })
+    .withFailureHandler(function(e) {
+      ndSetStatus(1, 'Could not load setup data: ' + e.message, 'error');
+    })
+    .getAddDealerBootstrap();
+}
+
+function ndRenderResume_() {
+  var strip = document.getElementById('ndResumeStrip');
+  var tags = document.getElementById('ndResumeTags');
+  var list = (ndBoot && ndBoot.inactiveDealers) || [];
+  if (!list.length) { strip.style.display = 'none'; tags.innerHTML = ''; return; }
+  var html = '';
+  list.forEach(function(d, i) {
+    // Integer index into ndBoot.inactiveDealers — never interpolate the name.
+    html += '<span class="tag tone-warning" onclick="ndResume(' + i + ')">' + escHtml(d.name) + '</span>';
+  });
+  tags.innerHTML = html;
+  strip.style.display = 'block';
+}
+
+function ndPopulateLocations_() {
+  var sel = document.getElementById('ndLocation');
+  var prev = sel.value;
+  var un = (ndBoot && ndBoot.unconfiguredLocations) || [];
+  var all = (ndBoot && ndBoot.scraperLocations) || [];
+  var unSet = {};
+  un.forEach(function(u) { unSet[u.location] = true; });
+
+  var html = '<option value="">Select a scraper location&hellip;</option>';
+  un.forEach(function(u) {
+    html += '<option value="' + escHtml(u.location) + '">&#9679; ' + escHtml(u.location) + ' (unconfigured)</option>';
+  });
+  all.forEach(function(loc) {
+    if (unSet[loc]) return;
+    html += '<option value="' + escHtml(loc) + '">' + escHtml(loc) + '</option>';
+  });
+  html += '<option value="' + ND_OTHER + '">Other / not imported yet&hellip;</option>';
+  sel.innerHTML = html;
+  if (prev) sel.value = prev;   // keep the user's pick across a refresh
+  if (window.CustomSelect) CustomSelect.refresh(sel);
+}
+
+// ── Panel 1 field logic ──────────────────────────────────────────────────────
+function ndLocationValue_() {
+  var sel = document.getElementById('ndLocation');
+  if (sel.value === ND_OTHER) return document.getElementById('ndLocationOther').value.trim();
+  return sel.value.trim();
+}
+
+function ndOnLocationChange_() {
+  var sel = document.getElementById('ndLocation');
+  document.getElementById('ndLocationOther').style.display = (sel.value === ND_OTHER) ? 'block' : 'none';
+  var nameEl = document.getElementById('ndName');
+  if (!nameEl.value.trim() && sel.value && sel.value !== ND_OTHER) {
+    nameEl.value = sel.value;   // location names usually ARE the dealer name
+    ndOnNameInput_();
+  }
+  ndUpdateGate();
+}
+
+function ndOnNameInput_() {
+  var name = document.getElementById('ndName').value;
+  if (!ndKeyTouched) document.getElementById('ndKey').value = ndClientKeyFromName_(name);
+  if (!ndPrefixTouched) document.getElementById('ndPrefix').value = ndClientPrefixFromName_(name);
+  ndUpdateGate();
+}
+
+// Client-side twins of ndKeyFromName_/ndPrefixFromName_ (server re-validates).
+function ndClientKeyFromName_(s) {
+  return String(s || '').toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+}
+function ndClientPrefixFromName_(s) {
+  return String(s || '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+}
+
+function ndUpdateGate() {
+  var name = document.getElementById('ndName').value.trim();
+  var key = document.getElementById('ndKey').value.trim().toUpperCase();
+  var keyEl = document.getElementById('ndKey');
+  var hint = document.getElementById('ndKeyHint');
+  var location = ndLocationValue_();
+
+  var keyValid = /^[A-Z][A-Z0-9_]{0,89}$/.test(key);
+  var keyDupe = false;
+  if (keyValid && ndBoot) {
+    keyDupe = (ndBoot.existingKeys || []).some(function(k) { return k.toUpperCase() === key; });
+  }
+  keyEl.classList.toggle('nd-invalid', !!key && (!keyValid || keyDupe));
+  hint.textContent = keyDupe ? 'That key already exists — pick another.'
+    : (!keyValid && key) ? 'Keys start with a letter and use only A–Z, 0–9 and _.'
+    : 'ALL_CAPS unique ID — also becomes the VIN log tab name. Auto-derived from the name.';
+
+  document.getElementById('ndNextBtn').disabled = !(name && keyValid && !keyDupe && location);
+}
+
+var ndPendingPrefill = null;
+function ndPrefill(location, suggestedKey) {
+  ndReset();
+  if (!ndBoot) {   // first visit: the location dropdown isn't populated yet
+    ndPendingPrefill = { location: location, suggestedKey: suggestedKey };
+    return;
+  }
+  var sel = document.getElementById('ndLocation');
+  var found = false;
+  for (var i = 0; i < sel.options.length; i++) {
+    if (sel.options[i].value === location) { found = true; break; }
+  }
+  if (found) {
+    sel.value = location;
+  } else {
+    sel.value = ND_OTHER;
+    document.getElementById('ndLocationOther').value = location;
+  }
+  if (window.CustomSelect) CustomSelect.refresh(sel);
+  ndOnLocationChange_();
+  if (suggestedKey && !document.getElementById('ndKey').value) {
+    document.getElementById('ndKey').value = suggestedKey;
+  }
+  ndUpdateGate();
+}
+
+// ── Panel 2 ──────────────────────────────────────────────────────────────────
+function ndToDefaults() {
+  var rows = [
+    ['Dealer key', escHtml(document.getElementById('ndKey').value.trim().toUpperCase()), false],
+    ['ORDERS column', escHtml((ndBoot && ndBoot.nextOrdersCol) || '?'), false],
+    ['VIN log tab', escHtml(document.getElementById('ndKey').value.trim().toUpperCase()), false],
+    ['QR folder', (ndBoot && ndBoot.qrParent)
+        ? escHtml(document.getElementById('ndKey').value.trim().toUpperCase()) + ' in ' + escHtml(ndBoot.qrParent.name)
+        : null, !(ndBoot && ndBoot.qrParent)],
+    ['Active', 'FALSE — until the checklist passes', false]
+  ];
+  var html = '';
+  rows.forEach(function(r) {
+    html += '<div class="nd-preview-row"><span class="k">' + r[0] + '</span>' +
+            (r[2] ? '<span class="v warn">Cannot derive parent folder — will need a manual folder ID</span>'
+                  : '<span class="v">' + r[1] + '</span>') + '</div>';
+  });
+  document.getElementById('ndPreviewList').innerHTML = html;
+  document.getElementById('ndRulesPre').textContent =
+    JSON.stringify({ allowed_types: ['New', 'PO', 'CPO'], exclude_status: ['OFFLOT'], require_stock: true }, null, 2);
+  ndSetStatus(2, '', 'empty');
+  ndShowPanel(2);
+}
+
+function ndPayload_() {
+  return {
+    dealerKey:           document.getElementById('ndKey').value.trim().toUpperCase(),
+    dealerName:          document.getElementById('ndName').value.trim(),
+    scraperLocationName: ndLocationValue_(),
+    linkbuilderCol:      document.getElementById('ndLinkCol').value.trim().toUpperCase() || 'B',
+    qrLocalPrefix:       document.getElementById('ndPrefix').value.trim(),
+    notes:               document.getElementById('ndNotes').value.trim()
+  };
+}
+
+function ndCreate() {
+  var payload = ndPayload_();
+  var btn = document.getElementById('ndCreateBtn');
+  btn.disabled = true;
+  btn.textContent = 'Creating…';
+  ndSetStatus(2, 'Creating ' + payload.dealerName + '…', 'info');
+  google.script.run
+    .withSuccessHandler(function(result) {
+      btn.disabled = false;
+      btn.textContent = 'Create Dealer';
+      ndCurrentKey = result.dealerKey;
+      ndCurrentName = payload.dealerName;
+      ndRenderSteps_(result.steps || []);
+      ndRenderChecklist_(result.checklist);
+      ndShowPanel(3);
+      ndLoadBootstrap_(null);   // key list + resume strip just changed
+    })
+    .withFailureHandler(function(e) {
+      btn.disabled = false;
+      btn.textContent = 'Create Dealer';
+      ndSetStatus(2, e.message, 'error');
+    })
+    .createDealer(payload);
+}
+
+// ── Panel 3 ──────────────────────────────────────────────────────────────────
+function ndResume(i) {
+  var d = ((ndBoot && ndBoot.inactiveDealers) || [])[i];
+  if (!d) return;
+  ndCurrentKey = d.key;
+  ndCurrentName = d.name;
+  document.getElementById('ndStepsSummary').style.display = 'none';
+  document.getElementById('ndChecklistBody').innerHTML = '<div class="u-hint">Loading&hellip;</div>';
+  ndShowPanel(3);
+  ndRecheck();
+}
+
+function ndRenderSteps_(steps) {
+  var el = document.getElementById('ndStepsSummary');
+  if (!steps.length) { el.style.display = 'none'; return; }
+  var icons = { created: '✓', existing: '○', failed: '✗' };
+  var html = '';
+  steps.forEach(function(s) {
+    html += '<div class="nd-step-line"><span class="nd-check-icon ' +
+            (s.status === 'failed' ? 'bad' : 'ok') + '">' + (icons[s.status] || '?') + '</span> ' +
+            escHtml(s.label) + ' — ' + escHtml(s.status) +
+            (s.detail ? ' <span class="nd-check-detail">(' + escHtml(s.detail) + ')</span>' : '') + '</div>';
+  });
+  el.innerHTML = html;
+  el.style.display = 'block';
+}
+
+function ndRenderChecklist_(cl) {
+  ndLastChecklist = cl;
+  if (!cl) return;
+  document.getElementById('ndChecklistTitle').innerHTML =
+    escHtml(cl.dealerName) + ' ' +
+    (cl.active ? '<span class="tag tone-success">Active</span>'
+               : '<span class="tag tone-warning">Inactive</span>');
+
+  var html = '<table class="table-u nd-check-table"><thead><tr>' +
+             '<th></th><th>Check</th><th>Detail</th><th></th></tr></thead><tbody>';
+  cl.items.forEach(function(it) {
+    var iconCls = it.ok ? 'ok' : (it.blocking ? 'bad' : 'warn');
+    var icon = it.ok ? '✓' : (it.blocking ? '✗' : '⚠');
+    var action = '';
+    if (!it.ok && it.action === 'rules-pipedrive') {
+      action = '<button class="btn-ghost" onclick="ndJumpToRules(\'pipedrive\')">Set up &#8594;</button>';
+    } else if (!it.ok && it.action === 'rules-filter') {
+      action = '<button class="btn-ghost" onclick="ndJumpToRules(\'filter\')">Edit rules &#8594;</button>';
+    }
+    html += '<tr><td class="nd-check-icon ' + iconCls + '">' + icon + '</td>' +
+            '<td>' + escHtml(it.label) + (it.blocking ? '' : ' <span class="nd-check-detail">(optional)</span>') + '</td>' +
+            '<td class="nd-check-detail">' + escHtml(it.detail || '') + '</td>' +
+            '<td>' + action + '</td></tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('ndChecklistBody').innerHTML = html;
+
+  var activateBtn = document.getElementById('ndActivateBtn');
+  activateBtn.disabled = cl.active || !cl.canActivate;
+  activateBtn.textContent = cl.active ? 'Dealer Is Active' : 'Activate Dealer';
+  // ndSetStatus writes via textContent — raw strings are safe here.
+  ndSetStatus(3, cl.active ? cl.dealerName + ' is active and ready to run.'
+    : cl.canActivate ? 'All blocking checks pass — ready to activate.'
+    : 'Finish the failing checks above, then re-check.', cl.active || cl.canActivate ? 'success' : 'info');
+}
+
+function ndRecheck() {
+  if (!ndCurrentKey) return;
+  ndSetStatus(3, 'Checking…', 'info');
+  google.script.run
+    .withSuccessHandler(function(cl) { ndRenderChecklist_(cl); })
+    .withFailureHandler(function(e) { ndSetStatus(3, e.message, 'error'); })
+    .getDealerChecklist(ndCurrentKey);
+}
+
+function ndRepair() {
+  if (!ndCurrentKey) return;
+  var btn = document.getElementById('ndRepairBtn');
+  btn.disabled = true;
+  ndSetStatus(3, 'Creating missing pieces…', 'info');
+  // Same idempotent createDealer — for a resumed dealer the server fills the
+  // payload from the existing DEALERS row (only the key is required here).
+  google.script.run
+    .withSuccessHandler(function(result) {
+      btn.disabled = false;
+      ndRenderSteps_(result.steps || []);
+      ndRenderChecklist_(result.checklist);
+    })
+    .withFailureHandler(function(e) { btn.disabled = false; ndSetStatus(3, e.message, 'error'); })
+    .createDealer({ dealerKey: ndCurrentKey });
+}
+
+function ndActivate() {
+  if (!ndCurrentKey) return;
+  var btn = document.getElementById('ndActivateBtn');
+  btn.disabled = true;
+  ndSetStatus(3, 'Activating…', 'info');
+  google.script.run
+    .withSuccessHandler(function(result) {
+      ndRenderChecklist_(result.checklist);
+      if (result.ok) {
+        toast(result.message + ' Reload the app to see it in the dealer lists.', 'success');
+        ndLoadBootstrap_(null);   // drop it from the inactive strip
+        // ponytail: session-latched dealer list (AppData) has no invalidate —
+        // a reload nudge is the one-line honest fix; add AppData.invalidate()
+        // if reloading ever annoys.
+      } else {
+        ndSetStatus(3, result.message, 'error');
+      }
+    })
+    .withFailureHandler(function(e) { btn.disabled = false; ndSetStatus(3, e.message, 'error'); })
+    .activateDealer(ndCurrentKey);
+}
+
+function ndJumpToRules(tab) {
+  if (typeof navTo === 'function') navTo('view-rules');
+  if (typeof rulesOpenDealer === 'function') {
+    rulesOpenDealer(ndCurrentKey, ndCurrentName, tab);
+  } else {
+    toast('Open System Settings → Dealer Rules and pick ' + (ndCurrentName || ndCurrentKey), 'info');
+  }
+}
+
+function ndReset() {
+  ndCurrentKey = null;
+  ndCurrentName = null;
+  ndLastChecklist = null;
+  ndKeyTouched = false;
+  ndPrefixTouched = false;
+  document.getElementById('ndName').value = '';
+  document.getElementById('ndKey').value = '';
+  document.getElementById('ndLocation').value = '';
+  document.getElementById('ndLocationOther').value = '';
+  document.getElementById('ndLocationOther').style.display = 'none';
+  document.getElementById('ndLinkCol').value = 'B';
+  document.getElementById('ndPrefix').value = '';
+  document.getElementById('ndNotes').value = '';
+  if (window.CustomSelect) CustomSelect.refresh(document.getElementById('ndLocation'));
+  ndSetStatus(1, '', 'empty'); ndSetStatus(2, '', 'empty'); ndSetStatus(3, '', 'empty');
+  ndUpdateGate();
+  ndShowPanel(1);
+}
+
+// ── Wiring ───────────────────────────────────────────────────────────────────
+(function() {
+  var v = document.getElementById('view-add-dealer');
+  v.querySelector('#ndName').addEventListener('input', ndOnNameInput_);
+  v.querySelector('#ndKey').addEventListener('input', function() { ndKeyTouched = true; ndUpdateGate(); });
+  v.querySelector('#ndPrefix').addEventListener('input', function() { ndPrefixTouched = true; });
+  v.querySelector('#ndLocation').addEventListener('change', ndOnLocationChange_);
+  v.querySelector('#ndLocationOther').addEventListener('input', ndUpdateGate);
+
+  if (window.AppGuards) {
+    AppGuards.register(function() {
+      return (ndPanel === 3 && ndLastChecklist && !ndLastChecklist.active)
+        ? 'A dealer setup is still incomplete (Add Dealer)'
+        : null;
+    });
+  }
+
+  window.VIEW_INITS = window.VIEW_INITS || {};
+  window.VIEW_SHOWN = window.VIEW_SHOWN || {};
+  VIEW_INITS['view-add-dealer'] = ndInit;
+  VIEW_SHOWN['view-add-dealer'] = ndShown;
+})();
+</script>
