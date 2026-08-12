@@ -42,6 +42,12 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   old skip behavior. Percent semantics unchanged (`percent` empty → $0).
 
 ### Fixed
+- **Add Dealer wizard: active dealers can reach the checklist / "Create
+  Missing Pieces" again.** The resume strip lists only inactive dealers and the
+  duplicate-key validation hard-blocked ("That key already exists — pick
+  another"), so once a dealer was activated there was no wizard door back to
+  its checklist or repair action. The duplicate-key hint is now a link that
+  opens that dealer's setup checklist (panel 3) directly.
 - **Add Dealer wizard: run outputs now land in the dealer's own folder.** The
   wizard created `<container>/<Dealer Name>/QR Codes` but only recorded the QR
   folder id (DEALERS col D) — never the dealer folder id in col E
