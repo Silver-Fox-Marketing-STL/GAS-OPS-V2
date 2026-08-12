@@ -864,6 +864,10 @@
     if (!options.length) {
       return '<div class="ps-empty" style="margin-top:8px;">That org field has no options.</div>';
     }
+    // Synthetic '(not set)' row, key '' — maps orgs whose field is EMPTY (engine
+    // treats an empty field as option ''). Leave both cells blank to keep the old
+    // skip behavior for those orgs.
+    options = options.concat([{ id: '', label: '(not set / field empty)' }]);
     var rows = options.map(function(o) {
       var saved = cfg.options[o.id] || {};
       var varSel = pdInstallVariationSelect_(o.id, cfg.install_product_id, saved.variation_id);

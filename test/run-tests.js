@@ -533,6 +533,86 @@ t('mergeLineItems_: inactive is sticky — one unavailable source marks the merg
 });
 
 // ============================================================================
+// Suite: install cost — pdApplyInstallCost_. Guards: an EMPTY org field maps to
+// the '(not set)' options row (key ''); an UNREADABLE org fails retryable — a
+// transient Pipedrive blip can never silently drop the Install line again.
+// ============================================================================
+suite('install cost');
+function withInstallStubs_(opts, fn) {
+  var saved = {
+    cfg: globalThis.getInstallCostConfig_, org: globalThis.pdGetOrgWithCustomFields_,
+    list: globalThis.pdListDealProducts_, add: globalThis.pdAddDealProduct_,
+    upd: globalThis.pdUpdateDealProduct_
+  };
+  var calls = { added: [], updated: [] };
+  globalThis.getInstallCostConfig_ = function () { return opts.cfg; };
+  globalThis.pdGetOrgWithCustomFields_ = function () { return opts.org; };
+  globalThis.pdListDealProducts_ = function () { return opts.rows || []; };
+  globalThis.pdAddDealProduct_ = function (dealId, item) { calls.added.push(item); return { ok: true }; };
+  globalThis.pdUpdateDealProduct_ = function (dealId, attId, body) { calls.updated.push({ attId: attId, body: body }); return { ok: true }; };
+  try { return fn(calls); }
+  finally {
+    globalThis.getInstallCostConfig_ = saved.cfg; globalThis.pdGetOrgWithCustomFields_ = saved.org;
+    globalThis.pdListDealProducts_ = saved.list; globalThis.pdAddDealProduct_ = saved.add;
+    globalThis.pdUpdateDealProduct_ = saved.upd;
+  }
+}
+var IC_CFG = { org_field_key: 'icf', install_product_id: 700, options: {
+  '21': { variation_id: 7001, percent: 3 },          // a mapped option (3%)
+  '':   { variation_id: 7002, percent: null }        // '(not set)' → $0 Included
+} };
+
+t('EMPTY org field → install line still added at $0 via the \'(not set)\' mapping', function () {
+  withInstallStubs_({ cfg: IC_CFG, org: { id: 1, custom_fields: {} } }, function (calls) {
+    var r = pdApplyInstallCost_(1, { orgId: 1 });
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.applied, true);
+    assert.strictEqual(r.price, 0);
+    assert.strictEqual(calls.added.length, 1);
+    assert.strictEqual(calls.added[0].item_price, 0);
+    assert.strictEqual(calls.added[0].product_variation_id, 7002);
+  });
+});
+t('EMPTY org field with NO \'(not set)\' row keeps the old fail-safe skip', function () {
+  var cfg = { org_field_key: 'icf', install_product_id: 700, options: { '21': { variation_id: 7001, percent: 3 } } };
+  withInstallStubs_({ cfg: cfg, org: { id: 1, custom_fields: {} } }, function (calls) {
+    var r = pdApplyInstallCost_(1, { orgId: 1 });
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.applied, false);
+    assert.strictEqual(calls.added.length, 0);
+  });
+});
+t('UNREADABLE org (API failure) fails retryable — never a silent skip, never a $0 guess', function () {
+  withInstallStubs_({ cfg: IC_CFG, org: null }, function (calls) {
+    var r = pdApplyInstallCost_(1, { orgId: 1 });
+    assert.strictEqual(r.ok, false);
+    assert.ok(r.error);
+    assert.strictEqual(calls.added.length, 0);
+    assert.strictEqual(calls.updated.length, 0);
+  });
+});
+t('mapped option still prices percent × other-lines subtotal (regression)', function () {
+  withInstallStubs_({ cfg: IC_CFG, org: { id: 1, custom_fields: { icf: { id: 21 } } },
+    rows: [{ id: 5, product_id: 101, item_price: 40, quantity: 7 }] }, function (calls) {
+    var r = pdApplyInstallCost_(1, { orgId: 1 });
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.price, 8.4);   // 3% of 280, to the cent
+    assert.strictEqual(calls.added[0].product_variation_id, 7001);
+  });
+});
+t('existing Install row is UPDATED (idempotent), not re-added — incl. the empty-field path', function () {
+  withInstallStubs_({ cfg: IC_CFG, org: { id: 1, custom_fields: {} },
+    rows: [{ id: 55, product_id: 700, item_price: 9, quantity: 1 }] }, function (calls) {
+    var r = pdApplyInstallCost_(1, { orgId: 1 });
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(calls.added.length, 0);
+    assert.strictEqual(calls.updated.length, 1);
+    assert.strictEqual(calls.updated[0].attId, 55);
+    assert.strictEqual(calls.updated[0].body.item_price, 0);
+  });
+});
+
+// ============================================================================
 // Suite: csv groups — resolveRuleSchema_/csvOutputGroups_
 // (the product a user picks for billing also picks the CSV layout; rules that
 //  resolve to the same schema share one CSV sheet)

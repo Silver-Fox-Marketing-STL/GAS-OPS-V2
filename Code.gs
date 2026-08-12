@@ -7437,17 +7437,27 @@ function saveInstallCostConfig(cfg) {
  * Adds/updates the Install line item per the org's "Program Install Cost" option:
  * variation + price from the configured {variation_id, percent} — percent>0 → percent
  * of the deal's OTHER line items (excl. design + install, item_price × quantity), rounded
- * to cents; else price 0. Idempotent (updates an existing Install row). No-op (fail-safe)
- * until configured, or if the org's option isn't mapped. Returns {ok, applied, price?, error?}.
+ * to cents; else price 0. An EMPTY org field maps to the '(not set)' options row
+ * (key ''), so an unset field can still add the line (e.g. $0 Included). Idempotent
+ * (updates an existing Install row). No-op (fail-safe) until configured, or if the
+ * org's option isn't mapped; an unreadable org FAILS (retryable) — never skips.
+ * Returns {ok, applied, price?, error?}.
  */
 function pdApplyInstallCost_(dealId, pdCfg) {
   var cfg = getInstallCostConfig_();
   if (!cfg || !cfg.org_field_key || !cfg.install_product_id) return { ok: true, applied: false };
 
+  // An unreadable org is a FAILURE (retryable at the install stage), never a skip —
+  // treating it as "field empty" would apply the '(not set)' mapping to an org whose
+  // real option we just couldn't read (a transient API blip used to silently drop
+  // the Install line here).
   var org = pdGetOrgWithCustomFields_(pdCfg.orgId, [cfg.org_field_key]);
-  var optRaw = org ? pdOrgFieldValue_(org.custom_fields, cfg.org_field_key) : undefined;
-  if (optRaw === undefined || optRaw === null || optRaw === '') return { ok: true, applied: false };
-  var rule = (cfg.options && cfg.options[String(optRaw)]) ? cfg.options[String(optRaw)] : null;
+  if (!org) return { ok: false, error: 'could not read the org\'s Program Install Cost field from Pipedrive' };
+  var optRaw = pdOrgFieldValue_(org.custom_fields, cfg.org_field_key);
+  // Empty field → the '(not set)' mapping (options key ''), so an org with no
+  // Program Install Cost set still gets its configured Install line (e.g. $0 Included).
+  var optKey = (optRaw === undefined || optRaw === null) ? '' : String(optRaw);
+  var rule = (cfg.options && cfg.options[optKey]) ? cfg.options[optKey] : null;
   if (!rule) return { ok: true, applied: false };   // unmapped option → skip (fail-safe)
 
   var rows = pdListDealProducts_(dealId);
@@ -10412,10 +10422,30 @@ function createDealer(payload) {
     // 4. Drive folders — <container>/<Dealer Name>/"QR Codes", anchored on the
     // env-bound OUTPUT_FOLDER_ID (never derived from another dealer's folders —
     // that once placed a new QR folder inside another dealer's folder — and
-    // never Drive root). A resolvable col-D id short-circuits everything; a
-    // resolvable col-E id is reused as the dealer folder (repair path).
+    // never Drive root). The dealer folder is ALWAYS ensured and its id recorded
+    // in col E (output_folder_id) when blank — runDealer routes the output doc
+    // + exported CSVs by col E, so leaving it blank sent a new dealer's outputs
+    // to the container root (MB of Chesterfield, Aug 2026). A resolvable col-E
+    // id is reused as the dealer folder (repair path; manual edit wins).
     try {
       if (!rowIdx) throw new Error('DEALERS row was not created — fix that step first, then re-run.');
+      var dealerFolder = null;
+      var currentOut = existingRow ? String(existingRow[CFG.OUTPUT_FOLDER] || '').trim() : '';
+      if (currentOut && currentOut.charAt(0) !== '[') {
+        try { dealerFolder = DriveApp.getFolderById(currentOut); } catch (e3) {}
+      }
+      if (dealerFolder) {
+        step('dealer_folder', 'Dealer Drive folder', 'existing', dealerFolder.getName());
+      } else {
+        var container = ndDealersContainerFolder_();
+        if (!container) throw new Error('The output folder (OUTPUT_FOLDER_ID) is unreachable — check Drive access.');
+        var dIt = container.getFoldersByName(name);
+        var dealerExisted = dIt.hasNext();
+        dealerFolder = dealerExisted ? dIt.next() : container.createFolder(name);
+        sheet.getRange(rowIdx, CFG.OUTPUT_FOLDER + 1).setValue(dealerFolder.getId());
+        step('dealer_folder', 'Dealer Drive folder', dealerExisted ? 'existing' : 'created',
+             '"' + name + '" in ' + container.getName() + ' → output_folder_id set');
+      }
       var currentQr = existingRow ? String(existingRow[CFG.QR_FOLDER_ID] || '').trim() : '';
       var qrOk = false;
       if (currentQr && currentQr.charAt(0) !== '[') {
@@ -10424,22 +10454,6 @@ function createDealer(payload) {
       if (qrOk) {
         step('qr_folder', 'QR Drive folder', 'existing', currentQr);
       } else {
-        var dealerFolder = null;
-        var currentOut = existingRow ? String(existingRow[CFG.OUTPUT_FOLDER] || '').trim() : '';
-        if (currentOut && currentOut.charAt(0) !== '[') {
-          try { dealerFolder = DriveApp.getFolderById(currentOut); } catch (e3) {}
-        }
-        if (dealerFolder) {
-          step('dealer_folder', 'Dealer Drive folder', 'existing', dealerFolder.getName());
-        } else {
-          var container = ndDealersContainerFolder_();
-          if (!container) throw new Error('The output folder (OUTPUT_FOLDER_ID) is unreachable — check Drive access.');
-          var dIt = container.getFoldersByName(name);
-          var dealerExisted = dIt.hasNext();
-          dealerFolder = dealerExisted ? dIt.next() : container.createFolder(name);
-          step('dealer_folder', 'Dealer Drive folder', dealerExisted ? 'existing' : 'created',
-               '"' + name + '" in ' + container.getName());
-        }
         var qIt = dealerFolder.getFoldersByName('QR Codes');
         var qrExisted = qIt.hasNext();
         var qrFolder = qrExisted ? qIt.next() : dealerFolder.createFolder('QR Codes');
