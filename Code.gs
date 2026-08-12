@@ -7437,17 +7437,27 @@ function saveInstallCostConfig(cfg) {
  * Adds/updates the Install line item per the org's "Program Install Cost" option:
  * variation + price from the configured {variation_id, percent} — percent>0 → percent
  * of the deal's OTHER line items (excl. design + install, item_price × quantity), rounded
- * to cents; else price 0. Idempotent (updates an existing Install row). No-op (fail-safe)
- * until configured, or if the org's option isn't mapped. Returns {ok, applied, price?, error?}.
+ * to cents; else price 0. An EMPTY org field maps to the '(not set)' options row
+ * (key ''), so an unset field can still add the line (e.g. $0 Included). Idempotent
+ * (updates an existing Install row). No-op (fail-safe) until configured, or if the
+ * org's option isn't mapped; an unreadable org FAILS (retryable) — never skips.
+ * Returns {ok, applied, price?, error?}.
  */
 function pdApplyInstallCost_(dealId, pdCfg) {
   var cfg = getInstallCostConfig_();
   if (!cfg || !cfg.org_field_key || !cfg.install_product_id) return { ok: true, applied: false };
 
+  // An unreadable org is a FAILURE (retryable at the install stage), never a skip —
+  // treating it as "field empty" would apply the '(not set)' mapping to an org whose
+  // real option we just couldn't read (a transient API blip used to silently drop
+  // the Install line here).
   var org = pdGetOrgWithCustomFields_(pdCfg.orgId, [cfg.org_field_key]);
-  var optRaw = org ? pdOrgFieldValue_(org.custom_fields, cfg.org_field_key) : undefined;
-  if (optRaw === undefined || optRaw === null || optRaw === '') return { ok: true, applied: false };
-  var rule = (cfg.options && cfg.options[String(optRaw)]) ? cfg.options[String(optRaw)] : null;
+  if (!org) return { ok: false, error: 'could not read the org\'s Program Install Cost field from Pipedrive' };
+  var optRaw = pdOrgFieldValue_(org.custom_fields, cfg.org_field_key);
+  // Empty field → the '(not set)' mapping (options key ''), so an org with no
+  // Program Install Cost set still gets its configured Install line (e.g. $0 Included).
+  var optKey = (optRaw === undefined || optRaw === null) ? '' : String(optRaw);
+  var rule = (cfg.options && cfg.options[optKey]) ? cfg.options[optKey] : null;
   if (!rule) return { ok: true, applied: false };   // unmapped option → skip (fail-safe)
 
   var rows = pdListDealProducts_(dealId);

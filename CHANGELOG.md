@@ -32,8 +32,23 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   fail-soft, never fails an import), rendered as a warning banner in the
   review panel with a per-location "Add dealer →" button that opens the wizard
   prefilled with the location and a suggested dealer key.
+- **Install cost: '(not set)' mapping for an empty Program Install Cost org
+  field.** The Install Cost options grid (Dealer Rules → Pipedrive settings)
+  now includes a synthetic "(not set / field empty)" row (options key `''`):
+  when a deal push reads an org whose Program Install Cost field is EMPTY,
+  `pdApplyInstallCost_` applies that row's variation/percent — so an unset
+  field can still add the Install line (e.g. $0 Included) instead of silently
+  skipping it (MB of Chesterfield, Aug 2026). Leaving the row blank keeps the
+  old skip behavior. Percent semantics unchanged (`percent` empty → $0).
 
 ### Fixed
+- **Install line no longer silently dropped when the org read fails.**
+  `pdApplyInstallCost_` treated an unreadable org (transient API error / rate
+  limit — `pdFetch_` never throws) the same as "field not set" and returned
+  silent success, so the push reported done with no Install line and no hint.
+  An unreadable org now fails the push at the `install` stage as retryable,
+  matching the products/fields stages. Required for the '(not set)' mapping
+  too: a failed read must never be mistaken for an empty field and billed $0.
 - **Add Dealer wizard: QR folder no longer created inside another dealer's
   folder.** The original parent derivation walked up from an existing dealer's
   `qr_folder_id` — but each QR folder's parent is that dealer's OWN folder, so
