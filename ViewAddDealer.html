@@ -388,9 +388,14 @@ function ndUpdateGate() {
     keyDupe = (ndBoot.existingKeys || []).some(function(k) { return k.toUpperCase() === key; });
   }
   keyEl.classList.toggle('nd-invalid', !!key && (!keyValid || keyDupe));
-  hint.textContent = keyDupe ? 'That key already exists — pick another.'
-    : (!keyValid && key) ? 'Keys start with a letter and use only A–Z, 0–9 and _.'
-    : 'ALL_CAPS unique ID — also becomes the VIN log tab name. Auto-derived from the name.';
+  if (keyDupe) {
+    // Static markup only (no interpolation); ndOpenExisting reads the input itself.
+    hint.innerHTML = 'That key already exists — <a href="#" onclick="ndOpenExisting(); return false;">' +
+                     'open its setup checklist</a> to re-check or repair it.';
+  } else {
+    hint.textContent = (!keyValid && key) ? 'Keys start with a letter and use only A–Z, 0–9 and _.'
+      : 'ALL_CAPS unique ID — also becomes the VIN log tab name. Auto-derived from the name.';
+  }
 
   document.getElementById('ndNextBtn').disabled = !(name && keyValid && !keyDupe && location);
 }
@@ -486,15 +491,26 @@ function ndCreate() {
 }
 
 // ── Panel 3 ──────────────────────────────────────────────────────────────────
-function ndResume(i) {
-  var d = ((ndBoot && ndBoot.inactiveDealers) || [])[i];
-  if (!d) return;
-  ndCurrentKey = d.key;
-  ndCurrentName = d.name;
+function ndOpenChecklist_(key, name) {
+  ndCurrentKey = key;
+  ndCurrentName = name;
   document.getElementById('ndStepsSummary').style.display = 'none';
   document.getElementById('ndChecklistBody').innerHTML = '<div class="u-hint">Loading&hellip;</div>';
   ndShowPanel(3);
   ndRecheck();
+}
+function ndResume(i) {
+  var d = ((ndBoot && ndBoot.inactiveDealers) || [])[i];
+  if (!d) return;
+  ndOpenChecklist_(d.key, d.name);
+}
+// Panel-1 duplicate-key hint link — the checklist/repair path for a dealer that
+// already exists. The resume strip lists only INACTIVE dealers, so this is the
+// only wizard door back into "Create Missing Pieces" for an ACTIVE dealer.
+function ndOpenExisting() {
+  var key = document.getElementById('ndKey').value.trim().toUpperCase();
+  if (!key) return;
+  ndOpenChecklist_(key, key);   // real name arrives with the checklist render
 }
 
 function ndRenderSteps_(steps) {
@@ -515,6 +531,7 @@ function ndRenderSteps_(steps) {
 function ndRenderChecklist_(cl) {
   ndLastChecklist = cl;
   if (!cl) return;
+  ndCurrentName = cl.dealerName || ndCurrentName;   // ndOpenExisting seeds name=key
   document.getElementById('ndChecklistTitle').innerHTML =
     escHtml(cl.dealerName) + ' ' +
     (cl.active ? '<span class="tag tone-success">Active</span>'
