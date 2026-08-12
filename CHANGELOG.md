@@ -43,8 +43,10 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   was half-wired: its text bypassed the `collectMissingFeatures_` run gate yet
   silently overrode the CSV value at write time. `editableCodesForDealer_` now
   skips `FEATURES` outright; the dedicated column is unaffected, other `edit`
-  columns (MODELTRIM etc.) unchanged. Harness: new "features edit-flag
-  exclusion" suite, 124/124.
+  columns (MODELTRIM etc.) unchanged. The CSV Schemas editor now also refuses
+  to SAVE an Editable flag on FEATURES (`buildCsvSchemaCells_` throws), so
+  config and engine can't disagree — existing flagged cells stay inert until
+  cleaned up. Harness: new "features edit-flag exclusion" suite, 125/125.
 - **Lot Scanner: desktop HEIC conversion handles new-iPhone photos** (needs a
   lot-scan deploy). Batch gallery uploads of HEIC shot on recent iPhones failed
   with `heic convert failed: ERR_LIBHEIF format not supported` — `heic2any@0.0.4`

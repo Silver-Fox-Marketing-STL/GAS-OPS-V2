@@ -1020,6 +1020,14 @@ t('ordinary edit columns are unaffected (VDP_EDIT regression check)', function (
   var map = { New: { product_id: 1, schema: 'VDP_EDIT' } };
   assert.deepStrictEqual(editableCodesForDealer_(rules, map), { New: [{ code: 'MODELTRIM', max: 18 }] });
 });
+t('CSV Schemas editor refuses the Editable flag on FEATURES (config side of the same guard)', function () {
+  var codes = getFieldToCol_();
+  assert.throws(function () {
+    buildCsvSchemaCells_([{ code: 'FEATURES', edit: true }], codes);
+  }, /FEATURES cannot be flagged Editable/);
+  // Plain FEATURES (no edit flag) still saves fine.
+  assert.deepStrictEqual(buildCsvSchemaCells_([{ code: 'FEATURES' }], codes), ['FEATURES']);
+});
 
 // ── Report ───────────────────────────────────────────────────────────────────
 function report_() {

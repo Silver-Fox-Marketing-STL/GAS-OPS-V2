@@ -2555,6 +2555,12 @@ function buildCsvSchemaCells_(columns, validCodes) {
       }
       if (!col.edit) throw new Error(n + ': max chars requires the Editable flag.');
     }
+    // FEATURES already has its dedicated always-editable input in the Run table;
+    // an edit flag here would double-render it (editableCodesForDealer_ ignores
+    // the flag for FEATURES, so it would also be a silent no-op in the engine).
+    if (code === 'FEATURES' && col.edit) {
+      throw new Error(n + ': FEATURES cannot be flagged Editable — it already has its own Features input in the Run table.');
+    }
     return serializeSchemaCell_({ code: code, header: header || null, edit: !!col.edit, max: max });
   });
 }
