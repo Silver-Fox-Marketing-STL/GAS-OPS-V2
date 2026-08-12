@@ -899,6 +899,17 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   formulas** for the old hardcoded values, and prefer exact-match over substring once the
   matched set is user-extensible. *(Sheets MCP: `update_cells` rejects a leading `=`;
   `batch_update_cells` writes real formulas — probe a scratch cell to confirm, then clean it up.)*
+- **Derive shared Drive anchors from a known constant, never by walking a sibling's
+  parents — folder hierarchies are not uniform.** The Add Dealer wizard (Aug 2026) found
+  its "shared QR parent" as `getParents()` of the first existing dealer's `qr_folder_id`.
+  But the real structure is `<output folder>/<Dealer Name>/"QR Codes"` — every QR folder's
+  parent is that dealer's OWN folder — so the wizard offered to create a new dealer's QR
+  folder inside *Audi Rancho Mirage's* folder (caught in the preview, post-promote). Fix:
+  anchor on the env-bound `OUTPUT_FOLDER_ID` and build the structure explicitly
+  (find-or-create dealer folder, then the subfolder). If a folder's location matters,
+  the anchor belongs in config/ENV — "wherever some existing thing happens to live" is
+  a guess that inherits every past inconsistency, and the level count you'd walk up is
+  itself an assumption about uniformity nobody verified.
 - **Two independent consumers of one config cell must have DISJOINT eligibility sets —
   overlap renders the thing twice, and the second copy is always the half-wired one.**
   A `FEATURES:<header>:edit` cell in CSV_SCHEMAS qualified for **both** Run-table column

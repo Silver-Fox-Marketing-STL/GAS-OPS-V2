@@ -423,19 +423,23 @@ function ndPrefill(location, suggestedKey) {
 
 // ── Panel 2 ──────────────────────────────────────────────────────────────────
 function ndToDefaults() {
+  var key = document.getElementById('ndKey').value.trim().toUpperCase();
+  var dealerName = document.getElementById('ndName').value.trim();
+  var hasContainer = !!(ndBoot && ndBoot.container);
   var rows = [
-    ['Dealer key', escHtml(document.getElementById('ndKey').value.trim().toUpperCase()), false],
+    ['Dealer key', escHtml(key), false],
     ['ORDERS column', escHtml((ndBoot && ndBoot.nextOrdersCol) || '?'), false],
-    ['VIN log tab', escHtml(document.getElementById('ndKey').value.trim().toUpperCase()), false],
-    ['QR folder', (ndBoot && ndBoot.qrParent)
-        ? escHtml(document.getElementById('ndKey').value.trim().toUpperCase()) + ' in ' + escHtml(ndBoot.qrParent.name)
-        : null, !(ndBoot && ndBoot.qrParent)],
+    ['VIN log tab', escHtml(key), false],
+    ['Dealer folder', hasContainer
+        ? escHtml(dealerName) + ' in ' + escHtml(ndBoot.container.name) : null, !hasContainer],
+    ['QR folder', hasContainer
+        ? 'QR Codes in ' + escHtml(dealerName) : null, !hasContainer],
     ['Active', 'FALSE — until the checklist passes', false]
   ];
   var html = '';
   rows.forEach(function(r) {
     html += '<div class="nd-preview-row"><span class="k">' + r[0] + '</span>' +
-            (r[2] ? '<span class="v warn">Cannot derive parent folder — will need a manual folder ID</span>'
+            (r[2] ? '<span class="v warn">Output folder unreachable — will need a manual folder ID</span>'
                   : '<span class="v">' + r[1] + '</span>') + '</div>';
   });
   document.getElementById('ndPreviewList').innerHTML = html;

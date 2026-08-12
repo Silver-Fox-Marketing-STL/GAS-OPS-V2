@@ -10223,21 +10223,14 @@ function ndUnconfiguredLocations_(liveLocations) {
   return ndDiffLocations_(liveLocations, configured);
 }
 
-/** First derivable parent folder of any existing dealer's QR folder, or null.
- *  New QR folders are created under this parent so they inherit the (Shared)
- *  drive's ownership — a My-Drive folder would be trashable only by its owner. */
-function ndQrParentFolder_(dealersData) {
-  var attempts = 0;
-  for (var i = 1; i < dealersData.length && attempts < 5; i++) {
-    var id = String(dealersData[i][CFG.QR_FOLDER_ID] || '').trim();
-    if (!id || id.charAt(0) === '[') continue;   // blank or "[QR_FOLDER_ID]" placeholder
-    attempts++;
-    try {
-      var parents = DriveApp.getFolderById(id).getParents();
-      if (parents.hasNext()) return parents.next();
-    } catch (e) { /* deleted/inaccessible folder — try the next dealer */ }
-  }
-  return null;
+/** The common container every dealer folder lives in — the env-bound output
+ *  folder (OUTPUT_FOLDER_ID), a known anchor in both prod and dev. Structure:
+ *  <container> / <Dealer Name> / "QR Codes". Never derived by walking an
+ *  existing folder's parents (Drive hierarchies aren't uniform — that once
+ *  placed a new dealer's QR folder inside another dealer's folder). */
+function ndDealersContainerFolder_() {
+  try { return DriveApp.getFolderById(OUTPUT_FOLDER_ID); }
+  catch (e) { return null; }
 }
 
 // ── Client-callable endpoints ────────────────────────────────────────────────
@@ -10260,14 +10253,14 @@ function getAddDealerBootstrap() {
     }
   }
   var live = ndLiveScraperLocations_();
-  var parent = ndQrParentFolder_(data);
+  var container = ndDealersContainerFolder_();
   return {
     existingKeys:           existingKeys,
     inactiveDealers:        inactiveDealers,
     scraperLocations:       live,
     unconfiguredLocations:  ndDiffLocations_(live, configuredLocations),
     nextOrdersCol:          ndNextOrdersCol_(usedCols),
-    qrParent:               parent ? { id: parent.getId(), name: parent.getName() } : null
+    container:              container ? { id: container.getId(), name: container.getName() } : null
   };
 }
 
@@ -10416,9 +10409,11 @@ function createDealer(payload) {
       step('vin_log', 'VIN log tab', 'failed', e.message);
     }
 
-    // 4. QR folder — keep a resolvable col-D id; else find-or-create by name
-    // under the derived shared parent. NEVER create at Drive root (My-Drive
-    // ownership would make QR files trashable only by their uploader).
+    // 4. Drive folders — <container>/<Dealer Name>/"QR Codes", anchored on the
+    // env-bound OUTPUT_FOLDER_ID (never derived from another dealer's folders —
+    // that once placed a new QR folder inside another dealer's folder — and
+    // never Drive root). A resolvable col-D id short-circuits everything; a
+    // resolvable col-E id is reused as the dealer folder (repair path).
     try {
       if (!rowIdx) throw new Error('DEALERS row was not created — fix that step first, then re-run.');
       var currentQr = existingRow ? String(existingRow[CFG.QR_FOLDER_ID] || '').trim() : '';
@@ -10429,17 +10424,28 @@ function createDealer(payload) {
       if (qrOk) {
         step('qr_folder', 'QR Drive folder', 'existing', currentQr);
       } else {
-        var parent = ndQrParentFolder_(data);
-        if (!parent) {
-          step('qr_folder', 'QR Drive folder', 'failed',
-               'Could not derive the QR parent folder from existing dealers — create a folder in Drive and paste its ID into DEALERS col D.');
-        } else {
-          var it = parent.getFoldersByName(key);
-          var folder = it.hasNext() ? it.next() : parent.createFolder(key);
-          sheet.getRange(rowIdx, CFG.QR_FOLDER_ID + 1).setValue(folder.getId());
-          step('qr_folder', 'QR Drive folder', 'created',
-               '"' + key + '" in ' + parent.getName());
+        var dealerFolder = null;
+        var currentOut = existingRow ? String(existingRow[CFG.OUTPUT_FOLDER] || '').trim() : '';
+        if (currentOut && currentOut.charAt(0) !== '[') {
+          try { dealerFolder = DriveApp.getFolderById(currentOut); } catch (e3) {}
         }
+        if (dealerFolder) {
+          step('dealer_folder', 'Dealer Drive folder', 'existing', dealerFolder.getName());
+        } else {
+          var container = ndDealersContainerFolder_();
+          if (!container) throw new Error('The output folder (OUTPUT_FOLDER_ID) is unreachable — check Drive access.');
+          var dIt = container.getFoldersByName(name);
+          var dealerExisted = dIt.hasNext();
+          dealerFolder = dealerExisted ? dIt.next() : container.createFolder(name);
+          step('dealer_folder', 'Dealer Drive folder', dealerExisted ? 'existing' : 'created',
+               '"' + name + '" in ' + container.getName());
+        }
+        var qIt = dealerFolder.getFoldersByName('QR Codes');
+        var qrExisted = qIt.hasNext();
+        var qrFolder = qrExisted ? qIt.next() : dealerFolder.createFolder('QR Codes');
+        sheet.getRange(rowIdx, CFG.QR_FOLDER_ID + 1).setValue(qrFolder.getId());
+        step('qr_folder', 'QR Drive folder', qrExisted ? 'existing' : 'created',
+             '"QR Codes" in ' + dealerFolder.getName());
       }
     } catch (e) {
       step('qr_folder', 'QR Drive folder', 'failed', e.message);
