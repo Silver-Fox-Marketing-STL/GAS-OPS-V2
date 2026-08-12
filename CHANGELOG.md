@@ -34,6 +34,17 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   prefilled with the location and a suggested dealer key.
 
 ### Fixed
+- **Run Order: FEATURES schema cells flagged `edit` no longer double-render**
+  (seen live on Mini of St. Louis / Spirit Lexus): a `FEATURES:<header>:edit`
+  CSV_SCHEMAS cell qualified for BOTH column systems — the dedicated Features
+  input (`featuresTypesForDealer_` matches the code, ignores the edit flag)
+  and a dynamic edit column (`editableCodesForDealer_` matched the edit flag,
+  ignored the code) — producing two features fields per row. The second field
+  was half-wired: its text bypassed the `collectMissingFeatures_` run gate yet
+  silently overrode the CSV value at write time. `editableCodesForDealer_` now
+  skips `FEATURES` outright; the dedicated column is unaffected, other `edit`
+  columns (MODELTRIM etc.) unchanged. Harness: new "features edit-flag
+  exclusion" suite, 124/124.
 - **Lot Scanner: desktop HEIC conversion handles new-iPhone photos** (needs a
   lot-scan deploy). Batch gallery uploads of HEIC shot on recent iPhones failed
   with `heic convert failed: ERR_LIBHEIF format not supported` — `heic2any@0.0.4`

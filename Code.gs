@@ -2617,6 +2617,10 @@ function editableCodesForDealer_(typeRules, productMap) {
     var list = [], seen = {};
     cells.forEach(function(c) {
       var e = parseSchemaCell_(c);
+      // FEATURES already owns the dedicated Features input (featuresTypesForDealer_);
+      // an `edit` flag on it would double-render a second, half-wired field whose
+      // text bypasses the collectMissingFeatures_ run gate.
+      if (e.code === 'FEATURES') return;
       if (e.edit && !seen[e.code]) { seen[e.code] = 1; list.push({ code: e.code, max: e.edit.max }); }
     });
     if (list.length) out[rule.match] = list;

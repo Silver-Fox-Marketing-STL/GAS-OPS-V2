@@ -64,7 +64,8 @@ var CSV_SCHEMAS_ROWS = [
   ['LOGO1', 'features, no qr',  'YEAR', 'YEARMODEL', 'FEATURES', 'MISC'],
   ['LOGO3', 'no features/qr',   'YEAR', 'YEARMODEL', 'MISC', ''],
   ['VDP1',  'versaworks vdp headers', 'YEAR:VDP_A', 'FEATURES:VDP_D', 'MISC:VDP_G', ''],
-  ['VDP_EDIT', 'editable modeltrim',  'YEAR:VDP_A', 'MODELTRIM:VDP_B:edit18', 'MISC:VDP_G', '']
+  ['VDP_EDIT', 'editable modeltrim',  'YEAR:VDP_A', 'MODELTRIM:VDP_B:edit18', 'MISC:VDP_G', ''],
+  ['VDP_FEAT_EDIT', 'FEATURES wrongly flagged editable', 'YEAR:VDP_A', 'FEATURES:VDP_D:edit', 'MODELTRIM:VDP_B:edit18', '']
 ];
 var fakeCsvSchemasSheet = {
   getDataRange: function () { return { getValues: function () { return CSV_SCHEMAS_ROWS; } }; }
@@ -994,6 +995,30 @@ t('validateProductMapForRun_ over the wizard default types (checklist gate)', fu
   assert.deepStrictEqual(validateProductMapForRun_(allowed, full), []);
   delete full.CPO.schema;
   assert.deepStrictEqual(validateProductMapForRun_(allowed, full), ['CPO']);
+});
+
+// ============================================================================
+// Suite: FEATURES never double-renders — an `edit` flag on a FEATURES schema
+// cell must NOT create a second dynamic edit column (the dedicated Features
+// column owns that code; the run gate only checks featuresMap).
+// ============================================================================
+suite('features edit-flag exclusion');
+t('editableCodesForDealer_ excludes FEATURES even when the cell is flagged edit', function () {
+  var rules = [{ match: 'New', csv_schema: '' }];
+  var map = { New: { product_id: 1, schema: 'VDP_FEAT_EDIT' } };
+  var codes = editableCodesForDealer_(rules, map);
+  // MODELTRIM (also flagged edit in the same schema) survives; FEATURES doesn't.
+  assert.deepStrictEqual(codes, { New: [{ code: 'MODELTRIM', max: 18 }] });
+});
+t('featuresTypesForDealer_ still flags the type (dedicated column keeps working)', function () {
+  var rules = [{ match: 'New', csv_schema: '' }];
+  var map = { New: { product_id: 1, schema: 'VDP_FEAT_EDIT' } };
+  assert.deepStrictEqual(featuresTypesForDealer_(rules, map), { New: true });
+});
+t('ordinary edit columns are unaffected (VDP_EDIT regression check)', function () {
+  var rules = [{ match: 'New', csv_schema: '' }];
+  var map = { New: { product_id: 1, schema: 'VDP_EDIT' } };
+  assert.deepStrictEqual(editableCodesForDealer_(rules, map), { New: [{ code: 'MODELTRIM', max: 18 }] });
 });
 
 // ── Report ───────────────────────────────────────────────────────────────────
