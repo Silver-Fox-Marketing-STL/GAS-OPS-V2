@@ -118,7 +118,9 @@ previously-hit failure — don't relax without reading the matching Bridge secti
   (N2/R2) are exact-match — a custom type prints its own uppercased name, not "USED".
 - CSV_SCHEMAS cells may be `CODE:HEADER[:edit[N]]` (VersaWorks): the code maps
   the data column, the header prints, `edit` makes the column user-editable in
-  the Run table pre-run (`parseSchemaCell_`). Anything reading schema cells must
+  the Run table pre-run (`parseSchemaCell_`). `edit` is never valid on FEATURES
+  (it owns the dedicated Features input — editor refuses to save it, engine
+  ignores it). Anything reading schema cells must
   parse through the syntax — never `indexOf('FEATURES')` on raw cells. Seeds
   (`computeEditSeed_`) are ADVISORY JS twins of template formulas — only
   user-CHANGED values override the CSV (`csvCellValue_`); keep twins in sync

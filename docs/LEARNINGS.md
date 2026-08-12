@@ -242,6 +242,21 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   `.pill`/etc into an existing view, grep that view's `<style>` block for bare
   element selectors scoped to the view id — they silently outrank the unscoped
   canonical class.
+- **A view's own wildcard `#view-xxx * { padding:0 }` reset strips the padding off every
+  SharedUtils component that view renders — every new view carrying the reset must
+  locally restore each canonical component it uses.** `ViewAddDealer.html` (Aug 2026)
+  copied the standard per-view reset and its `.tag` chips and `.table-u` checklist table
+  rendered flush/cramped: the reset's specificity (1,0,0) beats the unscoped
+  `.tag` / `.table-u th`/`td` rules (0,1,0), so it wins over the shared layer everywhere
+  inside that view. Fix is the same ID-scoped restore as the ViewImport `#invSnapshot`
+  case, one block per component the view actually renders
+  (`#view-add-dealer .tag { padding: 2px 8px }`, `.table-u th`/`td`). Separately, a
+  *local* tweak to a SharedUtils `.btn-*` needs `!important` to land — `.btn-*` sets its
+  padding `!important` as its own defense against exactly this reset, so
+  `#view-add-dealer .nd-check-table .btn-ghost { padding: 3px 10px !important }` is
+  required even though the ID selector is far more specific. Checklist when writing a new
+  view: if you paste the wildcard reset, grep your markup for `tag`/`table-u`/`pill`/`btn-`
+  and restore each one; component `!important` beats any specificity you can write.
 - **iOS Safari fires a `change` event when a `<select>` is RE-PARENTED** — so a progressive
   enhancer that moves the select into a wrapper trips its own inline `onchange` mid-surgery.
   `CustomSelect.enhance()` does `insert wrapper → move select into it`; on iOS that DOM move
@@ -884,3 +899,24 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   formulas** for the old hardcoded values, and prefer exact-match over substring once the
   matched set is user-extensible. *(Sheets MCP: `update_cells` rejects a leading `=`;
   `batch_update_cells` writes real formulas — probe a scratch cell to confirm, then clean it up.)*
+- **Two independent consumers of one config cell must have DISJOINT eligibility sets —
+  overlap renders the thing twice, and the second copy is always the half-wired one.**
+  A `FEATURES:<header>:edit` cell in CSV_SCHEMAS qualified for **both** Run-table column
+  systems at once: `featuresTypesForDealer_` matches on the *code* and ignores the edit
+  flag (→ the dedicated Features input), while `editableCodesForDealer_` matched on the
+  *edit flag* and ignored the code (→ a dynamic editable column). Neither reader was
+  wrong on its own; nobody owned the intersection, so Mini of St. Louis and Spirit Lexus
+  rendered **two features fields per row** in production. The dangerous part is the
+  asymmetry: the accidental second field skipped the `collectMissingFeatures_` run gate
+  (so a run with it blank wasn't blocked) yet still won at write time via `csvCellValue_`
+  (a user-changed edit value overrides the CSV) — i.e. it looked cosmetic and silently
+  changed output. **Fix pattern, both halves:** (1) guard at the single chokepoint — the
+  shared reader, `editableCodesForDealer_`, skips code `FEATURES` outright, so every
+  caller is fixed at once and the other `edit` codes (MODELTRIM etc.) are untouched;
+  **exact-match, never substring**, since a code can contain another code. (2) close the
+  config side too — `buildCsvSchemaCells_` now *throws* when the editor tries to SAVE the
+  Editable flag on FEATURES, so config and engine can't disagree. Half (2) is not
+  optional: a guard that leaves the editor able to save a flag the engine ignores ships a
+  checkbox that visibly does nothing, which is a support ticket and a future
+  re-introduction of the bug. (Existing flagged cells stay inert until cleaned up —
+  ignoring bad data beats a migration that rewrites user config.)
