@@ -1,0 +1,146 @@
+<div class="view" id="view-stack-cleanup" data-layout="data" hidden>
+
+  <div class="sc-scroll app-measure">
+
+    <label for="scDealerSelect">Dealer</label>
+    <select id="scDealerSelect">
+      <option value="">-- Loading dealers... --</option>
+    </select>
+
+    <p class="sc-blurb">
+      Vehicles in BOTH this dealer's VIN log and the current imported data —
+      graphics for these are still valid. Any graphic in the stack that is
+      <strong>not</strong> on this list is sold: pull it.
+    </p>
+
+    <div id="scStats"></div>
+    <div id="scStatus" class="empty"></div>
+
+    <div id="scTableWrap"></div>
+
+  </div>
+
+</div>
+
+<style>
+  /* themed root (overrides the .view light guard) */
+  #view-stack-cleanup { background: var(--bg); color: var(--text); height: 100%; overflow: hidden; font-size: 13px; }
+  #view-stack-cleanup .sc-scroll { height: 100%; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; }
+
+  #view-stack-cleanup label { display: block; font-weight: bold; margin-bottom: 4px; }
+  #view-stack-cleanup select {
+    width: 100%; max-width: 420px; padding: 8px; font-size: 13px;
+    border: 1px solid var(--border-2); border-radius: 4px;
+  }
+
+  #view-stack-cleanup .sc-blurb { color: var(--text-2); font-size: 12px; max-width: 560px; }
+
+  #view-stack-cleanup #scStats { display: none; margin-bottom: 10px; font-size: 12px; color: var(--text-2); }
+  #view-stack-cleanup #scStats .tag { margin-right: 6px; }
+
+  #view-stack-cleanup #scStatus { font-size: 12px; min-height: 18px; padding: 6px 8px; border-radius: 4px; margin-bottom: 8px; }
+  #view-stack-cleanup #scStatus.error { background: var(--danger-weak); color: var(--danger); }
+  #view-stack-cleanup #scStatus.info  { background: var(--accent-weak); color: var(--accent); }
+  #view-stack-cleanup #scStatus.empty { background: none; color: var(--text-2); padding-left: 0; }
+
+  #view-stack-cleanup #scTableWrap { flex: 1; min-height: 0; overflow-y: auto; }
+  #view-stack-cleanup .table-u { width: 100%; max-width: 720px; }
+  #view-stack-cleanup .table-u thead th { position: sticky; top: 0; z-index: 1; background: var(--surface-2); }
+
+  /* the read-at-a-glance bit: VIN in mono, last 2 chars big and accent-marked */
+  #view-stack-cleanup .sc-vin { font-family: var(--font-mono); white-space: nowrap; }
+  #view-stack-cleanup .sc-last2 {
+    font-weight: bold; font-size: 15px; color: var(--accent);
+    background: var(--accent-weak); border-radius: 3px; padding: 1px 3px; margin-left: 1px;
+  }
+
+  :root[data-viewport="mobile"] #view-stack-cleanup .sc-scroll { padding: 12px; }
+  :root[data-viewport="mobile"] #view-stack-cleanup .table-u th,
+  :root[data-viewport="mobile"] #view-stack-cleanup .table-u td { padding: 5px 6px; font-size: 12px; }
+</style>
+
+<script>
+  var scDealersLoaded = false;
+
+  function initStackCleanupView() {
+    AppData.get(function(data, err) {
+      var sel = document.getElementById('scDealerSelect');
+      if (!data) {
+        sel.innerHTML = '<option value="">Error loading dealers</option>';
+        scSetStatus('Could not load dealer list: ' + (err && err.message ? err.message : 'unknown error'), 'error');
+        return;
+      }
+      sel.innerHTML = '<option value="">-- Select a dealer --</option>';
+      data.dealers.forEach(function(d) {
+        var opt = document.createElement('option');
+        opt.value = d.key; opt.text = d.name;
+        sel.appendChild(opt);
+      });
+      scDealersLoaded = true;
+    });
+
+    document.getElementById('scDealerSelect').addEventListener('change', function() {
+      scLoadList(this.value);
+    });
+  }
+
+  window.VIEW_INITS = window.VIEW_INITS || {};
+  VIEW_INITS['view-stack-cleanup'] = initStackCleanupView;
+
+  function scLoadList(dealerKey) {
+    var stats = document.getElementById('scStats');
+    var wrap  = document.getElementById('scTableWrap');
+    stats.style.display = 'none';
+    wrap.innerHTML = '';
+    if (!dealerKey) { scSetStatus('', 'empty'); return; }
+
+    scSetStatus('Comparing VIN log to current inventory…', 'info');
+
+    google.script.run
+      .withSuccessHandler(function(result) { scRender(result); })
+      .withFailureHandler(function(e) {
+        scSetStatus(e.message, 'error');
+      })
+      .getStackCleanupList(dealerKey);
+  }
+
+  function scRender(result) {
+    var stats = document.getElementById('scStats');
+    var wrap  = document.getElementById('scTableWrap');
+    var rows  = result.rows || [];
+
+    scSetStatus('', 'empty');
+    stats.style.display = 'block';
+    stats.innerHTML =
+      '<span class="tag tone-success">' + rows.length + ' still on the lot</span>' +
+      '<span class="tag tone-neutral">' + result.loggedCount + ' logged</span>' +
+      '<span class="tag tone-neutral">' + result.inventoryCount + ' in current data</span>' +
+      ' — graphics NOT on this list are sold: pull them from the stack.';
+
+    if (rows.length === 0) {
+      wrap.innerHTML = '<p class="sc-blurb">No logged vehicles are in the current data — every graphic in this dealer\'s stack can be pulled.</p>';
+      return;
+    }
+
+    var html = '<table class="table-u"><thead><tr>' +
+      '<th>VIN</th><th>Stock</th><th>Vehicle</th>' +
+      '</tr></thead><tbody>';
+    rows.forEach(function(r) {
+      var vin = String(r.vin);
+      var vinHtml = '<span class="sc-vin">' + escHtml(vin.slice(0, -2)) +
+        '<span class="sc-last2">' + escHtml(vin.slice(-2)) + '</span></span>';
+      html += '<tr>' +
+        '<td>' + vinHtml + '</td>' +
+        '<td class="mono">' + escHtml(r.stock || '—') + '</td>' +
+        '<td>' + escHtml([r.year, r.make, r.model].filter(Boolean).join(' ') || '—') + '</td>' +
+        '</tr>';
+    });
+    html += '</tbody></table>';
+    wrap.innerHTML = html;
+  }
+
+  function scSetStatus(msg, type) {
+    var el = document.getElementById('scStatus');
+    el.textContent = msg; el.className = type || 'empty';
+  }
+</script>
