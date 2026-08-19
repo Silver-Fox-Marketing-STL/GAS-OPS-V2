@@ -1109,6 +1109,43 @@ t('CSV Schemas editor refuses the Editable flag on FEATURES (config side of the 
   assert.deepStrictEqual(buildCsvSchemaCells_([{ code: 'FEATURES' }], codes), ['FEATURES']);
 });
 
+// ============================================================================
+// Suite: stack cleanup — buildStackCleanupRows_ (VIN log ∩ current inventory)
+// ============================================================================
+suite('stack cleanup');
+t('intersects log with inventory and sorts by last-2 VIN chars', function () {
+  var vinMap = {
+    '1FTEW1EP5PKD10007': { stock: 'S1', year: '2023', make: 'Ford',  model: 'F-150' },
+    '3GNKBKRS8PS220042': { stock: 'S2', year: '2023', make: 'Chevy', model: 'Blazer' },
+    'WDDWJ8EB4KF799915': { stock: 'S3', year: '2019', make: 'MB',    model: 'C300' }
+  };
+  var logged = ['WDDWJ8EB4KF799915', '1FTEW1EP5PKD10007', '3GNKBKRS8PS220042', 'SOLDVIN0000000001'];
+  var rows = buildStackCleanupRows_(logged, vinMap);
+  // sold VIN dropped; order by last-2: 07 < 15 < 42
+  assert.deepStrictEqual(rows.map(function (r) { return r.vin.slice(-2); }), ['07', '15', '42']);
+  assert.strictEqual(rows[0].stock, 'S1');
+  assert.strictEqual(rows[1].model, 'C300');
+});
+t('dedupes repeated log entries and tolerates case/whitespace', function () {
+  var vinMap = { 'VIN00000000000001': { stock: 'S1', year: '2024', make: 'A', model: 'B' } };
+  var rows = buildStackCleanupRows_([' vin00000000000001 ', 'VIN00000000000001', ''], vinMap);
+  assert.strictEqual(rows.length, 1);
+  assert.strictEqual(rows[0].vin, 'VIN00000000000001');
+});
+t('ties on last-2 fall back to full-VIN order (stable, deterministic)', function () {
+  var vinMap = {
+    'BBB00000000000099': { stock: '', year: '', make: '', model: '' },
+    'AAA00000000000099': { stock: '', year: '', make: '', model: '' }
+  };
+  var rows = buildStackCleanupRows_(['BBB00000000000099', 'AAA00000000000099'], vinMap);
+  assert.deepStrictEqual(rows.map(function (r) { return r.vin; }),
+    ['AAA00000000000099', 'BBB00000000000099']);
+});
+t('empty log or empty inventory yields empty list (never throws)', function () {
+  assert.deepStrictEqual(buildStackCleanupRows_([], { X: {} }), []);
+  assert.deepStrictEqual(buildStackCleanupRows_(['X'], {}), []);
+});
+
 // ── Report ───────────────────────────────────────────────────────────────────
 function report_() {
   var totalPass = 0, totalFail = 0;

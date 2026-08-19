@@ -4924,6 +4924,84 @@ function getLoggedIdentifiers(dealerKey) {
 
 
 /**
+ * Pure: intersects VIN-log identifiers with the current-inventory vinMap
+ * (buildVinDataMap_ output — uppercase-VIN keyed). Returns rows for vehicles
+ * present in BOTH, sorted by the LAST 2 characters of the VIN (how graphics
+ * stacks are ordered), full VIN as tiebreak. Log entries are deduped and
+ * case/whitespace-tolerant; non-VIN identifiers simply never match (fail-safe:
+ * a graphic is only pulled when confirmed absent from this list).
+ *
+ * @param {string[]} logIdentifiers - VIN log col B values
+ * @param {Object}   vinMap - upper VIN -> {stock, year, make, model, ...}
+ * @returns {Array<{vin:string, stock:string, year:string, make:string, model:string}>}
+ */
+function buildStackCleanupRows_(logIdentifiers, vinMap) {
+  var seen = {};
+  var rows = [];
+  for (var i = 0; i < (logIdentifiers || []).length; i++) {
+    var vin = String(logIdentifiers[i] == null ? '' : logIdentifiers[i]).trim().toUpperCase();
+    if (vin === '' || seen[vin]) continue;
+    seen[vin] = true;
+    var v = vinMap[vin];
+    if (!v) continue;
+    rows.push({ vin: vin, stock: v.stock || '', year: v.year || '',
+                make: v.make || '', model: v.model || '' });
+  }
+  rows.sort(function(a, b) {
+    var ka = a.vin.slice(-2), kb = b.vin.slice(-2);
+    if (ka !== kb) return ka < kb ? -1 : 1;
+    return a.vin < b.vin ? -1 : a.vin > b.vin ? 1 : 0;
+  });
+  return rows;
+}
+
+/**
+ * Client-callable (Stack Cleanup view). Vehicles in BOTH the dealer's VIN log
+ * and current SCRAPERDATA — graphics still valid in the leftover stacks;
+ * anything in a stack NOT on this list is sold and gets pulled.
+ *
+ * Fails LOUD on every read (no getLoggedIdentifiers reuse): a silently-empty
+ * log or inventory here would read as "pull every graphic" — the opposite of
+ * safe. An empty result is only returned when both reads genuinely succeed.
+ *
+ * @param {string} dealerKey
+ * @returns {{ rows: Array, loggedCount: number, inventoryCount: number }}
+ */
+function getStackCleanupList(dealerKey) {
+  if (!dealerKey) throw new Error('No dealer key provided.');
+
+  var config = getDealerConfig_(dealerKey);
+  if (!config) throw new Error('No dealer config found for: ' + dealerKey);
+  var location = String(config[CFG.SCRAPER_LOCATION] || '').trim();
+  if (!location) throw new Error('Dealer has no scraper_location_name configured.');
+
+  var sheet = getVinLogsSS_().getSheetByName(dealerKey);
+  if (!sheet) throw new Error('No VIN log tab found for: ' + dealerKey);
+  var logged = [];
+  var lastRow = sheet.getLastRow();
+  if (lastRow >= 2) {
+    sheet.getRange(2, 2, lastRow - 1, 1).getValues().forEach(function(r) {
+      var val = String(r[0]).trim().toUpperCase();
+      if (val !== '' && val !== 'VIN') logged.push(val);
+    });
+  }
+
+  var vinMap = buildVinDataMap_(getDealerScraperData_(location) || []);
+  var inventoryCount = Object.keys(vinMap).length;
+  if (inventoryCount === 0) {
+    throw new Error('No current inventory found for "' + location +
+      '" — import fresh scraper data before cleaning stacks.');
+  }
+
+  return {
+    rows: buildStackCleanupRows_(logged, vinMap),
+    loggedCount: logged.length,
+    inventoryCount: inventoryCount
+  };
+}
+
+
+/**
  * Manually appends a list of VINs/stock numbers to a dealer's VIN log.
  * Used by the VINLogUpdater modal's manual entry panel.
  *

@@ -11,6 +11,15 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Added
+- **Stack Cleanup view** (sidebar → Stack Cleanup): per dealer, lists vehicles
+  present in BOTH the VIN log and the current imported data — i.e. leftover
+  graphics that are still valid. Sorted by the last 2 VIN characters (stack
+  order) with those digits highlighted; rows show VIN / Stock / Year Make
+  Model. Any graphic in the physical stack NOT on the list is sold and gets
+  pulled. Server side fails LOUD on every read (`getStackCleanupList` throws
+  on missing config/log tab/empty inventory) — a silently-empty list would
+  read as "pull every graphic". Pure intersect+sort logic
+  (`buildStackCleanupRows_`) covered by a new harness suite.
 - **Add Dealer wizard** (System Settings → Add Dealer): guided 3-panel flow that
   provisions a new dealer end-to-end — DEALERS config row (created
   `active=FALSE` with the baseline filtering rules), next free ORDERS column
