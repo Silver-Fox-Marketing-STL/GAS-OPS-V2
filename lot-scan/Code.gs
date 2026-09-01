@@ -235,20 +235,34 @@ function submitVinPhoto() {
   throw new Error('Old app version — pull down to refresh the page.');
 }
 
-// Delete a submission + trash its photo (real-time "Retake", or a draft discard).
+// Delete a submission + trash its photo (a draft discard).
+// deleteRow is row-number-addressed on a sheet other executions mutate, so the
+// locate AND the delete happen inside the script lock (serialized against every
+// other scanner-side mutation — commits lock too). An unlocked snapshot→delete
+// here once let two overlapping discards shift rows under each other and erase
+// the WRONG rows. Drive trash is by fileId (position-independent) and slow —
+// it runs AFTER the lock is released.
 function discardSubmission(submissionId) {
   try {
-    var sh = getOrCreateLotSubmissionsSheet_();
-    var data = sh.getDataRange().getValues();
-    for (var i = 1; i < data.length; i++) {
-      if (String(data[i][LOTC.ID]) === String(submissionId)) {
-        var fileId = String(data[i][LOTC.PHOTO_ID] || '');
-        if (fileId) { try { DriveApp.getFileById(fileId).setTrashed(true); } catch (e) {} }
-        sh.deleteRow(i + 1);
-        return { ok: true };
+    var lock = LockService.getScriptLock();
+    if (!lock.tryLock(30000)) return { ok: false, error: 'busy' };
+    var fileId = '';
+    try {
+      var sh = getOrCreateLotSubmissionsSheet_();   // opened INSIDE the lock — fresh row positions
+      var last = sh.getLastRow(), rowNum = 0;
+      if (last > 1) {
+        var ids = sh.getRange(2, LOTC.ID + 1, last - 1, 1).getValues();
+        for (var i = 0; i < ids.length; i++) {
+          if (String(ids[i][0]) === String(submissionId)) { rowNum = i + 2; break; }
+        }
       }
-    }
-    return { ok: false, error: 'not found' };
+      if (!rowNum) return { ok: false, error: 'not found' };
+      fileId = String(sh.getRange(rowNum, LOTC.PHOTO_ID + 1).getValue() || '');
+      sh.deleteRow(rowNum);
+      SpreadsheetApp.flush();
+    } finally { try { lock.releaseLock(); } catch (eR) {} }
+    if (fileId) { try { DriveApp.getFileById(fileId).setTrashed(true); } catch (e) {} }
+    return { ok: true };
   } catch (e) {
     Logger.log('discardSubmission failed: ' + e.message);
     return { ok: false, error: e.message };
@@ -383,24 +397,35 @@ function getMyDrafts() {
   }
 }
 
-// Delete a whole draft batch — trash every photo + remove every row (this user's drafts
-// in that batch). Bottom-up row deletion keeps indices valid.
+// Delete a whole draft batch — remove every row (this user's drafts in that
+// batch), then trash the photos. Same locking discipline as discardSubmission:
+// snapshot, match, and bottom-up deleteRow all inside the script lock (the old
+// unlocked version interleaved slow per-photo Drive trashes between the snapshot
+// and the deletes — seconds of race window for another execution's deleteRow to
+// shift rows and make this one erase someone's open draft). Photo trash (by
+// fileId, position-independent) runs after the lock is released.
 function discardBatch(batchId) {
   try {
     var me = getActiveEmail_();
-    var sh = getOrCreateLotSubmissionsSheet_();
-    var data = sh.getDataRange().getValues();
-    var rowsToDelete = [];
-    for (var i = 1; i < data.length; i++) {
-      if (String(data[i][LOTC.EMAIL]) !== me) continue;
-      if (String(data[i][LOTC.BATCH_ID]) !== String(batchId)) continue;
-      if (String(data[i][LOTC.STATUS]) !== 'draft') continue;
-      var fileId = String(data[i][LOTC.PHOTO_ID] || '');
-      if (fileId) { try { DriveApp.getFileById(fileId).setTrashed(true); } catch (e) {} }
-      rowsToDelete.push(i + 1);
-    }
-    for (var j = rowsToDelete.length - 1; j >= 0; j--) sh.deleteRow(rowsToDelete[j]);
-    return { ok: true, deleted: rowsToDelete.length };
+    var lock = LockService.getScriptLock();
+    if (!lock.tryLock(30000)) return { ok: false, error: 'busy' };
+    var fileIds = [], deleted = 0;
+    try {
+      var sh = getOrCreateLotSubmissionsSheet_();   // opened INSIDE the lock — fresh row positions
+      var data = sh.getDataRange().getValues();
+      for (var i = data.length - 1; i >= 1; i--) {   // bottom-up: deletes never shift rows still to visit
+        if (String(data[i][LOTC.EMAIL]) !== me) continue;
+        if (String(data[i][LOTC.BATCH_ID]) !== String(batchId)) continue;
+        if (String(data[i][LOTC.STATUS]) !== 'draft') continue;
+        var fileId = String(data[i][LOTC.PHOTO_ID] || '');
+        if (fileId) fileIds.push(fileId);
+        sh.deleteRow(i + 1);
+        deleted++;
+      }
+      SpreadsheetApp.flush();
+    } finally { try { lock.releaseLock(); } catch (eR) {} }
+    fileIds.forEach(function (fid) { try { DriveApp.getFileById(fid).setTrashed(true); } catch (e) {} });
+    return { ok: true, deleted: deleted };
   } catch (e) {
     Logger.log('discardBatch failed: ' + e.message);
     return { ok: false, error: e.message };

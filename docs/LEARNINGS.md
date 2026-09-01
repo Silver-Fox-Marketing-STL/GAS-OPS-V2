@@ -388,6 +388,23 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   corruption). Fix: carry a **stable id** (`submission_id`) and, immediately before each write,
   **re-read the id cell at the cached row and re-locate by id (or skip) if it moved**. Any
   cross-project row-index write over a nonzero window needs this. (`runInboxOcr`.)
+  **Sequel (Aug 2026): fixing ONE function doesn't fix the CLASS — grep every row-addressed
+  mutator of the shared sheet.** Orphan VIN-only row fragments in prod SF_LOT_SUBMISSIONS proved
+  stale-row writes had fired despite the `runInboxOcr` fix: the scanner's own
+  `discardSubmission`/`discardBatch` still did unlocked snapshot→`deleteRow` (with seconds of
+  per-photo Drive trash between snapshot and delete — two overlapping discards shift rows under
+  each other and delete the WRONG rows, i.e. someone's open draft), and the office's bulk
+  `updateVinSubmissionStatuses` stamped statuses by cached row numbers with no re-verify. Fixes:
+  same-project mutators take the script lock and locate-and-mutate INSIDE it (slow Drive calls
+  moved outside the lock, trash is by fileId so it's position-independent); cross-project writers
+  get the per-write id re-verify. Related diagnosis lesson: **"drafts disappeared" has three
+  distinct mechanisms with three distinct footprints** — rows present-but-wrong-status (shifted
+  office stamp), rows deleted (discard race), rows never written (client never reached the
+  server). Upload-before-commit gives a forensic trail: photos land in Drive BEFORE any row
+  exists, so a vanished order with no Drive files = the client never uploaded (connectivity /
+  page death — the Honda of Frontenac 2026-08-21 incident, byte-identical duplicate files being
+  the upload-retry signature), which no amount of sheet-side fixing addresses — that one needed
+  client-side persistence (localStorage order context + IndexedDB photo blobs).
 - **Drive trash is OWNER-ONLY for a *My Drive* file — an editor can't trash what someone else
   owns; a Shared Drive (org-owned, role-based trash) is the fix.** The office couldn't trash a
   discarded/processed photo because a `USER_ACCESSING` upload had made the **crew member** the
