@@ -28,7 +28,7 @@
 
           <!-- VIN log status row (shown after dealer selected) -->
           <div id="vinLogStatusRow">
-            <span class="log-label">Most recent order in log: <span id="vinLogOrderSpan" class="tag tone-neutral">—</span></span>
+            <span class="log-label">Most recent order in log: <span id="vinLogOrderSpan" class="tag tone-neutral">—</span><span id="vinLogPendingSpan" class="tag tone-warning" style="display:none" title="Finalized runs not yet committed to the VIN log"></span></span>
             <button id="openVinLogBtn" onclick="openVinLogUpdater()">&#x1F4CB; Update VIN Log</button>
           </div>
         </div>
@@ -807,17 +807,28 @@
     function loadVinLogStatus(dealerKey) {
       var row  = document.getElementById('vinLogStatusRow');
       var span = document.getElementById('vinLogOrderSpan');
+      var pend = document.getElementById('vinLogPendingSpan');
       row.style.display = 'flex';
       span.textContent = '…';
+      pend.style.display = 'none';
 
       google.script.run
         .withSuccessHandler(function(result) {
           span.textContent = (result && result.latestOrderId) ? result.latestOrderId : 'none';
+          var n = (result && result.pendingCount) || 0;
+          pend.textContent = n + ' pending';
+          pend.style.display = n > 0 ? '' : 'none';
         })
         .withFailureHandler(function() {
           span.textContent = '—';
         })
         .getLatestOrderId(dealerKey);
+    }
+
+    // Re-read after anything that changes the pending count (finalize / commit).
+    function refreshVinLogStatus_() {
+      var key = document.getElementById('runDealerSelect').value;
+      if (key) loadVinLogStatus(key);
     }
 
     function openVinLogUpdater() {
@@ -1211,6 +1222,7 @@
       statusEl.textContent = 'Logged ✓ (run log row ' + res.rowIndex + ')';
       statusEl.className = 'finalize-card-status ok';
       updateVinLogBtn();
+      if (method !== 'test') refreshVinLogStatus_();   // a new pending row exists
 
       if (method === 'test') { runNotifyBatchIfDone_(); return; }   // never touches Pipedrive
 
@@ -1415,6 +1427,7 @@
           setRunStatus(result.committed + ' VINs committed to the ' +
             lastRunResult.dealerName + ' VIN log' +
             (rowIndexes.length > 1 ? ' (' + rowIndexes.length + ' deals)' : '') + '.', 'success');
+          refreshVinLogStatus_();
         })
         .withFailureHandler(function(e) {
           vinBtn.disabled = false;

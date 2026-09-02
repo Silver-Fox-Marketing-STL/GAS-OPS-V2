@@ -11,6 +11,13 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Added
+- **Run Order: pending-commit indicator.** Next to "Most recent order in log"
+  the Run view now shows an amber `N pending` tag when the selected dealer has
+  finalized RUN_LOG rows not yet committed or rolled back in the VIN log (test
+  runs excluded). `getLatestOrderId` returns `pendingCount` alongside
+  `latestOrderId` (via `pendingRunCount_` → `getRunsForDealer`); the tag
+  refreshes on dealer change, after a non-test Finalize, and after Add to VIN
+  Log. Hidden at zero.
 - **Lot Scanner: offline resilience — an open order survives a page reload or
   connection loss** (field incident: Honda of Frontenac 2026-08-21 — an
   installer's order vanished mid-shooting; the phone's browser reloaded the

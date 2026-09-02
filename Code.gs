@@ -4786,13 +4786,23 @@ function getLatestOrderId(dealerKey) {
   var logSS = getVinLogsSS_();
   var sheet = logSS.getSheetByName(dealerKey);
 
-  if (!sheet) return { latestOrderId: null };
+  if (!sheet) return { latestOrderId: null, pendingCount: pendingRunCount_(dealerKey) };
 
   var lastRow = sheet.getLastRow();
-  if (lastRow < 2) return { latestOrderId: null };
+  if (lastRow < 2) return { latestOrderId: null, pendingCount: pendingRunCount_(dealerKey) };
 
   var values = sheet.getRange(2, 1, lastRow - 1, 4).getValues();
-  return { latestOrderId: latestOrderIdFrom_(values) };
+  return { latestOrderId: latestOrderIdFrom_(values), pendingCount: pendingRunCount_(dealerKey) };
+}
+
+/**
+ * Finalized RUN_LOG rows for the dealer still awaiting a VIN-log commit or
+ * rollback (col W blank). Test runs never commit, so they never count.
+ */
+function pendingRunCount_(dealerKey) {
+  return getRunsForDealer(dealerKey).filter(function(r) {
+    return r.status === 'pending' && r.dealId.toLowerCase() !== 'test';
+  }).length;
 }
 
 /**
