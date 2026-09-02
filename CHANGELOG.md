@@ -11,6 +11,20 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Added
+- **Lot Scanner: offline resilience — an open order survives a page reload or
+  connection loss** (field incident: Honda of Frontenac 2026-08-21 — an
+  installer's order vanished mid-shooting; the phone's browser reloaded the
+  page and the in-memory queue, including photos that had never managed to
+  upload, was destroyed. `capture=` photos never reach the camera roll, so
+  un-uploaded photos were unrecoverable). The order context
+  (dealer/batch/note) now persists in `localStorage` and auto-resumes on the
+  next load; every picked photo's raw blob is cached in IndexedDB the moment
+  it's selected and deleted only when its sheet row is confirmed committed
+  ('saved'), so a crash mid-pipeline re-enqueues the cached blobs on resume
+  (this also makes a manual draft "Add more photos" recover photos stranded by
+  a crash); failed items auto-retry on the browser `online` event. Storage
+  calls are try/catch'd — a phone that blocks storage degrades to the old
+  memory-only behavior. Stale cached photos (>7 days) are swept on load.
 - **Stack Cleanup view** (sidebar → Stack Cleanup): per dealer, lists vehicles
   present in BOTH the VIN log and the current imported data — i.e. leftover
   graphics that are still valid. Sorted by the last 2 VIN characters (stack
@@ -51,6 +65,20 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   old skip behavior. Percent semantics unchanged (`percent` empty → $0).
 
 ### Fixed
+- **Lot Scanner / VIN Inbox: stale-row-number writes and deletes on the shared
+  SF_LOT_SUBMISSIONS sheet.** The July `runInboxOcr` fix (re-verify the row ID
+  before each write) never reached the other row-addressed mutators; orphan
+  VIN-only row fragments in the prod sheet prove the class has fired. Now
+  covered: the scanner's `discardSubmission`/`discardBatch` take the script
+  lock and locate-and-delete inside it (two overlapping unlocked discards
+  could shift rows under each other — the seconds-long per-photo Drive trash
+  between snapshot and delete was the race window — and erase the wrong
+  rows, i.e. someone's open draft; Drive trash now runs by fileId after the
+  lock); the office's `updateVinSubmissionStatuses` bulk loop and
+  `updateVinSubmissionStatus` re-verify/re-locate each row by ID immediately
+  before writing, so office status stamps can't land on shifted rows while a
+  scanner delete is in flight. Scanner discard/delete failures (e.g. lock
+  busy) now toast instead of failing silently.
 - **Add Dealer wizard: active dealers can reach the checklist / "Create
   Missing Pieces" again.** The resume strip lists only inactive dealers and the
   duplicate-key validation hard-blocked ("That key already exists — pick

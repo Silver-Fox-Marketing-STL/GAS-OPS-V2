@@ -8726,10 +8726,13 @@ function updateVinSubmissionStatus(submissionId, status, correctedVin) {
     var data = sh.getDataRange().getValues();
     for (var i = 1; i < data.length; i++) {
       if (String(data[i][LOT_SUB.ID]) !== String(submissionId)) continue;
-      var rowNum = i + 1;
       var resultValid, resultMatched;
 
+      // Do the slow work (scraper re-match) BEFORE locating the live row — rows
+      // can shift under us meanwhile (scanner-project deleteRow; LockService
+      // can't reach across projects).
       var corrected = String(correctedVin || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+      var vRow = null;
       if (corrected) {
         resultValid = isValidVin_(corrected);
         var vehicle = null;
@@ -8741,11 +8744,26 @@ function updateVinSubmissionStatus(submissionId, status, correctedVin) {
           }
         } catch (e) { Logger.log('inbox re-match failed (non-fatal): ' + e.message); }
         resultMatched = !!vehicle;
-        var v = vehicle || {};
+        vRow = vehicle || {};
+      }
+
+      // Re-verify the ID at the snapshot position right before writing; re-locate
+      // by ID if it moved, bail if it's gone (same discipline as runInboxOcr).
+      var rowNum = i + 1;
+      if (String(sh.getRange(rowNum, LOT_SUB.ID + 1).getValue()) !== String(submissionId)) {
+        rowNum = 0;
+        var idCol = sh.getRange(1, LOT_SUB.ID + 1, sh.getLastRow(), 1).getValues();
+        for (var r2 = 1; r2 < idCol.length; r2++) {
+          if (String(idCol[r2][0]) === String(submissionId)) { rowNum = r2 + 1; break; }
+        }
+        if (!rowNum) return { ok: false, error: 'Submission no longer exists (discarded on the lot?).' };
+      }
+
+      if (corrected) {
         // cols 9..16 (1-based): vin_final, vin_valid, matched, year, make, model, type, stock
         sh.getRange(rowNum, LOT_SUB.VIN_FINAL + 1, 1, 8).setValues([[
           corrected, resultValid ? 'TRUE' : 'FALSE', resultMatched ? 'TRUE' : 'FALSE',
-          v.year || '', v.make || '', v.model || '', v.type || '', v.stock || ''
+          vRow.year || '', vRow.make || '', vRow.model || '', vRow.type || '', vRow.stock || ''
         ]]);
       }
 
@@ -8783,8 +8801,11 @@ function updateVinSubmissionStatuses(submissionIds, status) {
     if (LOT_SUB_STATUSES.indexOf(status) === -1) return { ok: false, error: 'Invalid status.' };
     var ids = (submissionIds || []).map(String);
     var data = sh.getDataRange().getValues();
-    var rowById = {};
-    for (var i = 1; i < data.length; i++) rowById[String(data[i][LOT_SUB.ID])] = i + 1;
+    var rowById = {}, snapById = {};   // id → live row guess / id → snapshot index (photo id is immutable — safe from the snapshot)
+    for (var i = 1; i < data.length; i++) {
+      rowById[String(data[i][LOT_SUB.ID])] = i + 1;
+      snapById[String(data[i][LOT_SUB.ID])] = i;
+    }
 
     var by = '';
     try { by = Session.getActiveUser().getEmail() || ''; } catch (e2) {}
@@ -8795,14 +8816,28 @@ function updateVinSubmissionStatuses(submissionIds, status) {
     var doTrash = (status === 'discarded' || status === 'processed');
     var updated = 0, missing = 0, photosTrashed = 0, photosFailed = 0;
     ids.forEach(function (id) {
+      // Rows can shift mid-loop (scanner-project deleteRow; LockService can't
+      // reach across projects — and the per-row Drive trash below makes this
+      // loop seconds long). Re-verify the ID at the cached position right
+      // before writing; re-locate by ID if it moved, count missing if gone.
+      // Same discipline as runInboxOcr — an unverified version of this loop
+      // stamped discarded/processed onto the wrong (shifted-up) rows.
       var rowNum = rowById[id];
+      if (rowNum && String(sh.getRange(rowNum, LOT_SUB.ID + 1).getValue()) !== id) rowNum = 0;
+      if (!rowNum) {
+        var idCol = sh.getRange(1, LOT_SUB.ID + 1, sh.getLastRow(), 1).getValues();
+        for (var r = 1; r < idCol.length; r++) {
+          if (String(idCol[r][0]) === id) { rowNum = r + 1; rowById[id] = rowNum; break; }
+        }
+      }
       if (!rowNum) { missing++; return; }
       // cols 17..19 (1-based): status, processed_ts, processed_by
       sh.getRange(rowNum, LOT_SUB.STATUS + 1, 1, 3).setValues([[status, ts, by]]);
       updated++;
       // ponytail: per-file trash in the loop — fine to ~100 rows; batch/queue if it outgrows that
       if (doTrash) {
-        if (trashLotPhoto_(data[rowNum - 1][LOT_SUB.PHOTO_ID])) photosTrashed++;
+        var snapRow = snapById[id] != null ? data[snapById[id]] : null;   // id found live but absent from the snapshot → no cached photo id to trust
+        if (snapRow && trashLotPhoto_(snapRow[LOT_SUB.PHOTO_ID])) photosTrashed++;
         else photosFailed++;
       }
     });

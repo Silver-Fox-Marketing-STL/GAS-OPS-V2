@@ -319,6 +319,7 @@
     document.addEventListener('DOMContentLoaded', function () {
       Theme.initPicker();
       vpSyncLayout();
+      document.getElementById('lsOrderNote').addEventListener('input', vpSaveOpenOrder);   // note survives a reload
       google.script.run
         .withSuccessHandler(vpInitDealers)
         .withFailureHandler(function (e) { toast('Could not load dealers: ' + (e && e.message || e), 'error'); })
@@ -365,6 +366,7 @@
       if (who) { who.textContent = 'Signed in as ' + (b.email || 'unknown account'); who.hidden = false; }
       if (window.CustomSelect) { try { CustomSelect.enhanceAll(document); } catch (e) {} }
       if (sel.value) vpDealerChange();
+      vpMaybeRestoreOrder();   // after the dealer list exists — vpBeginShooting sets sel.value
     }
 
     function vpDealerChange() {
@@ -377,6 +379,110 @@
     function vpSetStart() {
       document.getElementById('lsStartBtn').classList.toggle('disabled', !vpDealerKey);
     }
+
+    // ════════════════ OFFLINE RESILIENCE (order in localStorage, photos in IndexedDB) ════════════════
+    // A mobile page reload (memory pressure when the camera opens) or a connection
+    // drop must never lose an open order: the order context restores on the next
+    // load, cached un-saved photos re-enter the pipeline, and failed items
+    // auto-retry when connectivity returns. capture= photos never reach the camera
+    // roll, so the IndexedDB blob is the ONLY copy until a sheet row exists
+    // (deleted at 'saved'). Every storage call is try/catch'd — a phone that
+    // blocks storage just degrades to the old memory-only behavior.
+    var VP_ORDER_KEY = 'vpOpenOrder';
+    function vpSaveOpenOrder() {
+      try {
+        if (!vpOrder) return;
+        var noteEl = document.getElementById('lsOrderNote');
+        localStorage.setItem(VP_ORDER_KEY, JSON.stringify({
+          dealerKey: vpOrder.dealerKey, dealerName: vpOrder.dealerName,
+          batchId: vpOrder.batchId, note: noteEl ? noteEl.value : ''
+        }));
+      } catch (e) {}
+    }
+    function vpClearOpenOrder() { try { localStorage.removeItem(VP_ORDER_KEY); } catch (e) {} }
+    function vpStoredOpenOrder() {
+      try { return JSON.parse(localStorage.getItem(VP_ORDER_KEY) || 'null'); } catch (e) { return null; }
+    }
+
+    // Minimal IndexedDB wrappers — one store, keyPath pid, fire-and-forget writes.
+    var vpIdb = null;
+    function vpIdbOpen(cb) {
+      if (vpIdb) { cb(vpIdb); return; }
+      if (!window.indexedDB) { cb(null); return; }
+      try {
+        var req = indexedDB.open('lotscan', 1);
+        req.onupgradeneeded = function () { req.result.createObjectStore('photos', { keyPath: 'pid' }); };
+        req.onsuccess = function () { vpIdb = req.result; cb(vpIdb); };
+        req.onerror = function () { cb(null); };
+      } catch (e) { cb(null); }
+    }
+    function vpIdbPut(rec) {
+      vpIdbOpen(function (db) {
+        if (!db) return;
+        try { db.transaction('photos', 'readwrite').objectStore('photos').put(rec); } catch (e) {}
+      });
+    }
+    function vpIdbDel(pid) {
+      if (!pid) return;
+      vpIdbOpen(function (db) {
+        if (!db) return;
+        try { db.transaction('photos', 'readwrite').objectStore('photos').delete(pid); } catch (e) {}
+      });
+    }
+    function vpIdbAll(cb) {
+      vpIdbOpen(function (db) {
+        if (!db) { cb([]); return; }
+        try {
+          var req = db.transaction('photos').objectStore('photos').getAll();
+          req.onsuccess = function () { cb(req.result || []); };
+          req.onerror = function () { cb([]); };
+        } catch (e) { cb([]); }
+      });
+    }
+
+    // Re-enter cached photos for this batch (page died before they reached 'saved').
+    // Runs on EVERY entry into Shooting, so both auto-restore and a manual draft
+    // Resume pick up photos stranded by an earlier crash. Also sweeps records
+    // older than 7 days (batches whose context is long gone).
+    function vpRestoreCachedPhotos(batchId) {
+      vpIdbAll(function (recs) {
+        recs.forEach(function (r) { if (Date.now() - (r.ts || 0) > 7 * 864e5) vpIdbDel(r.pid); });
+        var mine = recs.filter(function (r) {
+          return r.batchId === batchId && r.blob && Date.now() - (r.ts || 0) <= 7 * 864e5;
+        });
+        if (!mine.length || !vpOrder || vpOrder.batchId !== batchId) return;
+        mine.forEach(function (r) {
+          for (var i = 0; i < vpQueue.length; i++) if (vpQueue[i].pid === r.pid) return;   // already in the pipeline (late second restore)
+          var item = { id: vpQNextId++, pid: r.pid, file: r.blob, state: 'reading', thumb: null, b64: null, vin: '', fileId: '', url: '', error: '' };
+          vpQueue.push(item); vpPending.push(item);
+        });
+        toast(mine.length + ' unsaved photo' + (mine.length === 1 ? '' : 's') + ' restored — saving…', 'info');
+        vpRenderQueue(); vpUpdateCount(); vpDecodeNext();
+      });
+    }
+
+    // Auto-resume: an open order left in localStorage (page death mid-shooting)
+    // re-enters Shooting on the same batchId. Runs after the dealer list loads —
+    // the GAS page can't render offline anyway, so bootstrap always precedes this.
+    function vpMaybeRestoreOrder() {
+      var o = vpStoredOpenOrder();
+      if (!o || !o.batchId || vpOrder) return;
+      vpDealerKey = o.dealerKey; vpVinMap = {}; vpSetStart();
+      google.script.run.withSuccessHandler(function (m) { vpVinMap = m || {}; }).getDealerVinMap(o.dealerKey);
+      vpTab('capture');
+      vpBeginShooting(o.dealerKey, o.dealerName, o.batchId, o.dealerName + ' — resumed order', o.note || '');
+      toast('Restored your open order — photos already saved are in this batch.', 'info');
+    }
+
+    // Connectivity returned: retry every failed item + kick the committer.
+    window.addEventListener('online', function () {
+      var n = 0;
+      vpQueue.forEach(function (q, i) {
+        if (q.state === 'failed') { n++; q.error = ''; vpRetryItem(i); }   // error cleared → no per-item toast spam
+      });
+      if (n) toast('Back online — retrying ' + n + ' photo' + (n === 1 ? '' : 's') + '…', 'info');
+      vpTryCommit();
+    });
 
     // ════════════════ ORDER-SESSION STATE MACHINE (Idle → Shooting → Finish) ════════════════
     var vpOrder = null;       // { dealerKey, dealerName, batchId } while an order is open
@@ -406,6 +512,8 @@
       document.getElementById('lsOrderBatch').textContent = '#' + (batchId.length > 12 ? batchId.substr(0, 12) : batchId);
       document.getElementById('lsOrderNote').value = note || '';
       vpRenderQueue(); vpUpdateCount(); vpUpdateFinishUI();
+      vpSaveOpenOrder();
+      vpRestoreCachedPhotos(batchId);
     }
 
     function vpFinishOrder(send) {
@@ -428,6 +536,7 @@
           vpUpdateFinishUI();
           return;
         }
+        vpQueue.forEach(function (q) { if (q.state === 'failed') vpIdbDel(q.pid); });   // user chose to drop them
       }
       vpCompleteFinish();
     }
@@ -468,6 +577,7 @@
     }
 
     function vpEndOrder() {
+      vpClearOpenOrder();
       vpOrder = null; vpQueue = []; vpPending = []; vpBuffer = [];
       vpEng = { decoding: false, inFlight: 0, committing: false };
       vpFinishing = null;
@@ -529,7 +639,9 @@
 
     function vpEnqueueFiles(files) {
       files.forEach(function (file) {
-        vpQueue.push({ id: vpQNextId++, file: file, state: 'reading', thumb: null, b64: null, vin: '', fileId: '', url: '', error: '' });
+        var pid = vpOrder.batchId + ':' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+        vpQueue.push({ id: vpQNextId++, pid: pid, file: file, state: 'reading', thumb: null, b64: null, vin: '', fileId: '', url: '', error: '' });
+        vpIdbPut({ pid: pid, batchId: vpOrder.batchId, ts: Date.now(), blob: file });   // the only copy until 'saved'
       });
       vpPending = vpPending.concat(vpQueue.slice(-files.length));
       vpRenderQueue(); vpUpdateCount();
@@ -663,7 +775,7 @@
         .withSuccessHandler(function (res) {
           vpEng.committing = false;
           if (res && res.ok) {
-            chunk.forEach(function (it) { it.state = 'saved'; it.b64 = null; });   // retry window ends at saved
+            chunk.forEach(function (it) { it.state = 'saved'; it.b64 = null; vpIdbDel(it.pid); });   // retry window ends at saved; row exists → drop the cached blob
             vpRenderQueue(); vpUpdateCount(); vpCheckFinishDrain();
             vpTryCommit();   // drain anything buffered while this commit was in flight
           } else {
@@ -927,7 +1039,11 @@
     function vpDeleteBatch(bid) {
       if (!confirm('Delete this whole batch? The photos move to Drive trash.')) return;
       google.script.run
-        .withSuccessHandler(function (res) { toast((res && res.deleted ? res.deleted : 0) + ' deleted.', 'success'); vpLoadDrafts(); })
+        .withSuccessHandler(function (res) {
+          if (res && !res.ok) toast('Delete failed: ' + (res.error || 'unknown') + ' — try again.', 'error');
+          else toast((res && res.deleted ? res.deleted : 0) + ' deleted.', 'success');
+          vpLoadDrafts();
+        })
         .withFailureHandler(function (e) { toast('Failed: ' + ((e && e.message) || e), 'error'); })
         .discardBatch(bid);
     }
@@ -955,7 +1071,13 @@
 
     function vpDraftDiscard(sid) {
       if (!confirm('Discard this photo?')) return;
-      google.script.run.withSuccessHandler(function () { vpLoadDrafts(); }).discardSubmission(sid);
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (res && !res.ok) toast('Discard failed: ' + (res.error || 'unknown') + ' — try again.', 'error');
+          vpLoadDrafts();
+        })
+        .withFailureHandler(function (e) { toast('Failed: ' + ((e && e.message) || e), 'error'); })
+        .discardSubmission(sid);
     }
 
     function vpLightbox(src) { document.getElementById('lsLightboxImg').src = src; document.getElementById('lsLightbox').hidden = false; }
