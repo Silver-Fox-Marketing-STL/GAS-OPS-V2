@@ -1146,6 +1146,54 @@ t('empty log or empty inventory yields empty list (never throws)', function () {
   assert.deepStrictEqual(buildStackCleanupRows_(['X'], {}), []);
 });
 
+// ============================================================================
+// Suite: VDP liveness classifier — three-state, fail-SAFE (ambiguous → unknown)
+// ============================================================================
+suite('vdp liveness classifier');
+var VDP_URL = 'https://www.dealer.com/used/Honda/2021-Civic-1HGCV1F34MA000001/';
+var VDP_VIN = '1HGCV1F34MA000001';
+function vdpBody_(n) {
+  var s = '<html><title>2021 Honda Civic</title>';
+  for (var i = 0; i < n; i++) s += ' data-vin="' + VDP_VIN.toLowerCase() + '"';   // case-insensitive count
+  return s + '</html>';
+}
+t('404/410 → gone; other 4xx and 5xx → unknown (bot wall / transient is not evidence)', function () {
+  assert.strictEqual(classifyVdpResponse_(404, '', '', VDP_VIN, VDP_URL), 'gone');
+  assert.strictEqual(classifyVdpResponse_(410, '', '', VDP_VIN, VDP_URL), 'gone');
+  assert.strictEqual(classifyVdpResponse_(403, '', vdpBody_(0), VDP_VIN, VDP_URL), 'unknown');
+  assert.strictEqual(classifyVdpResponse_(429, '', '', VDP_VIN, VDP_URL), 'unknown');
+  assert.strictEqual(classifyVdpResponse_(500, '', '', VDP_VIN, VDP_URL), 'unknown');
+  assert.strictEqual(classifyVdpResponse_(503, '', vdpBody_(9), VDP_VIN, VDP_URL), 'unknown');
+});
+t('3xx same host+path (http→https, slash, www, query) → follow; different path → gone; no Location → unknown', function () {
+  var httpUrl = VDP_URL.replace('https://', 'http://');
+  assert.strictEqual(classifyVdpResponse_(301, VDP_URL, '', VDP_VIN, httpUrl), 'follow');
+  assert.strictEqual(classifyVdpResponse_(301, VDP_URL.replace(/\/$/, ''), '', VDP_VIN, VDP_URL), 'follow');
+  assert.strictEqual(classifyVdpResponse_(301, VDP_URL.replace('www.', ''), '', VDP_VIN, VDP_URL), 'follow');
+  assert.strictEqual(classifyVdpResponse_(301, VDP_URL + '?utm_source=x', '', VDP_VIN, VDP_URL), 'follow');
+  assert.strictEqual(classifyVdpResponse_(302, 'https://www.dealer.com/used-inventory/', '', VDP_VIN, VDP_URL), 'gone');
+  assert.strictEqual(classifyVdpResponse_(302, '/used-inventory/index.htm', '', VDP_VIN, VDP_URL), 'gone');   // relative Location
+  assert.strictEqual(classifyVdpResponse_(302, '', '', VDP_VIN, VDP_URL), 'unknown');
+});
+t('200: VIN ≥3× → alive, 0× → gone, 1–2× → unknown; blank VIN → unknown', function () {
+  assert.strictEqual(classifyVdpResponse_(200, '', vdpBody_(5), VDP_VIN, VDP_URL), 'alive');
+  assert.strictEqual(classifyVdpResponse_(200, '', vdpBody_(3), VDP_VIN, VDP_URL), 'alive');
+  assert.strictEqual(classifyVdpResponse_(200, '', vdpBody_(0), VDP_VIN, VDP_URL), 'gone');
+  assert.strictEqual(classifyVdpResponse_(200, '', vdpBody_(1), VDP_VIN, VDP_URL), 'unknown');
+  assert.strictEqual(classifyVdpResponse_(200, '', vdpBody_(2), VDP_VIN, VDP_URL), 'unknown');
+  assert.strictEqual(classifyVdpResponse_(200, '', vdpBody_(5), '', VDP_URL), 'unknown');
+  assert.strictEqual(classifyVdpResponse_(0, '', '', VDP_VIN, VDP_URL), 'unknown');
+});
+t('vdpResolveUrl_: absolute passes through; relative resolves against the request origin', function () {
+  assert.strictEqual(vdpResolveUrl_('https://x.com/a', VDP_URL), 'https://x.com/a');
+  assert.strictEqual(vdpResolveUrl_('/used/', VDP_URL), 'https://www.dealer.com/used/');
+  assert.strictEqual(vdpResolveUrl_('used/', VDP_URL), 'https://www.dealer.com/used/');
+});
+t('checkVehicleUrls never throws and fails safe: bad input / non-http URLs → unknown', function () {
+  assert.deepStrictEqual(checkVehicleUrls(null), {});
+  assert.deepStrictEqual(checkVehicleUrls([{ vin: 'abc', url: '*' }, { vin: '', url: 'https://x' }]), { ABC: 'unknown' });
+});
+
 // ── Report ───────────────────────────────────────────────────────────────────
 function report_() {
   var totalPass = 0, totalFail = 0;

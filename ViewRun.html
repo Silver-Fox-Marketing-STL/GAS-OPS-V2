@@ -36,6 +36,8 @@
         <div class="rv-topbar-actions">
           <button id="rvSaveDraftBtn" class="btn-secondary" onclick="rvSaveDraft({manual:true})">&#128190; Save draft</button>
           <button id="caoBtn" class="btn-ghost" onclick="prefillFromCAO()" disabled>&#x21BA; Pre-fill from CAO</button>
+          <button id="rvUrlCheckBtn" class="btn-ghost" onclick="rvCheckUrls()" disabled title="Fetch each VIN's vehicle page and flag the ones that are gone since the morning scrape">&#x1F517; Check URLs</button>
+          <button id="rvGoneBtn" class="btn-danger" style="display:none" onclick="rvRemoveGone()">Remove URL Gone</button>
           <button class="btn-primary" id="runBtn" onclick="runSelected()" disabled>Run Dealer</button>
         </div>
 
@@ -765,6 +767,43 @@
       rvRewriteVins_(function(v) { return !rvIsDupe(v.toUpperCase()); });
     }
 
+    // ── URL liveness ──────────────────────────────────────────────────────────
+    // Flags (never removes) VINs whose vehicle page is gone since the morning
+    // scrape. Server is three-state + fail-safe: ambiguous → 'unknown'. Runs
+    // over whatever is in the table; CAO pre-fill triggers it automatically.
+    function rvCheckUrls() {
+      var dealerKey = rvVinData.dealerKey;
+      if (!dealerKey) return;
+      var items = [], seen = {};
+      getVins().forEach(function(v) {
+        var key = v.toUpperCase(), d = rvVinData.map[key];
+        if (!d || seen[key]) return;
+        seen[key] = 1;
+        items.push({ vin: key, url: (d.url && d.url !== '*') ? d.url : '' });
+      });
+      if (!items.length) return;
+      var btn = document.getElementById('rvUrlCheckBtn');
+      btn.disabled = true; btn.textContent = '⟳ Checking URLs...';
+      function done() { btn.disabled = false; btn.textContent = '🔗 Check URLs'; }
+      google.script.run
+        .withSuccessHandler(function(res) {
+          done();
+          if (rvVinData.dealerKey !== dealerKey) return;   // dealer changed mid-flight
+          rvUrlStatus = { dealerKey: dealerKey, map: res || {} };
+          var n = { gone: 0, alive: 0, unknown: 0 };
+          Object.keys(rvUrlStatus.map).forEach(function(k) { var s = rvUrlStatus.map[k]; n[s] = (n[s] || 0) + 1; });
+          setRunStatus('URL check: ' + n.gone + ' gone · ' + n.alive + ' alive · ' + n.unknown + ' unchecked' +
+            (n.gone ? ' — review the flagged rows (nothing is removed automatically).' : ''),
+            n.gone ? 'error' : 'success');
+          rvRenderTable();
+        })
+        .withFailureHandler(function(e) { done(); setRunStatus('URL check failed: ' + e.message, 'error'); })
+        .checkVehicleUrls(items);
+    }
+    function rvRemoveGone() {
+      rvRewriteVins_(function(v) { return rvUrlStatus.map[v.toUpperCase()] !== 'gone'; });
+    }
+
     // Rewrite the VIN textarea keeping lines that pass the filter, then the
     // full programmatic-edit refresh (a .value set does NOT fire 'input').
     function rvRewriteVins_(keep) {
@@ -800,6 +839,7 @@
       var hasDealer = document.getElementById('runDealerSelect').value !== '';
       var hasVins   = getVins().length > 0;
       document.getElementById('caoBtn').disabled = !hasDealer;
+      document.getElementById('rvUrlCheckBtn').disabled = !(hasDealer && hasVins);
       document.getElementById('runBtn').disabled = !(hasUser && hasDealer && hasVins);
     }
 
@@ -856,6 +896,7 @@
         .withSuccessHandler(function(result) {
           appendVins(result.vins);
           showCaoSummary(result.summary);
+          if (result.vins.length) rvCheckUrls();   // flag vehicles that left the site since the morning scrape
           setRunStatus(result.vins.length === 0
             ? 'No net-new vehicles found after filters and dedup.'
             : 'Added ' + result.vins.length + ' net-new VIN' +
@@ -1563,6 +1604,7 @@
     var rvFeatures = {};   // {VIN(upper) → text} — survives table re-renders
     var rvEdits = {};      // {VIN(upper) → {code → text}} — editable-column values (seeded)
     var rvLoggedIds = null;   // {identifier(upper) → 1} from the dealer's VIN log; null until loaded
+    var rvUrlStatus = { dealerKey: '', map: {} };   // {VIN(upper) → 'gone'|'alive'|'unknown'} from checkVehicleUrls; cleared on dealer change
     var rvDebounce = null;
 
     // ── Order drafts ──────────────────────────────────────────────────────────
@@ -1719,6 +1761,7 @@
       if (rvVinData.dealerKey !== dealerKey) { rvFeatures = {}; rvEdits = {}; }   // new dealer → stale text out
       rvVinData = { dealerKey: dealerKey, map: {}, featuresTypes: {}, editCodes: {}, editSeeds: {}, filtered: {} };   // clear immediately
       rvLoggedIds = null;
+      rvUrlStatus = { dealerKey: dealerKey, map: {} };
       rvRenderTable();
       if (!dealerKey) return;
       google.script.run
@@ -1829,12 +1872,14 @@
       var cols = (rvHasFeatures ? 10 : 9) + editCols.length;
 
       var dedupeBtn = document.getElementById('rvDedupeBtn');
+      var goneBtn = document.getElementById('rvGoneBtn');
       if (!lines.length) {
         body.innerHTML = '<tr class="rv-empty-row"><td colspan="' + cols + '">' +
           (rvVinData.dealerKey ? 'Enter VINs to check them against this dealer.' : 'Select a dealer, then enter VINs to check them.') +
           '</td></tr>';
         if (countEl) countEl.textContent = '';
         if (dedupeBtn) dedupeBtn.style.display = 'none';
+        if (goneBtn) goneBtn.style.display = 'none';
         return;
       }
 
@@ -1842,12 +1887,14 @@
       // drop set with the same engine/phase; Bypass checked = flags cleared.
       var bypass = document.getElementById('bypassFilters').checked;
 
-      var html = '', found = 0, dupes = 0, filteredN = 0;
+      var html = '', found = 0, dupes = 0, filteredN = 0, goneN = 0;
       for (var j = 0; j < lines.length; j++) {
         var key = lines[j].toUpperCase();
         var d = rvVinData.map[key];
         var isDupe = rvIsDupe(key);
         if (isDupe) dupes++;
+        var gone = rvUrlStatus.map[key] === 'gone';   // vehicle page gone (URL check); flag only, never auto-removed
+        if (gone) goneN++;
         var filtReason = (!bypass && d && rvVinData.filtered) ? (rvVinData.filtered[key] || '') : '';
         if (filtReason) filteredN++;
         var xCell = '<td class="rv-x-cell"><button type="button" class="rv-x" data-vin="' +
@@ -1878,7 +1925,7 @@
               editCells += '<td>—</td>';
             }
           });
-          html += '<tr' + (isDupe ? ' class="row-dup"' : filtReason ? ' class="row-warn"' : '') + '>' +
+          html += '<tr' + (isDupe ? ' class="row-dup"' : (filtReason || gone) ? ' class="row-warn"' : '') + '>' +
             '<td>' + escHtml(d.year)  + '</td>' +
             '<td>' + escHtml(d.make)  + '</td>' +
             '<td>' + escHtml(d.model) + '</td>' +
@@ -1886,7 +1933,8 @@
             '<td>' + escHtml(d.stock) + '</td>' +
             '<td class="rv-vin">' + escHtml(lines[j]) + '</td>' +
             '<td>' + escHtml(d.status) + (isDupe ? ' · ALREADY PRINTED' : '') +
-              (filtReason ? ' · ⚠ WILL BE FILTERED (' + escHtml(filtReason) + ')' : '') + '</td>' +
+              (filtReason ? ' · ⚠ WILL BE FILTERED (' + escHtml(filtReason) + ')' : '') +
+              (gone ? ' · ⚠ URL GONE' : '') + '</td>' +
             '<td class="rv-link">' + urlCell + '</td>' +
             featCell +
             editCells +
@@ -1909,10 +1957,15 @@
       body.innerHTML = html;
       if (countEl) countEl.textContent = lines.length + ' VINs · ' + found + ' found · ' + (lines.length - found) + ' not found' +
         (dupes ? ' · ' + dupes + ' ALREADY PRINTED' : '') +
-        (filteredN ? ' · ' + filteredN + ' will be filtered' : '');
+        (filteredN ? ' · ' + filteredN + ' will be filtered' : '') +
+        (goneN ? ' · ' + goneN + ' URL gone' : '');
       if (dedupeBtn) {
         dedupeBtn.style.display = dupes ? '' : 'none';
         dedupeBtn.textContent = 'Remove Duplicates (' + dupes + ')';
+      }
+      if (goneBtn) {
+        goneBtn.style.display = goneN ? '' : 'none';
+        goneBtn.textContent = 'Remove URL Gone (' + goneN + ')';
       }
     }
 

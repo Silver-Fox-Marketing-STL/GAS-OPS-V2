@@ -11,6 +11,27 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Added
+- **Run Order: URL liveness check (dead-VDP detection).** Scrapers run once each
+  morning, so a vehicle can be pulled from the dealer's website before the order
+  prints — SCRAPERDATA has no signal for this, so CAO pre-fill and pasted VIN
+  lists could include a vehicle whose QR/URL is already dead. A new "🔗 Check
+  URLs" button on the Run view (fires automatically after CAO pre-fill, or
+  on-demand for whatever VINs are in the table) calls `checkVehicleUrls(items)`
+  with the VIN/URL pairs the client already holds (no sheet re-read) and gets
+  back a three-state `{VIN: 'gone'|'alive'|'unknown'}` map. Rows classified
+  `gone` render amber (`row-warn`, "· ⚠ URL GONE"), the footer adds "n URL
+  gone", and a "Remove URL Gone (n)" button strips those lines via the
+  existing dedupe-rewrite helper — **flag-only**: nothing is removed
+  automatically and a run is never blocked. The check is fail-safe: any
+  ambiguous response (bot-wall 4xx, 5xx, 1–2 VIN mentions on a 200) classifies
+  as `unknown`, never `gone`; only a 404/410, a redirect off the vehicle's
+  path (a dead VDP bounced to a listing page), or a 200 body with 0 mentions of
+  the VIN counts as `gone`. Same-path redirects (http→https, trailing slash,
+  www) are followed exactly once. Fetches run in batches of 25 via
+  `UrlFetchApp.fetchAll` (`{muteHttpExceptions:true, followRedirects:false}`,
+  per-URL fallback if the batch call itself throws), capped at 200 VINs per
+  check; `checkVehicleUrls` never throws. New pure classifier
+  `classifyVdpResponse_` + harness suite "vdp liveness classifier" (5 tests).
 - **Run Order: pending-commit indicator.** Next to "Most recent order in log"
   the Run view now shows an amber `N pending` tag when the selected dealer has
   finalized RUN_LOG rows not yet committed or rolled back in the VIN log (test

@@ -559,6 +559,34 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   token on the query string. (`pdAttachFileToDeal_` — the first file upload in the
   codebase.) Rule of thumb: **a Blob field in a plain payload object → let GAS do the
   multipart;** only hand-roll the body when you need a non-form multipart type.
+- **`HTTPResponse` never exposes where a redirect actually went — you have to
+  read the `Location` header yourself, with `followRedirects:false`.** GAS's
+  `UrlFetchApp` response object has no "final URL" property; the default
+  (`followRedirects:true`) hides every hop entirely. To tell a same-site
+  canonicalization redirect (http→https, trailing slash, `www`) from a dead
+  page bounced to a listing page, fetch with `followRedirects:false` and read
+  `getAllHeaders()['Location']` — and resolve it yourself if relative, against
+  the request's own origin (first use in this repo: dead-VDP liveness check,
+  Sept 2026).
+- **`UrlFetchApp` cannot override the User-Agent** — no header option changes
+  it, so bot-walled sites (many dealer platforms) answer real requests with a
+  403. Treat any non-2xx from a source you can't fully control as ambiguous
+  (`'unknown'`), never as proof the resource is gone — a bot wall and a truly
+  dead page are indistinguishable from the status code alone.
+- **A dead page is often a 200, not a 404 ("soft-404").** Many dealer VDP
+  platforms serve a "this vehicle is no longer available" template at HTTP 200
+  when a listing is pulled — status code alone can't detect it. The workable
+  signal: count how many times the VIN itself appears in the response body. A
+  live VDP echoes it many times (JSON-LD schema, `data-vin` attributes,
+  breadcrumbs); a soft-404 echoes it 0–1× (only from the requested URL /
+  canonical tag, if at all) — so a threshold on VIN-occurrence count, not
+  status code, is the real liveness signal.
+- **`UrlFetchApp.fetchAll` fails the WHOLE batch on certain per-request
+  failures** — one bad host can throw and blank every result in the batch, not
+  just its own slot. Wrap the call and fall back to sequential per-URL
+  `UrlFetchApp.fetch` (index-aligned, each in its own try/catch) so one
+  unreachable domain degrades a batch instead of erasing it. (Dead-VDP
+  liveness check, Sept 2026 — see `vdpFetchSlice_`.)
 - **Pipedrive product variations live behind a SEPARATE, v2-ONLY endpoint.** A
   product's variations come from `GET /api/v2/products/{id}/variations` (cursor
   pagination) — they do **not** exist on v1 and are *not* embedded in the `/products`
