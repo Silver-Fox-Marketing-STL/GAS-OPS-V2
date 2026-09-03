@@ -10880,7 +10880,7 @@ function activateDealer(dealerKey) {
  * Logs one line per URL: src | dealer | vin | code | location | vinCount | bodyLen | title | url
  * vinCount = case-insensitive occurrences of the VIN in the response body.
  */
-function probeVdpUrls_() {
+function probeVdpUrls() {
   var PROD = ENV_IDS['1E5aTcofzWzJZssOikaf6lFytS92vRHmj-k1NDV0C_Xu7NoJk7VUEjtNO'];
   var DEALERS_MAX = 6, OLD_PER_DEALER = 8, LIVE_PER_DEALER = 4, DAY = 864e5, now = Date.now();
 
