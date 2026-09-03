@@ -10867,3 +10867,123 @@ function activateDealer(dealerKey) {
 // ============================================================================
 // END OF SCRIPT
 // ============================================================================
+
+
+// ============================================================================
+// ponytail: THROWAWAY PROBE v2 — per-dealer dead/live VDP coverage. DELETE BEFORE MERGE.
+// ============================================================================
+/**
+ * Editor-run (dev is fine — reads PROD sheets by ID, read-only). For EVERY active
+ * dealer: up to LIVE_N vehicles from today's SCRAPERDATA (expected 'alive') and up
+ * to DEAD_N vehicles produced in runs 14–120 days ago that are NO LONGER in today's
+ * feed (expected 'gone'; URL from that run's output-doc SCRAPERDATA copy). Every
+ * URL goes through the real classifier; mismatches are marked ✗ and a per-dealer
+ * verdict is logged. A "DEAD?" row classified alive may simply be a vehicle that
+ * left the feed but is still listed — click it before blaming the rule.
+ */
+function probeVdpUrls() {
+  var PROD = ENV_IDS['1E5aTcofzWzJZssOikaf6lFytS92vRHmj-k1NDV0C_Xu7NoJk7VUEjtNO'];
+  var LIVE_N = 3, DEAD_N = 4, MAX_DOCS_PER_DEALER = 3, DAY = 864e5, now = Date.now();
+  var docDeadline = now + 200000;   // leave room for the fetch phase inside the 6-min cap
+
+  var dealers = SpreadsheetApp.openById(PROD.CONFIG_SHEET_ID).getSheetByName('DEALERS').getDataRange().getValues()
+    .slice(1)
+    .filter(function (r) { return isTrue_(r[CFG.ACTIVE]) && String(r[CFG.KEY] || '').trim(); })
+    .map(function (r) { return { key: String(r[CFG.KEY]).trim(), loc: String(r[CFG.SCRAPER_LOCATION] || '').trim() }; });
+
+  // Today's feed per location: VIN set + first LIVE_N rows.
+  var inv = {};
+  SpreadsheetApp.openById(PROD.MASTER_SHEET_ID).getSheetByName('SCRAPERDATA').getDataRange().getValues().forEach(function (row) {
+    var loc = String(row[19] || '').trim(); if (!loc) return;
+    var vin = String(row[0] || '').trim().toUpperCase(); if (!vin || vin === '*') return;
+    var e = inv[loc] || (inv[loc] = { vins: {}, live: [] });
+    e.vins[vin] = 1;
+    if (e.live.length < LIVE_N) e.live.push({ vin: vin, url: String(row[20] || '').trim() });
+  });
+
+  // RUN_LOG rows per dealer, newest first, 14–120 days old.
+  var runsByDealer = {};
+  SpreadsheetApp.openById(PROD.MASTER_SHEET_ID).getSheetByName('RUN_LOG').getDataRange().getValues().slice(1).reverse().forEach(function (r) {
+    var ts = r[0] instanceof Date ? r[0] : new Date(String(r[0]).replace(' ', 'T'));
+    var age = (now - ts.getTime()) / DAY;
+    if (!(age >= 14 && age <= 120)) return;
+    var key = String(r[1] || '').trim(), docId = String(r[17] || '').trim();
+    var vins = String(r[21] || '').split(',').map(function (v) { return v.trim().toUpperCase(); }).filter(Boolean);
+    if (!key || !docId || !vins.length) return;
+    (runsByDealer[key] || (runsByDealer[key] = [])).push({ docId: docId, vins: vins });
+  });
+
+  var items = [], notes = [];
+  dealers.forEach(function (d) {
+    var e = inv[d.loc] || { vins: {}, live: [] };
+    if (!e.live.length) notes.push(d.key + ': no rows in today\'s SCRAPERDATA for location "' + d.loc + '"');
+    e.live.forEach(function (it) { items.push({ src: 'LIVE', dealer: d.key, vin: it.vin, url: it.url, expect: 'alive' }); });
+    var runs = runsByDealer[d.key] || [], got = 0, tried = 0;
+    for (var i = 0; i < runs.length && got < DEAD_N && tried < MAX_DOCS_PER_DEALER && Date.now() < docDeadline; i++) {
+      var left = runs[i].vins.filter(function (v) { return !e.vins[v]; });   // produced then, not in the feed now
+      if (!left.length) continue;
+      tried++;
+      try {
+        var byVin = {};
+        SpreadsheetApp.openById(runs[i].docId).getSheetByName('SCRAPERDATA').getDataRange().getValues()
+          .forEach(function (row) { byVin[String(row[0] || '').trim().toUpperCase()] = String(row[20] || '').trim(); });
+        left.forEach(function (v) {
+          if (got >= DEAD_N || !byVin[v]) return;
+          got++; items.push({ src: 'DEAD?', dealer: d.key, vin: v, url: byVin[v], expect: 'gone' });
+        });
+      } catch (err) { notes.push(d.key + ': output doc ' + runs[i].docId + ' unreadable (' + err.message + ')'); }
+    }
+    if (!got) notes.push(d.key + ': NO DEAD CANDIDATE (' + runs.length + ' runs 14–120d, ' + tried + ' docs opened' +
+      (Date.now() >= docDeadline ? ', hit time guard' : '') + ')');
+  });
+
+  // Fetch everything (chunks of 50), classify with the real rule, follow same-path redirects once.
+  var isHttp = function (u) { return /^https?:\/\//i.test(u); };
+  items.filter(function (it) { return !isHttp(it.url); })
+       .forEach(function (it) { notes.push(it.dealer + ': ' + it.src + ' ' + it.vin + ' has no http URL ("' + it.url + '")'); });
+  var results = [];
+  function fetchAndClassify(list, hop) {
+    for (var s = 0; s < list.length; s += 50) {
+      var slice = list.slice(s, s + 50);
+      vdpFetchSlice_(slice).forEach(function (resp, i) {
+        var it = slice[i], r = { it: it, hop: hop, code: 'ERR', loc: '', cnt: '', len: '', title: '', state: 'unknown' };
+        if (resp) {
+          try {
+            r.code = resp.getResponseCode();
+            var h = resp.getAllHeaders() || {}; r.loc = h['Location'] || h['location'] || '';
+            var body = resp.getContentText() || ''; r.len = body.length;
+            r.cnt = body.toUpperCase().split(it.vin).length - 1;
+            r.title = (body.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || ['', ''])[1].replace(/\s+/g, ' ').trim().slice(0, 50);
+            r.state = classifyVdpResponse_(r.code, r.loc, body, it.vin, it.url);
+          } catch (e) { r.state = 'unknown'; }
+        }
+        results.push(r);
+      });
+    }
+  }
+  fetchAndClassify(items.filter(function (it) { return isHttp(it.url); }), 1);
+  var follows = results.filter(function (r) { return r.state === 'follow'; });
+  if (follows.length) {
+    fetchAndClassify(follows.map(function (r) {
+      return { src: r.it.src, dealer: r.it.dealer, vin: r.it.vin, url: vdpResolveUrl_(r.loc, r.it.url), expect: r.it.expect };
+    }), 2);
+    results.forEach(function (r) { if (r.state === 'follow') r.state = 'unknown(follow)'; });
+  }
+
+  Logger.log('src | dealer | vin | code | location | vinCount | bodyLen | title | RULE | url');
+  results.forEach(function (r) {
+    Logger.log([r.it.src + (r.hop === 2 ? '/hop2' : ''), r.it.dealer, r.it.vin, r.code, r.loc, r.cnt, r.len, r.title,
+      r.state + (r.state === r.it.expect ? '' : ' ✗ expected ' + r.it.expect), r.it.url].join(' | '));
+  });
+  Logger.log('=== VERDICT: dealer | live ok/total | dead ok/total | host ===');
+  dealers.forEach(function (d) {
+    var rs = results.filter(function (r) { return r.it.dealer === d.key && r.hop === 1; });
+    var ok = function (arr) { return arr.filter(function (r) { return r.state === r.it.expect; }).length + '/' + arr.length; };
+    var live = rs.filter(function (r) { return r.it.src === 'LIVE'; }), dead = rs.filter(function (r) { return r.it.src === 'DEAD?'; });
+    var host = rs.length ? (rs[0].it.url.match(/^https?:\/\/([^\/]+)/i) || ['', '?'])[1] : '?';
+    Logger.log([d.key, 'live ' + ok(live), 'dead ' + ok(dead), host].join(' | '));
+  });
+  notes.forEach(function (n) { Logger.log('NOTE: ' + n); });
+  Logger.log('Done: ' + results.length + ' responses, ' + dealers.length + ' active dealers, ' +
+    Math.round((Date.now() - now) / 1000) + 's.');
+}
