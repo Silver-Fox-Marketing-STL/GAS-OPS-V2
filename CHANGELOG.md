@@ -32,6 +32,10 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   per-URL fallback if the batch call itself throws), capped at 200 VINs per
   check; `checkVehicleUrls` never throws. New pure classifier
   `classifyVdpResponse_` + harness suite "vdp liveness classifier" (5 tests).
+  Calibrated against all 34 active dealers (256-URL probe, 2026-09-03): every
+  dealer that answers classifies correctly on both sides; Joe Machens Toyota
+  (Cloudflare) and Mazda of Columbia (Akamai) block Apps Script outright and
+  always report as unchecked.
 - **Run Order: pending-commit indicator.** Next to "Most recent order in log"
   the Run view now shows an amber `N pending` tag when the selected dealer has
   finalized RUN_LOG rows not yet committed or rolled back in the VIN log (test
