@@ -1175,12 +1175,12 @@ t('3xx same host+path (http→https, slash, www, query) → follow; different pa
   assert.strictEqual(classifyVdpResponse_(302, '/used-inventory/index.htm', '', VDP_VIN, VDP_URL), 'gone');   // relative Location
   assert.strictEqual(classifyVdpResponse_(302, '', '', VDP_VIN, VDP_URL), 'unknown');
 });
-t('200: VIN ≥3× → alive, 0× → gone, 1–2× → unknown; blank VIN → unknown', function () {
+t('200: VIN ≥2× → alive (Dean Team live VDPs echo it exactly 2×), 0× → gone, 1× → unknown; blank VIN → unknown', function () {
   assert.strictEqual(classifyVdpResponse_(200, '', vdpBody_(5), VDP_VIN, VDP_URL), 'alive');
   assert.strictEqual(classifyVdpResponse_(200, '', vdpBody_(3), VDP_VIN, VDP_URL), 'alive');
   assert.strictEqual(classifyVdpResponse_(200, '', vdpBody_(0), VDP_VIN, VDP_URL), 'gone');
   assert.strictEqual(classifyVdpResponse_(200, '', vdpBody_(1), VDP_VIN, VDP_URL), 'unknown');
-  assert.strictEqual(classifyVdpResponse_(200, '', vdpBody_(2), VDP_VIN, VDP_URL), 'unknown');
+  assert.strictEqual(classifyVdpResponse_(200, '', vdpBody_(2), VDP_VIN, VDP_URL), 'alive');
   assert.strictEqual(classifyVdpResponse_(200, '', vdpBody_(5), '', VDP_URL), 'unknown');
   assert.strictEqual(classifyVdpResponse_(0, '', '', VDP_VIN, VDP_URL), 'unknown');
 });

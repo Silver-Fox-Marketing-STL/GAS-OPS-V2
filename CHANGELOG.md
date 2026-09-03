@@ -23,7 +23,7 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   gone", and a "Remove URL Gone (n)" button strips those lines via the
   existing dedupe-rewrite helper — **flag-only**: nothing is removed
   automatically and a run is never blocked. The check is fail-safe: any
-  ambiguous response (bot-wall 4xx, 5xx, 1–2 VIN mentions on a 200) classifies
+  ambiguous response (bot-wall 4xx, 5xx, a lone VIN mention on a 200) classifies
   as `unknown`, never `gone`; only a 404/410, a redirect off the vehicle's
   path (a dead VDP bounced to a listing page), or a 200 body with 0 mentions of
   the VIN counts as `gone`. Same-path redirects (http→https, trailing slash,

@@ -1544,9 +1544,10 @@ function getDealerVinData(dealerKey) {
 // the order prints. This FLAGS (never removes) VINs whose vehicle page is gone.
 // Three-state and fail-SAFE: anything ambiguous is 'unknown', never 'gone'.
 
-// ponytail: tuned from the Sept-2026 probe — a live VDP echoes its VIN many times
-// (JSON-LD, data attrs, canonical); a soft-404 echoes it 0–1× (the requested URL).
-var VDP_ALIVE_MIN_VIN_HITS = 3;
+// Tuned from the 2026-09-03 live probe (67 URLs, 4 platforms): live VDPs echo the
+// VIN 2× (Dean Team) to 1100× (Dave Sinclair); dead pages 301/302 to a listing or
+// 404. A lone echo (the requested URL) is not proof of life → unknown.
+var VDP_ALIVE_MIN_VIN_HITS = 2;
 
 /**
  * Pure: classifies one HTTP response for a vehicle detail page.
@@ -1555,7 +1556,7 @@ var VDP_ALIVE_MIN_VIN_HITS = 3;
  *   3xx to the SAME host+path         → 'follow'   (http→https / slash / www canonicalization;
  *                                                   caller re-fetches once, else 'unknown')
  *   3xx to a DIFFERENT path           → 'gone'     (dead VDP bounced to a listing page)
- *   200: VIN ≥ VDP_ALIVE_MIN_VIN_HITS× → 'alive'; 0× → 'gone'; in between → 'unknown'
+ *   200: VIN ≥ VDP_ALIVE_MIN_VIN_HITS× → 'alive'; 0× → 'gone'; 1× → 'unknown'
  */
 function classifyVdpResponse_(code, location, body, vin, url) {
   code = Number(code) || 0;
@@ -10866,92 +10867,3 @@ function activateDealer(dealerKey) {
 // ============================================================================
 // END OF SCRIPT
 // ============================================================================
-
-// ============================================================================
-// ponytail: THROWAWAY PROBE — dead-VDP URL liveness spike. DELETE BEFORE MERGE.
-// ============================================================================
-/**
- * Run from the script editor (dev script is fine — it reads PROD sheets by ID,
- * read-only). Samples two populations per dealer and fetches every URL with
- * followRedirects:false so the Location header is visible:
- *   OLD  — produced VINs from RUN_LOG rows 7–21 days old, URLs pulled from that
- *          run's output-doc SCRAPERDATA copy (very likely SOLD by now → "gone")
- *   LIVE — rows in today's SCRAPERDATA for the same dealer (very likely alive)
- * Logs one line per URL: src | dealer | vin | code | location | vinCount | bodyLen | title | url
- * vinCount = case-insensitive occurrences of the VIN in the response body.
- */
-function probeVdpUrls() {
-  var PROD = ENV_IDS['1E5aTcofzWzJZssOikaf6lFytS92vRHmj-k1NDV0C_Xu7NoJk7VUEjtNO'];
-  var DEALERS_MAX = 6, OLD_PER_DEALER = 8, LIVE_PER_DEALER = 4, DAY = 864e5, now = Date.now();
-
-  // (a) one recent-but-not-too-recent run per dealer
-  var runLog = SpreadsheetApp.openById(PROD.MASTER_SHEET_ID).getSheetByName('RUN_LOG').getDataRange().getValues();
-  var picked = {};
-  for (var i = runLog.length - 1; i >= 1 && Object.keys(picked).length < DEALERS_MAX; i--) {
-    var r = runLog[i];
-    var ts = r[0] instanceof Date ? r[0] : new Date(String(r[0]).replace(' ', 'T'));
-    var age = (now - ts.getTime()) / DAY;
-    if (!(age >= 7 && age <= 21)) continue;
-    var key = String(r[1]).trim(), docId = String(r[17] || '').trim();
-    var vins = String(r[21] || '').split(',').map(function (v) { return v.trim().toUpperCase(); }).filter(Boolean);
-    if (!key || !docId || !vins.length || picked[key]) continue;
-    picked[key] = { docId: docId, vins: vins.slice(0, OLD_PER_DEALER) };
-  }
-  var keys = Object.keys(picked);
-  Logger.log('Sampled dealers: ' + keys.join(', '));
-
-  var items = [];
-  keys.forEach(function (key) {
-    var p = picked[key];
-    try {
-      var sd = SpreadsheetApp.openById(p.docId).getSheetByName('SCRAPERDATA').getDataRange().getValues();
-      var byVin = {};
-      sd.forEach(function (row) { byVin[String(row[0] || '').trim().toUpperCase()] = String(row[20] || '').trim(); });
-      p.vins.forEach(function (v) { items.push({ src: 'OLD', dealer: key, vin: v, url: byVin[v] || '' }); });
-    } catch (e) { Logger.log(key + ': output doc ' + p.docId + ' unreadable — ' + e.message); }
-  });
-
-  // (b) live rows for the same dealers
-  var locByKey = {};
-  SpreadsheetApp.openById(PROD.CONFIG_SHEET_ID).getSheetByName('DEALERS').getDataRange().getValues()
-    .forEach(function (row) { locByKey[String(row[CFG.KEY]).trim()] = String(row[CFG.SCRAPER_LOCATION] || '').trim(); });
-  var keyByLoc = {};
-  keys.forEach(function (k) { if (locByKey[k]) keyByLoc[locByKey[k]] = k; });
-  var liveCount = {};
-  SpreadsheetApp.openById(PROD.MASTER_SHEET_ID).getSheetByName('SCRAPERDATA').getDataRange().getValues()
-    .forEach(function (row) {
-      var key = keyByLoc[String(row[19] || '').trim()];
-      if (!key || (liveCount[key] || 0) >= LIVE_PER_DEALER) return;
-      liveCount[key] = (liveCount[key] || 0) + 1;
-      items.push({ src: 'LIVE', dealer: key, vin: String(row[0] || '').trim().toUpperCase(), url: String(row[20] || '').trim() });
-    });
-
-  // (c) fetch everything in one parallel batch
-  var opts = { muteHttpExceptions: true, followRedirects: false };
-  var fetchable = items.filter(function (it) { return /^https?:\/\//i.test(it.url); });
-  items.filter(function (it) { return !/^https?:\/\//i.test(it.url); })
-       .forEach(function (it) { Logger.log([it.src, it.dealer, it.vin, 'NO_URL'].join(' | ')); });
-  var responses;
-  try {
-    responses = UrlFetchApp.fetchAll(fetchable.map(function (it) {
-      return { url: it.url, muteHttpExceptions: true, followRedirects: false };
-    }));
-  } catch (e) {
-    Logger.log('fetchAll threw (' + e.message + ') — falling back to per-URL fetch');
-    responses = fetchable.map(function (it) { try { return UrlFetchApp.fetch(it.url, opts); } catch (e2) { return null; } });
-  }
-
-  Logger.log('src | dealer | vin | code | location | vinCount | bodyLen | title | url');
-  responses.forEach(function (resp, i) {
-    var it = fetchable[i];
-    if (!resp) { Logger.log([it.src, it.dealer, it.vin, 'ERR', '', '', '', '', it.url].join(' | ')); return; }
-    var code = resp.getResponseCode();
-    var h = resp.getAllHeaders() || {};
-    var loc = h['Location'] || h['location'] || '';
-    var body = resp.getContentText() || '';
-    var cnt = body.toUpperCase().split(it.vin).length - 1;
-    var title = (body.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || ['', ''])[1].replace(/\s+/g, ' ').trim().slice(0, 60);
-    Logger.log([it.src, it.dealer, it.vin, code, loc, cnt, body.length, title, it.url].join(' | '));
-  });
-  Logger.log('Done: ' + fetchable.length + ' fetched, ' + (items.length - fetchable.length) + ' without URL.');
-}
