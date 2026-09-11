@@ -199,16 +199,18 @@
       font-variant-numeric: tabular-nums;   /* Deal ID / VIN counts align — no digit-width shift */
     }
     /* Static column widths — 4 columns per-dealer (Timestamp/Deal ID/VINs/Status) */
-    #view-vinlog #runsTable th:nth-child(1), #view-vinlog #runsTable td:nth-child(1) { width: 40%; }
-    #view-vinlog #runsTable th:nth-child(2), #view-vinlog #runsTable td:nth-child(2) { width: 26%; }
+    #view-vinlog #runsTable th:nth-child(1), #view-vinlog #runsTable td:nth-child(1) { width: 36%; }
+    #view-vinlog #runsTable th:nth-child(2), #view-vinlog #runsTable td:nth-child(2) { width: 24%; }
     #view-vinlog #runsTable th:nth-child(3), #view-vinlog #runsTable td:nth-child(3) { width: 14%; }
-    #view-vinlog #runsTable th:nth-child(4), #view-vinlog #runsTable td:nth-child(4) { width: 20%; }
+    #view-vinlog #runsTable th:nth-child(4), #view-vinlog #runsTable td:nth-child(4) { width: 18%; }
+    #view-vinlog #runsTable th:nth-child(5), #view-vinlog #runsTable td:nth-child(5) { width: 8%; text-align: center; }
     /* All-Dealers mode adds a Dealer column (Timestamp/Dealer/Deal ID/VINs/Status) */
-    #view-vinlog #runsTable.with-dealer th:nth-child(1), #view-vinlog #runsTable.with-dealer td:nth-child(1) { width: 26%; }
-    #view-vinlog #runsTable.with-dealer th:nth-child(2), #view-vinlog #runsTable.with-dealer td:nth-child(2) { width: 26%; }
-    #view-vinlog #runsTable.with-dealer th:nth-child(3), #view-vinlog #runsTable.with-dealer td:nth-child(3) { width: 20%; }
+    #view-vinlog #runsTable.with-dealer th:nth-child(1), #view-vinlog #runsTable.with-dealer td:nth-child(1) { width: 24%; }
+    #view-vinlog #runsTable.with-dealer th:nth-child(2), #view-vinlog #runsTable.with-dealer td:nth-child(2) { width: 24%; }
+    #view-vinlog #runsTable.with-dealer th:nth-child(3), #view-vinlog #runsTable.with-dealer td:nth-child(3) { width: 18%; }
     #view-vinlog #runsTable.with-dealer th:nth-child(4), #view-vinlog #runsTable.with-dealer td:nth-child(4) { width: 12%; }
-    #view-vinlog #runsTable.with-dealer th:nth-child(5), #view-vinlog #runsTable.with-dealer td:nth-child(5) { width: 16%; }
+    #view-vinlog #runsTable.with-dealer th:nth-child(5), #view-vinlog #runsTable.with-dealer td:nth-child(5) { width: 14%; }
+    #view-vinlog #runsTable.with-dealer th:nth-child(6), #view-vinlog #runsTable.with-dealer td:nth-child(6) { width: 8%; text-align: center; }
     #view-vinlog #runsTable td {
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
@@ -247,6 +249,13 @@
       border-radius: 3px; cursor: pointer; line-height: 1.4;
     }
     #view-vinlog .vl-show-vins-btn:hover { background: var(--bg); color: var(--text); }
+    #view-vinlog .vl-delete-btn {
+      font-size: 11px; padding: 2px 7px; vertical-align: middle;
+      border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text-muted);
+      border-radius: 3px; cursor: pointer; line-height: 1.4;
+    }
+    #view-vinlog .vl-delete-btn:hover { background: var(--danger-weak); color: var(--danger); border-color: var(--danger); }
+    #view-vinlog .vl-delete-btn:disabled { opacity: 0.5; cursor: default; }
 
     /* ── VIN popup overlay ────────────────────────────────────────────────── */
     #vlVinPopup {
@@ -582,7 +591,7 @@
 
       var html = '<table id="runsTable"' + (allMode ? ' class="with-dealer"' : '') + '><thead><tr>' +
         '<th>Timestamp</th>' + (allMode ? '<th>Dealer</th>' : '') +
-        '<th>Deal ID</th><th>VINs</th><th>Status</th>' +
+        '<th>Deal ID</th><th>VINs</th><th>Status</th><th></th>' +
         '</tr></thead><tbody>';
 
       runs.forEach(function(run, idx) {
@@ -604,6 +613,7 @@
           '<td>' + (run.dealId || '<em style="color:var(--text-muted)">—</em>') + '</td>' +
           '<td>' + vinCell + '</td>' +
           '<td><span class="status-badge ' + statusClass + '">' + statusLabel + '</span></td>' +
+          '<td><button class="vl-delete-btn" title="Delete this run" onclick="event.stopPropagation();deleteRunRow(' + idx + ', this)">✕</button></td>' +
           '</tr>';
       });
 
@@ -830,6 +840,37 @@
           btn.disabled = false; btn.textContent = 'Rollback';
         })
         .getCommittedAt(dealerKey, selectedRun.dealId);
+    }
+
+    // ── Delete (soft: RUN_LOG col W = 'deleted'; committed runs roll back first) ──
+    function deleteRunRow(idx, btn) {
+      var run = document.getElementById('runsContainer')._runs[idx];
+      if (!run) return;
+      var sel = document.getElementById('vinlogDealerSelect');
+      var dealerKey  = run.dealerKey || sel.value;
+      var dealerName = run.dealerName || sel.options[sel.selectedIndex].text;
+
+      var msg = 'Delete the ' + run.timestamp + ' run (Deal ' + (run.dealId || '—') + ') for ' + dealerName + '?';
+      if (run.status === 'committed') {
+        msg += '\n\nThis run is committed — its ' + run.vinCount + ' VIN' + (run.vinCount === 1 ? '' : 's') +
+               ' will also be removed from the VIN log.';
+      }
+      if (!confirm(msg)) return;
+
+      btn.disabled = true;
+      setVinlogStatus('Deleting run...', 'info');
+      google.script.run
+        .withSuccessHandler(function(result) {
+          setVinlogStatus('Deleted run' + (result.removed ? ' and removed ' + result.removed + ' VINs from the ' + dealerName + ' VIN log' : '') + '.', 'success');
+          if (selectedRun && selectedRun.rowIndex === run.rowIndex) hideActionPanel();
+          loadRuns(sel.value);
+          if (sel.value) loadLatestOrderId(sel.value);
+        })
+        .withFailureHandler(function(e) {
+          setVinlogStatus('Delete failed: ' + e.message, 'error');
+          btn.disabled = false;
+        })
+        .deleteRun(dealerKey, run.rowIndex, run.dealId, run.timestamp);
     }
 
     // ── Manual entry ────────────────────────────────────────────────────────
