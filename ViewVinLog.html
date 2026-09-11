@@ -796,7 +796,7 @@
           setVinlogStatus('Commit failed: ' + e.message, 'error');
           btn.disabled = false; btn.textContent = 'Commit to VIN Log';
         })
-        .commitRunToVINLog(dealerKey, selectedRun.rowIndex, selectedRun.dealId, selectedRun.producedVins);
+        .commitRunToVINLog(dealerKey, selectedRun.rowIndex, selectedRun.dealId, selectedRun.producedVins, selectedRun.timestamp);
     }
 
     // ── Rollback ────────────────────────────────────────────────────────────
