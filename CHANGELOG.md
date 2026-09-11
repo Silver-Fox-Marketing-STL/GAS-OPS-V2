@@ -11,6 +11,17 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Added
+- **VIN Log: delete button per run.** The Order Runs table gets a trailing
+  ✕ column. Clicking it (after a confirm) soft-deletes the run —
+  `deleteRun` writes `deleted` to RUN_LOG col W (`vin_log_status`), a fourth
+  value alongside blank/pending, `committed`, `rolled_back`. A committed run
+  has its VIN-log rows removed first via the existing rollback path. Rows are
+  never physically deleted: that would shift other users' cached `rowIndex`
+  (Commit would stamp the wrong run), drop the numeric col-D Pipedrive dup
+  guard, and skew RUN_LOG-derived stats. `getRunsForDealer` and `readRunLog_`
+  skip deleted rows, so the table, the pending-count tag, and Home stats all
+  ignore them; reversible by clearing the cell. Row identity (dealer, deal ID,
+  timestamp) is re-verified server-side before any write.
 - **Run Order: pending-commit indicator.** Next to "Most recent order in log"
   the Run view now shows an amber `N pending` tag when the selected dealer has
   finalized RUN_LOG rows not yet committed or rolled back in the VIN log (test

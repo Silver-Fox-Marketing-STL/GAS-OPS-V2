@@ -4565,6 +4565,7 @@ function getRunsForDealer(dealerKey) {
     var dealId          = String(row[3]).trim();
     var producedVinsCSV = String(row[21]).trim();  // V: produced_vins
     var status          = String(row[22]).trim();  // W: vin_log_status
+    if (status === 'deleted') continue;            // soft-deleted via the VIN Log view
 
     var vins = producedVinsCSV
       ? producedVinsCSV.split(',').map(function(v) { return v.trim(); }).filter(function(v) { return v !== ''; })
@@ -4726,6 +4727,37 @@ function getCommittedAt(dealerKey, dealId) {
     }
   }
   return null;
+}
+
+/**
+ * Soft-delete a run from the VIN Log view: RUN_LOG col W = 'deleted'. The row
+ * stays in place — a physical deleteRow would shift other users' cached
+ * rowIndex values (Commit would stamp the wrong run), drop the numeric col-D
+ * Pipedrive dup guard, and skew RUN_LOG-derived stats. Reversible by clearing
+ * the cell. A committed run has its VIN-log rows removed first (rollback path).
+ * Row identity is re-verified before any write in case the sheet moved.
+ */
+function deleteRun(dealerKey, runRowIndex, dealId, timestamp) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('RUN_LOG');
+  var row   = sheet.getRange(runRowIndex, 1, 1, 23).getValues()[0];
+  var rowTs = row[0] instanceof Date
+    ? Utilities.formatDate(row[0], 'America/Chicago', 'yyyy-MM-dd HH:mm:ss')
+    : String(row[0]).trim();
+  if (String(row[1]).trim() !== dealerKey || String(row[3]).trim() !== String(dealId).trim() ||
+      rowTs !== String(timestamp).trim()) {
+    throw new Error('RUN_LOG row no longer matches this run — reload and try again.');
+  }
+
+  var removed = 0;
+  if (String(row[22]).trim() === 'committed') {
+    var committedAt = getCommittedAt(dealerKey, dealId);
+    if (committedAt) {
+      removed = rollbackRunFromVINLog(dealerKey, runRowIndex, dealId, committedAt).removed;
+    }
+  }
+
+  sheet.getRange(runRowIndex, 23).setValue('deleted');
+  return { removed: removed };
 }
 
 
@@ -9959,7 +9991,10 @@ function readRunLog_() {
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
   return sheet.getRange(2, 1, lastRow - 1, 23).getValues()
-    .filter(function(r) { return String(r[3]).trim().toLowerCase() !== 'test'; });
+    .filter(function(r) {
+      return String(r[3]).trim().toLowerCase() !== 'test' &&
+             String(r[22]).trim() !== 'deleted';   // W: soft-deleted runs
+    });
 }
 
 /** Log-sheet timestamp cell → 'yyyy-MM-dd HH:mm:ss' string (cells occasionally

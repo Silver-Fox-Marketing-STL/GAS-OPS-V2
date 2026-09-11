@@ -142,7 +142,7 @@ Appended automatically after every dealer run. **23 columns (A–W):**
 - **`total_dupes` (col O)** — Sum of all duplicate counts.
 - **`total_produced` (col P)** — Total matched vehicles (equals `total_matched`).
 - **`produced_vins` (col V)** — CSV string of all VINs produced in this run, read from ORDERMATCH col E. Used by the VIN Log Updater commit flow.
-- **`vin_log_status` (col W)** — Lifecycle status. Blank = pending, `committed` = VINs written to SF_VIN_LOGS, `rolled_back` = VINs were committed then removed.
+- **`vin_log_status` (col W)** — Lifecycle status. Blank = pending, `committed` = VINs written to SF_VIN_LOGS, `rolled_back` = VINs were committed then removed, `deleted` = soft-deleted from the VIN Log view (`deleteRun`; hidden from `getRunsForDealer`/`readRunLog_`, row kept so cached rowIndex values, the col-D dup guard and stats stay intact; reversible by clearing the cell).
 
 > **Note:** The RUN_LOG was expanded from 19 → 23 columns in May 2026. The prior schema had lumped `total_used` (col H) and `used_dupes` (col J) as combined New+PO counts. The current schema has individual columns for all four vehicle types. Any historical rows written before the expansion will have blank values in the new columns. `produced_vins` moved from col R → col V and `vin_log_status` from col S → col W at the same time.
 
@@ -1013,6 +1013,7 @@ Bound to SF_SYSTEM_MASTER.
 | `commitLatestRun` | `(dealerKey, runRowIndex)` | Reads `produced_vins` (col V) and `deal_id` (col D) from RUN_LOG row, calls `commitRunToVINLog`. **Throws on a `test` deal ID** (test runs are debugging-only and never enter the VIN log). |
 | `commitRunRows` | `(dealerKey, rowIndexes)` | Commits multiple RUN_LOG rows (post-run button — both rows of a billing-split run). Skips rows already `committed` **and rows whose deal ID is `test`**, so retry after a partial failure is safe. Returns `{committed, skippedCommitted, skippedTest}`. |
 | `rollbackRunFromVINLog` | `(dealerKey, runRowIndex, dealId, committedAt)` | Removes VIN log entries by deal ID + committed_at key. Marks RUN_LOG col W as rolled_back. |
+| `deleteRun` | `(dealerKey, runRowIndex, dealId, timestamp)` | Soft-deletes a run: re-verifies the RUN_LOG row identity, rolls back VIN-log rows if the run is committed, then sets col W = `deleted`. Never deletes the row. |
 | `getCommittedAt` | `(dealerKey, dealId)` | Returns `committed_at` timestamp for a deal ID from VIN log. Used before rollback. |
 | `setProgress_` | `(runId, message, percent)` | Writes `{message, percent, done, error}` to ScriptProperties. No-op if runId is falsy. |
 | `getRunProgress` | `(runId)` | Returns current progress state. Polled by modal every 1.5 seconds. |
