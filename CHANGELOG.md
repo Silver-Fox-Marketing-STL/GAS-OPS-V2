@@ -83,6 +83,14 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   old skip behavior. Percent semantics unchanged (`percent` empty → $0).
 
 ### Fixed
+- **VIN Log: "most recent order" no longer moves when an old run is committed
+  late.** `commitRunToVINLog` accepts the run timestamp as `order_date` (col D)
+  but the Order Runs commit button never passed it, so every commit fell back
+  to `committed_at` — committing a stale Pending run made it the latest order.
+  The client now sends `run.timestamp`. `backfillVinLogOrderDates` (script
+  editor, run once) also re-stamps rows whose order_date equals committed_at
+  from the earliest RUN_LOG run for that deal; manual entries have no RUN_LOG
+  row and are left alone.
 - **Lot Scanner / VIN Inbox: stale-row-number writes and deletes on the shared
   SF_LOT_SUBMISSIONS sheet.** The July `runInboxOcr` fix (re-verify the row ID
   before each write) never reached the other row-addressed mutators; orphan

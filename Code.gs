@@ -4886,11 +4886,14 @@ function orderDateTime_(cell) {
 
 
 /**
- * ONE-TIME BACKFILL — run manually from the script editor after deploying the
- * order_date column. Fills VIN log col D from RUN_LOG (deal id → earliest
- * run_timestamp for that dealer) and writes the order_date header on every
- * tab. Legacy-system ids have no RUN_LOG row, so they stay blank — correctly
- * excluded from "most recent". Idempotent: only blank cells are filled.
+ * BACKFILL / REPAIR — run manually from the script editor. Fills VIN log
+ * col D from RUN_LOG (deal id → earliest run_timestamp for that dealer) and
+ * writes the order_date header on every tab. Legacy-system ids have no
+ * RUN_LOG row, so they stay blank — correctly excluded from "most recent".
+ * Idempotent: fills blank cells, and re-stamps cells that equal committed_at
+ * (col C) — the pre-fix commit path defaulted order_date to the commit time,
+ * so a late-committed old run wrongly became "most recent". Manual entries
+ * (order_date = committed_at by design) have no RUN_LOG row and are untouched.
  */
 function backfillVinLogOrderDates() {
   var runLog = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('RUN_LOG')
@@ -4919,10 +4922,11 @@ function backfillVinLogOrderDates() {
     var rows   = sheet.getRange(2, 1, lastRow - 1, 4).getValues();
     var filled = 0;
     var colD   = rows.map(function(r) {
-      var existing = String(r[3] == null ? '' : r[3]).trim();
-      if (existing !== '' || !dates[dealer]) return [r[3]];
+      var existing  = orderDateTime_(r[3]);
+      var defaulted = existing !== null && existing === orderDateTime_(r[2]);
+      if ((existing !== null && !defaulted) || !dates[dealer]) return [r[3]];
       var ts = dates[dealer][String(r[0]).trim()];
-      if (ts === undefined) return [r[3]];
+      if (ts === undefined || (defaulted && orderDateTime_(ts) === existing)) return [r[3]];
       filled++;
       return [ts];
     });
