@@ -11,6 +11,12 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Added
+- **Run Order: pending-commit warning.** Clicking Run Dealer also re-reads the
+  dealer's finalized-but-uncommitted VIN-log run count (`getLatestOrderId` ->
+  `pendingCount`, the same call behind the amber tag, which it refreshes). If
+  any exist, a themed confirm explains those VINs aren't in the log yet so the
+  order can't be checked against them, and offers Run anyway. Order of asks:
+  stale import -> pending commits -> discard un-finalized results. Fail-open.
 - **Themed confirm dialog (`appConfirm`).** Every `window.confirm()` in the
   app (23 call sites incl. Classic across the Run, VIN Log, VIN Inbox, Rules, Norm, Field
   Codes, CSV Schemas, Data Sources, End of Month, Pipedrive Settings,

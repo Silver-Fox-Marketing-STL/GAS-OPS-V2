@@ -1200,6 +1200,30 @@
       });
     }
 
+    // Pending-commit check → Promise<boolean>. Finalized runs for this dealer
+    // that were never committed to the VIN log mean their VINs aren't in the
+    // log yet, so this order can't be checked against them. Reads the count
+    // fresh (same server call as the amber tag) and refreshes the tag with it.
+    // A failed read never blocks a run (fail-open).
+    function rvPendingCommitCheck_(dealerKey, dealerName) {
+      return new Promise(function(resolve) {
+        google.script.run
+          .withSuccessHandler(function(result) {
+            var n = (result && result.pendingCount) || 0;
+            var pend = document.getElementById('vinLogPendingSpan');
+            if (pend) { pend.textContent = n + ' pending'; pend.style.display = n > 0 ? '' : 'none'; }
+            if (n === 0) return resolve(true);
+            appConfirm(dealerName + ' has ' + n + ' finalized run' + (n === 1 ? '' : 's') +
+                ' not yet committed to the VIN log. Those VINs are not in the log, so this order' +
+                ' cannot be checked against them.\n\nCommit or roll back the pending run' +
+                (n === 1 ? '' : 's') + ' first, or run anyway.',
+                { title: 'Uncommitted runs in the VIN log', okLabel: 'Run anyway', tone: 'warning' }).then(resolve);
+          })
+          .withFailureHandler(function() { resolve(true); })
+          .getLatestOrderId(dealerKey);
+      });
+    }
+
     // Method-first finalize. One server call per method; always capture rowIndex
     // when present (so the card is committable + retryable even if the push step
     // failed). Pushing happens inside the New/Existing finalize calls server-side.
@@ -1551,11 +1575,15 @@
         return;
       }
 
-      // Stale-import warning, then the un-finalized-results guard. Both are
-      // themed confirms (async), so the run itself continues in .then().
+      // Stale-import warning → pending-commit warning → un-finalized-results
+      // guard. All themed confirms (async), so the run continues in .then().
       rvImportFreshCheck_()
         .then(function(ok) {
           if (!ok) { setRunStatus('Run cancelled — import fresh data first.', 'info'); return false; }
+          return rvPendingCommitCheck_(key, name);
+        })
+        .then(function(ok) {
+          if (!ok) { setRunStatus('Run cancelled — commit or roll back the pending runs in the VIN log first.', 'info'); return false; }
           return discardPendingGuard();   // a new run discards un-finalized results
         })
         .then(function(ok) {
