@@ -1346,17 +1346,20 @@
       if (!pill) return;
       var type = pill.dataset.type;
       if (!type) return;
-      if (!confirm('Remove the type "' + type + '" from the system? This affects all dealers.')) return;
-      google.script.run
-        .withSuccessHandler(function(res) {
-          if (!res || !res.ok) { toast((res && res.message) || 'Could not remove type.', 'error'); return; }
-          availableTypes = res.types || availableTypes;
-          renderTypePills();
-          if (pdDealerLoaded) renderPipedriveDealer();
-          toast('Removed type "' + type + '".', 'success');
-        })
-        .withFailureHandler(function(e) { toast((e && e.message) ? e.message : 'Could not remove type.', 'error'); })
-        .removeVehicleType(type);
+      appConfirm('Remove the type "' + type + '" from the system? This affects all dealers.',
+                 { title: 'Remove vehicle type?', okLabel: 'Remove', tone: 'danger' }).then(function(ok) {
+        if (!ok) return;
+        google.script.run
+          .withSuccessHandler(function(res) {
+            if (!res || !res.ok) { toast((res && res.message) || 'Could not remove type.', 'error'); return; }
+            availableTypes = res.types || availableTypes;
+            renderTypePills();
+            if (pdDealerLoaded) renderPipedriveDealer();
+            toast('Removed type "' + type + '".', 'success');
+          })
+          .withFailureHandler(function(e) { toast((e && e.message) ? e.message : 'Could not remove type.', 'error'); })
+          .removeVehicleType(type);
+      });
     }
 
     // Types the Pipedrive product picker shows for the current dealer: the Allowed Types
@@ -1656,25 +1659,28 @@
     // Per-panel: leaves the Type panel's edits untouched.
     function discardFilterRules() {
       if (!currentDealerKey || !filterDirty) return;
-      if (!confirm('Discard unsaved Filtering Rules changes and reload the saved version?')) return;
+      appConfirm('Discard unsaved Filtering Rules changes and reload the saved version?',
+                 { title: 'Discard changes?', okLabel: 'Discard' }).then(function(ok) {
+        if (!ok) return;
 
-      var btn = document.getElementById('discardFilterBtn');
-      btn.disabled = true;
-      setRulesStatus('Discarding Filtering Rules changes…', 'info');
+        var btn = document.getElementById('discardFilterBtn');
+        btn.disabled = true;
+        setRulesStatus('Discarding Filtering Rules changes…', 'info');
 
-      google.script.run
-        .withSuccessHandler(function(data) {
-          applyFilteringRulesToUI(data.filteringRules || {});
-          filterDirty = false;
-          updateFilterDirty();
-          setRulesStatus('Filtering Rules changes discarded — reloaded saved version.', 'success');
-        })
-        .withFailureHandler(function(e) {
-          // Still dirty — re-enable so the user can retry.
-          updateFilterDirty();
-          setRulesStatus('Discard failed: ' + e.message, 'error');
-        })
-        .getDealerRulesData(currentDealerKey);
+        google.script.run
+          .withSuccessHandler(function(data) {
+            applyFilteringRulesToUI(data.filteringRules || {});
+            filterDirty = false;
+            updateFilterDirty();
+            setRulesStatus('Filtering Rules changes discarded — reloaded saved version.', 'success');
+          })
+          .withFailureHandler(function(e) {
+            // Still dirty — re-enable so the user can retry.
+            updateFilterDirty();
+            setRulesStatus('Discard failed: ' + e.message, 'error');
+          })
+          .getDealerRulesData(currentDealerKey);
+      });
     }
 
     function resetFilterPanel() {
@@ -2644,32 +2650,35 @@
     // Revert to saved config — re-fetch and re-render (mirrors discardFilterRules).
     function discardPipedriveConfig() {
       if (!currentDealerKey || !pipedriveDirty) return;
-      if (!confirm('Discard unsaved Pipedrive changes and reload the saved version?')) return;
+      appConfirm('Discard unsaved Pipedrive changes and reload the saved version?',
+                 { title: 'Discard changes?', okLabel: 'Discard' }).then(function(ok) {
+        if (!ok) return;
 
-      var btn = document.getElementById('discardPipedriveBtn');
-      btn.disabled = true;
-      setRulesStatus('Discarding Pipedrive changes…', 'info');
+        var btn = document.getElementById('discardPipedriveBtn');
+        btn.disabled = true;
+        setRulesStatus('Discarding Pipedrive changes…', 'info');
 
-      google.script.run
-        .withSuccessHandler(function(data) {
-          data = data || {};
-          pdGroups = data.groups || ['PRIMARY'];
-          pdTypes  = data.types || ['New', 'PO', 'CPO', 'CPO-EL'];
-          pdSaved  = data.saved || {};
-          pdGlobalRules = Array.isArray(data.globalRules) ? data.globalRules : [];
-          pdSourceSplit = (data.sourceSplit && data.sourceSplit.groupName) ? data.sourceSplit : null;
-          pdSelections = buildPdSelections(pdGroups, pdSaved);
-          pdDealerLoaded = true;
-          pipedriveDirty = false;
-          updatePipedriveDirty();
-          renderPipedriveDealer();
-          setRulesStatus('Pipedrive changes discarded — reloaded saved version.', 'success');
-        })
-        .withFailureHandler(function(e) {
-          updatePipedriveDirty();
-          setRulesStatus('Discard failed: ' + e.message, 'error');
-        })
-        .getPipedriveDealerEditorData(currentDealerKey);
+        google.script.run
+          .withSuccessHandler(function(data) {
+            data = data || {};
+            pdGroups = data.groups || ['PRIMARY'];
+            pdTypes  = data.types || ['New', 'PO', 'CPO', 'CPO-EL'];
+            pdSaved  = data.saved || {};
+            pdGlobalRules = Array.isArray(data.globalRules) ? data.globalRules : [];
+            pdSourceSplit = (data.sourceSplit && data.sourceSplit.groupName) ? data.sourceSplit : null;
+            pdSelections = buildPdSelections(pdGroups, pdSaved);
+            pdDealerLoaded = true;
+            pipedriveDirty = false;
+            updatePipedriveDirty();
+            renderPipedriveDealer();
+            setRulesStatus('Pipedrive changes discarded — reloaded saved version.', 'success');
+          })
+          .withFailureHandler(function(e) {
+            updatePipedriveDirty();
+            setRulesStatus('Discard failed: ' + e.message, 'error');
+          })
+          .getPipedriveDealerEditorData(currentDealerKey);
+      });
     }
 
     function markPipedriveDirty() {

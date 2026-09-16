@@ -771,8 +771,11 @@
 
     function exitApp() {
       var msgs = AppGuards.run();
-      if (msgs.length === 0 ||
-          confirm('Before you close:\n\n' + msgs.join('\n') + '\n\nClose anyway?')) {
+      var ask = msgs.length
+        ? appConfirm('Before you close:\n\n' + msgs.join('\n'), { title: 'Close anyway?', okLabel: 'Close anyway', tone: 'warning' })
+        : Promise.resolve(true);
+      ask.then(function(ok) {
+        if (!ok) return;
         // In a browser tab (web app) there's no host dialog to close — the Close
         // item is hidden, but guard the path anyway.
         if (document.documentElement.getAttribute('data-mode') === 'webapp') {
@@ -780,7 +783,7 @@
         } else {
           google.script.host.close();
         }
-      }
+      });
     }
 
     markPendingViews();
