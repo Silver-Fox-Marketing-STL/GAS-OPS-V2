@@ -11,6 +11,12 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Added
+- **Run Order: stale-import warning.** Clicking Run Dealer now reads the
+  last scraper-import timestamp (META tab via `getAppHomeStatus`) fresh on
+  every click; if the import date isn't today, a confirm names the stale
+  date/time and asks "Run anyway?" (Cancel aborts, OK proceeds). Reuses the
+  Home view's `homeDateIsToday_` parser (shared JS scope; Classic skips the
+  check). A failed timestamp read never blocks a run (fail-open).
 - **VIN Log: delete button per run.** The Order Runs table gets a trailing
   ✕ column. Clicking it (after a confirm) soft-deletes the run —
   `deleteRun` writes `deleted` to RUN_LOG col W (`vin_log_status`), a fourth

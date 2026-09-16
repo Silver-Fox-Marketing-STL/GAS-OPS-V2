@@ -583,6 +583,7 @@
     var cardStates     = [];   // per pendingRuns entry: {state, rowIndex, committed}
                                // state: pending → finalizing → finalized | pending → abandoning → abandoned
     var lastConfirmedDealer = ''; // for reverting the dealer select if a discard is cancelled
+    var rvImportChecked = false;  // one-shot: runSelected re-enters after the stale-import check
 
     // ── Init (lazy — first nav into the view) ────────────────────────────────
     // Dealers + users come from the shared AppData bootstrap (one server call
@@ -1147,6 +1148,11 @@
       });
     }
 
+    function rvRunAfterImportCheck_() {
+      rvImportChecked = true;
+      try { runSelected(); } finally { rvImportChecked = false; }
+    }
+
     function discardPendingGuard() {
       if (!hasUnfinalizedCards()) return true;
       return confirm('You have run results that haven\'t been finalized or abandoned. ' +
@@ -1491,16 +1497,39 @@
           }
         });
       });
-      if (dupsRemoved > 0) {
-        toast('Removed ' + dupsRemoved + ' duplicate VIN' + (dupsRemoved === 1 ? '' : 's') +
-              ' from the order.', 'info');
-      }
-
       // Mutual exclusion with imports: an import rewrites SCRAPERDATA, which
       // this run is about to read.
       if (window.AppBusy && AppBusy.is('import')) {
         setRunStatus('A data import is in progress (or has unresolved conflicts) — finish it before running.', 'error');
         return;
+      }
+
+      // Stale-import warning: SCRAPERDATA is whatever the last import left
+      // behind. Read the META timestamp fresh on every click (never cached);
+      // if it isn't today, confirm before running. A failed read never blocks
+      // a run (fail-open), and Classic (no ViewHome) skips the check.
+      if (!rvImportChecked) {
+        google.script.run
+          .withSuccessHandler(function(st) {
+            var date = String((st && st.lastImportDate) || '').trim();
+            var time = String((st && st.lastImportTime) || '').trim();
+            var fresh = (typeof homeDateIsToday_ !== 'function') || homeDateIsToday_(date);
+            if (!fresh && !confirm('The most recent data import was ' +
+                  (date ? date + (time ? ' ' + time : '') : 'never recorded') +
+                  ' — not today, so inventory may be out of date.\n\nRun anyway?')) {
+              setRunStatus('Run cancelled — import fresh data first.', 'info');
+              return;
+            }
+            rvRunAfterImportCheck_();
+          })
+          .withFailureHandler(rvRunAfterImportCheck_)
+          .getAppHomeStatus();
+        return;
+      }
+
+      if (dupsRemoved > 0) {
+        toast('Removed ' + dupsRemoved + ' duplicate VIN' + (dupsRemoved === 1 ? '' : 's') +
+              ' from the order.', 'info');
       }
 
       // Starting a new run discards any un-finalized results from the last one.
