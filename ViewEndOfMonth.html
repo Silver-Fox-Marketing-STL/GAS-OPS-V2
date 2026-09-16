@@ -344,15 +344,17 @@
     var msg = (r.status === 'published')
       ? 'Re-publish ' + r.monthLabel + '?\n\nThis replaces what the report viewer currently shows for that month with the latest generated version.'
       : 'Publish ' + r.monthLabel + ' to the report viewer?\n\nThe invoice team will be able to see it.';
-    if (!confirm(msg)) return;
-    google.script.run
-      .withSuccessHandler(function (res) {
-        if (!res || !res.ok) { toast('Publish failed: ' + escHtml((res && res.error) || '?'), 'error'); return; }
-        toast(r.monthLabel + ' published to the viewer.', 'success');
-        eomRefreshReports();
-      })
-      .withFailureHandler(function (e) { toast('Publish failed: ' + escHtml((e && e.message) || String(e)), 'error'); })
-      .finalizeEomReport(r.monthLabel);
+    appConfirm(msg, { title: r.status === 'published' ? 'Re-publish report?' : 'Publish report?', okLabel: 'Publish' }).then(function(ok) {
+      if (!ok) return;
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (!res || !res.ok) { toast('Publish failed: ' + escHtml((res && res.error) || '?'), 'error'); return; }
+          toast(r.monthLabel + ' published to the viewer.', 'success');
+          eomRefreshReports();
+        })
+        .withFailureHandler(function (e) { toast('Publish failed: ' + escHtml((e && e.message) || String(e)), 'error'); })
+        .finalizeEomReport(r.monthLabel);
+    });
   }
 
   function eomFillStageSelect(sel, selectedId) {

@@ -430,25 +430,30 @@
       }
     }
     var used = (csData.usedBy && csData.usedBy[csEditKey]) || [];
-    if (used.length && !confirm('“' + csEditKey + '” is used by ' + used.length +
-        ' dealer(s):\n' + used.join(', ') + '\n\nChanges apply on their next run. Save?')) return;
+    var ask = used.length
+      ? appConfirm('“' + csEditKey + '” is used by ' + used.length + ' dealer(s):\n' + used.join(', ') +
+                   '\n\nChanges apply on their next run. Save?', { title: 'Schema in use', okLabel: 'Save' })
+      : Promise.resolve(true);
+    ask.then(function(ok) {
+      if (!ok) return;
 
-    var cols = csCols.map(function (c) {
-      return (c.raw != null && c.raw !== '')
-        ? { raw: c.raw }
-        : { code: c.code, header: c.header, edit: !!c.edit, max: c.max };
+      var cols = csCols.map(function (c) {
+        return (c.raw != null && c.raw !== '')
+          ? { raw: c.raw }
+          : { code: c.code, header: c.header, edit: !!c.edit, max: c.max };
+      });
+      var savedKey = csEditKey;
+      csSetStatus('Saving…', 'info');
+      google.script.run
+        .withSuccessHandler(function (result) {
+          csData = result;
+          csEditKey = null; csCols = [];
+          csRender();
+          csSetStatus('“' + savedKey + '” saved.', 'success');
+        })
+        .withFailureHandler(function (e) { csSetStatus(e.message, 'error'); })
+        .saveCsvSchema(savedKey, document.getElementById('csEdDesc').value.trim(), cols, false);
     });
-    var savedKey = csEditKey;
-    csSetStatus('Saving…', 'info');
-    google.script.run
-      .withSuccessHandler(function (result) {
-        csData = result;
-        csEditKey = null; csCols = [];
-        csRender();
-        csSetStatus('“' + savedKey + '” saved.', 'success');
-      })
-      .withFailureHandler(function (e) { csSetStatus(e.message, 'error'); })
-      .saveCsvSchema(savedKey, document.getElementById('csEdDesc').value.trim(), cols, false);
   }
 
   // ── Helpers ─────────────────────────────────────────────────────────────

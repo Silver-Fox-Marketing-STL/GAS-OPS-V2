@@ -108,9 +108,9 @@
   var viSelectMode = false;   // select mode (Select/Cancel toggle) — also gates viRefresh
   var viRefreshing = false;
   // Bumped by every optimistic LOCAL mutation (discard, VIN save). A refresh
-  // snapshot taken before the bump is stale: confirm() blocks the JS thread, so
-  // an in-flight refresh response can queue behind the dialog and land AFTER the
-  // discard already dropped the row — re-rendering it would resurrect the card.
+  // snapshot taken before the bump is stale: a refresh started while the discard
+  // confirm was open can land AFTER the discard already dropped the row —
+  // re-rendering it would resurrect the card.
   // Stale snapshots are dropped, not merged; local state is already right and
   // the server agrees within a round trip.
   var viMutSeq = 0;
@@ -447,21 +447,27 @@
     var b = window.viPendingBatch;
     if (!b) return;
     window.viPendingBatch = null;
-    if (!confirm('Order generated from batch — discard the batch (' + b.count + ' submissions)?')) return;
-    toast('Discarding ' + b.count + ' submissions…', 'info');
-    google.script.run
-      .withSuccessHandler(function (res) {
-        if (!res || !res.ok) { toast('Batch discard failed: ' + escHtml((res && res.error) || '?'), 'error'); return; }
-        var msg = 'Discarded ' + res.updated + ' submission' + (res.updated === 1 ? '' : 's') + '.';
-        if (res.photosFailed > 0) msg += ' (' + res.photosFailed + ' photo(s) couldn\'t be deleted)';
-        toast(msg, 'success');
-        // No viLoad() here — VIEW_SHOWN['view-vin-inbox'] refreshes on next visit.
-      })
-      .withFailureHandler(function (e) { toast('Batch discard failed: ' + escHtml((e && e.message) || String(e)), 'error'); })
-      .updateVinSubmissionStatuses(b.ids, 'discarded');
+    appConfirm('Order generated from batch — discard the batch (' + b.count + ' submissions)?',
+               { title: 'Discard batch?', okLabel: 'Discard', tone: 'danger' }).then(function(ok) {
+      if (!ok) return;
+      toast('Discarding ' + b.count + ' submissions…', 'info');
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (!res || !res.ok) { toast('Batch discard failed: ' + escHtml((res && res.error) || '?'), 'error'); return; }
+          var msg = 'Discarded ' + res.updated + ' submission' + (res.updated === 1 ? '' : 's') + '.';
+          if (res.photosFailed > 0) msg += ' (' + res.photosFailed + ' photo(s) couldn\'t be deleted)';
+          toast(msg, 'success');
+          // No viLoad() here — VIEW_SHOWN['view-vin-inbox'] refreshes on next visit.
+        })
+        .withFailureHandler(function (e) { toast('Batch discard failed: ' + escHtml((e && e.message) || String(e)), 'error'); })
+        .updateVinSubmissionStatuses(b.ids, 'discarded');
+    });
   }
 
-  function viDiscard(sid) { if (confirm('Discard this submission?')) viDiscardIds([sid]); }
+  function viDiscard(sid) {
+    appConfirm('Discard this submission?', { title: 'Discard submission?', okLabel: 'Discard', tone: 'danger' })
+      .then(function (ok) { if (ok) viDiscardIds([sid]); });
+  }
 
   function viDeleteBatch(gi, evt) {
     // Button lives inside <summary> — prevent the click from also toggling the batch open/closed.
@@ -469,8 +475,9 @@
     var key = viGroupNames[gi];
     var rows = viSubs.filter(function (s) { return viGroupKey(s) === key; });
     if (!rows.length) return;
-    if (!confirm('Discard all ' + rows.length + ' submissions in this batch?')) return;
-    viDiscardIds(rows.map(function (s) { return s.id; }));
+    appConfirm('Discard all ' + rows.length + ' submissions in this batch?',
+               { title: 'Discard batch?', okLabel: 'Discard all', tone: 'danger' })
+      .then(function (ok) { if (ok) viDiscardIds(rows.map(function (s) { return s.id; })); });
   }
 
   // ── Run OCR — office-side manual trigger (scanner no longer OCRs its own queue) ──
@@ -545,11 +552,14 @@
   function viSelDiscard() {
     var boxes = document.querySelectorAll('#viBody .vi-check-card:checked');
     if (!boxes.length) return;
-    if (!confirm('Discard ' + boxes.length + ' selected submission' + (boxes.length === 1 ? '' : 's') + '?')) return;
     var ids = [];
     for (var i = 0; i < boxes.length; i++) ids.push(boxes[i].getAttribute('data-id'));
-    viSelToggle(true);   // exit select mode without the catch-up refresh
-    viDiscardIds(ids);
+    appConfirm('Discard ' + ids.length + ' selected submission' + (ids.length === 1 ? '' : 's') + '?',
+               { title: 'Discard selected?', okLabel: 'Discard', tone: 'danger' }).then(function (ok) {
+      if (!ok) return;
+      viSelToggle(true);   // exit select mode without the catch-up refresh
+      viDiscardIds(ids);
+    });
   }
 
   // One delegated listener — survives every innerHTML re-render of #viBody.

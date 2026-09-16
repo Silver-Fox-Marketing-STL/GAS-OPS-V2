@@ -583,7 +583,7 @@
     var cardStates     = [];   // per pendingRuns entry: {state, rowIndex, committed}
                                // state: pending → finalizing → finalized | pending → abandoning → abandoned
     var lastConfirmedDealer = ''; // for reverting the dealer select if a discard is cancelled
-    var rvImportChecked = false;  // one-shot: runSelected re-enters after the stale-import check
+    var rvGuardAnswered = false;  // rvSwitchDealer_ already ran the un-finalized guard → change handler skips it
 
     // ── Init (lazy — first nav into the view) ────────────────────────────────
     // Dealers + users come from the shared AppData bootstrap (one server call
@@ -686,11 +686,22 @@
     });
     document.getElementById('runDealerSelect').addEventListener('change', function() {
       // Switching dealers discards any un-finalized run results — confirm first.
-      if (!discardPendingGuard()) {
-        this.value = lastConfirmedDealer;
-        return;
-      }
-      var key = this.value;
+      // The clean path stays SYNCHRONOUS (runPrefillFromInbox / rvResumeDraft
+      // rely on the handler having run when dispatchEvent returns); the confirm
+      // path is async and snaps the select back if the user backs out.
+      var sel = this;
+      if (rvGuardAnswered || !hasUnfinalizedCards()) { rvOnDealerChanged_(sel.value); return; }
+      discardPendingGuard().then(function(ok) {
+        if (ok) { rvOnDealerChanged_(sel.value); return; }
+        sel.value = lastConfirmedDealer;
+        if (window.CustomSelect) CustomSelect.refresh(sel);
+      });
+    });
+    }
+
+    // The dealer-change flow proper (guard already passed): save the outgoing
+    // draft, wipe the form, load the new dealer.
+    function rvOnDealerChanged_(key) {
       lastConfirmedDealer = key;
       // Auto-save the OUTGOING dealer's typed work as a draft BEFORE the wipe
       // below — an accidental switch must never lose typing. The payload is
@@ -714,7 +725,6 @@
         return;
       }
       loadVinLogStatus(key);
-    });
     }
 
     // (The pre-run Pipedrive Deal ID + split-deal fields were removed July 2026 —
@@ -736,18 +746,30 @@
       rvRenderTable();   // a programmatic .value set does NOT fire the input event, so render the table explicitly (CAO pre-fill)
     }
 
+    // Programmatic dealer switch through the normal change flow (guard + wipe +
+    // data load) → Promise<boolean>. Runs the un-finalized guard FIRST, then
+    // dispatches change with the guard marked answered so the handler runs
+    // synchronously. False = user backed out, or the dealer isn't in the list.
+    function rvSwitchDealer_(dealerKey) {
+      return discardPendingGuard().then(function(ok) {
+        if (!ok) return false;
+        var sel = document.getElementById('runDealerSelect');
+        sel.value = dealerKey;
+        rvGuardAnswered = true;
+        try { sel.dispatchEvent(new Event('change')); } finally { rvGuardAnswered = false; }
+        if (window.CustomSelect) CustomSelect.refresh(sel);   // sync the enhanced facade to the programmatic value
+        return sel.value === dealerKey;   // no matching option leaves sel.value = ''
+      });
+    }
+
     // Cross-view jump support (VIN Inbox → "Create order"): select the batch's
     // dealer through the normal change flow, then append its valid VINs.
     // Mirrors vinlogPreselectDealer (ViewVinLog).
     function runPrefillFromInbox(dealerKey, vins) {
-      var sel = document.getElementById('runDealerSelect');
-      sel.value = dealerKey;
-      sel.dispatchEvent(new Event('change'));   // full handler: un-finalized guard, clears textarea, loads dealer data
-      if (window.CustomSelect) CustomSelect.refresh(sel);   // sync the enhanced facade to the programmatic value
-      // Guard cancelled → the handler reverted the select (also catches a
-      // dealerKey with no matching option, which leaves sel.value = '').
-      if (sel.value !== dealerKey) { window.viPendingBatch = null; return; }
-      appendVins(vins);   // AFTER the change handler cleared the textarea
+      rvSwitchDealer_(dealerKey).then(function(ok) {
+        if (!ok) { window.viPendingBatch = null; return; }
+        appendVins(vins);   // AFTER the change handler cleared the textarea
+      });
     }
 
     // Row ✕ button: drop every textarea line matching this VIN (rendered row
@@ -1148,15 +1170,34 @@
       });
     }
 
-    function rvRunAfterImportCheck_() {
-      rvImportChecked = true;
-      try { runSelected(); } finally { rvImportChecked = false; }
+    // → Promise<boolean>: true when it's OK to proceed (nothing pending, or the
+    // user agreed to discard). Callers that must stay synchronous check
+    // hasUnfinalizedCards() themselves and only await this on the slow path.
+    function discardPendingGuard() {
+      if (!hasUnfinalizedCards()) return Promise.resolve(true);
+      return appConfirm('You have run results that haven\'t been finalized or abandoned. ' +
+                        'Discard them? They will never appear in the run log.',
+                        { title: 'Discard un-finalized results?', okLabel: 'Discard', tone: 'danger' });
     }
 
-    function discardPendingGuard() {
-      if (!hasUnfinalizedCards()) return true;
-      return confirm('You have run results that haven\'t been finalized or abandoned. ' +
-                     'Discard them? They will never appear in the run log.');
+    // Stale-import check → Promise<boolean>. Reads the META timestamp fresh on
+    // every call (never cached); if it isn't today, asks before running. A
+    // failed read never blocks a run (fail-open); Classic (no ViewHome) skips.
+    function rvImportFreshCheck_() {
+      return new Promise(function(resolve) {
+        google.script.run
+          .withSuccessHandler(function(st) {
+            var date = String((st && st.lastImportDate) || '').trim();
+            var time = String((st && st.lastImportTime) || '').trim();
+            if (typeof homeDateIsToday_ !== 'function' || homeDateIsToday_(date)) return resolve(true);
+            appConfirm('The most recent data import was ' +
+                (date ? date + (time ? ' ' + time : '') : 'never recorded') +
+                ' — not today, so inventory may be out of date.',
+                { title: 'Inventory may be out of date', okLabel: 'Run anyway', tone: 'warning' }).then(resolve);
+          })
+          .withFailureHandler(function() { resolve(true); })
+          .getAppHomeStatus();
+      });
     }
 
     // Method-first finalize. One server call per method; always capture rowIndex
@@ -1350,46 +1391,52 @@
       });
 
       if (siblingsAlive) {
-        if (!confirm('Abandon this entry? It will never appear in the run log or order stats. ' +
-                     'The output document is kept — the other entry still uses it.')) return;
-        cardStates[i].state = 'abandoned';
-        markCardAbandoned(i);
-        updateVinLogBtn();
+        appConfirm('Abandon this entry? It will never appear in the run log or order stats. ' +
+                   'The output document is kept — the other entry still uses it.',
+                   { title: 'Abandon this entry?', okLabel: 'Abandon', tone: 'danger' }).then(function(ok) {
+          if (!ok) return;
+          cardStates[i].state = 'abandoned';
+          markCardAbandoned(i);
+          updateVinLogBtn();
+        });
         return;
       }
 
       // Last live card and nothing finalized — abandoning deletes the run's artifacts.
-      if (!confirm('Abandon this run? Nothing will be logged, and the output document, ' +
-                   'QR codes, and exported CSV files will be deleted (moved to Drive trash).')) return;
+      appConfirm('Abandon this run? Nothing will be logged, and the output document, ' +
+                 'QR codes, and exported CSV files will be deleted (moved to Drive trash).',
+                 { title: 'Abandon this run?', okLabel: 'Abandon run', tone: 'danger' }).then(function(ok) {
+        if (!ok) return;
 
-      cardStates[i].state = 'abandoning';
-      setCardBusy(i, true);
-      statusEl.textContent = 'Deleting output doc, QR codes, and CSV files...';
-      statusEl.className = 'finalize-card-status';
+        cardStates[i].state = 'abandoning';
+        setCardBusy(i, true);
+        statusEl.textContent = 'Deleting output doc, QR codes, and CSV files...';
+        statusEl.className = 'finalize-card-status';
 
-      google.script.run
-        .withSuccessHandler(function(res) {
-          cardStates[i].state = 'abandoned';
-          statusEl.textContent = 'Abandoned — output doc, ' + res.trashedQrs +
-                                 ' QR PNG' + (res.trashedQrs === 1 ? '' : 's') + ', and ' +
-                                 (res.trashedCsvs || 0) + ' CSV file' +
-                                 (res.trashedCsvs === 1 ? '' : 's') + ' moved to Drive trash.';
-          markCardAbandoned(i);
-          var link = document.getElementById('driveFolderBtn');
-          link.removeAttribute('href');
-          link.style.opacity = '0.5';
-          link.style.pointerEvents = 'none';
-          updateVinLogBtn();
-        })
-        .withFailureHandler(function(e) {
-          cardStates[i].state = 'pending';
-          setCardBusy(i, false);
-          statusEl.textContent = 'Error: ' + e.message;
-          statusEl.className = 'finalize-card-status error';
-        })
-        .abandonRun(lastDealerKey, lastRunResult.pendingRuns[i].outputDocId,
-                    lastRunResult.pendingRuns[i].qrFileIds || null,
-                    lastRunResult.pendingRuns[i].csvFileIds || null);
+        google.script.run
+          .withSuccessHandler(function(res) {
+            cardStates[i].state = 'abandoned';
+            statusEl.textContent = 'Abandoned — output doc, ' + res.trashedQrs +
+                                   ' QR PNG' + (res.trashedQrs === 1 ? '' : 's') + ', and ' +
+                                   (res.trashedCsvs || 0) + ' CSV file' +
+                                   (res.trashedCsvs === 1 ? '' : 's') + ' moved to Drive trash.';
+            markCardAbandoned(i);
+            var link = document.getElementById('driveFolderBtn');
+            link.removeAttribute('href');
+            link.style.opacity = '0.5';
+            link.style.pointerEvents = 'none';
+            updateVinLogBtn();
+          })
+          .withFailureHandler(function(e) {
+            cardStates[i].state = 'pending';
+            setCardBusy(i, false);
+            statusEl.textContent = 'Error: ' + e.message;
+            statusEl.className = 'finalize-card-status error';
+          })
+          .abandonRun(lastDealerKey, lastRunResult.pendingRuns[i].outputDocId,
+                      lastRunResult.pendingRuns[i].qrFileIds || null,
+                      lastRunResult.pendingRuns[i].csvFileIds || null);
+      });
     }
 
     function getCommittableRows() {
@@ -1504,75 +1551,59 @@
         return;
       }
 
-      // Stale-import warning: SCRAPERDATA is whatever the last import left
-      // behind. Read the META timestamp fresh on every click (never cached);
-      // if it isn't today, confirm before running. A failed read never blocks
-      // a run (fail-open), and Classic (no ViewHome) skips the check.
-      if (!rvImportChecked) {
-        google.script.run
-          .withSuccessHandler(function(st) {
-            var date = String((st && st.lastImportDate) || '').trim();
-            var time = String((st && st.lastImportTime) || '').trim();
-            var fresh = (typeof homeDateIsToday_ !== 'function') || homeDateIsToday_(date);
-            if (!fresh && !confirm('The most recent data import was ' +
-                  (date ? date + (time ? ' ' + time : '') : 'never recorded') +
-                  ' — not today, so inventory may be out of date.\n\nRun anyway?')) {
-              setRunStatus('Run cancelled — import fresh data first.', 'info');
-              return;
-            }
-            rvRunAfterImportCheck_();
-          })
-          .withFailureHandler(rvRunAfterImportCheck_)
-          .getAppHomeStatus();
-        return;
-      }
-
-      if (dupsRemoved > 0) {
-        toast('Removed ' + dupsRemoved + ' duplicate VIN' + (dupsRemoved === 1 ? '' : 's') +
-              ' from the order.', 'info');
-      }
-
-      // Starting a new run discards any un-finalized results from the last one.
-      if (!discardPendingGuard()) return;
-
-      var runId  = String(Date.now());
-      lastDealerKey = key;
-      lastRunResult = null;
-      hidePostRunActions();
-
-      runBtn.disabled = true;
-      runBtn.textContent = 'Running...';
-      setRunStatus('', 'empty');
-      startPolling(runId);
-
-      var bypass = document.getElementById('bypassFilters').checked;
-
-      google.script.run
-        .withSuccessHandler(function(result) {
-          stopPolling();
-          lastRunResult = result;
-          updateProgressUI({ message: 'Complete!', percent: 100, done: true, error: null });
-          setRunStatus('Done! ' + name + ' order complete — finalize or abandon below.', 'success');
-          runBtn.textContent = 'Run Dealer';
-          updateButtons();
-          if (result) showFinalizePanel(result);
-          // The run materialized this work — its draft is stale. Clear the
-          // dirty state first so the pending autosave can't re-save it.
-          rvDirty = false;
-          if (rvAutosaveTimer) { clearTimeout(rvAutosaveTimer); rvAutosaveTimer = null; }
-          try {
-            google.script.run.withSuccessHandler(rvRefreshDrafts).withFailureHandler(function() {})
-              .deleteRunDraft(lastDealerKey);
-          } catch (e) {}
+      // Stale-import warning, then the un-finalized-results guard. Both are
+      // themed confirms (async), so the run itself continues in .then().
+      rvImportFreshCheck_()
+        .then(function(ok) {
+          if (!ok) { setRunStatus('Run cancelled — import fresh data first.', 'info'); return false; }
+          return discardPendingGuard();   // a new run discards un-finalized results
         })
-        .withFailureHandler(function(e) {
-          stopPolling();
-          updateProgressUI({ message: 'Error: ' + e.message, percent: 0, done: true, error: e.message });
-          setRunStatus('Error: ' + e.message, 'error');
-          runBtn.disabled = false;
-          runBtn.textContent = 'Run Dealer';
-        })
-        .pasteVinsAndRun(key, vins, '', runId, bypass, userKey, null, featuresMap, editsMap);
+        .then(function(ok) {
+          if (!ok) return;
+          if (dupsRemoved > 0) {
+            toast('Removed ' + dupsRemoved + ' duplicate VIN' + (dupsRemoved === 1 ? '' : 's') +
+                  ' from the order.', 'info');
+          }
+
+          var runId  = String(Date.now());
+          lastDealerKey = key;
+          lastRunResult = null;
+          hidePostRunActions();
+
+          runBtn.disabled = true;
+          runBtn.textContent = 'Running...';
+          setRunStatus('', 'empty');
+          startPolling(runId);
+
+          var bypass = document.getElementById('bypassFilters').checked;
+
+          google.script.run
+            .withSuccessHandler(function(result) {
+              stopPolling();
+              lastRunResult = result;
+              updateProgressUI({ message: 'Complete!', percent: 100, done: true, error: null });
+              setRunStatus('Done! ' + name + ' order complete — finalize or abandon below.', 'success');
+              runBtn.textContent = 'Run Dealer';
+              updateButtons();
+              if (result) showFinalizePanel(result);
+              // The run materialized this work — its draft is stale. Clear the
+              // dirty state first so the pending autosave can't re-save it.
+              rvDirty = false;
+              if (rvAutosaveTimer) { clearTimeout(rvAutosaveTimer); rvAutosaveTimer = null; }
+              try {
+                google.script.run.withSuccessHandler(rvRefreshDrafts).withFailureHandler(function() {})
+                  .deleteRunDraft(lastDealerKey);
+              } catch (e) {}
+            })
+            .withFailureHandler(function(e) {
+              stopPolling();
+              updateProgressUI({ message: 'Error: ' + e.message, percent: 0, done: true, error: e.message });
+              setRunStatus('Error: ' + e.message, 'error');
+              runBtn.disabled = false;
+              runBtn.textContent = 'Run Dealer';
+            })
+            .pasteVinsAndRun(key, vins, '', runId, bypass, userKey, null, featuresMap, editsMap);
+        });
     }
 
     // Status messages live in the app header (fixed spot beside the title).
@@ -1721,27 +1752,28 @@
       var d = rvDraftList[i];
       if (!d || !d.payload) return;
       var p = d.payload;
-      var sel = document.getElementById('runDealerSelect');
-      sel.value = d.dealerKey;
-      sel.dispatchEvent(new Event('change'));
-      if (window.CustomSelect) CustomSelect.refresh(sel);
-      // Guard cancelled, or the dealer is no longer in the active list.
-      if (sel.value !== d.dealerKey) return;
-      document.getElementById('vinInput').value = p.vinText || '';
-      rvFeatures = p.features || {};
-      rvEdits = p.edits || {};
-      document.getElementById('bypassFilters').checked = !!p.bypassFilters;
-      rvDirty = false;   // restored state matches the saved draft
-      updateRunVinCount(); updateButtons(); rvRenderTable();   // programmatic sets fire no events
+      rvSwitchDealer_(d.dealerKey).then(function(ok) {
+        if (!ok) return;   // guard cancelled, or the dealer is no longer in the active list
+        document.getElementById('vinInput').value = p.vinText || '';
+        rvFeatures = p.features || {};
+        rvEdits = p.edits || {};
+        document.getElementById('bypassFilters').checked = !!p.bypassFilters;
+        rvDirty = false;   // restored state matches the saved draft
+        updateRunVinCount(); updateButtons(); rvRenderTable();   // programmatic sets fire no events
+      });
     }
 
     function rvDeleteDraft(i) {
       var d = rvDraftList[i];
       if (!d) return;
-      if (!confirm('Delete the draft for ' + (d.dealerName || d.dealerKey) + '?')) return;
-      rvDraftList.splice(i, 1);
-      rvRenderDraftsBand();
-      google.script.run.withFailureHandler(function() {}).deleteRunDraft(d.dealerKey);
+      appConfirm('Delete the draft for ' + (d.dealerName || d.dealerKey) + '?',
+                 { title: 'Delete draft?', okLabel: 'Delete', tone: 'danger' }).then(function(ok) {
+        if (!ok) return;
+        var at = rvDraftList.indexOf(d);   // by identity — the band may have re-rendered meanwhile
+        if (at >= 0) rvDraftList.splice(at, 1);
+        rvRenderDraftsBand();
+        google.script.run.withFailureHandler(function() {}).deleteRunDraft(d.dealerKey);
+      });
     }
 
     function rvLoadDealerData(dealerKey) {

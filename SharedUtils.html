@@ -324,6 +324,26 @@
   #appToast.success { background: var(--success-weak); color: var(--success); border: 1px solid var(--success); }
   #appToast.error   { background: var(--danger-weak);  color: var(--danger);  border: 1px solid var(--danger); }
 
+  /* Themed confirm — native <dialog> (renders in the top layer: no z-index games) */
+  #appConfirm {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    color: var(--text);
+    padding: 0;
+    width: min(440px, calc(100vw - 32px));
+    box-shadow: var(--shadow-lg);
+    font-family: var(--font-body);
+    font-size: var(--fs-body);
+  }
+  #appConfirm::backdrop { background: rgba(0,0,0,.45); }
+  #appConfirm .ac-body { padding: 18px 20px 16px; }
+  #appConfirm .ac-title { font-family: var(--font-head); font-weight: 600; font-size: var(--fs-lg); margin-bottom: 8px; }
+  #appConfirm.danger  .ac-title { color: var(--danger); }
+  #appConfirm.warning .ac-title { color: var(--warning-strong); }
+  #appConfirm .ac-msg { white-space: pre-line; line-height: 1.5; }
+  #appConfirm .ac-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+
   /* ════════════════════════════════════════════════════════════════════════
      CUSTOM SELECT — progressive enhancement of native <select> into a themed
      dropdown (the generalized, reusable form of the theme picker's .theme-*).
@@ -510,6 +530,49 @@
     el.style.display = 'block';
     if (_toastTimer) clearTimeout(_toastTimer);
     _toastTimer = setTimeout(function() { el.style.display = 'none'; }, 6000);
+  }
+
+  // ── Confirm (themed replacement for window.confirm) ────────────────────────
+  // appConfirm(message, {title, okLabel, cancelLabel, tone:'danger'|'warning'})
+  // → Promise<boolean>. Native <dialog>.showModal(): Escape and a backdrop click
+  // both cancel; the message keeps its line breaks. One shared element, built on
+  // first use. There is no blocking form — callers continue in .then().
+  var _confirmResolve = null;
+  function appConfirm(message, opts) {
+    opts = opts || {};
+    var dlg = document.getElementById('appConfirm');
+    if (!dlg) {
+      dlg = document.createElement('dialog');
+      dlg.id = 'appConfirm';
+      dlg.innerHTML = '<div class="ac-body"><div class="ac-title"></div><div class="ac-msg"></div>' +
+        '<div class="ac-actions"><button type="button" data-ok="0"></button>' +
+        '<button type="button" data-ok="1"></button></div></div>';
+      document.body.appendChild(dlg);
+      dlg.addEventListener('click', function(e) {
+        var b = e.target.closest ? e.target.closest('button[data-ok]') : null;
+        if (b) dlg.close(b.getAttribute('data-ok'));
+        else if (e.target === dlg) dlg.close('');   // padding is 0, so a hit on the element itself is the backdrop
+      });
+      dlg.addEventListener('close', function() {
+        var r = _confirmResolve; _confirmResolve = null;
+        if (r) r(dlg.returnValue === '1');
+      });
+    }
+    var okBtn = dlg.querySelector('[data-ok="1"]'), cancelBtn = dlg.querySelector('[data-ok="0"]');
+    dlg.className = opts.tone || '';
+    dlg.querySelector('.ac-title').textContent = opts.title || 'Please confirm';
+    dlg.querySelector('.ac-msg').textContent = message;
+    cancelBtn.textContent = opts.cancelLabel || 'Cancel';
+    cancelBtn.className = 'btn-secondary';
+    okBtn.textContent = opts.okLabel || 'OK';
+    okBtn.className = opts.tone === 'danger' ? 'btn-danger' : 'btn-primary';
+    return new Promise(function(resolve) {
+      if (_confirmResolve) _confirmResolve(false);   // a newer ask supersedes an open one
+      _confirmResolve = resolve;
+      dlg.returnValue = '';
+      if (!dlg.open) dlg.showModal();
+      (opts.tone === 'danger' ? cancelBtn : okBtn).focus();   // destructive = safe default
+    });
   }
 
   // ── Close guards ───────────────────────────────────────────────────────────

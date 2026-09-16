@@ -11,6 +11,19 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Added
+- **Themed confirm dialog (`appConfirm`).** Every `window.confirm()` in the
+  app (23 call sites incl. Classic across the Run, VIN Log, VIN Inbox, Rules, Norm, Field
+  Codes, CSV Schemas, Data Sources, End of Month, Pipedrive Settings,
+  Utilities views and the shell's close guard) is replaced by one shared
+  native `<dialog>` in SharedUtils, styled with the design tokens so it follows
+  light/dark themes. `appConfirm(message, {title, okLabel, cancelLabel, tone})`
+  returns a Promise<boolean>; Escape and a backdrop click cancel; destructive
+  asks (`tone:'danger'`) focus Cancel by default. Callers continue in `.then()`.
+  The Run view's dealer-change guard keeps a SYNCHRONOUS fast path (nothing
+  pending) because `runPrefillFromInbox` / `rvResumeDraft` dispatch the change
+  event and rely on it having run; programmatic switches go through
+  `rvSwitchDealer_`, which asks first and then dispatches with the guard marked
+  answered. The stale-import warning below uses the same dialog.
 - **Run Order: stale-import warning.** Clicking Run Dealer now reads the
   last scraper-import timestamp (META tab via `getAppHomeStatus`) fresh on
   every click; if the import date isn't today, a confirm names the stale

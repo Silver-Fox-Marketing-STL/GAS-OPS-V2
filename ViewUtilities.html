@@ -67,6 +67,6 @@
 
   // Destructive utilities get a confirm first.
   function confirmUtility(btn, serverFn, prompt) {
-    if (confirm(prompt)) runUtility(btn, serverFn);
+    appConfirm(prompt, { okLabel: 'Run', tone: 'danger' }).then(function(ok) { if (ok) runUtility(btn, serverFn); });
   }
 </script>

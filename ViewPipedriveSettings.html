@@ -1896,25 +1896,28 @@
 
   function psDiscard() {
     if (!psDirty) return;
-    if (!confirm('Discard unsaved Pipedrive settings and reload the saved version?')) return;
-    var btn = document.getElementById('psDiscardBtn');
-    btn.disabled = true;
-    setPsStatus('Discarding changes…', 'info');
+    appConfirm('Discard unsaved Pipedrive settings and reload the saved version?',
+               { title: 'Discard changes?', okLabel: 'Discard' }).then(function(ok) {
+      if (!ok) return;
+      var btn = document.getElementById('psDiscardBtn');
+      btn.disabled = true;
+      setPsStatus('Discarding changes…', 'info');
 
-    google.script.run
-      .withSuccessHandler(function(data) {
-        data = data || {};
-        psRules = psDeserializeRules_(data.rules || []);
-        psDirty = false;
-        psUpdateDirty_();
-        psRenderRules_();
-        setPsStatus('Changes discarded — reloaded saved version.', 'success');
-      })
-      .withFailureHandler(function(e) {
-        psUpdateDirty_();
-        setPsStatus('Discard failed: ' + e.message, 'error');
-      })
-      .getPipedriveGlobalSettings();
+      google.script.run
+        .withSuccessHandler(function(data) {
+          data = data || {};
+          psRules = psDeserializeRules_(data.rules || []);
+          psDirty = false;
+          psUpdateDirty_();
+          psRenderRules_();
+          setPsStatus('Changes discarded — reloaded saved version.', 'success');
+        })
+        .withFailureHandler(function(e) {
+          psUpdateDirty_();
+          setPsStatus('Discard failed: ' + e.message, 'error');
+        })
+        .getPipedriveGlobalSettings();
+    });
   }
 
   // ── Dirty state ─────────────────────────────────────────────────────────────

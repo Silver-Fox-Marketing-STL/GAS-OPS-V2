@@ -421,16 +421,19 @@
     var prompt = isCustom
       ? 'Delete the custom field code “' + entry.fieldCode + '”?\n\nIt will no longer be available to CSV schemas.'
       : 'Revert “' + entry.fieldCode + '” to its built-in ORDERMATCH column?';
-    if (!confirm(prompt)) return;
-    fcSetStatus(isCustom ? 'Deleting…' : 'Reverting…', 'info');
-    google.script.run
-      .withSuccessHandler(function(result) {
-        fcEditingCode = null;
-        fcRender(result);
-        fcSetStatus(isCustom ? '“' + entry.fieldCode + '” deleted.' : '“' + entry.fieldCode + '” reverted.', 'success');
-      })
-      .withFailureHandler(function(e) { fcSetStatus(e.message, 'error'); })
-      .deleteFieldCodeMapping(entry.fieldCode);
+    appConfirm(prompt, { title: isCustom ? 'Delete field code?' : 'Revert field code?',
+                         okLabel: isCustom ? 'Delete' : 'Revert', tone: isCustom ? 'danger' : '' }).then(function(ok) {
+      if (!ok) return;
+      fcSetStatus(isCustom ? 'Deleting…' : 'Reverting…', 'info');
+      google.script.run
+        .withSuccessHandler(function(result) {
+          fcEditingCode = null;
+          fcRender(result);
+          fcSetStatus(isCustom ? '“' + entry.fieldCode + '” deleted.' : '“' + entry.fieldCode + '” reverted.', 'success');
+        })
+        .withFailureHandler(function(e) { fcSetStatus(e.message, 'error'); })
+        .deleteFieldCodeMapping(entry.fieldCode);
+    });
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────

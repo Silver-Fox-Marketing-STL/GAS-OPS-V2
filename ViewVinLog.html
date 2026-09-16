@@ -855,22 +855,24 @@
         msg += '\n\nThis run is committed — its ' + run.vinCount + ' VIN' + (run.vinCount === 1 ? '' : 's') +
                ' will also be removed from the VIN log.';
       }
-      if (!confirm(msg)) return;
+      appConfirm(msg, { title: 'Delete run?', okLabel: 'Delete', tone: 'danger' }).then(function(ok) {
+        if (!ok) return;
 
-      btn.disabled = true;
-      setVinlogStatus('Deleting run...', 'info');
-      google.script.run
-        .withSuccessHandler(function(result) {
-          setVinlogStatus('Deleted run' + (result.removed ? ' and removed ' + result.removed + ' VINs from the ' + dealerName + ' VIN log' : '') + '.', 'success');
-          if (selectedRun && selectedRun.rowIndex === run.rowIndex) hideActionPanel();
-          loadRuns(sel.value);
-          if (sel.value) loadLatestOrderId(sel.value);
-        })
-        .withFailureHandler(function(e) {
-          setVinlogStatus('Delete failed: ' + e.message, 'error');
-          btn.disabled = false;
-        })
-        .deleteRun(dealerKey, run.rowIndex, run.dealId, run.timestamp);
+        btn.disabled = true;
+        setVinlogStatus('Deleting run...', 'info');
+        google.script.run
+          .withSuccessHandler(function(result) {
+            setVinlogStatus('Deleted run' + (result.removed ? ' and removed ' + result.removed + ' VINs from the ' + dealerName + ' VIN log' : '') + '.', 'success');
+            if (selectedRun && selectedRun.rowIndex === run.rowIndex) hideActionPanel();
+            loadRuns(sel.value);
+            if (sel.value) loadLatestOrderId(sel.value);
+          })
+          .withFailureHandler(function(e) {
+            setVinlogStatus('Delete failed: ' + e.message, 'error');
+            btn.disabled = false;
+          })
+          .deleteRun(dealerKey, run.rowIndex, run.dealId, run.timestamp);
+      });
     }
 
     // ── Manual entry ────────────────────────────────────────────────────────
