@@ -10,6 +10,30 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## [Unreleased]
 
+### Fixed
+- **Lot Scanner: "Upload failed: HTTP 401" is now recoverable without losing
+  photos** (needs a lot-scan deploy). The 401 is `google.script.run` rejecting
+  the page's own sign-in credential, so the retry chip (which re-sends through
+  the same dead session) could never succeed — and a home-screen web app has no
+  address bar, so the installer's only escape was force-closing the app. Now:
+  (1) any HTTP 401/403 from an upload, commit, or drafts fetch flips the page
+  into a *session-expired* state — uploads/commits/online-retries stop, retry
+  taps explain why, and a sticky red bar counts how many unsaved photos are
+  confirmed backed up on the device and offers **⟳ Reload**, which navigates
+  the top frame to the deployment's own URL (`getCaptureBootstrap` now returns
+  `ScriptApp.getService().getUrl()`; falls back to a frame reload, then to a
+  "close and reopen" instruction). The existing localStorage/IndexedDB restore
+  then re-enters the photos. (2) IndexedDB writes are acknowledged per photo
+  (`item.persisted` set on transaction commit, not on the call), and a startup
+  write→read→delete probe paints **Photo backup: ON/OFF** in the header — the
+  silent try/catch degradation was invisible in the field. (3) **Unsent photos
+  on this phone**: every cached blob now carries `dealerKey`/`dealerName`, and
+  the idle screen (all widths) lists cached batches that aren't the open order
+  with Resume (re-enters shooting on that batchId; blobs upload like fresh
+  shots) and Discard (one IDB transaction). Covers localStorage-lost-but-IDB-
+  intact, and "finish WITHOUT them" now PARKS the failed blobs instead of
+  deleting them. Cache TTL 7→14 days. Handbook updated.
+
 ### Added
 - **Run Order: pending-commit warning.** Clicking Run Dealer also re-reads the
   dealer's finalized-but-uncommitted VIN-log run count (`getLatestOrderId` ->

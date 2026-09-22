@@ -70,10 +70,20 @@ Photos = Saved on the stats card with Failed at 0.
 **If something goes wrong:**
 - **Failed count is red / a chip says retry ↻** → tap the chip to retry. Bad signal
   is the usual cause — walk toward the building and retry before finishing.
+- **A red "Sign-in session expired" bar appears at the top** (the chip error says
+  "HTTP 401") → tapping retry ↻ will NOT work, no matter how good the signal is.
+  Tap **⟳ Reload** on that bar. The app signs back in, brings your open order back,
+  and uploads the waiting photos on its own. If nothing happens after a few
+  seconds, close the app completely and open it again — same result.
+- **Photos taken inside the app are NOT in your camera roll.** The app keeps its own
+  copy on the phone until each photo shows **saved**. The header line under the
+  title says **Photo backup: ON** when that safety net is working. If it says
+  **Photo backup: OFF**, tell Nick, and don't close the app until Failed is 0.
 - **"N photo(s) failed to save — finish WITHOUT them?"** → tap **Cancel** and retry
-  the failed shots if you possibly can. Photos taken inside the app are NOT in your
-  camera roll — finishing without them means those photos are gone and you'd have
-  to re-shoot those vehicles.
+  the failed shots if you possibly can. If you do finish without them, they are
+  NOT deleted: the home screen shows **Unsent photos on this phone** with the
+  dealer and count. Tap **Resume** there (with signal, or after a Reload) and they
+  upload into the same batch. **Discard** is the only thing that throws them away.
 - **"Send failed: …"** → the batch is safe in **Drafts**. Send it from there when
   you have signal (see next recipe).
 - Tapped a capture button and got "Start an order first." → pick the dealer and tap

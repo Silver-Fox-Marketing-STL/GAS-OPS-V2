@@ -31,6 +31,17 @@
                padding: var(--space-4); box-sizing: border-box; }
     .ls-head { display: flex; align-items: baseline; gap: var(--space-2); margin-bottom: var(--space-3); }
     .ls-whoami { font-size: var(--fs-hint); color: var(--text-3); margin: -6px 0 var(--space-3); }
+    .ls-whoami .bk-on { color: var(--success); }
+    .ls-whoami .bk-off { color: var(--danger); font-weight: 700; }
+    /* session-expired banner: the page's sign-in credential was rejected (HTTP 401/403) and
+       ONLY a fresh page load gets a new one — retry can't. Sticky until Reload. */
+    .ls-banner { display: flex; align-items: center; gap: var(--space-3); margin: 0 0 var(--space-3);
+      padding: var(--space-3); border-radius: var(--radius); background: var(--danger-weak);
+      border: 1px solid var(--danger); color: var(--text); font-size: var(--fs-sm); }
+    .ls-banner[hidden] { display: none; }
+    .ls-banner .msg { flex: 1; min-width: 0; }
+    .ls-banner .msg b { display: block; color: var(--danger); font-family: var(--font-head); }
+    .ls-banner .ls-btn { flex: 0 0 auto; padding: 10px 14px; }
     .ls-title { font-family: var(--font-head); font-weight: 800; font-size: var(--fs-h2); margin: 0; }
     .ls-sub { flex: 1; min-width: 0; font-size: var(--fs-hint); color: var(--text-3);
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -103,6 +114,10 @@
     /* unsent drafts on the idle screen (phone — the wide layout's drafts panel covers this) */
     .ls-idle-drafts { margin-top: var(--space-5); }
     .ls-idle-drafts[hidden] { display: none; }
+    /* unsent photos cached on THIS device (IndexedDB) — every width, never server-backed */
+    .ls-local-drafts { margin-top: var(--space-5); }
+    .ls-local-drafts[hidden] { display: none; }
+    .ls-local-drafts .ls-idrow { border-color: var(--warning); }
     .ls-idrow { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-2);
       background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-3); }
     .ls-idrow .info { flex: 1; min-width: 0; cursor: pointer; }
@@ -221,6 +236,12 @@
     <!-- Which Google account this session executes as (USER_ACCESSING) — a wrong-account
          Safari multi-login session is the #1 cause of "uploads fail only for me". -->
     <div class="ls-whoami" id="lsWhoami" hidden></div>
+    <!-- Session-expired banner (HTTP 401/403 from google.script.run). Only a fresh page load
+         re-authenticates; a home-screen web app has no address bar, so the button IS the reload. -->
+    <div class="ls-banner" id="lsSessionBanner" hidden role="alert">
+      <div class="msg" id="lsSessionMsg"></div>
+      <button type="button" class="ls-btn primary" onclick="vpReloadApp()">&#8635; Reload</button>
+    </div>
 
     <div class="ls-tabs">
       <div class="ls-tab active" id="tabCapture" onclick="vpTab('capture')">Capture</div>
@@ -244,6 +265,13 @@
         <div class="ls-idle-drafts" id="lsIdleDrafts" hidden>
           <span class="ls-label">Unsent drafts</span>
           <div id="lsIdleDraftsList"></div>
+        </div>
+
+        <!-- photos cached on THIS device that never reached the sheet (all widths) -->
+        <div class="ls-local-drafts" id="lsLocalDrafts" hidden>
+          <span class="ls-label">Unsent photos on this phone</span>
+          <span class="ls-hint">Not uploaded yet. Resume to upload them, or Discard.</span>
+          <div id="lsLocalDraftsList"></div>
         </div>
       </div>
 
@@ -320,6 +348,7 @@
       Theme.initPicker();
       vpSyncLayout();
       document.getElementById('lsOrderNote').addEventListener('input', vpSaveOpenOrder);   // note survives a reload
+      vpStorageSelfTest();   // paints "Photo backup: ON/OFF" once the probe round-trips
       google.script.run
         .withSuccessHandler(vpInitDealers)
         .withFailureHandler(function (e) { toast('Could not load dealers: ' + (e && e.message || e), 'error'); })
@@ -362,11 +391,26 @@
       (b.dealers || []).forEach(function (d) { html += '<option value="' + escHtml(d.key) + '">' + escHtml(d.name) + '</option>'; });
       sel.innerHTML = html;
       if (b.lastDealer) sel.value = b.lastDealer;
-      var who = document.getElementById('lsWhoami');
-      if (who) { who.textContent = 'Signed in as ' + (b.email || 'unknown account'); who.hidden = false; }
+      vpAppUrl = b.url || '';   // the /exec URL — Reload navigates the TOP frame here (fresh sign-in credential)
+      vpWhoEmail = b.email || 'unknown account';
+      vpRenderWhoami();
       if (window.CustomSelect) { try { CustomSelect.enhanceAll(document); } catch (e) {} }
       if (sel.value) vpDealerChange();
       vpMaybeRestoreOrder();   // after the dealer list exists — vpBeginShooting sets sel.value
+      vpRenderLocalDrafts();   // cached photos whose order isn't the one just restored
+    }
+
+    // "Signed in as … · Photo backup: ON/OFF" — the backup state comes from a real
+    // write+read probe of IndexedDB (vpStorageSelfTest), never from feature detection.
+    var vpAppUrl = '', vpWhoEmail = '', vpBackupOk = null;   // null = probe not finished
+    function vpRenderWhoami() {
+      var who = document.getElementById('lsWhoami');
+      if (!who || !vpWhoEmail) return;
+      var bk = vpBackupOk === null ? '' :
+        (vpBackupOk ? ' &middot; <span class="bk-on">Photo backup: ON</span>'
+                    : ' &middot; <span class="bk-off">Photo backup: OFF — keep this page open until every photo is saved</span>');
+      who.innerHTML = 'Signed in as ' + escHtml(vpWhoEmail) + bk;
+      who.hidden = false;
     }
 
     function vpDealerChange() {
@@ -416,10 +460,19 @@
         req.onerror = function () { cb(null); };
       } catch (e) { cb(null); }
     }
-    function vpIdbPut(rec) {
+    // put is ACKNOWLEDGED: cb(true) only after the transaction commits. A record is
+    // "backed up" when that fires — never on the call itself (Safari can accept the
+    // call and still abort the transaction under storage pressure / partition rules).
+    function vpIdbPut(rec, cb) {
+      cb = cb || function () {};
       vpIdbOpen(function (db) {
-        if (!db) return;
-        try { db.transaction('photos', 'readwrite').objectStore('photos').put(rec); } catch (e) {}
+        if (!db) { cb(false); return; }
+        try {
+          var tx = db.transaction('photos', 'readwrite');
+          tx.oncomplete = function () { cb(true); };
+          tx.onerror = tx.onabort = function () { cb(false); };
+          tx.objectStore('photos').put(rec);
+        } catch (e) { cb(false); }
       });
     }
     function vpIdbDel(pid) {
@@ -427,6 +480,28 @@
       vpIdbOpen(function (db) {
         if (!db) return;
         try { db.transaction('photos', 'readwrite').objectStore('photos').delete(pid); } catch (e) {}
+      });
+    }
+    var VP_IDB_TTL = 14 * 864e5;   // cached photos older than this are swept (was 7d — a week-later retry must still work)
+
+    // Startup probe: write a 1-byte blob record, read it back, delete it. Sets vpBackupOk
+    // and paints the header indicator. The only honest way to know whether THIS device
+    // actually keeps photos across a reload — feature detection lies in sandboxed iframes.
+    function vpStorageSelfTest() {
+      var done = false;
+      function finish(ok) { if (done) return; done = true; vpBackupOk = !!ok; vpRenderWhoami(); if (!ok) toast('Photo backup is OFF on this device — keep the app open until every photo shows saved.', 'error'); }
+      setTimeout(function () { finish(false); }, 8000);   // a hung IDB open counts as OFF
+      var probe = { pid: '__probe__', batchId: '__probe__', ts: Date.now(), blob: new Blob(['x']) };
+      vpIdbPut(probe, function (ok) {
+        if (!ok) { finish(false); return; }
+        vpIdbOpen(function (db) {
+          if (!db) { finish(false); return; }
+          try {
+            var req = db.transaction('photos').objectStore('photos').get('__probe__');
+            req.onsuccess = function () { var r = req.result; finish(!!(r && r.blob)); vpIdbDel('__probe__'); };
+            req.onerror = function () { finish(false); };
+          } catch (e) { finish(false); }
+        });
       });
     }
     function vpIdbAll(cb) {
@@ -443,22 +518,141 @@
     // Re-enter cached photos for this batch (page died before they reached 'saved').
     // Runs on EVERY entry into Shooting, so both auto-restore and a manual draft
     // Resume pick up photos stranded by an earlier crash. Also sweeps records
-    // older than 7 days (batches whose context is long gone).
+    // older than VP_IDB_TTL (14 days — batches whose context is long gone).
     function vpRestoreCachedPhotos(batchId) {
       vpIdbAll(function (recs) {
-        recs.forEach(function (r) { if (Date.now() - (r.ts || 0) > 7 * 864e5) vpIdbDel(r.pid); });
+        recs.forEach(function (r) { if (r.pid !== '__probe__' && Date.now() - (r.ts || 0) > VP_IDB_TTL) vpIdbDel(r.pid); });
         var mine = recs.filter(function (r) {
-          return r.batchId === batchId && r.blob && Date.now() - (r.ts || 0) <= 7 * 864e5;
+          return r.batchId === batchId && r.blob && Date.now() - (r.ts || 0) <= VP_IDB_TTL;
         });
         if (!mine.length || !vpOrder || vpOrder.batchId !== batchId) return;
         mine.forEach(function (r) {
           for (var i = 0; i < vpQueue.length; i++) if (vpQueue[i].pid === r.pid) return;   // already in the pipeline (late second restore)
-          var item = { id: vpQNextId++, pid: r.pid, file: r.blob, state: 'reading', thumb: null, b64: null, vin: '', fileId: '', url: '', error: '' };
+          var item = { id: vpQNextId++, pid: r.pid, file: r.blob, state: 'reading', thumb: null, b64: null, vin: '', fileId: '', url: '', error: '', persisted: true };
           vpQueue.push(item); vpPending.push(item);
         });
         toast(mine.length + ' unsaved photo' + (mine.length === 1 ? '' : 's') + ' restored — saving…', 'info');
         vpRenderQueue(); vpUpdateCount(); vpDecodeNext();
       });
+    }
+
+    // ── Local drafts: cached photos NOT belonging to the open order ──
+    // Covers every way the auto-restore can miss: localStorage gone but IndexedDB intact,
+    // an order finished past failed photos, a session that died between two orders.
+    // Rendered on the idle screen at every width; refreshed on boot, order end, discard.
+    var vpLocalMeta = {};   // batchId → {dealerKey, dealerName} (never inlined into onclick)
+    function vpRenderLocalDrafts() {
+      var wrap = document.getElementById('lsLocalDrafts'), list = document.getElementById('lsLocalDraftsList');
+      if (!wrap || !list) return;
+      vpIdbAll(function (recs) {
+        var groups = {}, order = [];
+        recs.forEach(function (r) {
+          if (r.pid === '__probe__' || !r.blob || !r.batchId) return;
+          if (Date.now() - (r.ts || 0) > VP_IDB_TTL) return;
+          if (vpOrder && vpOrder.batchId === r.batchId) return;   // the open order restores its own
+          if (!groups[r.batchId]) { groups[r.batchId] = []; order.push(r.batchId); }
+          groups[r.batchId].push(r);
+        });
+        vpLocalMeta = {};
+        if (!order.length) { wrap.hidden = true; list.innerHTML = ''; return; }
+        var html = '';
+        order.forEach(function (bid) {
+          var rows = groups[bid];
+          var withDealer = null;
+          for (var i = 0; i < rows.length; i++) if (rows[i].dealerKey) { withDealer = rows[i]; break; }
+          var dealerKey = withDealer ? withDealer.dealerKey : '', dealerName = withDealer ? (withDealer.dealerName || withDealer.dealerKey) : '';
+          vpLocalMeta[bid] = { dealerKey: dealerKey, dealerName: dealerName };
+          var oldest = rows.reduce(function (m, r) { return Math.min(m, r.ts || m); }, Date.now());
+          html += '<div class="ls-idrow">' +
+            '<div class="info">' +
+              '<span class="t">' + escHtml(dealerName || '(dealer not recorded — pick it above)') + '</span>' +
+              '<span class="ls-hint">' + escHtml(vpFmtTs(oldest)) + ' &middot; ' + rows.length + ' photo' + (rows.length === 1 ? '' : 's') + ' on this phone</span>' +
+            '</div>' +
+            '<button type="button" class="ls-btn primary" onclick="vpResumeLocal(\'' + escHtml(bid) + '\')">Resume</button>' +
+            '<button type="button" class="ls-btn" onclick="vpDiscardLocal(\'' + escHtml(bid) + '\')">Discard</button>' +
+            '</div>';
+        });
+        list.innerHTML = html;
+        wrap.hidden = false;
+      });
+    }
+
+    // Re-enter Shooting on the cached batch — vpBeginShooting's restore pulls the blobs
+    // back into the pipeline and they upload like fresh shots (same batchId, so any
+    // photos that DID commit earlier fold into the same server draft).
+    function vpResumeLocal(bid) {
+      if (vpOrder || vpFinishing) { toast('Finish the current order first.', 'info'); return; }
+      if (vpSessionDead) { vpShowSessionBanner(); toast('Session expired — tap Reload first.', 'error'); return; }
+      var meta = vpLocalMeta[bid] || {};
+      var dealerKey = meta.dealerKey, dealerName = meta.dealerName;
+      if (!dealerKey) {   // pre-upgrade cache record — fall back to the picker
+        var sel = document.getElementById('lsDealer');
+        dealerKey = sel.value || '';
+        dealerName = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : dealerKey;
+        if (!dealerKey) { toast('Pick the dealer these photos belong to, then Resume.', 'info'); return; }
+      }
+      vpDealerKey = dealerKey; vpVinMap = {}; vpSetStart();
+      google.script.run.withSuccessHandler(function (m) { vpVinMap = m || {}; }).getDealerVinMap(dealerKey);
+      vpTab('capture');
+      vpBeginShooting(dealerKey, dealerName, bid, dealerName + ' — resumed from this phone', '');
+    }
+    function vpDiscardLocal(bid) {
+      if (!confirm('Discard these photos from this phone? They were never uploaded — you would have to re-shoot them.')) return;
+      vpIdbAll(function (recs) {
+        var pids = recs.filter(function (r) { return r.batchId === bid; }).map(function (r) { return r.pid; });
+        vpIdbDelMany(pids, vpRenderLocalDrafts);   // re-render only after the deletes commit
+      });
+    }
+    function vpIdbDelMany(pids, cb) {
+      cb = cb || function () {};
+      if (!pids.length) { cb(); return; }
+      vpIdbOpen(function (db) {
+        if (!db) { cb(); return; }
+        try {
+          var tx = db.transaction('photos', 'readwrite'), store = tx.objectStore('photos');
+          tx.oncomplete = tx.onerror = tx.onabort = function () { cb(); };
+          pids.forEach(function (pid) { store.delete(pid); });
+        } catch (e) { cb(); }
+      });
+    }
+
+    // ── Session expiry (HTTP 401/403 from google.script.run) ──
+    // The credential baked into this page at load was rejected. Nothing this page sends
+    // can succeed again — retrying just re-fails. Freeze the pipeline, tell the user
+    // their photos are on the phone, and give them the ONE thing that fixes it: a
+    // reload of the TOP frame (allowed on a user tap for standalone script projects).
+    var vpSessionDead = false;
+    function vpIsAuthErr(msg) { return /HTTP\s*40[13]\b/i.test(String(msg || '')); }
+    function vpSessionLost(msg) {
+      if (!vpSessionDead) toast('Sign-in session expired — tap Reload to continue. Your photos are kept on this phone.', 'error');
+      vpSessionDead = true;
+      vpShowSessionBanner();
+      vpUpdateFinishUI();
+    }
+    function vpShowSessionBanner() {
+      var el = document.getElementById('lsSessionBanner'), m = document.getElementById('lsSessionMsg');
+      if (!el || !m) return;
+      var unsaved = vpQueue.filter(function (q) { return q.state !== 'saved'; });
+      var kept = unsaved.filter(function (q) { return q.persisted; }).length;
+      var txt = '<b>Sign-in session expired</b>';
+      // per-item `persisted` acks are the truth here (the header probe is only the device-level hint)
+      if (!unsaved.length) txt += 'Reload to keep working. Nothing is waiting to upload.';
+      else if (kept === unsaved.length) txt += unsaved.length + ' photo' + (unsaved.length === 1 ? ' is' : 's are') + ' saved on this phone. Reload — they upload again automatically.';
+      else if (kept) txt += kept + ' of ' + unsaved.length + ' unsaved photos are backed up on this phone; the rest are NOT and will be lost on reload.';
+      else txt += unsaved.length + ' unsaved photo' + (unsaved.length === 1 ? '' : 's') + ' — photo backup is OFF on this device, so a reload loses them. Try to get signal and tap retry first.';
+      m.innerHTML = txt;
+      el.hidden = false;
+    }
+    // Order of attempts: (1) navigate the TOP frame to the /exec URL — a blocked sandbox
+    // navigation fails SILENTLY (console-only), so (2) if this page is still alive 1.5s
+    // later, reload the sandbox frame itself; (3) if even that leaves us here, say how
+    // to do it by hand. A successful attempt tears the page down, so later steps never run.
+    function vpReloadApp() {
+      vpSaveOpenOrder();
+      var target = vpAppUrl || '';
+      try { if (target && window.top && window.top !== window) window.top.location.href = target; } catch (e) {}
+      setTimeout(function () { try { window.location.reload(); } catch (e2) {} }, 1500);
+      setTimeout(function () { toast('Close the app completely and open it again — your photos are kept on this phone.', 'info'); }, 3500);
     }
 
     // Auto-resume: an open order left in localStorage (page death mid-shooting)
@@ -476,6 +670,7 @@
 
     // Connectivity returned: retry every failed item + kick the committer.
     window.addEventListener('online', function () {
+      if (vpSessionDead) { vpShowSessionBanner(); return; }   // a dead credential doesn't come back with the signal
       var n = 0;
       vpQueue.forEach(function (q, i) {
         if (q.state === 'failed') { n++; q.error = ''; vpRetryItem(i); }   // error cleared → no per-item toast spam
@@ -531,12 +726,12 @@
       // explicit OK.
       var failed = vpQueue.filter(function (q) { return q.state === 'failed'; }).length;
       if (failed) {
-        if (!confirm(failed + ' photo(s) failed to save — finish WITHOUT them? (Cancel to stay and retry)')) {
+        if (!confirm(failed + ' photo(s) failed to save — finish WITHOUT them? They stay on this phone under "Unsent photos" so you can Resume later. (Cancel to stay and retry)')) {
           vpFinishing = null;   // back to Shooting — failed chips stay tappable for retry
           vpUpdateFinishUI();
           return;
         }
-        vpQueue.forEach(function (q) { if (q.state === 'failed') vpIdbDel(q.pid); });   // user chose to drop them
+        // Blobs are KEPT (not deleted) — the idle screen's local-drafts list offers Resume/Discard.
       }
       vpCompleteFinish();
     }
@@ -589,6 +784,7 @@
       if (window.CustomSelect) CustomSelect.refresh(document.getElementById('lsDealer'));   // repaint facade after re-enable: syncs label to native value + clears aria-disabled (resume may have changed the dealer)
       vpUpdateFinishUI();
       vpLoadDrafts();   // back on the idle screen — refresh its unsent-drafts list
+      vpRenderLocalDrafts();   // …and the photos-on-this-phone list (failed shots just parked here)
     }
 
     function vpUpdateFinishUI() {
@@ -640,8 +836,12 @@
     function vpEnqueueFiles(files) {
       files.forEach(function (file) {
         var pid = vpOrder.batchId + ':' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
-        vpQueue.push({ id: vpQNextId++, pid: pid, file: file, state: 'reading', thumb: null, b64: null, vin: '', fileId: '', url: '', error: '' });
-        vpIdbPut({ pid: pid, batchId: vpOrder.batchId, ts: Date.now(), blob: file });   // the only copy until 'saved'
+        var item = { id: vpQNextId++, pid: pid, file: file, state: 'reading', thumb: null, b64: null, vin: '', fileId: '', url: '', error: '', persisted: false };
+        vpQueue.push(item);
+        // The only copy until 'saved'. dealerKey/Name ride along so the local-drafts list can
+        // resume this batch even if localStorage (the order context) is gone.
+        vpIdbPut({ pid: pid, batchId: vpOrder.batchId, dealerKey: vpOrder.dealerKey, dealerName: vpOrder.dealerName, ts: Date.now(), blob: file },
+                 function (ok) { item.persisted = ok; });
       });
       vpPending = vpPending.concat(vpQueue.slice(-files.length));
       vpRenderQueue(); vpUpdateCount();
@@ -661,6 +861,7 @@
     function vpRetryItem(i) {
       var item = vpQueue[i];
       if (!item || item.state !== 'failed') return;
+      if (vpSessionDead) { vpShowSessionBanner(); toast('Session expired — retry can\'t work until you tap Reload.', 'error'); return; }
       if (item.error) toast('Last error: ' + item.error + ' — retrying', 'info');
       if (item.b64) { item.state = 'uploading'; vpRenderQueue(); vpUpdateCount(); vpFireUpload(item); }
       else { item.state = 'reading'; vpPending.push(item); vpRenderQueue(); vpUpdateCount(); vpDecodeNext(); }
@@ -692,6 +893,10 @@
           vpRenderQueue(); vpUpdateCount(); vpDecodeNext(); vpCheckFinishDrain(); return;
         }
         item.b64 = b64; item.vin = barcodeVin || '';
+        if (vpSessionDead) {   // don't burn a doomed upload — park it; the reload's restore re-enters it
+          item.state = 'failed'; item.error = 'session expired — tap Reload';
+          vpRenderQueue(); vpUpdateCount(); vpShowSessionBanner(); vpDecodeNext(); vpCheckFinishDrain(); return;
+        }
         item.state = 'uploading';
         vpRenderQueue(); vpUpdateCount();
         vpFireUpload(item);
@@ -754,7 +959,7 @@
         .withFailureHandler(function (e) {
           vpEng.inFlight--;
           item.state = 'failed'; item.error = (e && e.message) || String(e);
-          vpUploadErrToast(item.error);
+          if (vpIsAuthErr(item.error)) vpSessionLost(item.error); else vpUploadErrToast(item.error);
           vpRenderQueue(); vpUpdateCount(); vpDecodeNext(); vpCheckFinishDrain();
         })
         .uploadPhotoOnly(vpOrder.dealerKey, item.b64);
@@ -795,12 +1000,19 @@
     // = data loss). They can keep shooting / tap Finish again once saves recover.
     function vpCommitFailed(chunk, msg) {
       vpBuffer = chunk.concat(vpBuffer);
-      if (vpFinishing) {
-        vpFinishing = null;
-        toast('Save failed: ' + msg + ' — back to shooting; retrying in background.', 'error');
-      } else {
-        toast('Save failed: ' + msg + ' — retrying…', 'error');
+      var wasFinishing = !!vpFinishing;
+      vpFinishing = null;   // never trap the user behind disabled buttons while the server is down
+      if (vpIsAuthErr(msg)) {
+        // Uploaded-but-uncommitted items: the Drive file exists but no row does. Re-park them as
+        // failed so the reload's restore re-runs them from the cached blob (the commit is
+        // idempotent per fileId, and a fresh upload of the same photo is harmless).
+        vpBuffer.forEach(function (it) { it.state = 'failed'; it.error = 'session expired — tap Reload'; });
+        vpBuffer = [];
+        vpSessionLost(msg);
+        vpRenderQueue(); vpUpdateCount(); vpUpdateFinishUI();
+        return;
       }
+      toast('Save failed: ' + msg + (wasFinishing ? ' — back to shooting; retrying in background.' : ' — retrying…'), 'error');
       vpRenderQueue(); vpUpdateCount(); vpUpdateFinishUI();
       setTimeout(vpTryCommit, 3000);   // ponytail: fixed backoff, exponential if this proves noisy
     }
@@ -869,7 +1081,12 @@
       vpDraftsFetching = true;
       google.script.run
         .withSuccessHandler(function (res) { vpDraftsFetching = false; vpRenderDrafts(res); vpRenderIdleDrafts(res); })
-        .withFailureHandler(function (e) { vpDraftsFetching = false; box.innerHTML = '<p class="ls-hint">Could not load: ' + escHtml((e && e.message) || e) + '</p>'; })
+        .withFailureHandler(function (e) {
+          vpDraftsFetching = false;
+          var msg = (e && e.message) || String(e);
+          if (vpIsAuthErr(msg)) vpSessionLost(msg);   // drafts is often the FIRST call after the app wakes — earliest tell
+          box.innerHTML = '<p class="ls-hint">Could not load: ' + escHtml(msg) + '</p>';
+        })
         .getMyDrafts();
     }
 
