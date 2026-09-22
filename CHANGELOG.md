@@ -49,6 +49,12 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   decoder. Header also gained a restart-survival marker + sandbox frame tag
   (diagnostic for whether this device keeps sandbox-frame storage across a
   force-close — the in-page probe passes on session-scoped storage too).
+  Field-test verdict: sandbox-frame storage IS session-scoped on the iOS
+  home-screen app (force-close wipes it; in-app reload keeps it), so the
+  reload path is the recovery and force-close is the one thing to avoid. A
+  **"Safe to close"** line under the stats tiles now says so in real time:
+  green "All saved — safe to close", amber "Keep the app open — N still
+  uploading", red "Don't close — N failed (tap retry ↻ / Reload)".
 
 ### Added
 - **Lot Scan PWA experiment** (`lot-scan-pwa-experiment/`, static, served by
