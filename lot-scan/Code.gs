@@ -105,7 +105,11 @@ function doGet(e) {
 function getCaptureBootstrap() {
   // email: the identity this session's writes execute as (USER_ACCESSING) — shown in the
   // header so a wrong-account / multi-login session is visible in the field at a glance.
-  return { dealers: getActiveDealersForScanner_(), lastDealer: getLastSelectedDealer(), email: getActiveEmail_() };
+  // url: this deployment's own /exec (or /dev) URL — the client's session-expired Reload
+  // button navigates the TOP frame here to mint a fresh page credential.
+  var url = '';
+  try { url = ScriptApp.getService().getUrl() || ''; } catch (e) {}
+  return { dealers: getActiveDealersForScanner_(), lastDealer: getLastSelectedDealer(), email: getActiveEmail_(), url: url };
 }
 
 function getActiveDealersForScanner_() {
