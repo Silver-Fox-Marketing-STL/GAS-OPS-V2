@@ -299,6 +299,9 @@
             <div class="ls-stat" id="lsStatFailedTile"><span class="n" id="lsStatFailed">0</span><span class="l">Failed</span></div>
           </div>
           <div class="ls-stats-busy" id="lsStatBusy" hidden></div>
+          <!-- photos that reached the sheet BEFORE this session (a resumed/restored batch) — the
+               tiles above only count this session's pipeline, which read as "lost" in the field -->
+          <div class="ls-hint" id="lsStatPrior" hidden></div>
         </div>
 
         <div class="ls-qstrip" id="lsQueue"></div>
@@ -709,6 +712,17 @@
       vpRenderQueue(); vpUpdateCount(); vpUpdateFinishUI();
       vpSaveOpenOrder();
       vpRestoreCachedPhotos(batchId);
+      vpUpdatePriorLine();   // "N photos already saved to this batch" (drafts may still be loading — re-run on render)
+    }
+
+    // The stats tiles count THIS session's pipeline only. A resumed/restored batch whose earlier
+    // photos already committed shows 0/0/0, which the crew reads as data loss. Say what's on the server.
+    function vpUpdatePriorLine() {
+      var el = document.getElementById('lsStatPrior');
+      if (!el) return;
+      var n = vpOrder && vpDraftMeta[vpOrder.batchId] ? (vpDraftMeta[vpOrder.batchId].count || 0) : 0;
+      el.hidden = !n;
+      el.innerHTML = n ? '&#10003; ' + n + ' photo' + (n === 1 ? '' : 's') + ' already saved to this batch (see Drafts) — the tiles count new shots only' : '';
     }
 
     function vpFinishOrder(send) {
@@ -1116,7 +1130,7 @@
         var rows = g.groups[bid], dealer = rows[0].dealerName || rows[0].dealerKey || '';
         var note = '';
         for (var ni = 0; ni < rows.length; ni++) { if (rows[ni].note) { note = rows[ni].note; break; } }
-        vpDraftMeta[bid] = { dealerKey: rows[0].dealerKey || '', dealerName: dealer, note: note };
+        vpDraftMeta[bid] = { dealerKey: rows[0].dealerKey || '', dealerName: dealer, note: note, count: rows.length };
         html += '<div class="ls-idrow">' +
           '<div class="info" onclick="vpTab(\'drafts\',\'' + escHtml(bid) + '\')">' +
             '<span class="t">' + escHtml(dealer) + '</span>' +
@@ -1150,7 +1164,7 @@
         var rows = g.groups[bid], dealer = rows[0].dealerName || rows[0].dealerKey || '';
         var note = '';
         for (var ni = 0; ni < rows.length; ni++) { if (rows[ni].note) { note = rows[ni].note; break; } }
-        vpDraftMeta[bid] = { dealerKey: rows[0].dealerKey || '', dealerName: dealer, note: note };
+        vpDraftMeta[bid] = { dealerKey: rows[0].dealerKey || '', dealerName: dealer, note: note, count: rows.length };
         var when = vpFmtTs(rows[0].ts);
         var shortId = bid.length > 12 ? bid.substr(0, 12) : bid;
         var isOpen = bid === openId || !!openIds[bid];
@@ -1174,6 +1188,7 @@
       });
       box.innerHTML = html;
       vpFillThumbs();
+      vpUpdatePriorLine();   // an auto-restored order usually enters Shooting before this first render
       if (openId) {
         var el = document.getElementById('dbatch_' + openId);
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
