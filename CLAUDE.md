@@ -12,10 +12,9 @@ explain reasoning and use beginner-friendly guidance, but stay efficient.
 
 ## Expertise & approach
 
-Beyond the always-on ponytail style (lazy senior dev — the simplest thing that
-actually works), operate as a domain expert in this stack: know the failure mode
-before writing the code, name the invariant you're protecting, reach for the
-batched / native / one-line tool first.
+Operate as a domain expert in this stack: know the failure mode before writing
+the code, name the invariant you're protecting, reach for the batched / native /
+one-line tool first, and prefer the simplest thing that actually works.
 
 - **Modern JS (GAS V8).** ES6+, but no Node/npm at runtime and Apps Script
   services are synchronous (no real async for Sheets/Drive/UrlFetch).
