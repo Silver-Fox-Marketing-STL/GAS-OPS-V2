@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="VIN Scan">
+<meta name="theme-color" content="#0b0f14">
+<link rel="manifest" href="manifest.webmanifest">
+<title>VIN Scan Experiment</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+  /* EXPERIMENT — live VIN capture on our own origin (no Apps Script sandbox).
+     Single dark look on purpose: a viewfinder tool used outdoors wants max contrast. */
+  :root {
+    --bg: #0b0f14; --surface: #151b23; --surface-2: #1d2531; --border: #2a3441;
+    --text: #e8eef5; --muted: #8a97a6; --lock: #3ddc84; --warn: #ffb020; --bad: #ff5a5f;
+    --bc: #58a6ff; --ocr: #c792ea; --mono: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 15px/1.4 var(--sans); -webkit-text-size-adjust: 100%;
+         padding: env(safe-area-inset-top, 0) 0 env(safe-area-inset-bottom, 0); }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 10px 16px 32px; display: flex; flex-direction: column; gap: 12px; }
+  header { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  header h1 { font-size: 17px; margin: 0; font-weight: 700; }
+  .pill { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+  .pill.ok { color: var(--lock); border-color: var(--lock); }
+  .pill.warn { color: var(--warn); border-color: var(--warn); }
+
+  /* viewfinder — 4:3 box, video covers it, scan window drawn over it */
+  .vf { position: relative; width: 100%; aspect-ratio: 4 / 3; background: #000; border-radius: 10px; overflow: hidden; }
+  .vf video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .box { position: absolute; left: 5%; width: 90%; top: 40%; height: 18%; border: 2px solid rgba(255,255,255,.85);
+         border-radius: 6px; box-shadow: 0 0 0 9999px rgba(0,0,0,.42); pointer-events: none; }
+  .box::after { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: rgba(255,80,80,.7); }
+  .vf.locked .box { border-color: var(--lock); box-shadow: 0 0 0 9999px rgba(61,220,132,.18); }
+  .hud { position: absolute; left: 8px; right: 8px; bottom: 8px; display: flex; justify-content: space-between; gap: 8px;
+         font: 12px/1.3 var(--mono); color: #fff; text-shadow: 0 1px 2px #000; }
+  .hud span { background: rgba(0,0,0,.45); padding: 3px 7px; border-radius: 6px; }
+  .idle { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); text-align: center; padding: 20px; }
+  .idle[hidden] { display: none; }
+
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  button { font: 600 15px var(--sans); color: var(--text); background: var(--surface-2); border: 1px solid var(--border);
+           border-radius: 10px; padding: 12px 14px; cursor: pointer; flex: 1 1 120px; min-height: 46px; }
+  button.primary { background: var(--lock); color: #04130a; border-color: var(--lock); }
+  button.small { flex: 0 0 auto; padding: 8px 12px; min-height: 38px; font-size: 13px; }
+  button[disabled] { opacity: .45; pointer-events: none; }
+  button:focus-visible { outline: 2px solid var(--bc); outline-offset: 2px; }
+
+  .readout { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+  .vin { font: 700 clamp(18px, 6.2vw, 30px)/1.1 var(--mono); letter-spacing: .06em; word-break: break-all; min-height: 1.2em; }
+  .vin.empty { color: var(--muted); font-weight: 500; letter-spacing: 0; font-size: 15px; font-family: var(--sans); }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .chip { font: 500 12px var(--mono); padding: 3px 8px; border-radius: 6px; background: var(--surface-2); color: var(--muted); }
+  .chip.bc { color: var(--bc); } .chip.ocr { color: var(--ocr); } .chip.ok { color: var(--lock); } .chip.bad { color: var(--bad); }
+
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .stat { background: var(--surface); border-radius: 8px; padding: 8px 6px; text-align: center; }
+  .stat b { display: block; font: 700 20px var(--mono); }
+  .stat span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+
+  details { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; }
+  summary { cursor: pointer; font-weight: 600; }
+  textarea { width: 100%; min-height: 90px; margin-top: 8px; background: var(--bg); color: var(--text); border: 1px solid var(--border);
+             border-radius: 8px; padding: 8px; font: 13px var(--mono); }
+  label.opt { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
+  select { font: 14px var(--sans); background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
+  .hint { color: var(--muted); font-size: 13px; }
+
+  .log { display: flex; flex-direction: column; gap: 6px; }
+  .entry { display: grid; grid-template-columns: 56px 1fr; gap: 10px; align-items: center; background: var(--surface);
+           border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; }
+  .entry img { width: 56px; height: 42px; object-fit: cover; border-radius: 4px; background: #000; }
+  .entry .v { font: 600 13px var(--mono); letter-spacing: .04em; word-break: break-all; }
+  .entry .m { font-size: 12px; color: var(--muted); }
+  .toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0)); transform: translateX(-50%);
+           background: var(--surface-2); border: 1px solid var(--border); padding: 10px 14px; border-radius: 10px; font-size: 14px;
+           max-width: 92vw; z-index: 9; }
+  .toast[hidden] { display: none; }
+  @media (prefers-reduced-motion: no-preference) { .vf.locked .box { transition: border-color .15s; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>VIN Scan Experiment</h1>
+    <span class="pill" id="pillMode">browser tab</span>
+    <span class="pill" id="pillStore">storage: first run</span>
+    <span class="pill" id="pillOcr">OCR: not loaded</span>
+  </header>
+
+  <div class="vf" id="vf">
+    <video id="video" playsinline muted autoplay></video>
+    <div class="box" id="box"></div>
+    <div class="hud"><span id="hudL">idle</span><span id="hudR"></span></div>
+    <div class="idle" id="idle">Tap <b>&nbsp;Start camera&nbsp;</b> and frame the VIN inside the box.<br>Barcode and text are tried together; a read only counts when the check digit passes.</div>
+  </div>
+
+  <div class="row">
+    <button class="primary" id="btnStart">Start camera</button>
+    <button id="btnNext" disabled>Scan next</button>
+    <button class="small" id="btnTorch" hidden>Torch</button>
+    <button class="small" id="btnZoom" hidden>Zoom 1x</button>
+  </div>
+
+  <div class="readout">
+    <div class="vin empty" id="vin">No VIN yet</div>
+    <div class="chips" id="chips"></div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><b id="sLocks">0</b><span>locks</span></div>
+    <div class="stat"><b id="sBc">0</b><span>barcode</span></div>
+    <div class="stat"><b id="sOcr">0</b><span>OCR</span></div>
+    <div class="stat"><b id="sMed">–</b><span>median s</span></div>
+  </div>
+
+  <details>
+    <summary>Inventory list &amp; options</summary>
+    <p class="hint">Paste this dealer's VINs (one per line, or any text containing them). With a list present, a read must ALSO match the list — that's the real-world gate, and it makes false positives effectively impossible.</p>
+    <textarea id="inv" placeholder="Paste VINs here…"></textarea>
+    <label class="opt"><input type="checkbox" id="optRequire" checked> Require inventory match when a list is present</label>
+    <label class="opt"><input type="checkbox" id="optOcr" checked> Run OCR (text) as well as barcode</label>
+    <label class="opt">OCR layout
+      <select id="optPsm">
+        <option value="7" selected>single line (VIN framed alone)</option>
+        <option value="6">block (label with several lines)</option>
+        <option value="11">sparse text</option>
+      </select>
+    </label>
+    <label class="opt"><input type="checkbox" id="optAuto" checked> Auto-resume 3 s after a lock</label>
+    <div class="row" style="margin-top:8px">
+      <button class="small" id="btnSaveInv">Save list</button>
+      <button class="small" id="btnExport">Copy log as CSV</button>
+      <button class="small" id="btnClear">Clear log</button>
+    </div>
+  </details>
+
+  <div class="log" id="log"></div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var video = $('video'), box = $('box'), vf = $('vf');
+  var stream = null, track = null, running = false, locked = false;
+  var startedAt = 0, bcTicks = 0, ocrPasses = 0, lastOcrMs = 0, lastVin = '', lastVinAt = 0;
+  var inv = {}, invCount = 0;
+  var log = [];
+  var worker = null, ocrBusy = false, ocrReady = false, ocrLoading = false;
+
+  // ── VIN check digit (mirror of the production isValidVin_) ──
+  var TR = { A:1,B:2,C:3,D:4,E:5,F:6,G:7,H:8,J:1,K:2,L:3,M:4,N:5,P:7,R:9,S:2,T:3,U:4,V:5,W:6,X:7,Y:8,Z:9,
+             '0':0,'1':1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9 };
+  var WT = [8,7,6,5,4,3,2,10,0,9,8,7,6,5,4,3,2];
+  function validVin(v) {
+    if (!/^[A-HJ-NPR-Z0-9]{17}$/.test(v)) return false;
+    var s = 0;
+    for (var i = 0; i < 17; i++) { var t = TR[v.charAt(i)]; if (t === undefined) return false; s += t * WT[i]; }
+    var r = s % 11, cd = r === 10 ? 'X' : String(r);
+    return v.charAt(8) === cd;
+  }
+  function accept(v) { return validVin(v) && (!invCount || !$('optRequire').checked || inv[v]); }
+
+  // OCR confusions the check digit can't fix by itself — try both readings, capped.
+  var AMB = { S:'5', '5':'S', B:'8', '8':'B', Z:'2', '2':'Z', G:'6', '6':'G', D:'0', '0':'D' };
+  function findVin(text, expand) {
+    var f = String(text || '').toUpperCase().replace(/O/g, '0').replace(/I/g, '1').replace(/Q/g, '0');
+    var streams = (f.match(/[A-Z0-9]+/g) || []);
+    streams.push(f.replace(/[^A-Z0-9]/g, ''));   // OCR often splits a VIN with spaces — also try it joined
+    for (var si = 0; si < streams.length; si++) {
+      var t = streams[si];
+      for (var s = 0; s + 17 <= t.length; s++) {
+        var w = t.substr(s, 17);
+        if (accept(w)) return w;
+        if (!expand) continue;
+        var pos = [];
+        for (var i = 0; i < 17 && pos.length < 6; i++) if (AMB[w.charAt(i)]) pos.push(i);
+        var n = 1 << pos.length;
+        for (var m = 1; m < n; m++) {
+          var a = w.split('');
+          for (var k = 0; k < pos.length; k++) if (m & (1 << k)) a[pos[k]] = AMB[a[pos[k]]];
+          var c = a.join('');
+          if (accept(c)) return c;
+        }
+      }
+    }
+    return '';
+  }
+
+  // ── crop geometry: the on-screen box → video pixels (video is object-fit: cover) ──
+  function cropRect() {
+    var ew = video.clientWidth, eh = video.clientHeight, vw = video.videoWidth, vh = video.videoHeight;
+    if (!vw || !vh) return null;
+    var s = Math.max(ew / vw, eh / vh), offX = (vw * s - ew) / 2, offY = (vh * s - eh) / 2;
+    var b = box.getBoundingClientRect(), r = video.getBoundingClientRect();
+    return { x: (b.left - r.left + offX) / s, y: (b.top - r.top + offY) / s, w: b.width / s, h: b.height / s };
+  }
+  var bcCanvas = document.createElement('canvas'), ocrCanvas = document.createElement('canvas'), fullCanvas = document.createElement('canvas');
+  function drawCrop(c, targetW, gray) {
+    var r = cropRect(); if (!r) return false;
+    var sc = Math.min(1, targetW / r.w) * (gray ? 2 : 1);   // OCR gets a 2x upscale — Tesseract wants ~30px+ glyphs
+    c.width = Math.round(r.w * sc); c.height = Math.round(r.h * sc);
+    var ctx = c.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(video, r.x, r.y, r.w, r.h, 0, 0, c.width, c.height);
+    if (gray) {   // grayscale + contrast stretch
+      var im = ctx.getImageData(0, 0, c.width, c.height), d = im.data, lo = 255, hi = 0, i, l;
+      for (i = 0; i < d.length; i += 4) { l = (d[i] * 299 + d[i + 1] * 587 + d[i + 2] * 114) / 1000; d[i] = l; if (l < lo) lo = l; if (l > hi) hi = l; }
+      var span = Math.max(1, hi - lo);
+      for (i = 0; i < d.length; i += 4) { l = Math.round((d[i] - lo) * 255 / span); d[i] = d[i + 1] = d[i + 2] = l; }
+      ctx.putImageData(im, 0, 0);
+    }
+    return true;
+  }
+
+  // ── barcode (ZXing low-level, from a canvas) ──
+  var hints = new Map();
+  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [ZXing.BarcodeFormat.CODE_39, ZXing.BarcodeFormat.CODE_128,
+    ZXing.BarcodeFormat.DATA_MATRIX, ZXing.BarcodeFormat.QR_CODE, ZXing.BarcodeFormat.PDF_417]);
+  hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+  var reader = new ZXing.MultiFormatReader();
+  function decodeCanvas(c) {
+    try {
+      var src = new ZXing.HTMLCanvasElementLuminanceSource(c);
+      var bmp = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(src));
+      var res = reader.decode(bmp, hints);
+      return res && res.getText ? res.getText() : '';
+    } catch (e) { return ''; }
+  }
+  function barcodeTick() {
+    if (!running || locked) return;
+    bcTicks++;
+    var text = '';
+    if (bcTicks % 3 === 0) {   // every 3rd tick: the whole frame (a label may sit outside the box)
+      var vw = video.videoWidth, vh = video.videoHeight;
+      if (vw) { var sc = Math.min(1, 960 / vw); fullCanvas.width = Math.round(vw * sc); fullCanvas.height = Math.round(vh * sc);
+        fullCanvas.getContext('2d').drawImage(video, 0, 0, fullCanvas.width, fullCanvas.height); text = decodeCanvas(fullCanvas); }
+    } else if (drawCrop(bcCanvas, 1000, false)) text = decodeCanvas(bcCanvas);
+    if (text) { var v = findVin(text, false); if (v) { lock(v, 'barcode'); return; } }
+    $('hudR').textContent = 'bc ' + bcTicks + (ocrReady ? ' · ocr ' + ocrPasses + (lastOcrMs ? ' (' + (lastOcrMs / 1000).toFixed(1) + 's)' : '') : '');
+  }
+
+  // ── OCR (Tesseract.js worker, sequential passes on the framed strip) ──
+  function ensureOcr() {
+    if (ocrReady || ocrLoading || !$('optOcr').checked) return;
+    ocrLoading = true; $('pillOcr').textContent = 'OCR: loading…';
+    Tesseract.createWorker('eng', 1, { logger: function (m) {
+      if (m.status && m.progress != null && m.status !== 'recognizing text') $('pillOcr').textContent = 'OCR: ' + m.status + ' ' + Math.round(m.progress * 100) + '%';
+    } }).then(function (w) {
+      worker = w;
+      return w.setParameters({ tessedit_char_whitelist: 'ABCDEFGHJKLMNPRSTUVWXYZ0123456789', tessedit_pageseg_mode: $('optPsm').value, preserve_interword_spaces: '1' });
+    }).then(function () { ocrReady = true; ocrLoading = false; $('pillOcr').textContent = 'OCR: ready'; $('pillOcr').className = 'pill ok'; ocrLoop(); })
+      .catch(function (e) { ocrLoading = false; $('pillOcr').textContent = 'OCR failed: ' + (e && e.message || e); $('pillOcr').className = 'pill warn'; });
+  }
+  $('optPsm').addEventListener('change', function () { if (worker) worker.setParameters({ tessedit_pageseg_mode: $('optPsm').value }); });
+  function ocrLoop() {
+    if (!running || !ocrReady || !$('optOcr').checked) return;
+    if (locked || ocrBusy || !drawCrop(ocrCanvas, 900, true)) { setTimeout(ocrLoop, 150); return; }
+    ocrBusy = true; var t0 = Date.now();
+    worker.recognize(ocrCanvas).then(function (r) {
+      lastOcrMs = Date.now() - t0; ocrPasses++; ocrBusy = false;
+      var text = r && r.data ? r.data.text : '';
+      var v = findVin(text, true);
+      $('hudL').textContent = locked ? 'locked' : (text ? 'ocr: ' + text.replace(/\s+/g, ' ').trim().slice(0, 28) : 'scanning…');
+      if (v && !locked) lock(v, 'ocr');
+      setTimeout(ocrLoop, 30);
+    }).catch(function () { ocrBusy = false; setTimeout(ocrLoop, 300); });
+  }
+
+  // ── lock / resume ──
+  var actx = null;
+  function beep() {
+    try {
+      actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+      var o = actx.createOscillator(), g = actx.createGain();
+      o.frequency.value = 880; g.gain.value = .15; o.connect(g); g.connect(actx.destination);
+      o.start(); o.stop(actx.currentTime + .13);
+    } catch (e) {}
+    try { if (navigator.vibrate) navigator.vibrate(120); } catch (e2) {}
+  }
+  function lock(vin, method) {
+    if (locked) return;
+    var now = Date.now();
+    if (vin === lastVin && now - lastVinAt < 10000) return;   // same vehicle within 10 s — don't double-log
+    locked = true; vf.classList.add('locked'); lastVin = vin; lastVinAt = now;
+    var ms = now - startedAt, matched = !!inv[vin];
+    var thumb = ''; try { drawCrop(bcCanvas, 320, false); thumb = bcCanvas.toDataURL('image/jpeg', .6); } catch (e) {}
+    beep();
+    $('vin').textContent = vin; $('vin').className = 'vin';
+    $('chips').innerHTML = '<span class="chip ' + (method === 'barcode' ? 'bc' : 'ocr') + '">' + method + '</span>' +
+      '<span class="chip">' + (ms / 1000).toFixed(1) + ' s</span>' +
+      (invCount ? '<span class="chip ' + (matched ? 'ok' : 'bad') + '">' + (matched ? 'in inventory' : 'NOT in list') + '</span>' : '<span class="chip">check digit ok</span>') +
+      '<span class="chip">ocr passes ' + ocrPasses + '</span>';
+    $('hudL').textContent = 'locked';
+    log.unshift({ t: new Date().toISOString(), vin: vin, method: method, ms: ms, matched: matched, ocrPasses: ocrPasses, bcTicks: bcTicks, thumb: thumb });
+    saveLog(); renderLog(); renderStats();
+    $('btnNext').disabled = false;
+    if ($('optAuto').checked) setTimeout(function () { if (locked) resume(); }, 3000);
+  }
+  function resume() {
+    locked = false; vf.classList.remove('locked');
+    startedAt = Date.now(); bcTicks = 0; ocrPasses = 0;
+    $('hudL').textContent = 'scanning…'; $('btnNext').disabled = true;
+    ocrLoop();
+  }
+  $('btnNext').addEventListener('click', resume);
+
+  // ── camera ──
+  var bcTimer = null;
+  $('btnStart').addEventListener('click', function () {
+    if (running) { stop(); return; }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast('This browser has no camera API.'); return; }
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false })
+      .then(function (s) {
+        stream = s; track = s.getVideoTracks()[0]; video.srcObject = s;
+        return video.play();
+      }).then(function () {
+        running = true; $('idle').hidden = true; $('btnStart').textContent = 'Stop camera'; $('btnStart').className = '';
+        startedAt = Date.now(); $('hudL').textContent = 'scanning…';
+        bcTimer = setInterval(barcodeTick, 120);
+        setupCaps(); ensureOcr(); ocrLoop();
+      }).catch(function (e) {
+        toast('Camera failed: ' + (e && e.name ? e.name + ' — ' : '') + (e && e.message || e) + (e && e.name === 'NotAllowedError' ? ' (allow the camera in Settings › Safari, or the host blocked it)' : ''));
+      });
+  });
+  function stop() {
+    running = false; clearInterval(bcTimer);
+    if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
+    stream = null; track = null; video.srcObject = null;
+    $('idle').hidden = false; $('btnStart').textContent = 'Start camera'; $('btnStart').className = 'primary';
+    $('btnTorch').hidden = true; $('btnZoom').hidden = true; $('hudL').textContent = 'idle'; $('hudR').textContent = '';
+  }
+  var torchOn = false, zoomLevel = 1;
+  function setupCaps() {
+    var caps = {}; try { caps = track.getCapabilities ? track.getCapabilities() : {}; } catch (e) {}
+    if (caps.torch) { $('btnTorch').hidden = false; }
+    if (caps.zoom && caps.zoom.max > 1) { $('btnZoom').hidden = false; zoomLevel = 1; $('btnZoom').textContent = 'Zoom 1x'; }
+  }
+  $('btnTorch').addEventListener('click', function () {
+    torchOn = !torchOn;
+    track.applyConstraints({ advanced: [{ torch: torchOn }] }).then(function () { $('btnTorch').textContent = torchOn ? 'Torch on' : 'Torch'; })
+      .catch(function () { toast('Torch not supported here.'); $('btnTorch').hidden = true; });
+  });
+  $('btnZoom').addEventListener('click', function () {
+    var caps = track.getCapabilities(); zoomLevel = zoomLevel >= 2 ? 1 : 2;
+    var z = Math.min(zoomLevel, caps.zoom.max);
+    track.applyConstraints({ advanced: [{ zoom: z }] }).then(function () { $('btnZoom').textContent = 'Zoom ' + z + 'x'; })
+      .catch(function () { toast('Zoom not supported here.'); $('btnZoom').hidden = true; });
+  });
+  document.addEventListener('visibilitychange', function () { if (document.hidden && running) stop(); });   // iOS drops the stream anyway; keep state honest
+
+  // ── inventory list ──
+  function loadInv() {
+    var txt = ''; try { txt = localStorage.getItem('vsx_inv') || ''; } catch (e) {}
+    $('inv').value = txt; applyInv(txt);
+  }
+  function applyInv(txt) {
+    inv = {}; invCount = 0;
+    (String(txt).toUpperCase().match(/[A-HJ-NPR-Z0-9]{17}/g) || []).forEach(function (v) { if (validVin(v) && !inv[v]) { inv[v] = 1; invCount++; } });
+    $('pillMode').textContent = ($('pillMode').dataset.mode || 'browser tab') + (invCount ? ' · ' + invCount + ' VINs' : '');
+  }
+  $('btnSaveInv').addEventListener('click', function () {
+    var txt = $('inv').value; try { localStorage.setItem('vsx_inv', txt); } catch (e) {}
+    applyInv(txt); toast(invCount + ' valid VINs in the list.');
+  });
+
+  // ── log, stats, export ──
+  function saveLog() { try { localStorage.setItem('vsx_log', JSON.stringify(log.slice(0, 200))); } catch (e) {} }
+  function loadLog() { try { log = JSON.parse(localStorage.getItem('vsx_log') || '[]'); } catch (e) { log = []; } }
+  function renderLog() {
+    $('log').innerHTML = log.map(function (e) {
+      return '<div class="entry">' + (e.thumb ? '<img src="' + e.thumb + '" alt="">' : '<div></div>') +
+        '<div><div class="v">' + e.vin + '</div><div class="m">' + e.method + ' · ' + (e.ms / 1000).toFixed(1) + ' s · ' +
+        (e.matched ? 'in inventory' : 'check digit only') + ' · ' + new Date(e.t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '</div></div></div>';
+    }).join('');
+  }
+  function renderStats() {
+    var bc = 0, oc = 0, ms = [];
+    log.forEach(function (e) { if (e.method === 'barcode') bc++; else oc++; ms.push(e.ms); });
+    ms.sort(function (a, b) { return a - b; });
+    $('sLocks').textContent = log.length; $('sBc').textContent = bc; $('sOcr').textContent = oc;
+    $('sMed').textContent = ms.length ? (ms[Math.floor(ms.length / 2)] / 1000).toFixed(1) : '–';
+  }
+  $('btnExport').addEventListener('click', function () {
+    var csv = 'time,vin,method,seconds,matched,ocr_passes,barcode_ticks\n' + log.map(function (e) {
+      return [e.t, e.vin, e.method, (e.ms / 1000).toFixed(1), e.matched ? 'yes' : 'no', e.ocrPasses, e.bcTicks].join(',');
+    }).join('\n');
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(csv).then(function () { toast('Log copied — paste it into a message.'); }, function () { fallbackExport(csv); });
+    else fallbackExport(csv);
+  });
+  function fallbackExport(csv) { $('inv').value = csv; toast('Clipboard blocked — the CSV is in the text box; copy it from there.'); $('inv').focus(); }
+  $('btnClear').addEventListener('click', function () { if (confirm('Clear the scan log?')) { log = []; saveLog(); renderLog(); renderStats(); } });
+
+  var toastT = null;
+  function toast(msg) { var t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(function () { t.hidden = true; }, 4500); }
+
+  // ── boot: installed? storage kept across a force-close? ──
+  (function () {
+    var standalone = (navigator.standalone === true) || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+    $('pillMode').dataset.mode = standalone ? 'installed app' : 'browser tab';
+    $('pillMode').textContent = $('pillMode').dataset.mode;
+    if (standalone) $('pillMode').className = 'pill ok';
+    try {
+      var prev = localStorage.getItem('vsx_boot');
+      if (prev) { $('pillStore').textContent = 'storage kept since ' + new Date(Number(prev)).toLocaleDateString(); $('pillStore').className = 'pill ok'; }
+      else { localStorage.setItem('vsx_boot', String(Date.now())); $('pillStore').textContent = 'storage: first run — force-close and reopen to verify'; }
+    } catch (e) { $('pillStore').textContent = 'storage unavailable'; $('pillStore').className = 'pill warn'; }
+    loadInv(); loadLog(); renderLog(); renderStats();
+  })();
+})();
+</script>
+</body>
+</html>

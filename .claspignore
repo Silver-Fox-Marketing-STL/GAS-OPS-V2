@@ -34,3 +34,6 @@ lot-scan/**
 # pushed separately from inside eom-viewer/. Excluded here so its Code.gs / Viewer.html /
 # EomReportRenderer.html copy never collides with the main project (flat namespace).
 eom-viewer/**
+
+# Lot Scan PWA experiment (static GitHub Pages test page; never Apps Script source)
+lot-scan-pwa-experiment/**

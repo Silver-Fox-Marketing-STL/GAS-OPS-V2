@@ -51,6 +51,16 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   force-close — the in-page probe passes on session-scoped storage too).
 
 ### Added
+- **Lot Scan PWA experiment** (`lot-scan-pwa-experiment/`, static, served by
+  GitHub Pages from `main`; excluded from `clasp push`). Throwaway field test
+  answering two questions before any scanner rebuild: does a page on our own
+  origin keep storage across an iOS force-close when installed to the home
+  screen (the Apps Script sandbox frame does not), and how well does LIVE VIN
+  reading work on a lot — ZXing barcode + Tesseract.js OCR run together on a
+  framed strip of the viewfinder, a read accepted only when the check digit
+  passes and (with a pasted inventory list) matches the list. Logs method,
+  time-to-lock and a thumbnail per lock; CSV export. `.nojekyll` at the repo
+  root keeps Pages from Jekyll-processing the repo's markdown.
 - **Run Order: pending-commit warning.** Clicking Run Dealer also re-reads the
   dealer's finalized-but-uncommitted VIN-log run count (`getLatestOrderId` ->
   `pendingCount`, the same call behind the amber tag, which it refreshes). If
