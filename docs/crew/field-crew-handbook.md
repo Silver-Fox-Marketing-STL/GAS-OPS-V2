@@ -72,9 +72,13 @@ Photos = Saved on the stats card with Failed at 0.
   is the usual cause — walk toward the building and retry before finishing.
 - **A red "Sign-in session expired" bar appears at the top** (the chip error says
   "HTTP 401") → tapping retry ↻ will NOT work, no matter how good the signal is.
-  Tap **⟳ Reload** on that bar. The app signs back in, brings your open order back,
-  and uploads the waiting photos on its own. If nothing happens after a few
-  seconds, close the app completely and open it again — same result.
+  Tap **⟳ Reload** on that bar (or the **⟳** button in the top-right corner, which
+  is always there). The app signs back in, brings your open order back, and
+  uploads the waiting photos on its own. If nothing happens after a few seconds,
+  close the app completely and open it again — same result.
+- **Stats card on a resumed order** — Photos / Saved include the shots already
+  saved to that batch earlier ("includes N photos saved earlier"), so the numbers
+  describe the whole order, not just this session.
 - **Photos taken inside the app are NOT in your camera roll.** The app keeps its own
   copy on the phone until each photo shows **saved**. The header line under the
   title says **Photo backup: ON** when that safety net is working. If it says

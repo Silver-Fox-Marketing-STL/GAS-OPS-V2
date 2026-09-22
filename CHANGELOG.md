@@ -32,7 +32,13 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   with Resume (re-enters shooting on that batchId; blobs upload like fresh
   shots) and Discard (one IDB transaction). Covers localStorage-lost-but-IDB-
   intact, and "finish WITHOUT them" now PARKS the failed blobs instead of
-  deleting them. Cache TTL 7→14 days. Handbook updated.
+  deleting them. Cache TTL 7→14 days. Handbook updated. Follow-ups from the
+  first field test: the stats tiles now describe the WHOLE order — Photos/Saved
+  fold in rows already committed to a resumed/restored batch (`vpPriorSaved`,
+  from the drafts payload, minus this session's own commits so a mid-session
+  drafts refresh can't double-count) with an "includes N saved earlier" line;
+  and a permanent **⟳** header button reloads through the same path as the
+  banner, confirming first if any photo isn't yet backed up on the device.
 
 ### Added
 - **Run Order: pending-commit warning.** Clicking Run Dealer also re-reads the

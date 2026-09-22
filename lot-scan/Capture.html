@@ -50,6 +50,7 @@
        in the web-app sandbox). Same classes as the main app; lot-scan carries its
        OWN copy of the CSS (divergent SharedUtils — classes must exist locally). */
     .ls-theme { position: relative; flex: 0 0 auto; align-self: center; }
+    .ls-reload { flex: 0 0 auto; align-self: center; font-size: 18px; line-height: 1; padding: 6px 10px; }
     .theme-btn {
       display: flex; align-items: center; gap: 6px;
       background: var(--surface); color: var(--text-2);
@@ -226,6 +227,9 @@
     <div class="ls-head">
       <h1 class="ls-title">Lot Scan<?= ENV.name !== 'prod' ? ' (DEV)' : '' ?></h1>
       <span class="ls-sub">photograph a VIN &middot; dash, sticker, or tag</span>
+      <!-- always-on reload: same path as the session-expired banner's button, so a stale
+           session (or any stuck state) never needs a force-close. Guards mid-upload photos. -->
+      <button type="button" class="theme-btn ls-reload" onclick="vpReloadTap()" title="Reload app" aria-label="Reload app">&#8635;</button>
       <div class="ls-theme">
         <button type="button" id="themeBtn" class="theme-btn" aria-haspopup="listbox" aria-expanded="false">
           <span id="themeBtnLabel">Theme</span><span class="theme-caret">&#9662;</span>
@@ -650,6 +654,18 @@
     // navigation fails SILENTLY (console-only), so (2) if this page is still alive 1.5s
     // later, reload the sandbox frame itself; (3) if even that leaves us here, say how
     // to do it by hand. A successful attempt tears the page down, so later steps never run.
+    // Header ⟳: warn only when a reload could actually cost something — photos still in the
+    // pipeline whose IndexedDB write hasn't been acknowledged (or backup is OFF).
+    function vpReloadTap() {
+      var unsaved = vpQueue.filter(function (q) { return q.state !== 'saved'; });
+      var unkept = unsaved.filter(function (q) { return !q.persisted; }).length;
+      if (unkept) {
+        if (!confirm(unkept + ' photo' + (unkept === 1 ? ' is' : 's are') + ' NOT backed up on this phone yet and would be lost. Reload anyway?')) return;
+      } else if (unsaved.length) {
+        if (!confirm(unsaved.length + ' photo' + (unsaved.length === 1 ? '' : 's') + ' still uploading — saved on this phone, they re-upload after the reload. Reload now?')) return;
+      }
+      vpReloadApp();
+    }
     function vpReloadApp() {
       vpSaveOpenOrder();
       var target = vpAppUrl || '';
@@ -699,7 +715,7 @@
     // vpStartOrder (new batchId) and vpResumeOrder (an existing draft's batchId).
     function vpBeginShooting(dealerKey, dealerName, batchId, label, note) {
       vpOrder = { dealerKey: dealerKey, dealerName: dealerName, batchId: batchId };
-      vpQueue = []; vpPending = []; vpBuffer = [];
+      vpQueue = []; vpPending = []; vpBuffer = []; vpPriorSaved = 0;
       vpEng = { decoding: false, inFlight: 0, committing: false };
       vpFinishing = null;
       var sel = document.getElementById('lsDealer');
@@ -717,12 +733,18 @@
 
     // The stats tiles count THIS session's pipeline only. A resumed/restored batch whose earlier
     // photos already committed shows 0/0/0, which the crew reads as data loss. Say what's on the server.
+    var vpPriorSaved = 0;   // committed rows for the open batch from BEFORE this session (folded into the tiles)
     function vpUpdatePriorLine() {
       var el = document.getElementById('lsStatPrior');
       if (!el) return;
       var n = vpOrder && vpDraftMeta[vpOrder.batchId] ? (vpDraftMeta[vpOrder.batchId].count || 0) : 0;
-      el.hidden = !n;
-      el.innerHTML = n ? '&#10003; ' + n + ' photo' + (n === 1 ? '' : 's') + ' already saved to this batch (see Drafts) — the tiles count new shots only' : '';
+      // Photos saved THIS session also become draft rows, so a mid-session drafts refresh would
+      // double-count them — subtract what this pipeline has already committed.
+      var mine = vpQueue.filter(function (q) { return q.state === 'saved'; }).length;
+      vpPriorSaved = Math.max(0, n - mine);
+      el.hidden = !vpPriorSaved;
+      el.innerHTML = vpPriorSaved ? '&#10003; includes ' + vpPriorSaved + ' photo' + (vpPriorSaved === 1 ? '' : 's') + ' saved earlier in this batch (see Drafts)' : '';
+      vpUpdateCount();
     }
 
     function vpFinishOrder(send) {
@@ -787,7 +809,7 @@
 
     function vpEndOrder() {
       vpClearOpenOrder();
-      vpOrder = null; vpQueue = []; vpPending = []; vpBuffer = [];
+      vpOrder = null; vpQueue = []; vpPending = []; vpBuffer = []; vpPriorSaved = 0;
       vpEng = { decoding: false, inFlight: 0, committing: false };
       vpFinishing = null;
       document.getElementById('lsQueue').innerHTML = '';
@@ -1050,12 +1072,14 @@
       strip.innerHTML = html;
     }
 
+    // Tiles show the WHOLE order: this session's pipeline PLUS photos that already committed
+    // in an earlier session of the same batch (vpPriorSaved — from the drafts payload).
     function vpUpdateCount() {
       var total = vpQueue.length, saved = 0, failed = 0;
       vpQueue.forEach(function (q) { if (q.state === 'saved') saved++; else if (q.state === 'failed') failed++; });
       var pending = total - saved - failed;   // reading / uploading / saving
-      document.getElementById('lsStatTotal').textContent = total;
-      document.getElementById('lsStatSaved').textContent = saved;
+      document.getElementById('lsStatTotal').textContent = total + vpPriorSaved;
+      document.getElementById('lsStatSaved').textContent = saved + vpPriorSaved;
       document.getElementById('lsStatFailed').textContent = failed;
       document.getElementById('lsStatFailedTile').classList.toggle('bad', failed > 0);
       var busy = document.getElementById('lsStatBusy');
