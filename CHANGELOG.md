@@ -39,6 +39,16 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   drafts refresh can't double-count) with an "includes N saved earlier" line;
   and a permanent **⟳** header button reloads through the same path as the
   banner, confirming first if any photo isn't yet backed up on the device.
+  Second field-test finding: the cache stored the camera's `File` object, and
+  on iOS a capture is a temp file — Safari kept a REFERENCE, so after a reload
+  the record came back unreadable (decode failed → HEIC-converter fallback →
+  "heic convert failed"). The record now stores an `ArrayBuffer` read at pick
+  time (`vpReadBytes`; serialized by value), rebuilt into a Blob on restore;
+  legacy `blob` records are still read best-effort, and an empty cached copy
+  is reported ("came back EMPTY — re-shoot") instead of being fed to the
+  decoder. Header also gained a restart-survival marker + sandbox frame tag
+  (diagnostic for whether this device keeps sandbox-frame storage across a
+  force-close — the in-page probe passes on session-scoped storage too).
 
 ### Added
 - **Run Order: pending-commit warning.** Clicking Run Dealer also re-reads the

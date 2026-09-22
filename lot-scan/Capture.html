@@ -509,6 +509,25 @@
     }
     var VP_IDB_TTL = 14 * 864e5;   // cached photos older than this are swept (was 7d — a week-later retry must still work)
 
+    // CACHE BYTES, NOT THE File. An iOS camera capture is a temp file; storing the File
+    // object itself stored a REFERENCE that came back unreadable after a reload (decode
+    // failed → fell into the HEIC converter → "heic convert failed"). The record now holds
+    // an ArrayBuffer the structured clone serializes by value. Legacy `blob` records are
+    // still read (best effort) so an upgrade never strands anything.
+    function vpReadBytes(file, cb) {
+      try {
+        var fr = new FileReader();
+        fr.onload = function () { cb(fr.result && fr.result.byteLength ? fr.result : null); };
+        fr.onerror = function () { cb(null); };
+        fr.readAsArrayBuffer(file);
+      } catch (e) { cb(null); }
+    }
+    function vpRecHasBytes(r) { return !!(r && r.buf && r.buf.byteLength); }
+    function vpRecToFile(r) {
+      if (vpRecHasBytes(r)) return new Blob([r.buf], { type: r.type || 'image/jpeg' });
+      return r && r.blob ? r.blob : null;
+    }
+
     // Startup probe: write a 1-byte blob record, read it back, delete it. Sets vpBackupOk
     // and paints the header indicator. The only honest way to know whether THIS device
     // actually keeps photos across a reload — feature detection lies in sandboxed iframes.
@@ -516,14 +535,14 @@
       var done = false;
       function finish(ok) { if (done) return; done = true; vpBackupOk = !!ok; vpRenderWhoami(); if (!ok) toast('Photo backup is OFF on this device — keep the app open until every photo shows saved.', 'error'); }
       setTimeout(function () { finish(false); }, 8000);   // a hung IDB open counts as OFF
-      var probe = { pid: '__probe__', batchId: '__probe__', ts: Date.now(), blob: new Blob(['x']) };
+      var probe = { pid: '__probe__', batchId: '__probe__', ts: Date.now(), buf: new Uint8Array([1]).buffer };
       vpIdbPut(probe, function (ok) {
         if (!ok) { finish(false); return; }
         vpIdbOpen(function (db) {
           if (!db) { finish(false); return; }
           try {
             var req = db.transaction('photos').objectStore('photos').get('__probe__');
-            req.onsuccess = function () { var r = req.result; finish(!!(r && r.blob)); vpIdbDel('__probe__'); };
+            req.onsuccess = function () { var r = req.result; finish(!!(r && r.buf && r.buf.byteLength === 1)); vpIdbDel('__probe__'); };
             req.onerror = function () { finish(false); };
           } catch (e) { finish(false); }
         });
@@ -548,15 +567,20 @@
       vpIdbAll(function (recs) {
         recs.forEach(function (r) { if (r.pid !== '__probe__' && Date.now() - (r.ts || 0) > VP_IDB_TTL) vpIdbDel(r.pid); });
         var mine = recs.filter(function (r) {
-          return r.batchId === batchId && r.blob && Date.now() - (r.ts || 0) <= VP_IDB_TTL;
+          return r.batchId === batchId && Date.now() - (r.ts || 0) <= VP_IDB_TTL && (vpRecHasBytes(r) || r.blob);
         });
         if (!mine.length || !vpOrder || vpOrder.batchId !== batchId) return;
+        var empty = 0;
         mine.forEach(function (r) {
           for (var i = 0; i < vpQueue.length; i++) if (vpQueue[i].pid === r.pid) return;   // already in the pipeline (late second restore)
-          var item = { id: vpQNextId++, pid: r.pid, file: r.blob, state: 'reading', thumb: null, b64: null, vin: '', fileId: '', url: '', error: '', persisted: true };
+          var file = vpRecToFile(r);
+          if (!file || !file.size) { empty++; vpIdbDel(r.pid); return; }   // a dead reference (pre-bytes record) — say so, don't feed the decoder
+          var item = { id: vpQNextId++, pid: r.pid, file: file, state: 'reading', thumb: null, b64: null, vin: '', fileId: '', url: '', error: '', persisted: true };
           vpQueue.push(item); vpPending.push(item);
         });
-        toast(mine.length + ' unsaved photo' + (mine.length === 1 ? '' : 's') + ' restored — saving…', 'info');
+        var n = mine.length - empty;
+        if (n) toast(n + ' unsaved photo' + (n === 1 ? '' : 's') + ' restored — saving…', 'info');
+        if (empty) toast(empty + ' cached photo' + (empty === 1 ? '' : 's') + ' came back EMPTY and could not be restored — re-shoot ' + (empty === 1 ? 'it' : 'them') + '.', 'error');
         vpRenderQueue(); vpUpdateCount(); vpDecodeNext();
       });
     }
@@ -572,7 +596,7 @@
       vpIdbAll(function (recs) {
         var groups = {}, order = [];
         recs.forEach(function (r) {
-          if (r.pid === '__probe__' || !r.blob || !r.batchId) return;
+          if (r.pid === '__probe__' || !r.batchId || !(vpRecHasBytes(r) || r.blob)) return;
           if (Date.now() - (r.ts || 0) > VP_IDB_TTL) return;
           if (vpOrder && vpOrder.batchId === r.batchId) return;   // the open order restores its own
           if (!groups[r.batchId]) { groups[r.batchId] = []; order.push(r.batchId); }
@@ -893,9 +917,14 @@
         var item = { id: vpQNextId++, pid: pid, file: file, state: 'reading', thumb: null, b64: null, vin: '', fileId: '', url: '', error: '', persisted: false };
         vpQueue.push(item);
         // The only copy until 'saved'. dealerKey/Name ride along so the local-drafts list can
-        // resume this batch even if localStorage (the order context) is gone.
-        vpIdbPut({ pid: pid, batchId: vpOrder.batchId, dealerKey: vpOrder.dealerKey, dealerName: vpOrder.dealerName, ts: Date.now(), blob: file },
-                 function (ok) { item.persisted = ok; });
+        // resume this batch even if localStorage (the order context) is gone. Bytes, not File.
+        var rec = { pid: pid, batchId: vpOrder.batchId, dealerKey: vpOrder.dealerKey, dealerName: vpOrder.dealerName,
+                    ts: Date.now(), type: file.type || 'image/jpeg', name: file.name || '' };
+        vpReadBytes(file, function (buf) {
+          if (!buf) { item.persisted = false; return; }
+          rec.buf = buf;
+          vpIdbPut(rec, function (ok) { item.persisted = ok; });
+        });
       });
       vpPending = vpPending.concat(vpQueue.slice(-files.length));
       vpRenderQueue(); vpUpdateCount();
