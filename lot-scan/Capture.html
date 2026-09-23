@@ -111,6 +111,12 @@
     .ls-stat.bad .n { color: var(--danger); }
     .ls-stats-busy { margin-top: var(--space-2); font-size: var(--fs-hint); color: var(--warning); }
     .ls-stats-busy[hidden] { display: none; }
+    /* "Safe to close" — the one line that says whether closing the app right now loses anything.
+       Force-close wipes sandbox storage, so unsaved = at risk; this makes that visible, not remembered. */
+    .ls-stats-safe { margin-top: var(--space-2); padding: 8px 10px; border-radius: var(--radius-sm); font-size: var(--fs-sm); font-weight: 700; }
+    .ls-stats-safe.ok { background: var(--success-weak, var(--surface-2)); color: var(--success); }
+    .ls-stats-safe.warn { background: var(--warning-weak); color: var(--warning); }
+    .ls-stats-safe.bad { background: var(--danger-weak); color: var(--danger); }
 
     /* unsent drafts on the idle screen (phone — the wide layout's drafts panel covers this) */
     .ls-idle-drafts { margin-top: var(--space-5); }
@@ -303,6 +309,7 @@
             <div class="ls-stat" id="lsStatFailedTile"><span class="n" id="lsStatFailed">0</span><span class="l">Failed</span></div>
           </div>
           <div class="ls-stats-busy" id="lsStatBusy" hidden></div>
+          <div class="ls-stats-safe ok" id="lsStatSafe">&#10003; All saved &mdash; safe to close</div>
           <!-- photos that reached the sheet BEFORE this session (a resumed/restored batch) — the
                tiles above only count this session's pipeline, which read as "lost" in the field -->
           <div class="ls-hint" id="lsStatPrior" hidden></div>
@@ -416,27 +423,12 @@
       var bk = vpBackupOk === null ? '' :
         (vpBackupOk ? ' &middot; <span class="bk-on">Photo backup: ON</span>'
                     : ' &middot; <span class="bk-off">Photo backup: OFF — keep this page open until every photo is saved</span>');
-      // Restart survival is the REAL question (an in-page probe passes on session-scoped
-      // storage too). A boot marker written on first load must still be there next time.
-      var sv = vpBootSurvived === true ? '<span class="bk-on">survived restart ✓</span>'
-             : vpBootSurvived === false ? '<span class="bk-off">restart check: not yet verified — force-close, reopen, look here again</span>'
-             : '';
-      var frame = '';
-      try { frame = (location.host || '').split('.')[0].slice(0, 10); } catch (e) {}
-      who.innerHTML = 'Signed in as ' + escHtml(vpWhoEmail) + bk + (sv ? ' &middot; ' + sv : '') +
-        (frame ? ' &middot; <span title="sandbox frame origin — must be identical across restarts">frame ' + escHtml(frame) + '</span>' : '');
+      // (The 2026-09-22 restart-survival marker + sandbox frame tag were diagnostics only;
+      // verdict recorded: sandbox-frame storage is session-scoped on iOS — removed.)
+      who.innerHTML = 'Signed in as ' + escHtml(vpWhoEmail) + bk;
       who.hidden = false;
     }
-    // Boot marker: null = storage unavailable, false = first time this marker was written
-    // this boot (nothing to compare against — or storage was wiped), true = found from a prior boot.
-    var vpBootSurvived = null;
-    (function () {
-      try {
-        var prev = localStorage.getItem('vpBootMarker');
-        if (prev) { vpBootSurvived = true; }
-        else { localStorage.setItem('vpBootMarker', String(Date.now())); vpBootSurvived = false; }
-      } catch (e) { vpBootSurvived = null; }
-    })();
+    try { localStorage.removeItem('vpBootMarker'); } catch (e) {}   // sweep the retired diagnostic's key
 
     function vpDealerChange() {
       vpDealerKey = document.getElementById('lsDealer').value || '';
@@ -1132,6 +1124,13 @@
       var busy = document.getElementById('lsStatBusy');
       busy.hidden = pending === 0;
       busy.textContent = pending ? (pending + ' in progress…') : '';
+      // Safe-to-close: green only when nothing is in flight AND nothing failed.
+      var safe = document.getElementById('lsStatSafe');
+      if (safe) {
+        if (pending) { safe.className = 'ls-stats-safe warn'; safe.textContent = '⏳ Keep the app open — ' + pending + ' still uploading'; }
+        else if (failed) { safe.className = 'ls-stats-safe bad'; safe.textContent = '✕ Don\'t close — ' + failed + ' failed (tap retry ↻' + (vpSessionDead ? ', or Reload' : '') + ')'; }
+        else { safe.className = 'ls-stats-safe ok'; safe.textContent = '✓ All saved — safe to close'; }
+      }
     }
 
     // Draw the already-decoded <img> onto a small (64x64, cover-cropped) canvas — never
