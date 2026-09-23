@@ -158,6 +158,14 @@
                             at the old 190px the card scrolled internally (bottom cut off). */
                          height: 235px;
                          overflow-x: auto; overflow-y: hidden; }
+    /* Empty-state placeholder — the fixed-height zone read as a blank before
+       a dealer is picked (Sep 23 audit). CSS-only: every card in the zone is
+       shown via inline `display: flex`, so "no child carries it" == empty.
+       Dashed outline + a faint caption, centered by margin:auto in the flex row. */
+    #view-run .rv-flow:not(:has(> [style*="display: flex"])) { border: 1px dashed var(--border-2); border-radius: var(--radius-sm); }
+    #view-run .rv-flow:not(:has(> [style*="display: flex"]))::before {
+      content: "Inventory stats, run progress and finalize cards appear here";
+      margin: auto; font-size: var(--fs-sm); color: var(--text-muted); text-align: center; padding: 0 var(--space-3); }
     #view-run .rv-topbar-actions { flex-shrink: 0; display: flex; flex-direction: column; gap: var(--space-2); padding-top: 18px; }
     #view-run .rv-topbar-actions button { width: 100%; white-space: nowrap; }
     #view-run .rv-body { display: grid; grid-template-columns: var(--rv-vin-w) 1fr;

@@ -70,7 +70,13 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   Encarta's `.btn-secondary` sits on the face gray so its bevel shows (on
   white the light edges vanished — the buttons read flat), and its CAO
   toggle no longer becomes a full-width sunken box; Import's inventory
-  snapshot cells use 9px side padding so the last column fits at 1440.
+  snapshot cells use 9px side padding, a two-line last header and a 170px
+  location column so the table fits its box at 1440; Run Order's fixed-
+  height flow zone shows a dashed outline + "Inventory stats, run progress
+  and finalize cards appear here" while empty (CSS-only, via `:has()` on
+  the cards' inline `display: flex`) instead of a 235px blank. Not changed:
+  Encarta's "1 PENDING" tag wrapping under the recent-order label — a plain
+  line wrap in the wider XP font, still readable.
 - **Stack Cleanup: table header was invisible in every non-Encarta theme**
   (Sep 23, 2026 screenshot audit). `#view-stack-cleanup .table-u thead th`
   overrode the shared inverted header's background to `var(--surface-2)` but
