@@ -46,9 +46,8 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   time (`vpReadBytes`; serialized by value), rebuilt into a Blob on restore;
   legacy `blob` records are still read best-effort, and an empty cached copy
   is reported ("came back EMPTY — re-shoot") instead of being fed to the
-  decoder. Header also gained a restart-survival marker + sandbox frame tag
-  (diagnostic for whether this device keeps sandbox-frame storage across a
-  force-close — the in-page probe passes on session-scoped storage too).
+  decoder. A temporary restart-survival marker + sandbox frame tag in the
+  header answered the storage question (below) and was removed before merge.
   Field-test verdict: sandbox-frame storage IS session-scoped on the iOS
   home-screen app (force-close wipes it; in-app reload keeps it), so the
   reload path is the recovery and force-close is the one thing to avoid. A
