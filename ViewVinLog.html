@@ -465,6 +465,13 @@
     // Dealer list comes from the shared AppData bootstrap (one server call per
     // session instead of a second getActiveDealersForUI execution).
     function initVinlogView() {
+      // Listeners FIRST: AppData.get fires synchronously once the App's
+      // prefetch has landed (always, by the time you leave Home), and the
+      // callback dispatches the initial All-Dealers 'change' — registering the
+      // listener afterwards left the runs list empty on first visit
+      // (Sep 2026 screenshot audit).
+      registerVinlogListeners();
+
       AppData.get(function(data, err) {
         if (!data) {
           document.getElementById('vinlogDealerSelect').innerHTML = '<option value="">Error loading dealers</option>';
@@ -487,8 +494,6 @@
           sel.dispatchEvent(new Event('change'));   // initial All-Dealers load
         }
       });
-
-      registerVinlogListeners();
     }
 
     window.VIEW_INITS = window.VIEW_INITS || {};

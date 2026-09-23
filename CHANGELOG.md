@@ -11,6 +11,32 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Fixed
+- **Stack Cleanup: table header was invisible in every non-Encarta theme**
+  (Sep 23, 2026 screenshot audit). `#view-stack-cleanup .table-u thead th`
+  overrode the shared inverted header's background to `var(--surface-2)` but
+  inherited its `color: var(--bg)` — light text on a light surface. Now also
+  sets `color: var(--text-2)`.
+- **CSV Schemas: the add bar and edit bar rendered at the same time**
+  (Sep 23, 2026 screenshot audit). `#view-csvschemas .add-bar { display:
+  flex }` out-specified the UA `[hidden]` rule, so list mode showed a stray
+  empty "Schema key / Add Column / Cancel / Save" bar and the editor showed
+  a stray "New schema key / + Create" bar above it. Added
+  `.add-bar[hidden] { display: none }`.
+- **VIN Logs: the "All Dealers" runs list was empty on first visit**
+  (Sep 23, 2026 screenshot audit). `initVinlogView` registered the dealer-
+  select change listener AFTER `AppData.get`'s callback — which fires
+  synchronously once the App's prefetch has landed and dispatches the
+  initial change event — so the listener meant to populate the table wasn't
+  registered in time to catch it. Registration now happens first.
+- **Windows XP (Luna) theme: primary buttons looked disabled; Home headings
+  were invisible on the desktop gradient** (Sep 23, 2026 screenshot audit).
+  `:root[data-theme="luna"] button`'s gradient rule (specificity 0,1,1)
+  out-specified `.btn-primary` (0,1,0), so "Run Dealer," "Run anyway," "+
+  Add," "Save," and "Save Settings" all rendered white text on a cream
+  gradient — i.e. looked disabled. The gradient now excludes `.btn-primary`,
+  which gets its own XP-blue bevel instead. Home's "System Stats" / "Dealer
+  Focus" headings (`.home-hud-title`) were accent-blue on the same-hue blue
+  desktop background and are now white.
 - **Lot Scanner: "Upload failed: HTTP 401" is now recoverable without losing
   photos** (needs a lot-scan deploy). The 401 is `google.script.run` rejecting
   the page's own sign-in credential, so the retry chip (which re-sends through
@@ -56,6 +82,13 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   uploading", red "Don't close — N failed (tap retry ↻ / Reload)".
 
 ### Added
+- **Full-app screenshot harness**
+  (`.claude/skills/ui-screenshot-repro/full-app/`, born from the Sep 23, 2026
+  UI audit above). Renders the real `App.html` + every view fragment with
+  `google.script.run` replaced by a fixture-backed mock, drives 40 scripted
+  scenarios (`harness.js`), and screenshots every theme × scenario
+  combination via puppeteer-core (`shoot.js`) — the tool that caught the
+  four fixes above. See the directory's README for usage.
 - **Lot Scan PWA experiment** (`lot-scan-pwa-experiment/`, static, served by
   GitHub Pages from `main`; excluded from `clasp push`). Throwaway field test
   answering two questions before any scanner rebuild: does a page on our own

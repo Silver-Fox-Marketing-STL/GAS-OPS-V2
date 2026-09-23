@@ -103,6 +103,24 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   (`#homeDraftsChip[hidden]` / `.rv-drafts-band[hidden]`). Rule of thumb: if you
   set `display` on a class AND ever set its `hidden` attribute, you owe it a
   `[hidden]` override.
+- **View-scoped CSS keeps outranking shared/UA rules on specificity — the
+  same trap wears three costumes.** All three caught together in a Sep 23,
+  2026 8-theme screenshot audit: (1) `#view-csvschemas .add-bar { display:
+  flex }` beat the UA `[hidden]` rule — the exact family above (a
+  display-setting component class defeats `[hidden]`), just hit on a new
+  component; the fix is the same idiom, `.add-bar[hidden] { display:none }`.
+  (2) A THEME-level rule, `:root[data-theme="luna"] button` (an attribute
+  selector + a bare tag), out-specified the component class `.btn-primary`
+  (a single class) and repainted every primary button with the theme's
+  default chrome — count actual selector parts (id,class,tag), don't
+  eyeball "generic tag vs named class" as automatically losing; a
+  theme-root rule with an attribute selector can still out-rank a
+  single-class component rule. (3) `#view-stack-cleanup .table-u thead th`
+  overrode only the shared inverted header's `background`, leaving
+  `color: var(--bg)` inherited from the base `.table-u th` rule — light
+  text on a light surface. CSS cascades PER PROPERTY, not per rule: a view
+  that repaints one property of a shared component owes itself an audit of
+  every property the shared rule set, not just the one it meant to change.
 - **The HtmlService SPA parses ALL view fragments into ONE shared global JS
   scope.** Every `<?!= include_('ViewXxx') ?>` fragment's `<script>` is concatenated
   into the same window, so a duplicate **top-level** `function name()` in two

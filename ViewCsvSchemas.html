@@ -119,6 +119,10 @@
     border-bottom: 1px solid var(--border);
     background: var(--surface);
   }
+  /* csRender() toggles [hidden] on #csAddBar / #csEditBar; the display:flex
+     above out-specifies the UA [hidden] rule, so without this both bars
+     rendered at once (Sep 2026 screenshot audit). */
+  #view-csvschemas .add-bar[hidden] { display: none; }
   #view-csvschemas .add-field { display: flex; flex-direction: column; gap: 3px; }
   #view-csvschemas .add-field-key  { flex: 1; }
   #view-csvschemas .add-field-desc { flex: 2; }
