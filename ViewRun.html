@@ -100,7 +100,10 @@
       </div>
 
       <div class="rv-tablezone">
-        <div class="rv-zone-label">Inventory match</div>
+        <div class="rv-zone-label rv-zone-label-row">
+          <span>Inventory match</span>
+          <button type="button" id="rvDedupeBtn" class="btn-danger" style="display:none" onclick="rvRemoveDuplicates()">Remove Duplicates</button>
+        </div>
         <div class="rv-table-scroll">
           <table id="vinDataTable" class="table-u">
             <thead>
@@ -108,7 +111,7 @@
                 <th>Year</th><th>Make</th><th>Model</th><th>Type</th>
                 <th>Stock</th><th>VIN</th><th>Status</th><th>Link</th>
                 <th id="rvFeatHead" style="display:none">Features</th>
-                <th id="rvXHead"><button type="button" id="rvDedupeBtn" class="btn-danger" style="display:none" onclick="rvRemoveDuplicates()">Remove Duplicates</button></th>
+                <th id="rvXHead"></th>
               </tr>
             </thead>
             <tbody id="vinDataBody">
@@ -162,32 +165,24 @@
     #view-run .rv-vinzone { grid-area: vin; display: flex; flex-direction: column; min-height: 0; }
     #view-run .rv-tablezone { grid-area: table; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
     #view-run .rv-zone-label { font-size: var(--fs-overline); text-transform: uppercase; letter-spacing: .04em; color: var(--text-3); margin-bottom: var(--space-2); }
-    /* Dedicated right-edge control gutter: the Remove Duplicates "cap" lives
-       INSIDE the last header cell, directly over the ✕ column — the column
-       auto-widens to fit it, so it can never cover a data column, and it
-       scrolls WITH the table (no absolute positioning, no height math). The
-       scroll container's rounded-corner clip rounds the cap's top corner. */
-    /* width:0 = shrink-to-content hint so this column never hoards the table's
-       slack width (auto layout hands extra space to wide-content columns);
-       overflow:hidden is the "mask" — it clips the oversized button below. */
+    /* The label row also carries the Remove Duplicates button (right-aligned,
+       directly above the ✕ column). It used to live INSIDE the ✕ header cell
+       as a "cap", which auto-widened that column to the button's width — fine
+       while the column scrolled with the table, but once the column is pinned
+       (below) that width became an opaque strip hiding a whole data column at
+       rest. Up here it covers nothing and needs no height math. min-height
+       keeps the row the same height whether or not the button is showing. */
+    /* 18px row + 4px margin = the plain label's 14px line + 8px margin, so the
+       table header still lines up with the VIN box's top edge. */
+    #view-run .rv-zone-label-row { display: flex; align-items: center; justify-content: space-between; min-height: 18px; margin-bottom: 4px; }
+    #view-run #rvDedupeBtn { padding: 1px 10px !important; font-size: 11px; line-height: 14px; white-space: nowrap; }  /* base .btn-danger padding is !important */
     /* PINNED right edge: sticky on BOTH axes (top from .table-u th, right here)
-       so the cap + the per-row ✕ stay reachable when Features / editable
-       columns push the table wider than its box — the wide table scrolls
-       UNDER this column instead of carrying it off-screen. z-index 2 beats the
-       other sticky headers (z 1) that slide beneath it. */
-    #view-run #vinDataTable th#rvXHead { padding: 0; width: 0; overflow: hidden; right: 0; z-index: 2; }
-    /* The header-edge "mask" look: the button paints TALLER than the header row
-       (big vertical padding) while negative vertical margins cancel the extra
-       layout height, and the cell's overflow:hidden cuts it flush at the bar's
-       top/bottom edges — no header background can peek regardless of theme
-       fonts. A block BUTTON still shrinks to fit-content (unlike a div) —
-       margin-left:auto pins it against the cell's RIGHT edge; right side is
-       cut square (no right border), the container's corner clip finishes the
-       top-right curve, left corners keep the button radius. */
-    #view-run #rvDedupeBtn { display: block; margin: -8px 0 -8px auto; white-space: nowrap;
-                             padding: 15px 8px !important; font-size: 11px; line-height: 12px;
-                             border-right: 0;
-                             border-radius: var(--radius-sm) 0 0 var(--radius-sm); }  /* base .btn-danger padding is !important */
+       so the per-row ✕ stays reachable when Features / editable columns push
+       the table wider than its box — the wide table scrolls UNDER this column
+       instead of carrying it off-screen. z-index 2 beats the other sticky
+       headers (z 1) that slide beneath it. width:0 = shrink-to-content hint so
+       the column never hoards the table's slack width. */
+    #view-run #vinDataTable th#rvXHead { padding: 0; width: 0; right: 0; z-index: 2; }
     /* Per-row remove — compact table control, view-scoped like the other views' X buttons */
     #view-run #vinDataTable td.rv-x-cell { text-align: right; padding-top: 0; padding-bottom: 0; position: sticky; right: 0; }
     /* A pinned cell needs an OPAQUE background or scrolled cells show through.
