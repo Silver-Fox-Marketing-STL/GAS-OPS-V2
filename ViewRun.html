@@ -358,6 +358,8 @@
                             background: none; border: 0; padding: 0; font: inherit; cursor: pointer;
                             color: var(--accent); }
     #view-run .rej-toggle:hover span:first-child { text-decoration: underline; }
+    /* The caret at 10.5px inherited size read as a stray "-" (Sep 23 audit). */
+    #view-run .rej-toggle span:last-child { font-size: 13px; line-height: 1; opacity: .75; }
     /* Breakdown popover — top layer (never clipped by the card/band, zero
        layout shift); anchored under the toggle by rvPositionRejPop. */
     #view-run .rej-pop { position: fixed; inset: auto; margin: 0;

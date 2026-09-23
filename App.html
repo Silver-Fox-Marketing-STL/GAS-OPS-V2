@@ -395,6 +395,13 @@
     /* Toggle switches → squared, beveled Win95 sliders. */
     :root[data-theme="encarta"] .toggle-slider { border: 2px inset #dfdfdf !important; }
     :root[data-theme="encarta"] .toggle-slider:before { border: 2px outset #dfdfdf !important; background: var(--surface) !important; }
+    /* Secondary buttons sit on the face gray, not white: on a white face the
+       bevel's light edges vanish and the button reads flat (Sep 23 audit). */
+    :root[data-theme="encarta"] .btn-secondary { background: var(--surface); color: var(--text); }
+    :root[data-theme="encarta"] .btn-secondary:hover:not(:disabled) { background: var(--surface-2); }
+    /* The CAO card's "Filtered out (n) ▾" toggle is a button dressed as a
+       text row — no bevel, or it becomes a full-width sunken box. */
+    :root[data-theme="encarta"] #view-run .rej-toggle { border: 0 !important; }
     /* Every unified table header goes flat gray — Win95 has no sticky inverted headers. */
     :root[data-theme="encarta"] .table-u th { background: var(--surface) !important; color: var(--text) !important; position: static; }
     /* Encarta — Run Order table as a Win95 panel (the old right rail is retired;

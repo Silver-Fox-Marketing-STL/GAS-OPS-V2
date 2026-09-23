@@ -210,6 +210,12 @@
     grid-template-columns: repeat(auto-fill, minmax(130px, 170px));   /* content-width tiles that wrap at narrow widths */
     gap: 10px;
   }
+  /* Fixed-count stat groups fill their row instead of orphaning a tile:
+     THIS WEEK's 4 tiles share the width (4-up from ~520px, 2×2 below — at
+     1440 the 170px cap left "21 DUPLICATES" alone on row 2); ALL TIME's 6
+     always sit 3×2. TODAY keeps the content-width grid (dealer cards). */
+  #view-home #homeWeek { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+  #view-home #homeAllTime { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   #view-home .home-tile {
     background: var(--surface-2);
     border: 1px solid var(--border);
