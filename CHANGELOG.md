@@ -10,7 +10,99 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## [Unreleased]
 
+### Changed
+- **Dark-family themes: table headers are a surface tint instead of an
+  inverted near-white bar** (Sep 23, 2026 screenshot audit). The shared
+  `.table-u th` recipe now reads two new tokens, `--th-bg` / `--th-fg`. The
+  base `:root` keeps the inverted bar (`var(--text)` on `var(--bg)`) so every
+  light theme is pixel-identical; Dark and Gruvbox override to `--surface-2`
+  + `--text-2`, Midnight HC to `--surface-3` + `--text` (full contrast).
+  Encarta's own `!important` header override and Stack Cleanup's surface
+  header are untouched; Import's inventory-snapshot header, which re-declares
+  the canonical recipe to beat the view's own th dialect, now reads the
+  tokens too so it follows the theme like every other table.
+
+- **Native browser controls restyled to the theme** (Sep 23, 2026 screenshot
+  audit — most visible as white chips in the dark themes). New shared
+  `.file-pick` recipe (SharedUtils): a label wrapping a visually-hidden
+  `<input type=file>`, a `.btn-secondary` span and a filename readout the
+  view fills — used by Import ("Choose CSV files…" + names / count) and Data
+  Sources ("Choose CSV…" + name; disabled state and reset paths honored).
+  Dealer Rules: the product-table UTM inputs (which had no rule at all), the
+  targeting-tree value inputs, price / seasoning / org-search / deal-field
+  inputs all get explicit `var(--bg)` / `var(--text)`; the AND/OR joiner
+  select drops the native arrow (`appearance: none`) for a currentColor
+  chevron that tints with its state. VIN Logs' Show VINs / ✕ row buttons
+  take the shared button grammar (body font, bold, `--radius-sm`).
+
 ### Fixed
+- **Run Order: the match table's ✕ column and "Remove Duplicates" cap slid
+  off-screen when Features / editable columns were present** (Sep 23, 2026
+  screenshot audit, highest-impact finding; overflowed at 1440 AND 1920).
+  The ✕ column is now pinned to the scroll box's right edge (`position:
+  sticky; right: 0`, on top of the existing sticky-top header) so the wide
+  table scrolls UNDER it. The pinned cells keep an opaque `var(--bg)` base
+  and re-apply their row tint as a `background-image` layer — the dark
+  themes' weak tints are translucent rgba and would otherwise let scrolled
+  cells bleed through. A left shadow (`.rv-more-right`, toggled by
+  `rvUpdateScrollCue()` on scroll / resize / render) shows only while
+  columns are hidden under the pinned edge — the horizontal-scroll cue the
+  audit found missing. Input columns' floor drops from 16rem to 12rem.
+  The "Remove Duplicates" button moved OUT of the ✕ header cell into the
+  "Inventory match" label row (right-aligned, directly above the column):
+  as an in-header "cap" it auto-widened the ✕ column to its own width,
+  which, once pinned, became an opaque strip hiding a whole data column at
+  rest (and in Encarta, whose headers are static, the cap scrolled away
+  while the ✕ cells stayed). The header-mask CSS (negative margins +
+  `overflow: hidden`) went with it; the pinned column is now ✕-wide.
+- **VIN Logs: the runs table was cramped in All-Dealers mode at 1440** (Sep
+  23, 2026 screenshot audit): the VINs cell showed "11 …" (the Show VINs
+  button ellipsized) and the SPLIT:* note badge collapsed to "S…" inside the
+  nowrap timestamp cell. Column budgets rebalanced in both modes
+  (per-dealer 32/20/22/18/8, all-dealers 21/24/12/21/15/7) and the billing-
+  split badge (`.vl-note-badge`, was inline styles) now sits on its own line
+  under the timestamp, so it never competes with the stamp for width. The
+  note text is now HTML-escaped on render.
+- **Smaller screenshot-audit items** (Sep 23, 2026): Home's THIS WEEK tiles
+  fill their row (4-up from ~520px; the 170px tile cap orphaned "21
+  DUPLICATES" on row 2 at 1440) and ALL TIME always sits 3×2; the CAO card's
+  "Filtered out (n)" caret is 13px instead of an inherited 10.5px "-";
+  Encarta's `.btn-secondary` sits on the face gray so its bevel shows (on
+  white the light edges vanished — the buttons read flat), and its CAO
+  toggle no longer becomes a full-width sunken box; Import's inventory
+  snapshot cells use 9px side padding, a two-line last header and a 170px
+  location column so the table fits its box at 1440; Run Order's fixed-
+  height flow zone shows a dashed outline + "Inventory stats, run progress
+  and finalize cards appear here" while empty (CSS-only, via `:has()` on
+  the cards' inline `display: flex`) instead of a 235px blank. Not changed:
+  Encarta's "1 PENDING" tag wrapping under the recent-order label — a plain
+  line wrap in the wider XP font, still readable.
+- **Stack Cleanup: table header was invisible in every non-Encarta theme**
+  (Sep 23, 2026 screenshot audit). `#view-stack-cleanup .table-u thead th`
+  overrode the shared inverted header's background to `var(--surface-2)` but
+  inherited its `color: var(--bg)` — light text on a light surface. Now also
+  sets `color: var(--text-2)`.
+- **CSV Schemas: the add bar and edit bar rendered at the same time**
+  (Sep 23, 2026 screenshot audit). `#view-csvschemas .add-bar { display:
+  flex }` out-specified the UA `[hidden]` rule, so list mode showed a stray
+  empty "Schema key / Add Column / Cancel / Save" bar and the editor showed
+  a stray "New schema key / + Create" bar above it. Added
+  `.add-bar[hidden] { display: none }`.
+- **VIN Logs: the "All Dealers" runs list was empty on first visit**
+  (Sep 23, 2026 screenshot audit). `initVinlogView` registered the dealer-
+  select change listener AFTER `AppData.get`'s callback — which fires
+  synchronously once the App's prefetch has landed and dispatches the
+  initial change event — so the listener meant to populate the table wasn't
+  registered in time to catch it. Registration now happens first.
+- **Windows XP (Luna) theme: primary buttons looked disabled; Home headings
+  were invisible on the desktop gradient** (Sep 23, 2026 screenshot audit).
+  `:root[data-theme="luna"] button`'s gradient rule (specificity 0,1,1)
+  out-specified `.btn-primary` (0,1,0), so "Run Dealer," "Run anyway," "+
+  Add," "Save," and "Save Settings" all rendered white text on a cream
+  gradient — i.e. looked disabled. The gradient now excludes `.btn-primary`,
+  which gets its own XP-blue bevel instead. Home's "System Stats" / "Dealer
+  Focus" headings (`.home-hud-title`) were accent-blue on the same-hue blue
+  desktop background and are now white.
 - **Lot Scanner: "Upload failed: HTTP 401" is now recoverable without losing
   photos** (needs a lot-scan deploy). The 401 is `google.script.run` rejecting
   the page's own sign-in credential, so the retry chip (which re-sends through
@@ -56,6 +148,13 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   uploading", red "Don't close — N failed (tap retry ↻ / Reload)".
 
 ### Added
+- **Full-app screenshot harness**
+  (`.claude/skills/ui-screenshot-repro/full-app/`, born from the Sep 23, 2026
+  UI audit above). Renders the real `App.html` + every view fragment with
+  `google.script.run` replaced by a fixture-backed mock, drives 40 scripted
+  scenarios (`harness.js`), and screenshots every theme × scenario
+  combination via puppeteer-core (`shoot.js`) — the tool that caught the
+  four fixes above. See the directory's README for usage.
 - **Lot Scan PWA experiment** (`lot-scan-pwa-experiment/`, static, served by
   GitHub Pages from `main`; excluded from `clasp push`). Throwaway field test
   answering two questions before any scanner rebuild: does a page on our own

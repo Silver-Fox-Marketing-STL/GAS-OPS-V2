@@ -37,6 +37,11 @@
     /* borders */
     --border: #e7e1da;
     --border-2: #d9d3cd;
+    /* .table-u header bar. Light themes keep the inverted bar (near-black on
+       cream); the dark-family themes override to a surface tint — the
+       inverted bar there was a near-white band across a dark UI. */
+    --th-bg: var(--text);
+    --th-fg: var(--bg);
     /* accent — Coquelicot orange (brand primary) */
     --accent: #fd410d;
     --accent-hover: #d8350a;
@@ -110,6 +115,7 @@
     --text-muted: #6e6e74;
     --border: #3a3a40;
     --border-2: #4a4a51;
+    --th-bg: var(--surface-2); --th-fg: var(--text-2);   /* table header: tint, not inverted */
     /* darker orange for accent fills, lighter coral/mikado for highlights */
     --accent: #fd410d;          /* Coquelicot — primary accent */
     --accent-hover: #ff8f71;    /* Coral — lighter highlight on hover */
@@ -136,6 +142,7 @@
     --bg: #000000; --surface: #0a0a0a; --surface-2: #141414; --surface-3: #1c1c1c;
     --text: #ffffff; --text-2: #dcdcdc; --text-3: #b0b0b0; --text-muted: #8a8a8a;
     --border: #5e5e5e; --border-2: #6a6a6a;   /* HC: ≥3:1 on near-black surfaces */
+    --th-bg: var(--surface-3); --th-fg: var(--text);     /* table header: tint, not inverted (HC: full text) */
     --accent: #ff5a2c; --accent-hover: #ff8a64; --accent-active: #d8350a;
     --accent-weak: rgba(255,90,44,.18); --accent-weak-2: rgba(255,90,44,.30); --on-accent: #000000;
     --success: #34d058; --success-weak: rgba(52,208,88,.18);  --on-success: #00130a;
@@ -232,6 +239,7 @@
     --bg: #282828; --surface: #3c3836; --surface-2: #504945; --surface-3: #665c54;
     --text: #ebdbb2; --text-2: #d5c4a1; --text-3: #bdae93; --text-muted: #928374;
     --border: #504945; --border-2: #665c54;
+    --th-bg: var(--surface-2); --th-fg: var(--text-2);   /* table header: tint, not inverted */
     --accent: #fe8019; --accent-hover: #ff9b47; --accent-active: #d65d0e;
     --accent-weak: rgba(254,128,25,.16); --accent-weak-2: rgba(254,128,25,.26); --on-accent: #1d1407;
     --success: #b8bb26; --success-weak: rgba(184,187,38,.18); --on-success: #141600;
@@ -486,7 +494,21 @@
   .tag.tone-info    { background: var(--info-weak);    color: var(--info); }
   .tag.tone-neutral { background: var(--surface-3);    color: var(--text-2); }
 
-  /* Data table — one recipe: inverted sticky header, hairline dividers,
+  /* File picker — a native <input type=file> paints browser chrome ("Choose
+     Files | No file chosen") that no theme can restyle. Pattern: a <label>
+     wraps a visually-hidden input, a .btn-secondary span (clicking the label
+     opens the picker) and a readout span the view's change handler fills.
+     Keyboard focus lands on the hidden input; :has() forwards the ring. */
+  .file-pick { position: relative; display: inline-flex; align-items: center; gap: 10px; cursor: pointer; max-width: 100%; }
+  .file-pick input[type="file"] { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; clip: rect(0 0 0 0); pointer-events: none; }
+  .file-pick-btn { display: inline-block; }
+  .file-pick-name { font-size: var(--fs-sm); color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-pick:has(input:focus-visible) .file-pick-btn { box-shadow: var(--focus-ring); }
+  .file-pick:has(input:disabled) { cursor: default; }
+  .file-pick:has(input:disabled) .file-pick-btn { opacity: .5; background: var(--bg); border-color: var(--border-2); }
+
+  /* Data table — one recipe: sticky header bar (--th-bg/--th-fg: inverted in
+     light themes, a surface tint in the dark family), hairline dividers,
      tabular numerals, hover row. View-specific row states stay view-scoped. */
   .table-u {
     width: 100%; border-collapse: collapse;
@@ -494,7 +516,7 @@
   }
   .table-u th {
     position: sticky; top: 0; z-index: 1;
-    background: var(--text); color: var(--bg);
+    background: var(--th-bg); color: var(--th-fg);
     text-align: left; padding: 7px 12px;
     font-family: var(--font-head); font-size: 10px; font-weight: 700;
     text-transform: uppercase; letter-spacing: .1em;

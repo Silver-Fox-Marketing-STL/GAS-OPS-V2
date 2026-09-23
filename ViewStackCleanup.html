@@ -45,7 +45,11 @@
 
   #view-stack-cleanup #scTableWrap { flex: 1; min-height: 0; overflow-y: auto; }
   #view-stack-cleanup .table-u { width: 100%; max-width: 720px; }
-  #view-stack-cleanup .table-u thead th { position: sticky; top: 0; z-index: 1; background: var(--surface-2); }
+  /* Header on a surface tint — the shared .table-u th is the INVERTED header
+     (bg: var(--text), color: var(--bg)); overriding only the background left
+     bg-on-surface text = an invisible header in every non-Encarta theme
+     (Sep 2026 screenshot audit). Set the color too. */
+  #view-stack-cleanup .table-u thead th { position: sticky; top: 0; z-index: 1; background: var(--surface-2); color: var(--text-2); }
 
   /* the read-at-a-glance bit: VIN in mono, last 2 chars big and accent-marked */
   #view-stack-cleanup .sc-vin { font-family: var(--font-mono); white-space: nowrap; }

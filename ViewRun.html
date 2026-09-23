@@ -100,7 +100,10 @@
       </div>
 
       <div class="rv-tablezone">
-        <div class="rv-zone-label">Inventory match</div>
+        <div class="rv-zone-label rv-zone-label-row">
+          <span>Inventory match</span>
+          <button type="button" id="rvDedupeBtn" class="btn-danger" style="display:none" onclick="rvRemoveDuplicates()">Remove Duplicates</button>
+        </div>
         <div class="rv-table-scroll">
           <table id="vinDataTable" class="table-u">
             <thead>
@@ -108,7 +111,7 @@
                 <th>Year</th><th>Make</th><th>Model</th><th>Type</th>
                 <th>Stock</th><th>VIN</th><th>Status</th><th>Link</th>
                 <th id="rvFeatHead" style="display:none">Features</th>
-                <th id="rvXHead"><button type="button" id="rvDedupeBtn" class="btn-danger" style="display:none" onclick="rvRemoveDuplicates()">Remove Duplicates</button></th>
+                <th id="rvXHead"></th>
               </tr>
             </thead>
             <tbody id="vinDataBody">
@@ -155,6 +158,14 @@
                             at the old 190px the card scrolled internally (bottom cut off). */
                          height: 235px;
                          overflow-x: auto; overflow-y: hidden; }
+    /* Empty-state placeholder — the fixed-height zone read as a blank before
+       a dealer is picked (Sep 23 audit). CSS-only: every card in the zone is
+       shown via inline `display: flex`, so "no child carries it" == empty.
+       Dashed outline + a faint caption, centered by margin:auto in the flex row. */
+    #view-run .rv-flow:not(:has(> [style*="display: flex"])) { border: 1px dashed var(--border-2); border-radius: var(--radius-sm); }
+    #view-run .rv-flow:not(:has(> [style*="display: flex"]))::before {
+      content: "Inventory stats, run progress and finalize cards appear here";
+      margin: auto; font-size: var(--fs-sm); color: var(--text-muted); text-align: center; padding: 0 var(--space-3); }
     #view-run .rv-topbar-actions { flex-shrink: 0; display: flex; flex-direction: column; gap: var(--space-2); padding-top: 18px; }
     #view-run .rv-topbar-actions button { width: 100%; white-space: nowrap; }
     #view-run .rv-body { display: grid; grid-template-columns: var(--rv-vin-w) 1fr;
@@ -162,29 +173,41 @@
     #view-run .rv-vinzone { grid-area: vin; display: flex; flex-direction: column; min-height: 0; }
     #view-run .rv-tablezone { grid-area: table; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
     #view-run .rv-zone-label { font-size: var(--fs-overline); text-transform: uppercase; letter-spacing: .04em; color: var(--text-3); margin-bottom: var(--space-2); }
-    /* Dedicated right-edge control gutter: the Remove Duplicates "cap" lives
-       INSIDE the last header cell, directly over the ✕ column — the column
-       auto-widens to fit it, so it can never cover a data column, and it
-       scrolls WITH the table (no absolute positioning, no height math). The
-       scroll container's rounded-corner clip rounds the cap's top corner. */
-    /* width:0 = shrink-to-content hint so this column never hoards the table's
-       slack width (auto layout hands extra space to wide-content columns);
-       overflow:hidden is the "mask" — it clips the oversized button below. */
-    #view-run #vinDataTable th#rvXHead { padding: 0; width: 0; overflow: hidden; }
-    /* The header-edge "mask" look: the button paints TALLER than the header row
-       (big vertical padding) while negative vertical margins cancel the extra
-       layout height, and the cell's overflow:hidden cuts it flush at the bar's
-       top/bottom edges — no header background can peek regardless of theme
-       fonts. A block BUTTON still shrinks to fit-content (unlike a div) —
-       margin-left:auto pins it against the cell's RIGHT edge; right side is
-       cut square (no right border), the container's corner clip finishes the
-       top-right curve, left corners keep the button radius. */
-    #view-run #rvDedupeBtn { display: block; margin: -8px 0 -8px auto; white-space: nowrap;
-                             padding: 15px 8px !important; font-size: 11px; line-height: 12px;
-                             border-right: 0;
-                             border-radius: var(--radius-sm) 0 0 var(--radius-sm); }  /* base .btn-danger padding is !important */
+    /* The label row also carries the Remove Duplicates button (right-aligned,
+       directly above the ✕ column). It used to live INSIDE the ✕ header cell
+       as a "cap", which auto-widened that column to the button's width — fine
+       while the column scrolled with the table, but once the column is pinned
+       (below) that width became an opaque strip hiding a whole data column at
+       rest. Up here it covers nothing and needs no height math. min-height
+       keeps the row the same height whether or not the button is showing. */
+    /* 18px row + 4px margin = the plain label's 14px line + 8px margin, so the
+       table header still lines up with the VIN box's top edge. */
+    #view-run .rv-zone-label-row { display: flex; align-items: center; justify-content: space-between; min-height: 18px; margin-bottom: 4px; }
+    #view-run #rvDedupeBtn { padding: 1px 10px !important; font-size: 11px; line-height: 14px; white-space: nowrap; }  /* base .btn-danger padding is !important */
+    /* PINNED right edge: sticky on BOTH axes (top from .table-u th, right here)
+       so the per-row ✕ stays reachable when Features / editable columns push
+       the table wider than its box — the wide table scrolls UNDER this column
+       instead of carrying it off-screen. z-index 2 beats the other sticky
+       headers (z 1) that slide beneath it. width:0 = shrink-to-content hint so
+       the column never hoards the table's slack width. */
+    #view-run #vinDataTable th#rvXHead { padding: 0; width: 0; right: 0; z-index: 2; }
     /* Per-row remove — compact table control, view-scoped like the other views' X buttons */
-    #view-run #vinDataTable td.rv-x-cell { text-align: right; padding-top: 0; padding-bottom: 0; }
+    #view-run #vinDataTable td.rv-x-cell { text-align: right; padding-top: 0; padding-bottom: 0; position: sticky; right: 0; }
+    /* A pinned cell needs an OPAQUE background or scrolled cells show through.
+       The shared row tints (.row-dup / .row-warn / hover) are translucent rgba
+       in the dark themes, so the cell can't just take the tint: it keeps an
+       opaque var(--bg) base and re-applies the same tint as an image LAYER on
+       top — same look as its row, nothing bleeds through. (ID specificity
+       here beats the shared row-state rules, which is what we want.) */
+    #view-run #vinDataTable td.rv-x-cell { background-color: var(--bg); }
+    #view-run #vinDataTable tr.row-dup td.rv-x-cell,
+    #view-run #vinDataTable tr.row-danger td.rv-x-cell { background-image: linear-gradient(var(--danger-weak), var(--danger-weak)); }
+    #view-run #vinDataTable tr.row-warn td.rv-x-cell { background-image: linear-gradient(var(--warning-weak), var(--warning-weak)); }
+    #view-run #vinDataTable tbody tr:hover td.rv-x-cell { background-image: linear-gradient(var(--surface), var(--surface)); }
+    /* Horizontal-scroll cue: rvUpdateScrollCue() sets .rv-more-right on the
+       scroll box only while columns are hidden under the pinned edge. */
+    #view-run .rv-table-scroll.rv-more-right td.rv-x-cell,
+    #view-run .rv-table-scroll.rv-more-right th#rvXHead { box-shadow: -8px 0 8px -6px rgba(0,0,0,.35); }
     #view-run .rv-x { background: none; border: none; color: var(--text-3); cursor: pointer;
                       font-size: var(--fs-sm); line-height: 1; padding: 3px 6px; border-radius: var(--radius-sm); }
     #view-run .rv-x:hover { color: var(--danger); background: var(--danger-weak); }
@@ -215,7 +238,10 @@
     #view-run #vinDataTable td.rv-link a { color: var(--accent); text-decoration: none; font-size: var(--fs-sm); }
     #view-run #vinDataTable td.rv-link a:hover { text-decoration: underline; }
     /* Features + editable-column text inputs (VersaWorks dealers) */
-    #view-run #vinDataTable td.rv-feat { min-width: 16rem; }
+    /* 12rem (was 16rem): two input columns at 1440 already overflow — the ✕
+       column is pinned, so a narrower floor just means less to scroll. The
+       input scrolls its own text; the caret is never lost. */
+    #view-run #vinDataTable td.rv-feat { min-width: 12rem; }
     #view-run .rv-feat-input,
     #view-run .rv-edit-input {
       width: 100%; box-sizing: border-box;
@@ -340,6 +366,8 @@
                             background: none; border: 0; padding: 0; font: inherit; cursor: pointer;
                             color: var(--accent); }
     #view-run .rej-toggle:hover span:first-child { text-decoration: underline; }
+    /* The caret at 10.5px inherited size read as a stray "-" (Sep 23 audit). */
+    #view-run .rej-toggle span:last-child { font-size: 13px; line-height: 1; opacity: .75; }
     /* Breakdown popover — top layer (never clipped by the card/band, zero
        layout shift); anchored under the toggle by rvPositionRejPop. */
     #view-run .rej-pop { position: fixed; inset: auto; margin: 0;
@@ -684,6 +712,12 @@
       var t = e.target;
       if (t && t.classList && t.classList.contains('rv-x')) rvRemoveVin(t.getAttribute('data-vin'));
     });
+    // Horizontal-scroll cue on the match table (shadow under the pinned ✕
+    // column while columns are hidden to the right) — re-checked on scroll,
+    // on window resize, and after every render.
+    var rvScrollBox = document.querySelector('#view-run .rv-table-scroll');
+    if (rvScrollBox) rvScrollBox.addEventListener('scroll', rvUpdateScrollCue);
+    window.addEventListener('resize', rvUpdateScrollCue);
     document.getElementById('runDealerSelect').addEventListener('change', function() {
       // Switching dealers discards any un-finalized run results — confirm first.
       // The clean path stays SYNCHRONOUS (runPrefillFromInbox / rvResumeDraft
@@ -1878,6 +1912,15 @@
       return (seeds && seeds[code] != null) ? seeds[code] : '';
     }
 
+    // .rv-more-right = "there are columns hidden under the pinned ✕ edge".
+    // One px of tolerance absorbs fractional layout widths.
+    function rvUpdateScrollCue() {
+      var box = document.querySelector('#view-run .rv-table-scroll');
+      if (!box) return;
+      var more = box.scrollWidth - box.clientWidth - box.scrollLeft > 1;
+      box.classList.toggle('rv-more-right', more);
+    }
+
     function rvRenderTable() {
       var body = document.getElementById('vinDataBody');
       var countEl = document.getElementById('vinMatchCount');
@@ -1924,6 +1967,7 @@
           '</td></tr>';
         if (countEl) countEl.textContent = '';
         if (dedupeBtn) dedupeBtn.style.display = 'none';
+        rvUpdateScrollCue();
         return;
       }
 
@@ -1999,6 +2043,7 @@
       if (countEl) countEl.textContent = lines.length + ' VINs · ' + found + ' found · ' + (lines.length - found) + ' not found' +
         (dupes ? ' · ' + dupes + ' ALREADY PRINTED' : '') +
         (filteredN ? ' · ' + filteredN + ' will be filtered' : '');
+      rvUpdateScrollCue();
       if (dedupeBtn) {
         dedupeBtn.style.display = dupes ? '' : 'none';
         dedupeBtn.textContent = 'Remove Duplicates (' + dupes + ')';

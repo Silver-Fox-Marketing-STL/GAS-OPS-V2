@@ -395,6 +395,13 @@
     /* Toggle switches → squared, beveled Win95 sliders. */
     :root[data-theme="encarta"] .toggle-slider { border: 2px inset #dfdfdf !important; }
     :root[data-theme="encarta"] .toggle-slider:before { border: 2px outset #dfdfdf !important; background: var(--surface) !important; }
+    /* Secondary buttons sit on the face gray, not white: on a white face the
+       bevel's light edges vanish and the button reads flat (Sep 23 audit). */
+    :root[data-theme="encarta"] .btn-secondary { background: var(--surface); color: var(--text); }
+    :root[data-theme="encarta"] .btn-secondary:hover:not(:disabled) { background: var(--surface-2); }
+    /* The CAO card's "Filtered out (n) ▾" toggle is a button dressed as a
+       text row — no bevel, or it becomes a full-width sunken box. */
+    :root[data-theme="encarta"] #view-run .rej-toggle { border: 0 !important; }
     /* Every unified table header goes flat gray — Win95 has no sticky inverted headers. */
     :root[data-theme="encarta"] .table-u th { background: var(--surface) !important; color: var(--text) !important; position: static; }
     /* Encarta — Run Order table as a Win95 panel (the old right rail is retired;
@@ -412,8 +419,17 @@
     :root[data-theme="luna"] .nav-item.active { background: var(--accent); color: #fff; border-left-color: #002d8a; }
     :root[data-theme="luna"] .nav-item.active .icon { color: #fff; }
     :root[data-theme="luna"] .nav-footer { background: linear-gradient(180deg,#57a818,#3c8d0d); color: #fff; border-top: 1px solid #2a6a08; }
-    :root[data-theme="luna"] button { background: linear-gradient(180deg,#fdfdfd,#e8e8d8); border: 1px solid #8a8a7a; border-radius: 3px; box-shadow: none; }
-    :root[data-theme="luna"] button:hover { border-color: var(--accent-hover); }
+    /* XP button chrome. Primaries are excluded: this 0,1,1 rule out-specifies
+       .btn-primary (0,1,0) and left white --on-accent text on the cream
+       gradient — "Run Dealer" / "Run anyway" / "Save" read as disabled
+       (Sep 2026 screenshot audit). Primaries get the XP-blue bevel instead. */
+    :root[data-theme="luna"] button:not(.btn-primary) { background: linear-gradient(180deg,#fdfdfd,#e8e8d8); border: 1px solid #8a8a7a; border-radius: 3px; box-shadow: none; }
+    :root[data-theme="luna"] button:not(.btn-primary):hover { border-color: var(--accent-hover); }
+    :root[data-theme="luna"] .btn-primary { background: linear-gradient(180deg,#4a9cf7 0%,#2170de 50%,#0f55c8 100%); color: #fff; border: 1px solid #0a3d9c; border-radius: 3px; box-shadow: inset 0 1px 0 rgba(255,255,255,.35); }
+    :root[data-theme="luna"] .btn-primary:hover:not(:disabled) { background: linear-gradient(180deg,#5fabff 0%,#2f7eea 50%,#1a62d4 100%); }
+    :root[data-theme="luna"] .btn-primary:disabled { background: var(--text-muted); border-color: transparent; box-shadow: none; }
+    /* Section headings sit directly on the blue "desktop" — accent blue vanished there. */
+    :root[data-theme="luna"] .home-hud-title { color: #fff; text-shadow: 1px 1px 1px rgba(0,0,0,.35); }
     :root[data-theme="luna"] input:not([type=checkbox]):not([type=radio]):not([type=range]),
     :root[data-theme="luna"] select, :root[data-theme="luna"] textarea { background: #fff; border: 1px solid #7f9db9; border-radius: 2px; box-shadow: none; }
 

@@ -103,6 +103,24 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   (`#homeDraftsChip[hidden]` / `.rv-drafts-band[hidden]`). Rule of thumb: if you
   set `display` on a class AND ever set its `hidden` attribute, you owe it a
   `[hidden]` override.
+- **View-scoped CSS keeps outranking shared/UA rules on specificity — the
+  same trap wears three costumes.** All three caught together in a Sep 23,
+  2026 8-theme screenshot audit: (1) `#view-csvschemas .add-bar { display:
+  flex }` beat the UA `[hidden]` rule — the exact family above (a
+  display-setting component class defeats `[hidden]`), just hit on a new
+  component; the fix is the same idiom, `.add-bar[hidden] { display:none }`.
+  (2) A THEME-level rule, `:root[data-theme="luna"] button` (an attribute
+  selector + a bare tag), out-specified the component class `.btn-primary`
+  (a single class) and repainted every primary button with the theme's
+  default chrome — count actual selector parts (id,class,tag), don't
+  eyeball "generic tag vs named class" as automatically losing; a
+  theme-root rule with an attribute selector can still out-rank a
+  single-class component rule. (3) `#view-stack-cleanup .table-u thead th`
+  overrode only the shared inverted header's `background`, leaving
+  `color: var(--bg)` inherited from the base `.table-u th` rule — light
+  text on a light surface. CSS cascades PER PROPERTY, not per rule: a view
+  that repaints one property of a shared component owes itself an audit of
+  every property the shared rule set, not just the one it meant to change.
 - **The HtmlService SPA parses ALL view fragments into ONE shared global JS
   scope.** Every `<?!= include_('ViewXxx') ?>` fragment's `<script>` is concatenated
   into the same window, so a duplicate **top-level** `function name()` in two
@@ -449,6 +467,65 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   was reworked to a **local `ls-chip`** class defined in the scanner's own files. Grep the
   *lot-scan* copy for any class before using it there — the two SharedUtils are not kept in sync.
   (Lot Scanner drafts chip.)
+- **A `position: sticky` cell needs an OPAQUE background — a shorthand `background:` on a
+  row-state rule wipes it, and a translucent row tint lets scrolled content bleed through.**
+  Pinning Run Order's ✕ column (`td.rv-x-cell { position: sticky; right: 0 }`) exposed that the
+  shared row tints (`.row-dup`, `.row-warn`, hover) are translucent `rgba` in the dark themes —
+  a pinned cell just tinted the same way let the table's scrolled-under content show through the
+  gaps. Fix: the pinned cell keeps a solid `background-color: var(--bg)` base and re-applies its
+  row's tint as a separate `background-image: linear-gradient(tint, tint)` layer on top — same
+  visual result, but the base layer stays opaque regardless of the tint's alpha. Using the
+  `background` shorthand for the tint layer would have overwritten the base `background-color`
+  in one declaration — the two properties have to be set separately. (`ViewRun.html`, Sep 23,
+  2026 screenshot audit.)
+- **Pinning a column that carries an in-header "cap" control turns the cap's width into an
+  opaque strip hiding data at rest — move the control OUT of the pinned cell.** Run Order's
+  "Remove Duplicates" button lived inside the ✕ header cell (`th#rvXHead`), auto-widening that
+  column to the button's own width — harmless while the column scrolled WITH the table, but once
+  the column was pinned (`position: sticky; right: 0`) that same width became a permanent opaque
+  block over a whole data column, and in Encarta (whose headers are `position: static`, not
+  sticky) the cap scrolled away while the ✕ cells it capped stayed put. Fix: moved the button out
+  of the header cell entirely, into the zone label row directly above the table — any in-header
+  "cap" pattern stops being safe the moment that header's column gets pinned. (`ViewRun.html`,
+  Sep 23, 2026.)
+- **Form controls (`button`, `input`, `select`) don't inherit the page font — "looks native" in
+  a theme audit is often just unstyled Arial/system-UI, not a broken theme.** Several Dealer
+  Rules inputs (UTM fields, targeting values, price/seasoning/org-search/deal-field inputs) had
+  no font-family rule at all and rendered in the browser default, invisible as a "bug" until
+  screenshotted next to themed text. One low-specificity view-wide rule fixes the whole view:
+  `#view-rules button, #view-rules input, #view-rules select { font-family: var(--font-body); }`.
+  Before rewriting colors/fonts on a "doesn't look native" report, probe the ACTUAL computed
+  style first (the `ui-screenshot-repro` harness's `probe.js` prints computed styles per
+  selector) rather than guessing which rule is missing.
+- **When a native control's readout moves into custom JS-rendered text, EVERY programmatic
+  reset of the control must also reset that text — the DOM's own reset doesn't touch it.** The
+  new `.file-pick` recipe hides the real `<input type=file>` and renders the chosen filename in
+  a separate `.file-pick-name` span the view fills on `change`. Import's existing reset path
+  (`resetImport`) replaces the input via `cloneNode(false)` + re-attach (the standard way to
+  drop a file input's selected-files state) — that clears the REAL input fine, but the `<span>`
+  text is independent DOM state the clone-and-replace never touches, so the readout kept showing
+  the old filename after a reset until the reset handler explicitly set `fileInputName.textContent`
+  back to the placeholder too. Any future readout-outside-the-control pattern needs the same
+  explicit reset at every place the control itself is reset.
+- **A `:root` custom property that references another custom property resolves PER-THEME with no
+  redeclaration needed, as long as the theme overrides the referenced variable on the same
+  element.** The new `--th-bg: var(--text); --th-fg: var(--bg)` declared once on base `:root`
+  is pixel-identical across every light theme without each one redeclaring `--th-bg`/`--th-fg` —
+  because those themes already override `--text`/`--bg` on the same `:root` selector, and the
+  reference re-resolves against whatever `--text`/`--bg` are in that cascade layer. Only the
+  dark-family themes (which want a genuinely different mapping — a surface tint, not an
+  inversion) needed an explicit `--th-bg`/`--th-fg` override. Don't assume a derived token needs
+  copying into every theme block; check whether it's already correct by composition first.
+- **`:has()` on an inline `style*="display: flex"` gives a CSS-only empty-state for a container
+  whose children are all toggled via inline `display`, with no JS bookkeeping.** Run Order's
+  fixed-height flow zone (stats/progress/finalize cards) read as a 235px blank box before any
+  card was shown, because every card in it is shown by setting `style.display = 'flex'` in JS —
+  there was no class or count to key a "some card is visible" state off of. Fix:
+  `#view-run .rv-flow:not(:has(> [style*="display: flex"]))` matches exactly the empty case (no
+  child currently has that inline style) and paints a dashed outline + caption via `::before` —
+  no new JS state, and it stays correct automatically as cards come and go. General pattern:
+  before adding a visibility-tracking variable, check whether `:has()` can read the state directly
+  off the DOM's own inline styles.
 
 ## External APIs (Pipedrive)
 

@@ -198,19 +198,32 @@
       table-layout: fixed;   /* fixed columns (Timestamp/Deal ID/VINs/Status) — no jitter as the band widens */
       font-variant-numeric: tabular-nums;   /* Deal ID / VIN counts align — no digit-width shift */
     }
-    /* Static column widths — 4 columns per-dealer (Timestamp/Deal ID/VINs/Status) */
-    #view-vinlog #runsTable th:nth-child(1), #view-vinlog #runsTable td:nth-child(1) { width: 36%; }
-    #view-vinlog #runsTable th:nth-child(2), #view-vinlog #runsTable td:nth-child(2) { width: 24%; }
-    #view-vinlog #runsTable th:nth-child(3), #view-vinlog #runsTable td:nth-child(3) { width: 14%; }
+    /* Static column widths — 4 columns per-dealer (Timestamp/Deal ID/VINs/Status).
+       The table lives in the ~750px left column, so budget in px at that width:
+       VINs must hold "22 " + the Show VINs button (~95px + cell padding),
+       Status must hold the ROLLED_BACK badge (~100px). The SPLIT:* badge sits
+       on its own line under the timestamp (display:block), so Timestamp only
+       needs the 19-char stamp (~125px). Sep 23, 2026 audit: at the old
+       24/24/18/12/14/8 split, VINs showed "11 …" and the badge "S…". */
+    #view-vinlog #runsTable th:nth-child(1), #view-vinlog #runsTable td:nth-child(1) { width: 32%; }
+    #view-vinlog #runsTable th:nth-child(2), #view-vinlog #runsTable td:nth-child(2) { width: 20%; }
+    #view-vinlog #runsTable th:nth-child(3), #view-vinlog #runsTable td:nth-child(3) { width: 22%; }
     #view-vinlog #runsTable th:nth-child(4), #view-vinlog #runsTable td:nth-child(4) { width: 18%; }
     #view-vinlog #runsTable th:nth-child(5), #view-vinlog #runsTable td:nth-child(5) { width: 8%; text-align: center; }
-    /* All-Dealers mode adds a Dealer column (Timestamp/Dealer/Deal ID/VINs/Status) */
-    #view-vinlog #runsTable.with-dealer th:nth-child(1), #view-vinlog #runsTable.with-dealer td:nth-child(1) { width: 24%; }
+    /* All-Dealers mode adds a Dealer column (Timestamp/Dealer/Deal ID/VINs/Status).
+       Dealer names longer than the cell ellipsize (full name in the title tooltip). */
+    #view-vinlog #runsTable.with-dealer th:nth-child(1), #view-vinlog #runsTable.with-dealer td:nth-child(1) { width: 21%; }
     #view-vinlog #runsTable.with-dealer th:nth-child(2), #view-vinlog #runsTable.with-dealer td:nth-child(2) { width: 24%; }
-    #view-vinlog #runsTable.with-dealer th:nth-child(3), #view-vinlog #runsTable.with-dealer td:nth-child(3) { width: 18%; }
-    #view-vinlog #runsTable.with-dealer th:nth-child(4), #view-vinlog #runsTable.with-dealer td:nth-child(4) { width: 12%; }
-    #view-vinlog #runsTable.with-dealer th:nth-child(5), #view-vinlog #runsTable.with-dealer td:nth-child(5) { width: 14%; }
-    #view-vinlog #runsTable.with-dealer th:nth-child(6), #view-vinlog #runsTable.with-dealer td:nth-child(6) { width: 8%; text-align: center; }
+    #view-vinlog #runsTable.with-dealer th:nth-child(3), #view-vinlog #runsTable.with-dealer td:nth-child(3) { width: 12%; }
+    #view-vinlog #runsTable.with-dealer th:nth-child(4), #view-vinlog #runsTable.with-dealer td:nth-child(4) { width: 21%; }
+    #view-vinlog #runsTable.with-dealer th:nth-child(5), #view-vinlog #runsTable.with-dealer td:nth-child(5) { width: 15%; }
+    #view-vinlog #runsTable.with-dealer th:nth-child(6), #view-vinlog #runsTable.with-dealer td:nth-child(6) { width: 7%; text-align: center; }
+    /* Billing-split note badge — its own line under the timestamp so it never
+       fights the stamp for width (a block child breaks the line even inside
+       the nowrap cell). Only split rows get the second line. */
+    #view-vinlog .vl-note-badge { display: block; width: fit-content; margin-top: 3px;
+      font-size: 10px; line-height: 1.4; padding: 1px 5px; border-radius: 3px;
+      background: var(--info-weak); color: var(--info); white-space: nowrap; }
     #view-vinlog #runsTable td {
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
@@ -243,16 +256,21 @@
     #view-vinlog .status-rolled_back { background: var(--danger-weak); color: var(--danger); }
 
     /* ── Show VINs button (inside runs table VIN count cell) ──────────────── */
+    /* Compact in-row controls in the shared .btn-secondary grammar (body
+       font, bold, token colors) — a bare <button> here inherits the browser's
+       system font and reads as an unstyled control in the dark themes. */
     #view-vinlog .vl-show-vins-btn {
-      font-size: 10px; padding: 2px 6px; margin-left: 5px; vertical-align: middle;
+      font-family: var(--font-body); font-weight: 700;
+      font-size: 10px; padding: 2px 7px; margin-left: 5px; vertical-align: middle;
       border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text-2);
-      border-radius: 3px; cursor: pointer; line-height: 1.4;
+      border-radius: var(--radius-sm); cursor: pointer; line-height: 1.4;
     }
-    #view-vinlog .vl-show-vins-btn:hover { background: var(--bg); color: var(--text); }
+    #view-vinlog .vl-show-vins-btn:hover { background: var(--bg); color: var(--text); border-color: var(--text-muted); }
     #view-vinlog .vl-delete-btn {
+      font-family: var(--font-body); font-weight: 700;
       font-size: 11px; padding: 2px 7px; vertical-align: middle;
       border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text-muted);
-      border-radius: 3px; cursor: pointer; line-height: 1.4;
+      border-radius: var(--radius-sm); cursor: pointer; line-height: 1.4;
     }
     #view-vinlog .vl-delete-btn:hover { background: var(--danger-weak); color: var(--danger); border-color: var(--danger); }
     #view-vinlog .vl-delete-btn:disabled { opacity: 0.5; cursor: default; }
@@ -465,6 +483,13 @@
     // Dealer list comes from the shared AppData bootstrap (one server call per
     // session instead of a second getActiveDealersForUI execution).
     function initVinlogView() {
+      // Listeners FIRST: AppData.get fires synchronously once the App's
+      // prefetch has landed (always, by the time you leave Home), and the
+      // callback dispatches the initial All-Dealers 'change' — registering the
+      // listener afterwards left the runs list empty on first visit
+      // (Sep 2026 screenshot audit).
+      registerVinlogListeners();
+
       AppData.get(function(data, err) {
         if (!data) {
           document.getElementById('vinlogDealerSelect').innerHTML = '<option value="">Error loading dealers</option>';
@@ -487,8 +512,6 @@
           sel.dispatchEvent(new Event('change'));   // initial All-Dealers load
         }
       });
-
-      registerVinlogListeners();
     }
 
     window.VIEW_INITS = window.VIEW_INITS || {};
@@ -600,7 +623,7 @@
         // Billing-split runs write two rows sharing a timestamp — the SPLIT:*
         // note badge is what tells them apart (e.g. SPLIT:PRIMARY / SPLIT:SPRINTER).
         var noteBadge = (run.note && run.note.indexOf('SPLIT:') === 0)
-          ? ' <span style="font-size:10px;background:var(--info-weak);color:var(--info);border-radius:3px;padding:1px 5px;white-space:nowrap;">' + run.note + '</span>'
+          ? '<span class="vl-note-badge">' + escHtml(run.note) + '</span>'
           : '';
         var vinCell = run.vinCount +
           (run.producedVins && run.producedVins.length

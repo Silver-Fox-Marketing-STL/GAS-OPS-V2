@@ -24,7 +24,11 @@
       </div>
       <div class="ds-field">
         <label for="dsFile">Sample file from this source</label>
-        <input type="file" id="dsFile" accept=".csv,text/csv" onchange="onDsFile(this)" disabled>
+        <label class="file-pick">
+          <input type="file" id="dsFile" accept=".csv,text/csv" onchange="onDsFile(this)" disabled>
+          <span class="btn-secondary file-pick-btn">Choose CSV…</span>
+          <span class="file-pick-name" id="dsFileName">No file chosen</span>
+        </label>
       </div>
     </div>
     <div class="ds-sourcehint">The default scraper feed needs no source here — it already matches the standard columns. Add a source only for a <b>different format</b> (e.g. a dealer's internal CSV export with different headers or extra fields). Each source's mapping is independent; configuring one never affects another or the scraper import.</div>
@@ -62,8 +66,11 @@
 
   #view-datasources .ds-controls { display: flex; gap: 22px; flex-wrap: wrap; margin-bottom: 14px; }
   #view-datasources .ds-field { display: flex; flex-direction: column; gap: 5px; }
-  #view-datasources .ds-field label { font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text-3); }
-  #view-datasources select, #view-datasources input[type=file] { font-size: 13px; padding: 6px 8px; border: 1px solid var(--border-2); border-radius: 5px; min-width: 260px; }
+  #view-datasources .ds-field label:not(.file-pick) { font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text-3); }
+  #view-datasources select { font-size: 13px; padding: 6px 8px; border: 1px solid var(--border-2); border-radius: 5px; min-width: 260px; }
+  /* Styled picker (SharedUtils .file-pick) — the native control is hidden;
+     the wrapper takes the control-row min-width instead. */
+  #view-datasources .file-pick { min-width: 260px; }
   #view-datasources select:focus { outline: none; border-color: var(--accent); }
 
   #view-datasources .ds-status { font-size: 12px; margin: 8px 0; min-height: 16px; }
@@ -101,7 +108,7 @@
   :root[data-viewport="mobile"] #view-datasources .ds-controls { flex-direction: column; gap: var(--space-3); }
   :root[data-viewport="mobile"] #view-datasources .ds-field { width: 100%; }
   :root[data-viewport="mobile"] #view-datasources select,
-  :root[data-viewport="mobile"] #view-datasources input[type=file] { min-width: 0; width: 100%; }
+  :root[data-viewport="mobile"] #view-datasources .file-pick { min-width: 0; width: 100%; }
   :root[data-viewport="mobile"] #view-datasources .ds-tablescroll { overflow-x: auto; }
   :root[data-viewport="mobile"] #view-datasources .ds-table { min-width: 480px; }
 </style>
@@ -147,6 +154,7 @@
     dsFileHeaders = [];
     document.getElementById('dsFile').disabled = true;
     document.getElementById('dsFile').value = '';
+    dsSetFileName_('');
     document.getElementById('dsMapWrap').style.display = 'none';
     document.getElementById('dsDeleteBtn').style.display = 'none';
     var srcSel = document.getElementById('dsSource');
@@ -193,6 +201,7 @@
       dsSourceName = name;
       dsSavedMapping = {}; dsSavedHeaders = []; dsFileHeaders = []; dsExampleRow = [];
       document.getElementById('dsFile').value = '';
+    dsSetFileName_('');
       document.getElementById('dsDeleteBtn').style.display = 'none';
       enableFileForSource();
       renderDsTable();
@@ -211,6 +220,7 @@
     dsSourceName = val;
     dsFileHeaders = []; dsExampleRow = [];
     document.getElementById('dsFile').value = '';
+    dsSetFileName_('');
     document.getElementById('dsDeleteBtn').style.display = '';   // existing source → deletable
     enableFileForSource();
     setDsStatus('Loading saved mapping…', 'info');
@@ -230,8 +240,15 @@
     document.getElementById('dsFile').disabled = false;
   }
 
+  // Readout beside the styled picker (the native "No file chosen" is hidden).
+  function dsSetFileName_(name) {
+    var el = document.getElementById('dsFileName');
+    if (el) el.textContent = name || 'No file chosen';
+  }
+
   function onDsFile(input) {
     var file = input.files && input.files[0];
+    dsSetFileName_(file ? file.name : '');
     if (!file) return;
     setDsStatus('Reading ' + file.name + '…', 'info');
     var reader = new FileReader();
@@ -405,6 +422,7 @@
           document.getElementById('dsMapWrap').style.display = 'none';
           document.getElementById('dsFile').disabled = true;
           document.getElementById('dsFile').value = '';
+    dsSetFileName_('');
           document.getElementById('dsDeleteBtn').style.display = 'none';
           google.script.run.withSuccessHandler(function(sources) {
             populateSourceDropdown(sources || []);
