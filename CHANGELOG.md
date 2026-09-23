@@ -42,6 +42,14 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   rest (and in Encarta, whose headers are static, the cap scrolled away
   while the ✕ cells stayed). The header-mask CSS (negative margins +
   `overflow: hidden`) went with it; the pinned column is now ✕-wide.
+- **VIN Logs: the runs table was cramped in All-Dealers mode at 1440** (Sep
+  23, 2026 screenshot audit): the VINs cell showed "11 …" (the Show VINs
+  button ellipsized) and the SPLIT:* note badge collapsed to "S…" inside the
+  nowrap timestamp cell. Column budgets rebalanced in both modes
+  (per-dealer 32/20/22/18/8, all-dealers 21/24/12/21/15/7) and the billing-
+  split badge (`.vl-note-badge`, was inline styles) now sits on its own line
+  under the timestamp, so it never competes with the stamp for width. The
+  note text is now HTML-escaped on render.
 - **Stack Cleanup: table header was invisible in every non-Encarta theme**
   (Sep 23, 2026 screenshot audit). `#view-stack-cleanup .table-u thead th`
   overrode the shared inverted header's background to `var(--surface-2)` but
