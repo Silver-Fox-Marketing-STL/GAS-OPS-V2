@@ -11,6 +11,18 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Fixed
+- **Run Order: the match table's ✕ column and "Remove Duplicates" cap slid
+  off-screen when Features / editable columns were present** (Sep 23, 2026
+  screenshot audit, highest-impact finding; overflowed at 1440 AND 1920).
+  The ✕ column is now pinned to the scroll box's right edge (`position:
+  sticky; right: 0`, on top of the existing sticky-top header) so the wide
+  table scrolls UNDER it. The pinned cells keep an opaque `var(--bg)` base
+  and re-apply their row tint as a `background-image` layer — the dark
+  themes' weak tints are translucent rgba and would otherwise let scrolled
+  cells bleed through. A left shadow (`.rv-more-right`, toggled by
+  `rvUpdateScrollCue()` on scroll / resize / render) shows only while
+  columns are hidden under the pinned edge — the horizontal-scroll cue the
+  audit found missing. Input columns' floor drops from 16rem to 12rem.
 - **Stack Cleanup: table header was invisible in every non-Encarta theme**
   (Sep 23, 2026 screenshot audit). `#view-stack-cleanup .table-u thead th`
   overrode the shared inverted header's background to `var(--surface-2)` but
