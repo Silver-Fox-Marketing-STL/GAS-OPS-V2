@@ -282,12 +282,13 @@
       border-radius: var(--radius-sm);
     }
     /* The generic #view-import th dialect rules above outrank .table-u —
-       restore the canonical inverted sticky header for this table only.
+       restore the canonical sticky header bar (--th-bg/--th-fg, so it follows
+       the theme like every other table) for this table only.
        (Dialect alignment — th/td right, first-child left — is kept: it's
        exactly what a numeric snapshot wants.) */
     #view-import #invSnapshot .table-u th {
-      background: var(--text);
-      color: var(--bg);
+      background: var(--th-bg);
+      color: var(--th-fg);
       font-family: var(--font-head);
       font-size: 10px;
       font-weight: 700;

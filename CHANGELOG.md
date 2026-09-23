@@ -10,6 +10,18 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## [Unreleased]
 
+### Changed
+- **Dark-family themes: table headers are a surface tint instead of an
+  inverted near-white bar** (Sep 23, 2026 screenshot audit). The shared
+  `.table-u th` recipe now reads two new tokens, `--th-bg` / `--th-fg`. The
+  base `:root` keeps the inverted bar (`var(--text)` on `var(--bg)`) so every
+  light theme is pixel-identical; Dark and Gruvbox override to `--surface-2`
+  + `--text-2`, Midnight HC to `--surface-3` + `--text` (full contrast).
+  Encarta's own `!important` header override and Stack Cleanup's surface
+  header are untouched; Import's inventory-snapshot header, which re-declares
+  the canonical recipe to beat the view's own th dialect, now reads the
+  tokens too so it follows the theme like every other table.
+
 ### Fixed
 - **Run Order: the match table's ✕ column and "Remove Duplicates" cap slid
   off-screen when Features / editable columns were present** (Sep 23, 2026
@@ -23,6 +35,13 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   `rvUpdateScrollCue()` on scroll / resize / render) shows only while
   columns are hidden under the pinned edge — the horizontal-scroll cue the
   audit found missing. Input columns' floor drops from 16rem to 12rem.
+  The "Remove Duplicates" button moved OUT of the ✕ header cell into the
+  "Inventory match" label row (right-aligned, directly above the column):
+  as an in-header "cap" it auto-widened the ✕ column to its own width,
+  which, once pinned, became an opaque strip hiding a whole data column at
+  rest (and in Encarta, whose headers are static, the cap scrolled away
+  while the ✕ cells stayed). The header-mask CSS (negative margins +
+  `overflow: hidden`) went with it; the pinned column is now ✕-wide.
 - **Stack Cleanup: table header was invisible in every non-Encarta theme**
   (Sep 23, 2026 screenshot audit). `#view-stack-cleanup .table-u thead th`
   overrode the shared inverted header's background to `var(--surface-2)` but
