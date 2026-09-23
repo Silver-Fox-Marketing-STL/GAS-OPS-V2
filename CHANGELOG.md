@@ -22,6 +22,19 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   the canonical recipe to beat the view's own th dialect, now reads the
   tokens too so it follows the theme like every other table.
 
+- **Native browser controls restyled to the theme** (Sep 23, 2026 screenshot
+  audit — most visible as white chips in the dark themes). New shared
+  `.file-pick` recipe (SharedUtils): a label wrapping a visually-hidden
+  `<input type=file>`, a `.btn-secondary` span and a filename readout the
+  view fills — used by Import ("Choose CSV files…" + names / count) and Data
+  Sources ("Choose CSV…" + name; disabled state and reset paths honored).
+  Dealer Rules: the product-table UTM inputs (which had no rule at all), the
+  targeting-tree value inputs, price / seasoning / org-search / deal-field
+  inputs all get explicit `var(--bg)` / `var(--text)`; the AND/OR joiner
+  select drops the native arrow (`appearance: none`) for a currentColor
+  chevron that tints with its state. VIN Logs' Show VINs / ✕ row buttons
+  take the shared button grammar (body font, bold, `--radius-sm`).
+
 ### Fixed
 - **Run Order: the match table's ✕ column and "Remove Duplicates" cap slid
   off-screen when Features / editable columns were present** (Sep 23, 2026
@@ -50,6 +63,14 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   split badge (`.vl-note-badge`, was inline styles) now sits on its own line
   under the timestamp, so it never competes with the stamp for width. The
   note text is now HTML-escaped on render.
+- **Smaller screenshot-audit items** (Sep 23, 2026): Home's THIS WEEK tiles
+  fill their row (4-up from ~520px; the 170px tile cap orphaned "21
+  DUPLICATES" on row 2 at 1440) and ALL TIME always sits 3×2; the CAO card's
+  "Filtered out (n)" caret is 13px instead of an inherited 10.5px "-";
+  Encarta's `.btn-secondary` sits on the face gray so its bevel shows (on
+  white the light edges vanished — the buttons read flat), and its CAO
+  toggle no longer becomes a full-width sunken box; Import's inventory
+  snapshot cells use 9px side padding so the last column fits at 1440.
 - **Stack Cleanup: table header was invisible in every non-Encarta theme**
   (Sep 23, 2026 screenshot audit). `#view-stack-cleanup .table-u thead th`
   overrode the shared inverted header's background to `var(--surface-2)` but

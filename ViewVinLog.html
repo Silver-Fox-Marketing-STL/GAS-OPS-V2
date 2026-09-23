@@ -256,16 +256,21 @@
     #view-vinlog .status-rolled_back { background: var(--danger-weak); color: var(--danger); }
 
     /* ── Show VINs button (inside runs table VIN count cell) ──────────────── */
+    /* Compact in-row controls in the shared .btn-secondary grammar (body
+       font, bold, token colors) — a bare <button> here inherits the browser's
+       system font and reads as an unstyled control in the dark themes. */
     #view-vinlog .vl-show-vins-btn {
-      font-size: 10px; padding: 2px 6px; margin-left: 5px; vertical-align: middle;
+      font-family: var(--font-body); font-weight: 700;
+      font-size: 10px; padding: 2px 7px; margin-left: 5px; vertical-align: middle;
       border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text-2);
-      border-radius: 3px; cursor: pointer; line-height: 1.4;
+      border-radius: var(--radius-sm); cursor: pointer; line-height: 1.4;
     }
-    #view-vinlog .vl-show-vins-btn:hover { background: var(--bg); color: var(--text); }
+    #view-vinlog .vl-show-vins-btn:hover { background: var(--bg); color: var(--text); border-color: var(--text-muted); }
     #view-vinlog .vl-delete-btn {
+      font-family: var(--font-body); font-weight: 700;
       font-size: 11px; padding: 2px 7px; vertical-align: middle;
       border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text-muted);
-      border-radius: 3px; cursor: pointer; line-height: 1.4;
+      border-radius: var(--radius-sm); cursor: pointer; line-height: 1.4;
     }
     #view-vinlog .vl-delete-btn:hover { background: var(--danger-weak); color: var(--danger); border-color: var(--danger); }
     #view-vinlog .vl-delete-btn:disabled { opacity: 0.5; cursor: default; }

@@ -260,6 +260,10 @@
 
 <style>
 #view-rules * { box-sizing: border-box; margin: 0; padding: 0; }
+/* Form controls don't inherit the page font — a bare <button>/<input> falls
+   back to the system font (Arial) and reads as an unstyled native control.
+   Low specificity on purpose: any rule that sets its own font still wins. */
+#view-rules button, #view-rules input, #view-rules select { font-family: var(--font-body); }
     #view-rules {
       font-family: var(--font-body);
       font-size: 13px;
@@ -317,13 +321,22 @@
        control stays a native <select> (no custom widget); :has() reads the
        live selected <option> so the tint tracks the value with zero JS. */
     #view-rules .tr-match {
-      padding: 3px 8px; font-family: var(--font-head); font-size: 10px; font-weight: 700;
+      padding: 3px 22px 3px 8px; font-family: var(--font-head); font-size: 10px; font-weight: 700;
       text-transform: uppercase; letter-spacing: .05em;
       border: 1px solid var(--accent); border-radius: var(--radius-sm);
-      background: var(--accent-weak); color: var(--accent); cursor: pointer;
+      background-color: var(--accent-weak); color: var(--accent); cursor: pointer;
+      /* Drop the native dropdown arrow (a system-grey box in the dark themes)
+         for a chevron drawn in the chip's own color: two gradient triangles
+         using currentColor, so it tints with the AND/OR state. background-
+         COLOR above (not the shorthand) so it doesn't wipe this image. */
+      appearance: none; -webkit-appearance: none;
+      background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+                        linear-gradient(135deg, currentColor 50%, transparent 50%);
+      background-position: calc(100% - 12px) 50%, calc(100% - 8px) 50%;
+      background-size: 4px 4px; background-repeat: no-repeat;
     }
     #view-rules .tr-match:has(option[value="any"]:checked) {
-      border-color: var(--info); background: var(--info-weak); color: var(--info);
+      border-color: var(--info); background-color: var(--info-weak); color: var(--info);
     }
     #view-rules .tr-children { display: flex; flex-direction: column; gap: 5px; }
     #view-rules .tr-cond {
@@ -331,6 +344,7 @@
     }
     #view-rules .tr-cond select, #view-rules .tr-cond input {
       padding: 3px 5px; font-size: 12px; border: 1px solid var(--border-2); border-radius: 4px;
+      background: var(--bg); color: var(--text);
     }
     #view-rules .tr-field { min-width: 110px; }
     #view-rules .tr-op { min-width: 130px; }
@@ -616,6 +630,7 @@
       border: 1px solid var(--border-2);
       border-radius: 4px;
       width: 100%;
+      background: var(--bg); color: var(--text);
     }
     #view-rules .price-field input[type="number"]:focus { outline: none; border-color: var(--accent); }
 
@@ -650,6 +665,7 @@
       border: 1px solid var(--border-2);
       border-radius: 4px;
       width: 100%;
+      background: var(--bg); color: var(--text);
     }
     #view-rules .seasoning-table select:focus,
   #view-rules .seasoning-table input[type="number"]:focus { outline: none; border-color: var(--accent); }
@@ -723,6 +739,7 @@
     #view-rules .pd-org-search input[type="text"] {
       padding: 6px 8px; font-size: 13px;
       border: 1px solid var(--border-2); border-radius: 4px; width: 100%;
+      background: var(--bg); color: var(--text);
     }
     #view-rules .pd-org-search input:focus { outline: none; border-color: var(--accent); }
     #view-rules .pd-org-results {
@@ -768,11 +785,16 @@
     }
     #view-rules .pd-product-table tr:last-child td { border-bottom: none; }
     #view-rules .pd-product-table td:first-child { width: 110px; }
-    #view-rules .pd-product-table select {
+    /* Selects AND the free-text UTM inputs share one look (the inputs had no
+       rule at all → browser-default white boxes in the dark themes). */
+    #view-rules .pd-product-table select,
+    #view-rules .pd-product-table input[type="text"] {
       padding: 5px 7px; font-size: 12px;
       border: 1px solid var(--border-2); border-radius: 4px; width: 100%;
+      background: var(--bg); color: var(--text);
     }
-    #view-rules .pd-product-table select:focus { outline: none; border-color: var(--accent); }
+    #view-rules .pd-product-table select:focus,
+    #view-rules .pd-product-table input[type="text"]:focus { outline: none; border-color: var(--accent); }
     #view-rules .pd-type-badge {
       display: inline-block; padding: 2px 9px; border-radius: 10px;
       font-size: 11px; font-weight: bold; color: var(--on-type);
@@ -957,6 +979,7 @@
     #view-rules .pd-field input[type="number"] {
       padding: 6px 8px; font-size: 12px;
       border: 1px solid var(--border-2); border-radius: 4px; width: 100%;
+      background: var(--bg); color: var(--text);
     }
     #view-rules .pd-field input:focus { outline: none; border-color: var(--accent); }
 

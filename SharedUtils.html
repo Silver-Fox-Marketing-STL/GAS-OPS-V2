@@ -494,6 +494,19 @@
   .tag.tone-info    { background: var(--info-weak);    color: var(--info); }
   .tag.tone-neutral { background: var(--surface-3);    color: var(--text-2); }
 
+  /* File picker — a native <input type=file> paints browser chrome ("Choose
+     Files | No file chosen") that no theme can restyle. Pattern: a <label>
+     wraps a visually-hidden input, a .btn-secondary span (clicking the label
+     opens the picker) and a readout span the view's change handler fills.
+     Keyboard focus lands on the hidden input; :has() forwards the ring. */
+  .file-pick { position: relative; display: inline-flex; align-items: center; gap: 10px; cursor: pointer; max-width: 100%; }
+  .file-pick input[type="file"] { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; clip: rect(0 0 0 0); pointer-events: none; }
+  .file-pick-btn { display: inline-block; }
+  .file-pick-name { font-size: var(--fs-sm); color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-pick:has(input:focus-visible) .file-pick-btn { box-shadow: var(--focus-ring); }
+  .file-pick:has(input:disabled) { cursor: default; }
+  .file-pick:has(input:disabled) .file-pick-btn { opacity: .5; background: var(--bg); border-color: var(--border-2); }
+
   /* Data table — one recipe: sticky header bar (--th-bg/--th-fg: inverted in
      light themes, a surface tint in the dark family), hairline dividers,
      tabular numerals, hover row. View-specific row states stay view-scoped. */
