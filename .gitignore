@@ -24,3 +24,8 @@ node_modules/
 .env*
 **/client_secret*.json
 **/token*.json
+
+# Full-app screenshot harness outputs (generated; see .claude/skills/ui-screenshot-repro/full-app/README.md)
+.claude/skills/ui-screenshot-repro/full-app/app.html
+.claude/skills/ui-screenshot-repro/full-app/shots/
+.claude/skills/ui-screenshot-repro/full-app/package-lock.json
