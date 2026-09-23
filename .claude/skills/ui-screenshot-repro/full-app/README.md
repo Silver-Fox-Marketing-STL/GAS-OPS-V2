@@ -18,6 +18,7 @@ Born from the 2026-09-23 UI audit: 8 themes × 40 scenarios reviewed by pixels.
 | `mock-data-settings.js` | Fixtures for the settings views (Dealer Rules, Pipedrive Settings, Data Sources, EOM, Norm, Field Codes, CSV Schemas, Add Dealer). |
 | `harness.js` | In-page scenario driver. `HARNESS.scenarios` lists them; `HARNESS.run(name)` navigates + drives the view into the state (select dealer, paste VINs, start a run, open the editor, …). Add a scenario = add an entry to `S`. |
 | `shoot.js` | puppeteer-core driver: loads `app.html?theme=<id>` fresh per scenario, runs it, screenshots to `shots/<theme>/<scenario>-<width>.png`, and writes `report-<width>.json` (unknown mocks + console errors per shot). |
+| `probe.js` | Computed-style probe: `node probe.js --theme dark --scenario rules-pipedrive --sel ".pd-org-clear,.tr-match"` prints each selector's first match's background / color / border / font / appearance / box. Use it when a shot shows the wrong color or size and you need to know which rule won (e.g. it showed "Change" was already token-colored but rendering in Arial — the fix was `font-family`, not color). |
 
 ## Run
 
