@@ -1202,7 +1202,10 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     //     (source_split) additionally splits each CSV by URL domain
     //     (e.g. main vs AutoLoanPro) — one billing/deal, separate CSVs.
     setProgress_(runId, 'Building CSV output...', 88);
-    buildCSVSheet_(outputDoc, typeRules, csvSourceSplit, csvProductMaps.main, csvProductMaps.secondary, editsMap);
+    //     csv_uppercase (filtering_rules) is read fresh here — the step-8.5
+    //     filterRules object is skipped entirely on bypassFilters runs.
+    buildCSVSheet_(outputDoc, typeRules, csvSourceSplit, csvProductMaps.main, csvProductMaps.secondary, editsMap,
+                   { uppercase: getDealerFilterRules_(config).csvUppercase });
 
     // 14. Write BILLING sheet(s) from ORDERMATCH + LOG data. An optional
     //     billing_split in filtering_rules renders group vehicles (e.g. Sprinter
@@ -2274,10 +2277,11 @@ function csvOutputGroups_(typeRules, productMap) {
   return { groups: groups, matchToKey: matchToKey, single: single };
 }
 
-function buildCSVSheet_(outputDoc, typeRules, sourceSplit, mainProductMap, secondaryProductMap, editsMap) {
+function buildCSVSheet_(outputDoc, typeRules, sourceSplit, mainProductMap, secondaryProductMap, editsMap, csvOpts) {
   mainProductMap      = mainProductMap || {};
   secondaryProductMap = secondaryProductMap || {};
   editsMap            = editsMap || null;
+  var uppercase       = !!(csvOpts && csvOpts.uppercase);   // filtering_rules.csv_uppercase
   var omSheet = outputDoc.getSheetByName('ORDERMATCH');
   var lastRow = omSheet.getLastRow();
   if (lastRow < 2) { Logger.log('No ORDERMATCH data for CSV.'); return; }
@@ -2291,14 +2295,17 @@ function buildCSVSheet_(outputDoc, typeRules, sourceSplit, mainProductMap, secon
   // Schema cells may carry a header override (`CODE:HEADER`, e.g. VersaWorks
   // VDP field names) — the code drives the data lookup, the header prints.
   // User edits from the Run table (editsMap, keyed VIN+code) override the
-  // formula-derived value per cell at write time (csvCellValue_).
+  // formula-derived value per cell at write time (csvCellValue_). With
+  // csv_uppercase set, every DATA cell is then upper-cased (csvUppercaseCell_)
+  // — headers are never touched (they must match the template's variable names).
   function writeGroup_(schemaKey, rows, sheetName) {
     var entries = (getCsvSchema_(schemaKey) || getCsvSchema_('SCP')).map(parseSchemaCell_);
     var dataRows = rows.map(function(row) {
       var vin = row[4];   // ORDERMATCH col E
       return entries.map(function(e) {
         var col = fieldToCol[e.code];
-        return csvCellValue_(col ? row[col - 1] : '', vin, e.code, editsMap);
+        var val = csvCellValue_(col ? row[col - 1] : '', vin, e.code, editsMap);
+        return uppercase ? csvUppercaseCell_(val, e.code) : val;
       });
     });
     var headers = dedupFieldCodeHeaders_(entries.map(function(e) { return e.header; }));
@@ -2677,6 +2684,22 @@ function csvCellValue_(current, vin, code, edits) {
   var e = edits[String(vin == null ? '' : vin).trim().toUpperCase()];
   if (e && e[code] != null && String(e[code]).trim() !== '') return String(e[code]);
   return current;
+}
+
+// Field codes whose CSV value is a FILE PATH (QR PNGs) — never case-folded, so a
+// case-sensitive filesystem (macOS/Linux Illustrator stations) still resolves them.
+var CSV_UPPERCASE_SKIP_CODES = { '@QR': 1, '@QR2': 1 };
+
+/**
+ * Pure: the `csv_uppercase` transform for ONE CSV data cell. Strings are
+ * upper-cased; numbers/Dates/blanks pass through untouched (setNumberFormat('@')
+ * downstream already prints them as text); QR path codes are skipped. Applied
+ * AFTER csvCellValue_ so user edits from the Run table are folded too.
+ */
+function csvUppercaseCell_(value, code) {
+  if (typeof value !== 'string') return value;
+  if (CSV_UPPERCASE_SKIP_CODES[String(code || '').toUpperCase()] === 1) return value;
+  return value.toUpperCase();
 }
 
 /**
@@ -3992,7 +4015,8 @@ function getDealerFilterRules_(config) {
     maxPrice:        null,
     seasoning:       [],
     targetingRules:  [],
-    caoExcludeTypes: []
+    caoExcludeTypes: [],
+    csvUppercase:    false
   };
 
   var raw = config[CFG.FILTER_RULES];
@@ -4016,7 +4040,10 @@ function getDealerFilterRules_(config) {
     maxPrice:        (typeof parsed.max_price === 'number') ? parsed.max_price     : null,
     seasoning:       Array.isArray(parsed.seasoning)        ? parsed.seasoning         : [],
     targetingRules:  Array.isArray(parsed.targeting_rules)  ? parsed.targeting_rules   : [],
-    caoExcludeTypes: Array.isArray(parsed.cao_exclude_types) ? parsed.cao_exclude_types : []
+    caoExcludeTypes: Array.isArray(parsed.cao_exclude_types) ? parsed.cao_exclude_types : [],
+    // Output formatting (not a filter): force every CSV data cell to UPPERCASE.
+    // Strict `=== true` like the require_* flags — a string "true" stays off.
+    csvUppercase:    parsed.csv_uppercase === true
   };
 }
 

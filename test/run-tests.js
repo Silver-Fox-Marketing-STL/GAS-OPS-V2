@@ -837,6 +837,27 @@ t('csvCellValue_: a user edit overrides the ORDERMATCH value for that VIN+code o
   assert.strictEqual(csvCellValue_('SOMETHING', 'vin1', 'MODELTRIM', edits), 'CX-50 2.5 S');  // VIN case-insensitive
   assert.strictEqual(csvCellValue_('SOMETHING', 'VIN1', 'MODELTRIM', null), 'SOMETHING');
 });
+t('csvUppercaseCell_: strings fold to UPPERCASE; numbers/blank/null pass through', function () {
+  assert.strictEqual(csvUppercaseCell_('Mazda CX-50 2.5 S Prem', 'MODELTRIM'), 'MAZDA CX-50 2.5 S PREM');
+  assert.strictEqual(csvUppercaseCell_('$24,995', 'PRICE_FMT'), '$24,995');
+  assert.strictEqual(csvUppercaseCell_('', 'MISC'), '');
+  assert.strictEqual(csvUppercaseCell_(2024, 'YEAR'), 2024);
+  assert.strictEqual(csvUppercaseCell_(null, 'YEAR'), null);
+});
+t('csvUppercaseCell_: QR file-path codes are never case-folded (case-sensitive filesystems)', function () {
+  var p = 'C:/QR/Auffenberg_Hyundai/kmhl14ja1pa000001.png';
+  assert.strictEqual(csvUppercaseCell_(p, '@QR'), p);
+  assert.strictEqual(csvUppercaseCell_(p, '@QR2'), p);
+  assert.strictEqual(csvUppercaseCell_(p, '@qr'), p);          // code compare is case-insensitive
+  assert.strictEqual(csvUppercaseCell_('abc', 'QRSTOCK'), 'ABC'); // QRSTOCK is text, not a path
+});
+t('getDealerFilterRules_: csv_uppercase is strict-boolean and defaults OFF', function () {
+  assert.strictEqual(getDealerFilterRules_(cfgRow_(JSON.stringify({ csv_uppercase: true }))).csvUppercase, true);
+  assert.strictEqual(getDealerFilterRules_(cfgRow_(JSON.stringify({ csv_uppercase: 'true' }))).csvUppercase, false);
+  assert.strictEqual(getDealerFilterRules_(cfgRow_(JSON.stringify({ require_stock: true }))).csvUppercase, false);
+  assert.strictEqual(getDealerFilterRules_(cfgRow_('')).csvUppercase, false);
+  assert.strictEqual(getDealerFilterRules_(cfgRow_('{not json')).csvUppercase, false);
+});
 
 // ============================================================================
 // Suite: billing csv files — deal-attach filename + CSV tab discovery
