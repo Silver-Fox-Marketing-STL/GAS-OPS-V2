@@ -10,6 +10,21 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## [Unreleased]
 
+### Added
+- **`csv_uppercase` dealer flag — force every CSV data cell to UPPERCASE**
+  (Sep 24, 2026). New optional boolean in `filtering_rules` (DEALERS col W),
+  parsed by `getDealerFilterRules_` as `csvUppercase` (strict `=== true`,
+  default off). `runDealer` passes it to `buildCSVSheet_` as `csvOpts.uppercase`;
+  `writeGroup_` folds each cell through the new pure `csvUppercaseCell_` AFTER
+  `csvCellValue_`, so Run-table edits are uppercased too. Headers are never
+  touched (they must match the template's variable names); QR path codes
+  (`@QR` / `@QR2`, `CSV_UPPERCASE_SKIP_CODES`) are skipped so case-sensitive
+  filesystems still resolve the PNGs; non-strings pass through. Rules editor
+  (`ViewRules.html`) gets an "Uppercase CSV Output" toggle in the Flags card —
+  emitted only when ON so re-saving any other dealer leaves col W unchanged.
+  Not a filter: it changes no vehicle selection, billing, or Pipedrive output.
+  Three harness tests cover the fold, the QR skip, and the strict parse.
+
 ### Changed
 - **Dark-family themes: table headers are a surface tint instead of an
   inverted near-white bar** (Sep 23, 2026 screenshot audit). The shared

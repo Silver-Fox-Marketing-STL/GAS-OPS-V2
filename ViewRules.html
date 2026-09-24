@@ -69,6 +69,14 @@
             <span class="toggle-label">Require URL</span>
             <span class="toggle-desc">Reject vehicles with no Vehicle URL to build a link from</span>
           </div>
+          <div class="toggle-row">
+            <label class="toggle-switch">
+              <input type="checkbox" id="csvUpper" onchange="markFilterDirty()">
+              <span class="toggle-slider"></span>
+            </label>
+            <span class="toggle-label">Uppercase CSV Output</span>
+            <span class="toggle-desc">Write every CSV data cell in UPPERCASE (headers and QR paths untouched)</span>
+          </div>
         </div>
 
         <!-- Allowed types -->
@@ -1168,7 +1176,7 @@
     // round-trip through this editor never silently drops it.
     var FILTER_MANAGED_KEYS = ['require_stock', 'require_price', 'require_url', 'allowed_types',
       'exclude_status', 'min_price', 'max_price', 'seasoning', 'targeting_rules', 'cao_exclude_types',
-      'source_split'];
+      'source_split', 'csv_uppercase'];
     var filterExtras = {};
 
     function applyFilteringRulesToUI(fr) {
@@ -1186,6 +1194,7 @@
       document.getElementById('reqStock').checked = !!fr.require_stock;
       document.getElementById('reqPrice').checked = !!fr.require_price;
       document.getElementById('reqUrl').checked   = !!fr.require_url;
+      document.getElementById('csvUpper').checked = fr.csv_uppercase === true;
 
       // Allowed types
       var allowed = fr.allowed_types || [];
@@ -1266,6 +1275,9 @@
       rules.require_stock = document.getElementById('reqStock').checked;
       rules.require_price = document.getElementById('reqPrice').checked;
       rules.require_url   = document.getElementById('reqUrl').checked;
+      // Output formatting flag — emitted only when ON so a plain re-save of any
+      // other dealer's rules doesn't add an inert `csv_uppercase:false` to col W.
+      if (document.getElementById('csvUpper').checked) rules.csv_uppercase = true;
       // Targeting rules — serialize the nested model (prunes empty conditions/groups/rules)
       var targetingRules = serializeTargetingRules();
 

@@ -355,6 +355,8 @@ Decision: **per-type history goes in a long-format tab + a dynamic dashboard; th
 
 **`require_price`:** Rejects vehicles where price is blank, `*`, `callforprice`, or non-positive. Currently enabled only for Glendale CDJR.
 
+**`csv_uppercase`:** (Sep 2026) **Output formatting, not a filter.** When `true` (strict boolean), every CSV **data** cell is upper-cased at write time — `buildCSVSheet_` → `writeGroup_` folds each value through the pure `csvUppercaseCell_` AFTER `csvCellValue_`, so Run-table edits are folded too. Headers are never touched (VersaWorks/Illustrator variable names must match the template); QR file-path codes (`@QR`/`@QR2`, `CSV_UPPERCASE_SKIP_CODES`) are skipped so case-sensitive filesystems still resolve the PNGs; numbers/Dates/blanks pass through. Read fresh at the CSV step via `getDealerFilterRules_(config).csvUppercase` (the step-8.5 filter object is skipped on `bypassFilters` runs). Selection, billing, and Pipedrive are unaffected. The Rules editor's Flags card exposes it as "Uppercase CSV Output" and emits the key only when ON. Intended for a single account whose template needs all-caps text.
+
 **`seasoning`:** Filters on SCRAPERDATA col N (Date In Stock). A vehicle passes if `today - dateInStock >= required days`. Vehicles with unparseable dates pass through.
 
 **Rejection reasons** (shown in CAO summary and logged during runs): `no_stock`, `no_price`, `no_url`, `type`, `status`, `price_low`, `price_high`, `seasoning`, plus `cao_excluded` (from `cao_exclude_types`) and `rule:exclude_order` / `rule:exclude_cao` (from `targeting_rules`). The CAO summary renders these dynamically.
