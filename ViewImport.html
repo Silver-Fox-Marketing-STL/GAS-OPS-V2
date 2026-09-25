@@ -1,86 +1,154 @@
-<div class="view" id="view-import" data-layout="data" hidden> <!-- data tier (1680px) since the snapshot table moved in; was form-wide (1280px) -->
+<!-- ════════════════════════════════════════════════════════════════════════════
+     IMPORT DATA — the morning gate (rebuild increment 7,
+     docs/rebuild-order-desk-design.md). Four panels share the view; only one is
+     visible at a time and the JS toggles them with inline display:flex/none:
+       #importForm        mode + files + snapshot   (the task)
+       #conflictPanel     same VIN, different data  (phase 2 of the import)
+       #reviewPanel       what landed + health      (after the write)
+       #currentDataPanel  browse SCRAPERDATA        (side trip)
+     The two-phase import JS is unchanged apart from user-facing strings — every
+     id and class it reads/writes below is the contract.
+════════════════════════════════════════════════════════════════════════════ -->
+<div class="view" id="view-import" data-layout="data" hidden>
 
+  <!-- ── The task: pick a mode, pick files, read the match, import ────────── -->
+  <section id="importForm" class="imp-panel app-measure">
 
-  <!-- ════════════════════════════════════════════════════════════════════════════
-       IMPORT FORM
-  ════════════════════════════════════════════════════════════════════════════ -->
-  <div id="importForm" class="app-measure" style="display:flex;flex-direction:column;height:100%;">
+    <div class="imp-head">
+      <p class="imp-intent" id="formSubtitle">Replace mode clears the current data and imports the selected files as the new dataset. Columns are matched per file by header name — order does not matter.</p>
 
-    <div class="modal-header">
-      <h3>Import Scraper Data</h3>
-      <div class="subtitle" id="formSubtitle">Replace mode: clears all existing SCRAPERDATA and imports the selected file(s). Columns are matched per file by header name — order doesn't matter.</div>
-    </div>
-
-    <div class="modal-body">
-      <div class="import-cols">
-
-        <!-- Left: mode + file cards + picker + actions -->
-        <div class="import-left">
-          <div class="mode-selector">
-            <div class="mode-option active" id="modeReplace" onclick="setMode('replace')">
-              <div class="mode-title"><input type="radio" name="importMode" id="modeReplaceRadio" checked> Main Import (Replace)</div>
-              <div class="mode-desc">Clears the current SCRAPERDATA and imports the selected file(s) as the new dataset.</div>
-            </div>
-            <div class="mode-option" id="modeMerge" onclick="setMode('merge')">
-              <div class="mode-title"><input type="radio" name="importMode" id="modeMergeRadio"> Merge with Existing</div>
-              <div class="mode-desc">Adds the selected file(s) to the current data. Same VIN + identical data is kept once; differing data is flagged for review. Health drop-checks are only meaningful on Replace. <strong>Tip:</strong> run a Main Import periodically — Merge never removes sold vehicles, so the dataset only grows.</div>
-            </div>
-          </div>
-
-          <div id="fileCards">
-            <div class="files-placeholder">Selected files will appear here with their column mapping.</div>
-          </div>
-
-          <label class="field-label" for="fileInput">Select CSV File(s)</label>
-          <label class="file-pick">
-            <input type="file" id="fileInput" accept=".csv" multiple onchange="handleFilesSelect()" />
-            <span class="btn-secondary file-pick-btn">Choose CSV files…</span>
-            <span class="file-pick-name" id="fileInputName">No files chosen</span>
-          </label>
-          <div class="totals-line" id="totalsLine" style="display:none;"></div>
-
-          <div class="import-actions">
-            <div id="importStatus" class="status-bar empty">&nbsp;</div>
-            <button class="btn-ghost" onclick="showCurrentData()">Browse Current Data</button>
-            <button class="btn-primary" id="importBtn" onclick="runImport()" disabled>Import Data</button>
-          </div>
+      <div class="imp-modes">
+        <div class="mode-option active" id="modeReplace" onclick="setMode('replace')">
+          <div class="mode-title"><input type="radio" name="importMode" id="modeReplaceRadio" checked> Replace current data</div>
+          <div class="mode-desc">Clears SCRAPERDATA first. This is the normal morning import.</div>
         </div>
-
-        <!-- Right: inventory snapshot (always visible) -->
-        <div class="import-right">
-          <div id="invSnapshot">
-            <div class="review-section-title">Inventory Snapshot &mdash; last import</div>
-            <div id="invSnapBody"><div class="u-hint">Loading&hellip;</div></div>
-          </div>
+        <div class="mode-option" id="modeMerge" onclick="setMode('merge')">
+          <div class="mode-title"><input type="radio" name="importMode" id="modeMergeRadio"> Merge into current data</div>
+          <div class="mode-desc">Keeps what is there and adds the files. Same VIN with identical data is kept once; differing data is flagged for review. Merge never removes sold vehicles, so replace periodically. Health checks only mean something on replace.</div>
         </div>
+      </div>
 
+      <div class="imp-pick">
+        <label class="file-pick">
+          <input type="file" id="fileInput" accept=".csv" multiple onchange="handleFilesSelect()" />
+          <span class="btn-secondary file-pick-btn">Choose CSV files&hellip;</span>
+          <span class="file-pick-name" id="fileInputName">No files chosen</span>
+        </label>
       </div>
     </div>
 
-  </div>
+    <div class="imp-cols">
 
-  <!-- ════════════════════════════════════════════════════════════════════════════
-       CURRENT DATA PANEL
-  ════════════════════════════════════════════════════════════════════════════ -->
-  <div id="currentDataPanel" style="display:none;flex-direction:column;height:100%;">
+      <!-- Left: one ruled row per selected file, then the totals and the action row -->
+      <div class="imp-left">
+        <div class="review-section-title">Files</div>
+        <div id="fileCards">
+          <div class="files-placeholder">Selected files will appear here with their column mapping.</div>
+        </div>
+        <div class="totals-line" id="totalsLine"></div>
 
-    <div class="modal-header">
-      <h3>Current Inventory Data</h3>
-      <div class="subtitle">Current SCRAPERDATA snapshot — up to 500 rows per filter selection.</div>
+        <div class="import-actions">
+          <div id="importStatus" class="status-bar empty">&nbsp;</div>
+          <button class="btn-secondary" onclick="showCurrentData()">Browse current data</button>
+          <button class="btn-primary imp-run-btn" id="importBtn" onclick="runImport()" disabled>Import data</button>
+        </div>
+      </div>
+
+      <!-- Right: what is in the sheet right now (always visible) -->
+      <div class="imp-right">
+        <div id="invSnapshot">
+          <div class="review-section-title">Inventory snapshot</div>
+          <div class="imp-asof">As of the most recent import.</div>
+          <div id="invSnapBody"><div class="u-hint">Loading&hellip;</div></div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ── Conflicts: same VIN, different data. Nothing is written yet ──────── -->
+  <section id="conflictPanel" class="imp-panel app-measure">
+
+    <div class="imp-head">
+      <h2 class="imp-title" id="conflictTitle">Resolve conflicting VINs</h2>
+      <p class="imp-intent">The same VIN was found more than once with different data. Choose which version to keep for each — nothing has been written yet.</p>
+      <div class="bulk-bar">
+        <span class="bulk-label" id="bulkLabel"></span>
+        <button class="btn-secondary" onclick="bulkChoice('existing')">Keep all existing</button>
+        <button class="btn-secondary" onclick="bulkChoice('new')">Keep all new</button>
+      </div>
+    </div>
+
+    <div id="conflictList"></div>
+
+    <div class="imp-footer">
+      <div id="statusConflict" class="status-bar empty">&nbsp;</div>
+      <button class="btn-secondary" onclick="cancelConflicts()">Cancel</button>
+      <button class="btn-primary" id="applyBtn" onclick="submitResolutions()" disabled>Apply and import</button>
+    </div>
+
+  </section>
+
+  <!-- ── Review: what landed, and whether it looks right ──────────────────── -->
+  <section id="reviewPanel" class="imp-panel app-measure">
+
+    <div class="imp-head">
+      <h2 class="imp-title">Import complete</h2>
+      <p class="imp-intent" id="reviewTotal"></p>
+    </div>
+
+    <div class="review-section" id="importSummarySection" style="display:none;">
+      <div class="review-section-title">Import summary</div>
+      <div class="badge-row" id="importSummaryBadges"></div>
+    </div>
+
+    <div class="review-cols">
+      <div class="review-section">
+        <div class="review-section-title">Vehicle types</div>
+        <div class="badge-row" id="reviewTypes"></div>
+      </div>
+      <div class="review-section">
+        <div class="review-section-title">Status values</div>
+        <div class="badge-row" id="reviewStatuses"></div>
+      </div>
+    </div>
+
+    <div class="review-section">
+      <div class="review-section-title">Breakdown by location</div>
+      <div id="reviewTable"></div>
+    </div>
+
+    <div class="review-section" id="reviewUnconfigured" style="display:none;"></div>
+
+    <div id="healthSection" style="display:none;"></div>
+
+    <div class="imp-footer">
+      <div id="statusReview" class="status-bar empty">&nbsp;</div>
+      <button class="btn-secondary" onclick="resetImport()">Import more files</button>
+    </div>
+
+  </section>
+
+  <!-- ── Current data: browse what is in SCRAPERDATA right now ────────────── -->
+  <section id="currentDataPanel" class="imp-panel app-measure">
+
+    <div class="imp-head">
+      <h2 class="imp-title">Current data</h2>
+      <p class="imp-intent">What is in SCRAPERDATA right now — up to 500 rows per filter selection.</p>
     </div>
 
     <div class="cd-filters">
       <select id="cdLocFilter" onchange="loadCurrentData()">
-        <option value="">All Locations</option>
+        <option value="">All locations</option>
       </select>
       <select id="cdTypeFilter" onchange="loadCurrentData()">
-        <option value="">All Types</option>
+        <option value="">All types</option>
       </select>
       <span class="cd-count" id="cdCount"></span>
     </div>
 
     <div class="cd-table-wrap">
-      <table id="cdTable">
+      <table id="cdTable" class="table-u">
         <thead>
           <tr>
             <th>VIN</th><th>Stock</th><th>Type</th><th>Year</th>
@@ -89,654 +157,259 @@
           </tr>
         </thead>
         <tbody id="cdBody">
-          <tr><td colspan="11" class="cd-loading">Loading...</td></tr>
+          <tr><td colspan="11" class="cd-loading">Loading&hellip;</td></tr>
         </tbody>
       </table>
     </div>
 
-    <div class="modal-footer">
-      <div class="status-bar empty">&nbsp;</div>
-      <button class="btn-ghost" onclick="hideCurrentData()">&#8592; Back to Import</button>
+    <div class="imp-footer">
+      <button class="btn-secondary" onclick="hideCurrentData()">Back to import</button>
     </div>
 
-  </div>
+  </section>
 
-  <!-- ════════════════════════════════════════════════════════════════════════════
-       CONFLICT RESOLUTION PANEL
-  ════════════════════════════════════════════════════════════════════════════ -->
-  <div id="conflictPanel" style="display:none;flex-direction:column;height:100%;">
-
-    <div class="modal-header">
-      <h3 id="conflictTitle">Resolve Conflicting VINs</h3>
-      <div class="subtitle">The same VIN was found more than once with different data. Choose which version to keep for each — nothing has been written yet.</div>
-    </div>
-
-    <div class="modal-body">
-      <div class="bulk-bar">
-        <span class="bulk-label" id="bulkLabel"></span>
-        <button class="btn-ghost" onclick="bulkChoice('existing')">Keep All Existing</button>
-        <button class="btn-ghost" onclick="bulkChoice('new')">Keep All New</button>
-      </div>
-      <div id="conflictList"></div>
-    </div>
-
-    <div class="modal-footer">
-      <div id="statusConflict" class="status-bar empty">&nbsp;</div>
-      <button class="btn-ghost" onclick="cancelConflicts()">Cancel</button>
-      <button class="btn-primary" id="applyBtn" onclick="submitResolutions()" disabled>Apply &amp; Import</button>
-    </div>
-
-  </div>
-
-  <!-- ════════════════════════════════════════════════════════════════════════════
-       REVIEW PANEL
-  ════════════════════════════════════════════════════════════════════════════ -->
-  <div id="reviewPanel" style="display:none;flex-direction:column;height:100%;">
-
-    <div class="modal-body">
-      <div class="review-hero">
-        <span class="check">✓</span>
-        <div>
-          <h3>Import Complete</h3>
-          <div class="total" id="reviewTotal"></div>
-        </div>
-      </div>
-
-      <div class="review-section" id="importSummarySection" style="display:none;">
-        <div class="review-section-title">Import Summary</div>
-        <div class="badge-row" id="importSummaryBadges"></div>
-      </div>
-
-      <div class="review-section">
-        <div class="review-section-title">Vehicle Types</div>
-        <div class="badge-row" id="reviewTypes"></div>
-      </div>
-
-      <div class="review-section">
-        <div class="review-section-title">Status Values</div>
-        <div class="badge-row" id="reviewStatuses"></div>
-      </div>
-
-      <hr class="divider">
-
-      <div class="review-section">
-        <div class="review-section-title">Breakdown by Location</div>
-        <div id="reviewTable"></div>
-      </div>
-
-      <div class="review-section" id="reviewUnconfigured" style="display:none;"></div>
-
-      <div id="healthSection" style="display:none;"></div>
-    </div>
-
-    <div class="modal-footer">
-      <div id="statusReview" class="status-bar empty">&nbsp;</div>
-      <button class="btn-ghost" onclick="resetImport()">Import More Data</button>
-    </div>
-
-  </div>
 </div>
 
 <style>
-#view-import * { box-sizing: border-box; margin: 0; padding: 0; }
-    #view-import {
-      font-family: var(--font-body);
-      font-size: 13px;
-      color: var(--text);
-      background: var(--bg);
-      display: flex;
-      flex-direction: column;
-      height: 100%;
-      overflow: hidden;
-    }
+  /* Order Desk idiom: ink rules, condensed sentence-case headings, tabular
+     figures. No cards, no shadows. Every colour is a token. */
+  #view-import * { box-sizing: border-box; }
+  #view-import {
+    font-family: var(--font-body);
+    font-size: var(--fs-body);
+    height: 100%;
+    overflow-y: auto;                  /* the shell's #appContent is fixed height */
+    background: var(--bg);
+    color: var(--text);
+  }
+  #view-import h2, #view-import p { margin: 0; }
 
-    /* ── Header ──────────────────────────────────────────────────────────────── */
-    #view-import .modal-header {
-      padding: 14px 18px 10px;
-      border-bottom: 1px solid var(--border);
-      flex-shrink: 0;
-    }
-    #view-import .modal-header h3 {
-      font-size: 14px;
-      font-weight: bold;
-      margin-bottom: 2px;
-    }
-    #view-import .modal-header .subtitle {
-      font-size: 11px;
-      color: var(--text-3);
-    }
+  /* Panels — the JS shows/hides these with inline display:flex / display:none,
+     so the flow properties live here and the inline value only switches them on. */
+  #view-import .imp-panel { display: none; flex-direction: column; gap: 18px; padding: 18px 28px 36px; }
+  #view-import #importForm { display: flex; }
 
-    /* ── Scrollable content area ─────────────────────────────────────────────── */
-    #view-import .modal-body {
-      flex: 1;
-      overflow-y: auto;
-      padding: 16px 18px;
-    }
+  /* ── Head: what this mode does, the two modes, the picker ──────────────── */
+  #view-import .imp-head { display: flex; flex-direction: column; gap: 10px; }
+  #view-import .imp-title { font-family: var(--font-head); font-size: 26px; font-weight: 700; line-height: 1.05; color: var(--text); }
+  #view-import .imp-intent { font-size: var(--fs-sm); color: var(--text-3); max-width: 78ch; line-height: 1.5; }
 
-    /* ── Bottom action bar ───────────────────────────────────────────────────── */
-    #view-import .modal-footer {
-      border-top: 1px solid var(--border);
-      padding: 10px 18px;
-      flex-shrink: 0;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-    #view-import .status-bar {
-      flex: 1;
-      font-size: 12px;
-      padding: 6px 8px;
-      border-radius: var(--radius-sm);
-      min-height: 30px;
-      line-height: 18px;
-    }
-    #view-import .status-bar.empty { background: none; color: transparent; }
-    #view-import .status-bar.info { background: var(--accent-weak); color: var(--accent); }
-    #view-import .status-bar.success { background: var(--success-weak); color: var(--success); }
-    #view-import .status-bar.error { background: var(--danger-weak); color: var(--danger); }
+  #view-import .imp-modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 32px; }
+  #view-import .mode-option {
+    padding: 8px 0 9px 11px;
+    border-left: 3px solid transparent;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+  }
+  #view-import .mode-option.active { border-left-color: var(--accent); }
+  #view-import .mode-option .mode-title {
+    display: flex; align-items: center; gap: 8px;
+    font-size: var(--fs-body); font-weight: 600; color: var(--text-2);
+  }
+  #view-import .mode-option.active .mode-title { font-weight: 700; color: var(--text); }
+  #view-import .mode-option input[type="radio"] { width: 15px; height: 15px; margin: 0; cursor: pointer; accent-color: var(--accent); }
+  #view-import .mode-option .mode-desc { margin-top: 3px; font-size: var(--fs-sm); color: var(--text-3); line-height: 1.45; }
+  #view-import .imp-pick { display: flex; }
 
-    /* ── Two-column import form (wide modal) ───────────────────────────────────
-       Grid skeleton (named areas let a theme swap columns with no markup change).
-       The form's modal-body is overflow:hidden; each COLUMN owns its own scroll:
-       left scrolls its stacked controls, right flexes the snapshot to fill. */
-    #view-import #importForm .modal-body { overflow: hidden; min-height: 0; }
-    #view-import .import-cols { display: grid; grid-template-columns: 500px 1fr;
-                               grid-template-rows: minmax(0, 1fr);
-                               grid-template-areas: "left right"; gap: 20px; height: 100%; }
-    #view-import .import-left {
-      grid-area: left;
-      min-height: 0;
-      overflow-y: auto;
-    }
-    #view-import .import-right {
-      grid-area: right;
-      min-width: 0;
-      min-height: 0;
-      display: flex;
-      flex-direction: column;
-    }
-    #view-import .files-placeholder {
-      border: 1px dashed var(--border);
-      border-radius: 5px;
-      padding: 40px 20px;
-      text-align: center;
-      color: var(--text-muted);
-      font-size: 12px;
-    }
+  /* ── Two columns: files | inventory snapshot ───────────────────────────── */
+  /* minmax(0, …): an fr track floors at min-content, so without it the 10-column
+     snapshot table widens its own column instead of scrolling inside it. */
+  #view-import .imp-cols { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 0 40px; align-items: start; }
+  #view-import .imp-left, #view-import .imp-right { min-width: 0; }
 
-    /* ── Inventory snapshot (right column, always visible) ───────────────────
-       Flex chain down to the scroll box: basis=auto + shrink lets a short table
-       hug its content while a tall one caps at the column height and scrolls. */
-    #view-import #invSnapshot {
-      flex: 1;
-      min-height: 0;
-      display: flex;
-      flex-direction: column;
-    }
-    #view-import #invSnapBody {
-      flex: 1;
-      min-height: 0;
-      display: flex;
-      flex-direction: column;
-    }
-    #view-import .inv-snap-scroll {
-      min-height: 0;
-      overflow: auto;
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-    }
-    /* The generic #view-import th dialect rules above outrank .table-u —
-       restore the canonical sticky header bar (--th-bg/--th-fg, so it follows
-       the theme like every other table) for this table only.
-       (Dialect alignment — th/td right, first-child left — is kept: it's
-       exactly what a numeric snapshot wants.) */
-    #view-import #invSnapshot .table-u th {
-      background: var(--th-bg);
-      color: var(--th-fg);
-      font-family: var(--font-head);
-      font-size: 10px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: .06em;
-      padding: 7px 9px;
-      border-bottom: none;
-    }
-    /* Tighter cells than the shared 12px: ten columns in the ~670px right
-       column at 1440 clipped the last one ("No Price / No Stock") with no
-       scroll cue (Sep 23 audit). 9px fits it; the scroll box stays as backstop. */
-    #view-import #invSnapshot .table-u td { padding: 6px 9px; }
-    /* The last header ("No Price / No Stock" — a server-written sheet label,
-       not renamed here) is the widest thing in the table; let it wrap to two
-       lines instead of forcing the whole table past the column edge. */
-    #view-import #invSnapshot .table-u th:last-child { white-space: normal; line-height: 1.25; min-width: 76px; }
-    /* Location column: 200px → 170px (long names already ellipsize) — with
-       the header wrap above that brings the table inside the 673px box. */
-    #view-import #invSnapshot .table-u tbody td:first-child { max-width: 170px; }
-    #view-import #invSnapshot tr.row-total td {
-      font-weight: bold;
-      border-top: 2px solid var(--border-2);
-    }
+  /* Section heading — condensed, sentence case, one rule under it. Also used
+     by the JS-built unconfigured-locations block. */
+  #view-import .review-section-title {
+    font-family: var(--font-head); font-size: 17px; font-weight: 700; color: var(--text);
+    padding-bottom: 4px; margin-bottom: 4px; border-bottom: 1px solid var(--text);
+  }
+  #view-import .imp-asof { font-size: var(--fs-hint); color: var(--text-3); margin-bottom: 6px; }
 
-    /* ── Mode selector (stacked in the left column) ──────────────────────────── */
-    #view-import .mode-selector {
-      display: flex;
-      flex-direction: column;
-      gap: 0;
-      margin-bottom: 14px;
-      border: 1px solid var(--border);
-      border-radius: 5px;
-      overflow: hidden;
-    }
-    #view-import .mode-option {
-      flex: 1;
-      padding: 10px 14px;
-      cursor: pointer;
-      background: var(--bg);
-      border-top: 1px solid var(--border);
-    }
-    #view-import .mode-option:first-child { border-top: none; }
-    #view-import .mode-option.active { background: var(--accent-weak); }
-    #view-import .mode-option .mode-title {
-      font-weight: bold;
-      font-size: 13px;
-      display: flex;
-      align-items: center;
-      gap: 7px;
-    }
-    #view-import .mode-option.active .mode-title { color: var(--accent); }
-    #view-import .mode-option .mode-desc {
-      font-size: 11px;
-      color: var(--text-3);
-      margin-top: 3px;
-      line-height: 1.4;
-    }
+  /* ── One ruled row per file ────────────────────────────────────────────── */
+  #view-import .files-placeholder { padding: 10px 0; font-size: var(--fs-sm); color: var(--text-muted); border-bottom: 1px solid var(--border); }
+  #view-import .file-card {
+    padding: 8px 0 9px 11px;
+    border-left: 2px solid var(--border-2);
+    border-bottom: 1px solid var(--border);
+  }
+  #view-import .file-card.invalid { border-left-color: var(--danger); }
+  #view-import .file-card-header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 14px; }
+  #view-import .file-card-header > span:first-child { font-family: var(--font-mono); font-size: 12px; color: var(--text); min-width: 0; overflow-wrap: anywhere; }
+  #view-import .file-card-header .file-meta { font-size: var(--fs-sm); color: var(--text-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  #view-import .file-card-body { margin-top: 2px; font-size: var(--fs-sm); line-height: 1.5; color: var(--text-3); }
+  #view-import .file-card-body .match,
+  #view-import .file-card-body .missing-line,
+  #view-import .file-card-body .ignored-line { color: var(--text-3); }
+  #view-import .file-card-body .error-line { color: var(--danger); font-weight: 600; }
 
-    /* ── File input ──────────────────────────────────────────────────────────── */
-    #view-import label.field-label {
-      display: block;
-      font-weight: bold;
-      margin-bottom: 5px;
-    }
-    /* Styled picker (SharedUtils .file-pick) — the native control is hidden. */
-    #view-import .file-pick { margin: 2px 0 6px; }
+  #view-import .totals-line { display: none; margin-top: 10px; font-size: var(--fs-sm); font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
 
-    /* ── Per-file cards (left column, between mode picker and file input) ────── */
-    #view-import #fileCards { margin-bottom: 14px; }
-    #view-import .file-card {
-      border: 1px solid var(--border);
-      border-radius: 5px;
-      overflow: hidden;
-      margin-bottom: 10px;
-    }
-    #view-import .file-card.invalid { border-color: var(--danger); }
-    #view-import .file-card-header {
-      background: var(--surface-2);
-      padding: 7px 12px;
-      font-size: 12px;
-      font-weight: bold;
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 4px 10px;
-      flex-wrap: wrap;             /* narrow left column: meta drops below a long filename */
-    }
-    #view-import .file-card.invalid .file-card-header { background: var(--danger-weak); color: var(--danger); }
-    #view-import .file-card-header .file-meta {
-      font-weight: normal;
-      font-size: 11px;
-      color: var(--text-2);
-      white-space: nowrap;
-    }
-    #view-import .file-card-body {
-      padding: 8px 12px;
-      font-size: 11px;
-      line-height: 1.7;
-    }
-    #view-import .file-card-body .missing-line { color: var(--danger); }
-    #view-import .file-card-body .ignored-line { color: var(--text-3); }
-    #view-import .file-card-body .error-line { color: var(--danger); font-weight: bold; }
-    #view-import .match { color: var(--success); }
-    #view-import .nomatch { color: var(--danger); }
+  /* ── Action row ────────────────────────────────────────────────────────── */
+  #view-import .import-actions,
+  #view-import .imp-footer {
+    display: flex; align-items: center; gap: 12px;
+    margin-top: 14px; padding-top: 12px; border-top: var(--rule);
+  }
+  #view-import .import-actions button, #view-import .imp-footer button, #view-import .bulk-bar button { flex-shrink: 0; }
+  /* Large primary, same recipe as ViewRun's .ro-run-btn. The !important is
+     forced by SharedUtils' .btn-* padding !important (which defends itself from
+     view wildcard resets) — ceiling: only a token-sized button variant removes it. */
+  #view-import .imp-run-btn { padding: 12px 22px !important; font-size: 18px; }
 
-    #view-import .totals-line {
-      margin-top: 14px;
-      font-size: 12px;
-      font-weight: bold;
-      color: var(--text);
-    }
+  /* Status line — a plain sentence, no tinted bar. */
+  #view-import .status-bar { flex: 1; min-width: 0; font-size: var(--fs-sm); line-height: 1.45; }
+  #view-import .status-bar.empty { color: transparent; }
+  #view-import .status-bar.info { color: var(--accent); }
+  #view-import .status-bar.success { color: var(--success); }
+  #view-import .status-bar.error { color: var(--danger); }
 
-    /* ── Action row: anchored under the left column's content (replaces the old
-       full-width modal-footer for this panel only — the other panels keep theirs) */
-    #view-import .import-actions {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      margin-top: 14px;
-      padding-top: 10px;
-      border-top: 1px solid var(--border);
-    }
+  /* ── Inventory snapshot (right column) ─────────────────────────────────── */
+  /* Ten numeric columns in a ~430px track: tighter cells than the shared 12px
+     so the table fits without a scrollbar; the scroll box stays as the backstop
+     (a dealer name longer than the ellipsis budget, a wider snapshot). */
+  #view-import .inv-snap-scroll { overflow-x: auto; }
+  #view-import #invSnapshot .table-u th { font-size: 10.5px; letter-spacing: .02em; padding: 6px 3px; white-space: nowrap; }
+  #view-import #invSnapshot .table-u th:last-child { white-space: normal; line-height: 1.2; min-width: 56px; }
+  #view-import #invSnapshot .table-u td { padding: 5px 3px; font-size: 11px; }
+  #view-import #invSnapshot .table-u th + th,
+  #view-import #invSnapshot .table-u td + td { text-align: right; }
+  #view-import #invSnapshot .table-u tbody td:first-child { max-width: 104px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #view-import #invSnapshot .table-u tr.row-total td { font-weight: 700; color: var(--text); border-top: 1px solid var(--text); }
 
-    /* ── Buttons: don't shrink next to flex:1 siblings (status-bar, bulk-label) ── */
-    #view-import .modal-footer button,
-    #view-import .import-actions button,
-    #view-import .bulk-bar button { flex-shrink: 0; }
+  /* ── Conflicts ─────────────────────────────────────────────────────────── */
+  #view-import .bulk-bar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 8px 0 9px 11px;
+    border-left: 3px solid var(--warning-strong);
+    font-size: var(--fs-sm);
+  }
+  #view-import .bulk-bar .bulk-label { flex: 1; min-width: 0; color: var(--text-2); }
 
-    /* ════════════════════════════════════════════════════════════════════════════
-       CONFLICT PANEL
-    ════════════════════════════════════════════════════════════════════════════ */
-    #view-import #conflictPanel { display: none; }
+  #view-import #conflictList { display: flex; flex-direction: column; }
+  #view-import .conflict-card { padding: 10px 0 12px; border-top: 1px solid var(--border); }
+  #view-import .conflict-card-header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+  #view-import .conflict-card-header .vin { font-family: var(--font-mono); font-size: 13px; font-weight: 600; color: var(--text); }
+  #view-import .conflict-card-header .meta { font-size: var(--fs-sm); color: var(--text-3); white-space: nowrap; }
+  /* Side-by-side comparison: fixed layout so a long value can't clip a column. */
+  #view-import .conflict-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: var(--fs-sm); }
+  #view-import .conflict-table th {
+    padding: 3px 10px 3px 0; text-align: left; vertical-align: bottom;
+    font-weight: 600; color: var(--text-3); border-bottom: 1px solid var(--border);
+  }
+  #view-import .conflict-table td { padding: 4px 10px 4px 0; text-align: left; vertical-align: top; color: var(--text); border-bottom: 1px solid var(--border); word-break: break-word; }
+  #view-import .conflict-table td.field-name { color: var(--text-2); font-weight: 600; white-space: nowrap; }
+  #view-import .conflict-choice { display: flex; gap: 24px; padding-top: 8px; font-size: var(--fs-sm); }
+  #view-import .conflict-choice label { display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--text-2); }
+  #view-import .conflict-choice input[type="radio"] { width: 15px; height: 15px; margin: 0; cursor: pointer; accent-color: var(--accent); }
+  #view-import .variant-note { padding-top: 6px; font-size: var(--fs-hint); color: var(--warning-strong); }
+  #view-import .more-conflicts { padding: 10px 0; border-top: 1px solid var(--border); font-size: var(--fs-sm); color: var(--text-2); }
 
-    #view-import .bulk-bar {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 10px 12px;
-      background: var(--warning-weak);
-      border: 1px solid var(--warning);
-      border-radius: 5px;
-      margin-bottom: 14px;
-      font-size: 12px;
-    }
-    #view-import .bulk-bar .bulk-label { font-weight: bold; color: var(--warning-strong); flex: 1; }
-    #view-import .bulk-bar button { padding: 6px 14px; font-size: 12px; }
+  /* ── Review ────────────────────────────────────────────────────────────── */
+  #view-import .review-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 40px; align-items: start; }
+  #view-import .review-section { min-width: 0; }
 
-    /* Conflict cards render 2-up in the wide modal */
-    #view-import #conflictList {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 12px;
-      align-items: start;
-    }
-    #view-import .conflict-card {
-      border: 1px solid var(--border);
-      border-radius: 5px;
-      overflow: hidden;
-    }
-    #view-import .conflict-card-header {
-      background: var(--surface-2);
-      padding: 7px 12px;
-      font-size: 12px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 10px;
-      border-bottom: 1px solid var(--border);
-    }
-    #view-import .conflict-card-header .vin { font-weight: bold; font-family: monospace; font-size: 12px; }
-    #view-import .conflict-card-header .meta { font-size: 11px; color: var(--text-2); white-space: nowrap; }
-    #view-import .conflict-table { width: 100%; border-collapse: collapse; font-size: 11px; table-layout: fixed; }
-    #view-import .conflict-table th {
-      background: var(--bg);
-      padding: 5px 10px;
-      text-align: left;
-      border-bottom: 1px solid var(--border);
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: 0.3px;
-      color: var(--text-3);
-    }
-    #view-import .conflict-table td {
-      padding: 5px 10px;
-      border-bottom: 1px solid var(--border);
-      text-align: left;
-      vertical-align: top;
-      word-break: break-word;
-    }
-    #view-import .conflict-table td.field-name { font-weight: bold; color: var(--text-2); width: 130px; white-space: nowrap; }
-    #view-import .conflict-choice {
-      display: flex;
-      gap: 22px;
-      padding: 8px 12px;
-      background: var(--bg);
-      border-top: 1px solid var(--border);
-      font-size: 12px;
-    }
-    #view-import .conflict-choice label { cursor: pointer; display: flex; align-items: center; gap: 5px; }
-    #view-import .variant-note { font-size: 10.5px; color: var(--warning-strong); padding: 4px 12px 8px; background: var(--bg); }
-    #view-import .more-conflicts {
-      grid-column: 1 / -1;
-      padding: 10px 12px;
-      background: var(--surface-2);
-      border-radius: 5px;
-      font-size: 12px;
-      color: var(--text-2);
-      text-align: center;
-    }
+  /* Figures under a rule — the ViewHome stat-row idiom. The JS emits plain
+     <span class="badge"> strings, so the number and its label share one cell. */
+  #view-import .badge-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0 22px; }
+  #view-import .badge {
+    padding: 7px 0 6px;
+    border-bottom: 1px solid var(--border);
+    font-family: var(--font-head); font-size: 16px; font-weight: 600;
+    color: var(--text); font-variant-numeric: tabular-nums;
+  }
+  #view-import .badge.neutral { color: var(--text-2); }
+  #view-import .badge.status { color: var(--warning-strong); }
+  #view-import .badge.warning { color: var(--danger); }
 
-    /* ════════════════════════════════════════════════════════════════════════════
-       REVIEW PANEL
-    ════════════════════════════════════════════════════════════════════════════ */
-    #view-import #reviewPanel { display: none; }
-    #view-import #currentDataPanel { display: none; }
+  /* Location x type table. The JS builds a bare <table> inside .table-wrap and
+     cannot be given the .table-u class this increment (its script block is
+     frozen) — these rules mirror the shared recipe. Ceiling: add the class in
+     showReview() next time ViewImport's JS is opened. */
+  #view-import .table-wrap { overflow-x: auto; }
+  #view-import #reviewTable table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+  #view-import #reviewTable th {
+    background: var(--th-bg); color: var(--th-fg);
+    padding: 6px 10px; text-align: right; white-space: nowrap;
+    font-family: var(--font-head); font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+  }
+  #view-import #reviewTable th:first-child { text-align: left; }
+  #view-import #reviewTable td { padding: 5px 10px; text-align: right; white-space: nowrap; color: var(--text); border-bottom: 1px solid var(--border); }
+  #view-import #reviewTable td:first-child { text-align: left; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+  #view-import #reviewTable tbody tr:hover td { background: var(--surface); }
+  #view-import #reviewTable td.total-col, #view-import #reviewTable th.total-col { font-weight: 700; color: var(--text); }
+  #view-import #reviewTable th.total-col { color: var(--th-fg); }
 
-    /* ── Current Data panel ──────────────────────────────────────────────────── */
-    #view-import .cd-filters {
-      padding: 8px 18px;
-      border-bottom: 1px solid var(--border);
-      flex-shrink: 0;
-      display: flex;
-      gap: 12px;
-      align-items: center;
-      background: var(--surface);
-    }
-    #view-import .cd-filters select {
-      padding: 8px;
-      font-size: 13px;
-      border: 1px solid var(--border-2);
-      border-radius: var(--radius-sm);
-      background: var(--bg);
-      color: var(--text);
-      max-width: 280px;
-    }
-    #view-import .cd-count {
-      font-size: 11px;
-      color: var(--text-3);
-      margin-left: auto;
-    }
-    #view-import .cd-table-wrap {
-      flex: 1;
-      min-height: 0;
-      overflow: auto;
-    }
-    #view-import #cdTable {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 12px;
-      font-variant-numeric: tabular-nums;
-    }
-    #view-import #cdTable th {
-      position: sticky;
-      top: 0;
-      background: var(--surface-2);
-      color: var(--text-2);
-      text-align: left;
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: .03em;
-      padding: 5px 8px;
-      border-bottom: 1px solid var(--border);
-      white-space: nowrap;
-    }
-    #view-import #cdTable td {
-      padding: 4px 8px;
-      border-bottom: 1px solid var(--border);
-      color: var(--text);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 150px;
-    }
-    #view-import #cdTable td.cd-mono { font-family: monospace; font-size: 11px; color: var(--text-2); }
-    #view-import #cdTable td.cd-trim { max-width: 120px; }
-    #view-import #cdTable td a { color: var(--accent); text-decoration: none; }
-    #view-import #cdTable td a:hover { text-decoration: underline; }
-    #view-import #cdTable tr:hover td { background: var(--surface); }
-    #view-import #cdTable .cd-loading {
-      text-align: center;
-      color: var(--text-muted);
-      padding: 28px;
-      font-style: italic;
-    }
+  /* Unconfigured locations + data health — ruled rows, plain sentences. */
+  #view-import #reviewUnconfigured .review-section-title { margin-bottom: 2px; }
+  #view-import .health-section-title {
+    font-family: var(--font-head); font-size: 17px; font-weight: 700; color: var(--danger);
+    padding-bottom: 4px; margin-bottom: 4px; border-bottom: 1px solid var(--danger);
+  }
+  #view-import .health-section.clean .health-section-title { color: var(--success); border-bottom-color: var(--success); }
+  #view-import .health-item {
+    display: flex; align-items: baseline; gap: 10px;
+    padding: 6px 0 7px 11px; margin-top: 4px;
+    border-left: 2px solid var(--warning-strong);
+    font-size: var(--fs-sm); color: var(--text-2);
+  }
+  /* Severity travels in the icon span's markup (.sev-error / .sev-warn) because
+     the review JS is frozen this increment — ceiling: a severity class on
+     .health-item is the proper fix. */
+  #view-import .health-item:has(.sev-error) { border-left-color: var(--danger); }
+  #view-import .health-icon { flex-shrink: 0; font-family: var(--font-head); font-weight: 700; color: var(--warning-strong); }
+  #view-import .health-icon:empty { display: none; }
+  #view-import .health-item:has(.sev-error) .health-icon { color: var(--danger); }
+  #view-import .health-icon b { font-weight: inherit; }
+  #view-import .health-location { font-weight: 600; color: var(--text); }
+  #view-import .health-msg { color: var(--text-2); }
+  #view-import #reviewUnconfigured .health-item .btn-ghost { align-self: center; }
 
-    #view-import .review-hero {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 14px;
-    }
-    #view-import .review-hero .check { font-size: 24px; color: var(--success); }
-    #view-import .review-hero h3 { font-size: 15px; color: var(--success); margin: 0; }
-    #view-import .review-hero .total { font-size: 12px; color: var(--text-2); margin-top: 1px; }
+  /* ── Current data ──────────────────────────────────────────────────────── */
+  /* This panel fills the workspace and scrolls its own table, so the filters
+     and the Back button stay put over 500 rows. */
+  #view-import #currentDataPanel { height: 100%; gap: 12px; }
+  #view-import .cd-filters { display: flex; align-items: center; gap: 12px; }
+  /* CustomSelect HIDES the native select and paints a .cs-btn inside a .cs-field
+     wrapper, copying the select's FLEX role onto that wrapper as an inline style
+     (and defaulting to width:100% when there is no fixed basis). Size all three,
+     or the two filters eat the whole row: the flex basis on the select is what
+     the wrapper inherits, and the widths pin the painted control either way. */
+  #view-import .cd-filters select {
+    flex: 0 0 240px;
+    padding: 7px 8px; font-family: var(--font-body); font-size: var(--fs-body);
+    background: var(--bg); color: var(--text); border: 1px solid var(--border-2); border-radius: var(--radius-sm);
+  }
+  #view-import .cd-filters .cs-field,
+  #view-import .cd-filters .cs-btn { width: 240px; max-width: 100%; }
+  #view-import .cd-count { margin-left: auto; font-size: var(--fs-sm); color: var(--text-3); font-variant-numeric: tabular-nums; }
+  #view-import .cd-table-wrap { flex: 1; min-height: 0; overflow: auto; }
+  #view-import #cdTable td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+  #view-import #cdTable td.cd-mono { font-family: var(--font-mono); font-size: 11px; color: var(--text-2); }
+  #view-import #cdTable td.cd-trim { max-width: 120px; }
+  #view-import #cdTable td a { color: var(--accent); text-decoration: none; }
+  #view-import #cdTable td a:hover { text-decoration: underline; }
+  #view-import #cdTable td.cd-loading { max-width: none; text-align: center; color: var(--text-muted); padding: 28px; }
+  #view-import #currentDataPanel .imp-footer { margin-top: 0; }
 
-    #view-import .review-section { margin-bottom: 16px; }
-    #view-import .review-section-title {
-      font-size: 11px;
-      font-weight: bold;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      color: var(--text-3);
-      margin-bottom: 7px;
-    }
-
-    #view-import .badge-row { display: flex; flex-wrap: wrap; gap: 6px; }
-    #view-import .badge {
-      display: inline-block;
-      padding: 3px 10px;
-      border-radius: 12px;
-      font-size: 12px;
-      font-weight: bold;
-      background: var(--accent-weak);
-      color: var(--accent);
-    }
-    #view-import .badge.status { background: var(--warning-weak); color: var(--warning-strong); }
-    #view-import .badge.warning { background: var(--danger-weak); color: var(--danger); }
-    #view-import .badge.neutral { background: var(--surface-2); color: var(--text-2); }
-
-    #view-import .divider {
-      border: none;
-      border-top: 1px solid var(--border);
-      margin: 14px 0;
-    }
-
-    /* Location × Type table */
-    #view-import .table-wrap {
-      overflow-x: auto;
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-    }
-    #view-import table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 11px;
-    }
-    #view-import th {
-      background: var(--surface-2);
-      padding: 6px 10px;
-      text-align: right;
-      font-weight: bold;
-      white-space: nowrap;
-      border-bottom: 1px solid var(--border);
-    }
-    #view-import th:first-child { text-align: left; }
-    #view-import td {
-      padding: 5px 10px;
-      text-align: right;
-      border-bottom: 1px solid var(--border);
-      white-space: nowrap;
-    }
-    #view-import td:first-child {
-      text-align: left;
-      max-width: 200px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      color: var(--text);
-    }
-    #view-import tr:last-child td { border-bottom: none; }
-    #view-import tr:hover td { background: var(--surface); }
-    #view-import td.total-col,
-  #view-import th.total-col {
-      font-weight: bold;
-      color: var(--text);
-      border-left: 1px solid var(--border);
-    }
-    /* ── Health issues section ───────────────────────────────────────────────── */
-    #view-import .health-section {
-      margin-top: 14px;
-      border: 1px solid var(--danger);
-      border-radius: 5px;
-      overflow: hidden;
-    }
-    #view-import .health-section.clean {
-      border-color: var(--success);
-    }
-    #view-import .health-section-title {
-      padding: 7px 12px;
-      font-size: 11px;
-      font-weight: bold;
-      background: var(--danger-weak);
-      color: var(--danger);
-    }
-    #view-import .health-section.clean .health-section-title {
-      background: var(--success-weak);
-      color: var(--success);
-    }
-    #view-import .health-item {
-      display: flex;
-      align-items: flex-start;
-      gap: 8px;
-      padding: 6px 12px;
-      font-size: 11px;
-      border-top: 1px solid var(--danger-weak);
-    }
-    #view-import .health-section.clean .health-item {
-      border-top-color: var(--success-weak);
-    }
-    #view-import .health-icon { flex-shrink: 0; font-size: 13px; line-height: 1.4; }
-    /* Unconfigured-locations banner — health-section styling in warning tones. */
-    #view-import #reviewUnconfigured {
-      border: 1px solid var(--warning);
-      border-radius: 5px;
-      overflow: hidden;
-    }
-    #view-import #reviewUnconfigured .review-section-title {
-      margin: 0;
-      padding: 7px 12px;
-      background: var(--warning-weak);
-      color: var(--warning);
-    }
-    #view-import #reviewUnconfigured .health-item {
-      align-items: center;
-      border-top-color: var(--warning-weak);
-    }
-    #view-import .health-location { font-weight: bold; color: var(--text); }
-    #view-import .health-msg { color: var(--text-2); }
-
-    /* themed root (overrides the interim .view light guard) */
-    #view-import { background: var(--bg); color: var(--text); }
-
-    /* ── Mobile (data-viewport="mobile") — phone ≤760px ─────────────────────
-       .import-cols already stacks (App.html). Here: wrap the Current Data
-       filter row + the conflict keep-existing/keep-new choice row so they don't
-       overflow, trim panel padding, and ensure the wide data tables scroll
-       within their existing overflow containers. Conflict cards are already
-       full-width (grid 1fr) with table-layout:fixed. No-op on desktop. */
-    :root[data-viewport="mobile"] #view-import .cd-filters { flex-wrap: wrap; }
-    :root[data-viewport="mobile"] #view-import .cd-count { margin-left: 0; flex: 1 1 100%; }
-    :root[data-viewport="mobile"] #view-import .conflict-choice { flex-wrap: wrap; gap: 8px 22px; }
-    :root[data-viewport="mobile"] #view-import .modal-header,
-    :root[data-viewport="mobile"] #view-import .modal-body { padding-left: var(--space-3); padding-right: var(--space-3); }
-    :root[data-viewport="mobile"] #view-import .modal-footer { flex-wrap: wrap; }
-    :root[data-viewport="mobile"] #view-import .modal-footer .status-bar { flex: 1 1 100%; order: -1; }
-    :root[data-viewport="mobile"] #view-import #cdTable { min-width: 700px; }
-    /* Stacked columns (App.html collapses .import-cols to one column): release the
-       desktop per-column height lock and let the whole form scroll in modal-body. */
-    :root[data-viewport="mobile"] #view-import #importForm .modal-body { overflow-y: auto; }
-    :root[data-viewport="mobile"] #view-import .import-cols { height: auto; grid-template-rows: none; }
-    :root[data-viewport="mobile"] #view-import .import-left { overflow-y: visible; }
-    :root[data-viewport="mobile"] #view-import .inv-snap-scroll { max-height: 60vh; }
-    :root[data-viewport="mobile"] #view-import .import-actions { flex-wrap: wrap; }
-    :root[data-viewport="mobile"] #view-import .import-actions .status-bar { flex: 1 1 100%; order: -1; }
+  /* ── Mobile (data-viewport="mobile") ───────────────────────────────────── */
+  :root[data-viewport="mobile"] #view-import .imp-panel { padding: 14px 16px 32px; }
+  :root[data-viewport="mobile"] #view-import .imp-modes,
+  :root[data-viewport="mobile"] #view-import .imp-cols,
+  :root[data-viewport="mobile"] #view-import .review-cols { grid-template-columns: 1fr; gap: 16px 0; }
+  :root[data-viewport="mobile"] #view-import .import-actions,
+  :root[data-viewport="mobile"] #view-import .imp-footer,
+  :root[data-viewport="mobile"] #view-import .bulk-bar,
+  :root[data-viewport="mobile"] #view-import .cd-filters { flex-wrap: wrap; }
+  :root[data-viewport="mobile"] #view-import .import-actions .status-bar,
+  :root[data-viewport="mobile"] #view-import .imp-footer .status-bar,
+  :root[data-viewport="mobile"] #view-import .bulk-bar .bulk-label { flex: 1 1 100%; order: -1; }
+  :root[data-viewport="mobile"] #view-import .cd-count { margin-left: 0; flex: 1 1 100%; }
+  :root[data-viewport="mobile"] #view-import .conflict-choice { flex-wrap: wrap; gap: 8px 24px; }
+  /* Wide tables scroll inside their own box rather than stretching the page. */
+  :root[data-viewport="mobile"] #view-import .table-wrap,
+  :root[data-viewport="mobile"] #view-import .inv-snap-scroll,
+  :root[data-viewport="mobile"] #view-import .cd-table-wrap { overflow-x: auto; }
+  :root[data-viewport="mobile"] #view-import #cdTable { min-width: 700px; }
 </style>
 
 <script>
@@ -778,8 +451,8 @@
       document.getElementById('modeReplaceRadio').checked = (mode === 'replace');
       document.getElementById('modeMergeRadio').checked   = (mode === 'merge');
       document.getElementById('formSubtitle').textContent = (mode === 'replace')
-        ? 'Replace mode: clears all existing SCRAPERDATA and imports the selected file(s). Columns are matched per file by header name — order doesn\'t matter.'
-        : 'Merge mode: combines the selected file(s) with the existing SCRAPERDATA. Duplicate VINs with identical data are kept once; differing data is flagged for review.';
+        ? 'Replace mode clears the current data and imports the selected files as the new dataset. Columns are matched per file by header name — order does not matter.'
+        : 'Merge mode adds the selected files to the current data. Duplicate VINs with identical data are kept once; differing data is flagged for review.';
     }
 
     // ── File select (multi-file) ──────────────────────────────────────────────
@@ -906,13 +579,13 @@
         html += '</div>';
         html += '<div class="file-card-body">';
         if (!f.valid) {
-          html += '<div class="error-line">✗ ' + escHtml(f.error || 'Invalid file.') + '</div>';
+          html += '<div class="error-line">' + escHtml(f.error || 'Invalid file.') + '</div>';
         } else {
           if (f.missing.length > 0) {
             html += '<div class="missing-line">Missing (will be blank): ' +
                     f.missing.map(escHtml).join(', ') + '</div>';
           } else {
-            html += '<div class="match">✓ All 21 columns matched</div>';
+            html += '<div class="match">All 21 columns matched</div>';
           }
           if (f.ignored.length > 0) {
             html += '<div class="ignored-line">Ignored: ' + f.ignored.map(escHtml).join(', ') + '</div>';
@@ -974,7 +647,7 @@
 
       google.script.run
         .withSuccessHandler(function(result) {
-          btn.textContent = 'Import Data';
+          btn.textContent = 'Import data';
           if (result && result.needsResolution) {
             // Stay "busy" through conflict resolution — the dataset is in a
             // user-decision limbo until Apply or Cancel.
@@ -988,7 +661,7 @@
           if (window.AppBusy) AppBusy.set('import', false);
           setImportStatus('Error: ' + e.message, 'error');
           btn.disabled    = false;
-          btn.textContent = 'Import Data';
+          btn.textContent = 'Import data';
         })
         .importScraperData(allRows, selectedMode, null, fileNames, null);
     }
@@ -1003,7 +676,7 @@
       };
 
       document.getElementById('conflictTitle').textContent =
-        'Resolve ' + conflictState.conflictsTotal.toLocaleString() + ' Conflicting VIN' +
+        'Resolve ' + conflictState.conflictsTotal.toLocaleString() + ' conflicting VIN' +
         (conflictState.conflictsTotal === 1 ? '' : 's');
 
       document.getElementById('bulkLabel').textContent =
@@ -1110,14 +783,14 @@
       google.script.run
         .withSuccessHandler(function(result) {
           if (window.AppBusy) AppBusy.set('import', false);
-          btn.textContent = 'Apply & Import';
+          btn.textContent = 'Apply and import';
           showReview(result);
         })
         .withFailureHandler(function(e) {
           // Still in the conflict panel — keep the import marked busy.
           setConflictStatus('Error: ' + e.message, 'error');
           btn.disabled    = false;
-          btn.textContent = 'Apply & Import';
+          btn.textContent = 'Apply and import';
         })
         .importScraperData(pendingPayload.rows, selectedMode,
                            conflictState.choices, pendingPayload.fileNames,
@@ -1212,15 +885,15 @@
         unEl.style.display = 'none';
         unEl.innerHTML = '';
       } else {
-        var uh = '<div class="review-section-title">&#9888; ' + ndImportUnconfigured.length +
+        var uh = '<div class="review-section-title">' + ndImportUnconfigured.length +
                  ' location' + (ndImportUnconfigured.length === 1 ? '' : 's') +
                  ' with no dealer configured</div>';
         ndImportUnconfigured.forEach(function(u, i) {
           // Integer index into the array — never interpolate the location string
           // into an inline onclick (apostrophe trap).
-          uh += '<div class="health-item"><span class="health-icon">&#128663;</span>' +
+          uh += '<div class="health-item"><span class="health-icon"></span>' +
                 '<span class="health-location">' + escHtml(u.location) + '</span>' +
-                '<button class="btn-ghost" style="margin-left:auto;" onclick="ndStartFromImport(' + i + ')">Add dealer &#8594;</button></div>';
+                '<button class="btn-ghost" style="margin-left:auto;" onclick="ndStartFromImport(' + i + ')">Add dealer</button></div>';
         });
         unEl.innerHTML = uh;
         unEl.style.display = 'block';
@@ -1233,14 +906,14 @@
         healthEl.style.display = 'block';
         healthEl.innerHTML =
           '<div class="health-section clean">' +
-            '<div class="health-section-title">&#10003; Data Health: No issues detected</div>' +
+            '<div class="health-section-title">Data health: no issues detected</div>' +
           '</div>';
       } else {
         var hHtml = '<div class="health-section">' +
-          '<div class="health-section-title">&#9888; Data Health: ' + issues.length +
+          '<div class="health-section-title">Data health: ' + issues.length +
           ' issue' + (issues.length === 1 ? '' : 's') + ' detected</div>';
         issues.forEach(function(issue) {
-          var icon = issue.severity === 'error' ? '🔴' : '🟡';
+          var icon = issue.severity === 'error' ? '<b class="sev-error">Error</b>' : '<b class="sev-warn">Warning</b>';
           hHtml += '<div class="health-item">' +
             '<span class="health-icon">' + icon + '</span>' +
             '<span><span class="health-location">' + escHtml(issue.location) + '</span>' +
@@ -1268,7 +941,7 @@
       impLoadSnapshot_();          // refetch: an import just rewrote the DASHBOARD snapshot
       document.getElementById('totalsLine').style.display  = 'none';
       document.getElementById('importBtn').disabled        = true;
-      document.getElementById('importBtn').textContent     = 'Import Data';
+      document.getElementById('importBtn').textContent     = 'Import data';
       setImportStatus('', 'empty');
       setMode('replace');
 
@@ -1472,11 +1145,11 @@
       var curLoc  = locSel.value;
       var curType = typeSel.value;
 
-      locSel.innerHTML = '<option value="">All Locations</option>' +
+      locSel.innerHTML = '<option value="">All locations</option>' +
         locs.map(function(l) {
           return '<option value="' + escHtml(l) + '"' + (l === curLoc ? ' selected' : '') + '>' + escHtml(l) + '</option>';
         }).join('');
-      typeSel.innerHTML = '<option value="">All Types</option>' +
+      typeSel.innerHTML = '<option value="">All types</option>' +
         types.map(function(t) {
           return '<option value="' + escHtml(t) + '"' + (t === curType ? ' selected' : '') + '>' + escHtml(t) + '</option>';
         }).join('');
