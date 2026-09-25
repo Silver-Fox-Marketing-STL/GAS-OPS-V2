@@ -1,0 +1,407 @@
+<!-- ════════════════════════════════════════════════════════════════════════════
+     INSPECTOR — the dealer facts column beside an open order.
+     NOT a routed view: no .view root, no navTo entry, no VIEW_INITS. It fills
+     the Order Desk shell's reserved <aside id="inspector"> (App.html) and is
+     driven entirely by the one global it exposes:
+
+       Inspector.show(dealerKey)   load + render that dealer, unhide the column
+       Inspector.hide()            hide the column, drop anything in flight
+       Inspector.refresh()         re-pull the current dealer (after a run/commit)
+
+     Everything else here is insp*-prefixed — view fragments share ONE global JS
+     scope and a duplicate top-level name silently clobbers.
+     Design note: docs/rebuild-order-desk-design.md (increment 5).
+════════════════════════════════════════════════════════════════════════════ -->
+<div id="inspRoot">
+
+  <div class="insp-head">
+    <div class="insp-name" id="inspName">Dealer</div>
+    <div class="insp-asof" id="inspAsOf"></div>
+  </div>
+
+  <div class="insp-sec">
+    <div class="insp-h">Inventory</div>
+    <div id="inspInv"><div class="insp-muted">No dealer selected.</div></div>
+  </div>
+
+  <div class="insp-sec">
+    <div class="insp-h">VIN log</div>
+    <div id="inspLog"><div class="insp-muted">&mdash;</div></div>
+  </div>
+
+  <div class="insp-sec">
+    <div class="insp-h">Recent runs</div>
+    <div id="inspRunList"><div class="insp-muted">&mdash;</div></div>
+  </div>
+
+  <div class="insp-sec insp-sec-last">
+    <button type="button" class="btn-secondary" id="inspStackBtn" onclick="inspStackCleanup_()">Stack cleanup for this dealer</button>
+  </div>
+
+</div>
+
+<style>
+  /* Job-ticket idiom (ViewHome): ink rules, condensed sentence-case headings,
+     tabular figures. Every rule is scoped under #inspector — this fragment is
+     parsed inside the shell's aside, never inside #appContent. */
+  #inspector #inspRoot {
+    box-sizing: border-box;
+    padding: 18px 18px 26px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: var(--fs-body);
+  }
+
+  #inspector .insp-head { padding-bottom: 8px; border-bottom: var(--rule); }
+  #inspector .insp-name {
+    font-family: var(--font-head);
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 1.15;
+    color: var(--text);
+  }
+  #inspector .insp-asof { margin-top: 3px; font-size: var(--fs-sm); color: var(--text-3); }
+  #inspector .insp-asof:empty { display: none; }
+
+  #inspector .insp-sec { padding: 12px 0; border-bottom: 1px solid var(--border); }
+  #inspector .insp-sec-last { border-bottom: none; padding-bottom: 0; }
+  #inspector .insp-h {
+    font-family: var(--font-head);
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 8px;
+  }
+
+  #inspector .insp-muted { font-size: var(--fs-sm); color: var(--text-3); }
+  #inspector .insp-line { font-size: var(--fs-body); color: var(--text-2); }
+  #inspector .insp-line b { color: var(--text); font-variant-numeric: tabular-nums; }
+  #inspector .insp-line + .insp-line { margin-top: 6px; }
+
+  /* Count chips reuse the shared .eomr-chip (as ViewHome does) — squared off
+     here because the job-ticket palette sets every radius to 0. */
+  #inspector .insp-chipline { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 6px; }
+  #inspector .eomr-chip {
+    background: var(--surface-2);
+    color: var(--text-2);
+    border-radius: 0;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Recent runs — ruled rows, not cards. */
+  #inspector .insp-run { padding: 9px 0; border-bottom: 1px solid var(--border); }
+  #inspector .insp-run:last-child { border-bottom: none; padding-bottom: 0; }
+  #inspector .insp-run-top { display: flex; align-items: baseline; gap: 8px; }
+  #inspector .insp-ts {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+  #inspector .insp-run-meta {
+    margin-top: 2px;
+    font-size: var(--fs-sm);
+    color: var(--text-3);
+    font-variant-numeric: tabular-nums;
+  }
+  #inspector .insp-run-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+</style>
+
+<script>
+  // ── State ─────────────────────────────────────────────────────────────────
+  var inspKey   = '';     // dealer currently shown ('' = nothing loaded)
+  var inspSeq   = 0;      // stale-response guard: a bump invalidates everything in flight
+  var inspRuns  = [];     // rows behind the action buttons — onclick passes an INDEX,
+                          // never a dealer name / deal id (apostrophe trap)
+  var inspNames = null;   // dealerKey -> display name, filled once from AppData
+
+  // ── The one public global ─────────────────────────────────────────────────
+  window.Inspector = {
+    show:    function(dealerKey) { inspShow_(dealerKey); },
+    hide:    function() { inspHide_(); },
+    refresh: function() { if (inspKey) inspLoad_(inspKey); }
+  };
+
+  function inspShow_(dealerKey) {
+    var key = String(dealerKey || '').trim();
+    if (!key) return;
+    var panel = document.getElementById('inspector');
+    if (panel) panel.hidden = false;
+    inspKey = key;
+    inspRuns = [];
+    inspSetName_(key);
+    inspLoad_(key);
+  }
+
+  // Hide leaves nothing pending: the seq bump makes every in-flight handler a
+  // no-op, so a late response can never repaint a hidden panel.
+  function inspHide_() {
+    var panel = document.getElementById('inspector');
+    if (panel) panel.hidden = true;
+    inspSeq++;
+    inspKey = '';
+    inspRuns = [];
+  }
+
+  // Name comes from the shared bootstrap; the key is the fallback until it lands
+  // (and forever, for a dealer AppData doesn't know).
+  function inspSetName_(key) {
+    document.getElementById('inspName').textContent = (inspNames && inspNames[key]) || key;
+    if (inspNames) return;
+    AppData.get(function(data) {
+      if (!data || !data.dealers) return;
+      inspNames = {};
+      data.dealers.forEach(function(d) { inspNames[d.key] = d.name; });
+      if (inspKey) document.getElementById('inspName').textContent = inspNames[inspKey] || inspKey;
+    });
+  }
+
+  // ── Load: three independent round-trips, all guarded by the same sequence ──
+  function inspLoad_(key) {
+    var seq = ++inspSeq;
+    document.getElementById('inspAsOf').textContent = '';
+    document.getElementById('inspInv').innerHTML     = '<div class="insp-muted">Loading inventory&hellip;</div>';
+    document.getElementById('inspLog').innerHTML     = '<div class="insp-muted">Loading VIN log&hellip;</div>';
+    document.getElementById('inspRunList').innerHTML = '<div class="insp-muted">Loading runs&hellip;</div>';
+
+    google.script.run
+      .withSuccessHandler(function(res) { if (seq !== inspSeq) return; inspRenderSummary_(res); })
+      .withFailureHandler(function(e) {
+        if (seq !== inspSeq) return;
+        document.getElementById('inspInv').innerHTML =
+          '<div class="insp-muted">' + escHtml('Could not load inventory: ' + e.message) + '</div>';
+      })
+      .getDealerSummary(key);
+
+    google.script.run
+      .withSuccessHandler(function(res) { if (seq !== inspSeq) return; inspRenderLog_(res); })
+      .withFailureHandler(function(e) {
+        if (seq !== inspSeq) return;
+        document.getElementById('inspLog').innerHTML =
+          '<div class="insp-muted">' + escHtml('Could not read the VIN log: ' + e.message) + '</div>';
+      })
+      .getLatestOrderId(key);
+
+    google.script.run
+      .withSuccessHandler(function(res) { if (seq !== inspSeq) return; inspRenderRuns_(res); })
+      .withFailureHandler(function(e) {
+        if (seq !== inspSeq) return;
+        document.getElementById('inspRunList').innerHTML =
+          '<div class="insp-muted">' + escHtml('Could not load runs: ' + e.message) + '</div>';
+      })
+      .getRunsForDealer(key);
+  }
+
+  // ── Section 1 + 2: name / as-of / inventory ───────────────────────────────
+  function inspNum_(n) { return (Number(n) || 0).toLocaleString(); }
+
+  function inspChip_(n, label) {
+    var v = inspNum_(n);
+    return '<span class="eomr-chip">' + (Number(n) ? '<b>' + v + '</b>' : v) + ' ' + escHtml(label) + '</span>';
+  }
+
+  function inspRenderSummary_(d) {
+    var el = document.getElementById('inspInv');
+    if (!d || d.error) {
+      el.innerHTML = '<div class="insp-muted">' + escHtml('Could not load this dealer’s summary' +
+        (d && d.error ? ': ' + d.error : '.')) + '</div>';
+      return;
+    }
+    if (d.dealerName) document.getElementById('inspName').textContent = d.dealerName;
+
+    var inv = d.inventory;
+    if (!inv) {
+      el.innerHTML = '<div class="insp-muted">No inventory for this dealer&rsquo;s scraper location.</div>';
+      return;
+    }
+    document.getElementById('inspAsOf').textContent = inv.asOf ? 'as of ' + inv.asOf : '';
+
+    // Iterate the keys the server returns — the vehicle-type registry is dynamic,
+    // so a hardcoded canonical four would hide a custom type.
+    var by = inv.byType || {};
+    var html = '<div class="insp-chipline">';
+    Object.keys(by).forEach(function(t) { html += inspChip_(by[t], t); });
+    html += inspChip_(inv.total, 'total') + '</div>';
+    html += '<div class="insp-muted">' +
+      inspNum_(inv.onlot)   + ' on-lot &middot; ' +
+      inspNum_(inv.offlot)  + ' off-lot &middot; ' +
+      inspNum_(inv.noPrice) + ' no price &middot; ' +
+      inspNum_(inv.noStock) + ' no stock</div>';
+    el.innerHTML = html;
+  }
+
+  // ── Section 3: VIN log ────────────────────────────────────────────────────
+  function inspRenderLog_(res) {
+    var el = document.getElementById('inspLog');
+    var id = res && res.latestOrderId;
+    var pending = Number(res && res.pendingCount) || 0;
+    var html = '<div class="insp-line">' +
+      (id ? 'Latest order <b>' + escHtml(String(id)) + '</b>' : 'No orders in the log yet') + '</div>';
+    if (pending > 0) {
+      html += '<div class="insp-line"><span class="tag tone-warning">' +
+        pending + ' finalized, not committed</span></div>';
+    }
+    el.innerHTML = html;
+  }
+
+  // ── Section 4: recent runs ────────────────────────────────────────────────
+  // Test runs (col-D deal id === 'test') can never be committed — the backend
+  // throws for them, so they never get a Commit button (same guard as ViewVinLog).
+  function inspIsTestRun_(run) {
+    return !!(run && run.dealId && String(run.dealId).trim().toLowerCase() === 'test');
+  }
+
+  // The raw RUN_LOG col-W value is a snake_case key; .tag uppercases whatever it
+  // is given, so 'rolled_back' would print ROLLED_BACK. Show words instead.
+  function inspStatusLabel_(status) {
+    return status === 'rolled_back' ? 'Rolled back' : status;
+  }
+
+  function inspRenderRuns_(runs) {
+    inspRuns = (runs || []).slice(0, 8);   // newest 8 — getRunsForDealer returns newest first
+    var el = document.getElementById('inspRunList');
+    if (!inspRuns.length) {
+      el.innerHTML = '<div class="insp-muted">No runs recorded for this dealer.</div>';
+      return;
+    }
+    var html = '';
+    inspRuns.forEach(function(r, i) {
+      var status = r.status || 'pending';
+      var tone = status === 'committed' ? 'tone-success'
+               : status === 'rolled_back' ? 'tone-neutral'
+               : 'tone-warning';
+      var n = Number(r.vinCount) || 0;
+      var acts = '';
+      if (status === 'pending' && n && !inspIsTestRun_(r)) {
+        acts += '<button type="button" class="btn-secondary" onclick="inspCommit_(' + i + ')">Commit</button>';
+      }
+      if (status === 'committed') {
+        acts += '<button type="button" class="btn-secondary" onclick="inspRollback_(' + i + ')">Roll back</button>';
+      }
+      acts += '<button type="button" class="btn-secondary" onclick="inspDelete_(' + i + ')">Delete</button>';
+
+      html += '<div class="insp-run">' +
+        '<div class="insp-run-top">' +
+          '<span class="insp-ts">' + escHtml(String(r.timestamp || '')) + '</span>' +
+          '<span class="tag ' + tone + '">' + escHtml(inspStatusLabel_(status)) + '</span>' +
+        '</div>' +
+        '<div class="insp-run-meta">' +
+          (r.dealId ? 'Deal ' + escHtml(String(r.dealId)) : 'No deal id') +
+          ' &middot; ' + n + ' VIN' + (n === 1 ? '' : 's') +
+        '</div>' +
+        '<div class="insp-run-acts">' + acts + '</div>' +
+      '</div>';
+    });
+    el.innerHTML = html;
+  }
+
+  // Freeze every run action while one is in flight — the list is about to be
+  // rebuilt by refresh(), so per-button state would be thrown away anyway.
+  function inspLockRuns_(locked) {
+    var btns = document.querySelectorAll('#inspRunList button');
+    for (var i = 0; i < btns.length; i++) btns[i].disabled = locked;
+  }
+
+  // A run carries its own dealerKey (RUN_LOG col B); inspKey is the fallback.
+  function inspRunKey_(r) { return (r && r.dealerKey) || inspKey; }
+
+  function inspCommit_(i) {
+    var r = inspRuns[i];
+    if (!r) return;
+    if (!r.dealId) { toast('This run has no deal ID — it cannot be committed.', 'error'); return; }
+    if (inspIsTestRun_(r)) { toast('Test runs cannot be committed to the VIN log.', 'error'); return; }
+    inspLockRuns_(true);
+    google.script.run
+      .withSuccessHandler(function(res) {
+        toast('Committed ' + inspNum_(res && res.committed) + ' VINs to the VIN log.', 'success');
+        Inspector.refresh();
+      })
+      .withFailureHandler(function(e) {
+        toast('Commit failed: ' + e.message, 'error');
+        inspLockRuns_(false);
+      })
+      .commitRunToVINLog(inspRunKey_(r), r.rowIndex, r.dealId, r.producedVins, r.timestamp);
+  }
+
+  // Two-call chain, same as ViewVinLog: find the commit stamp, then remove the
+  // rows that carry it. A missing stamp means there is nothing to roll back.
+  function inspRollback_(i) {
+    var r = inspRuns[i];
+    if (!r) return;
+    var key = inspRunKey_(r);
+    inspLockRuns_(true);
+    google.script.run
+      .withSuccessHandler(function(committedAt) {
+        if (!committedAt) {
+          toast('No committed entries found for this run in the VIN log.', 'error');
+          inspLockRuns_(false);
+          return;
+        }
+        google.script.run
+          .withSuccessHandler(function(res) {
+            toast('Rolled back ' + inspNum_(res && res.removed) + ' entries from the VIN log.', 'success');
+            Inspector.refresh();
+          })
+          .withFailureHandler(function(e) {
+            toast('Roll back failed: ' + e.message, 'error');
+            inspLockRuns_(false);
+          })
+          .rollbackRunFromVINLog(key, r.rowIndex, r.dealId, committedAt);
+      })
+      .withFailureHandler(function(e) {
+        toast('Could not read the commit timestamp: ' + e.message, 'error');
+        inspLockRuns_(false);
+      })
+      .getCommittedAt(key, r.dealId);
+  }
+
+  // Soft delete (RUN_LOG col W = 'deleted'); a committed run is rolled back
+  // first, so the wording escalates.
+  function inspDelete_(i) {
+    var r = inspRuns[i];
+    if (!r) return;
+    var n = Number(r.vinCount) || 0;
+    var msg = 'Delete the ' + r.timestamp + ' run (Deal ' + (r.dealId || '—') + ')?';
+    if (r.status === 'committed') {
+      msg += '\n\nThis run is committed — its ' + n + ' VIN' + (n === 1 ? '' : 's') +
+             ' will also be removed from the VIN log.';
+    }
+    appConfirm(msg, { title: 'Delete run?', okLabel: 'Delete', tone: 'danger' }).then(function(ok) {
+      if (!ok) return;
+      inspLockRuns_(true);
+      google.script.run
+        .withSuccessHandler(function(res) {
+          var removed = Number(res && res.removed) || 0;
+          toast('Deleted the run' + (removed ? ' and removed ' + removed + ' VINs from the VIN log' : '') + '.', 'success');
+          Inspector.refresh();
+        })
+        .withFailureHandler(function(e) {
+          toast('Delete failed: ' + e.message, 'error');
+          inspLockRuns_(false);
+        })
+        .deleteRun(inspRunKey_(r), r.rowIndex, r.dealId, r.timestamp);
+    });
+  }
+
+  // ── Section 5: stack cleanup ──────────────────────────────────────────────
+  // Land on the view, then drive its dealer select through the normal change
+  // flow (its listener is what loads the list). The select is filled from
+  // AppData on first init, so wait for that bootstrap before picking.
+  function inspStackCleanup_() {
+    var key = inspKey;
+    if (!key) return;
+    navTo('view-stack-cleanup');
+    AppData.get(function() { inspPickStackDealer_(key); });
+  }
+
+  function inspPickStackDealer_(key) {
+    var sel = document.getElementById('scDealerSelect');
+    if (!sel) return;
+    sel.value = key;
+    if (sel.value !== key) return;   // dealer not in the list — leave the view as-is
+    if (window.CustomSelect && CustomSelect.refresh) { try { CustomSelect.refresh(sel); } catch (e) {} }
+    sel.dispatchEvent(new Event('change'));
+  }
+</script>

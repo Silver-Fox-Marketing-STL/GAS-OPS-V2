@@ -136,6 +136,14 @@
       pick($('scDealerSelect'), F.D);
       await sleep(200);
     },
+    // Dealer inspector — not a routed view; it fills the shell's #inspector
+    // column beside whatever order is open (increment 5).
+    'order-inspector': async function () {
+      await nav('view-run');
+      await sleep(100);
+      Inspector.show(F.D);
+      await sleep(400);
+    },
     'eom': async function () { await nav('view-end-of-month'); await sleep(300); },
     'eom-viewer': async function () { await nav('view-end-of-month'); await sleep(300); eomvView(0); await sleep(250); var ds = document.querySelectorAll('#eomViewerBody details'); if (ds[0]) ds[0].open = true; var inner = ds[0] ? ds[0].querySelectorAll('details') : []; if (inner[0]) inner[0].open = true; await sleep(100); },
     'eom-progress': async function () {

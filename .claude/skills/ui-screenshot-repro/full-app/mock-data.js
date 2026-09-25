@@ -176,9 +176,18 @@
 
     // ── VIN Logs ────────────────────────────────────────────────────────────
     getRunsForDealer: function (key) { return key ? RUNS.filter(function (r) { return r.dealerKey === key; }) : ALL_RUNS; },
-    commitRunToVINLog: { ok: true, message: 'Committed 11 VINs.' },
-    rollbackRunFromVINLog: { ok: true },
-    deleteRun: { ok: true },
+    // Shapes are Code.gs's: {committed:n} / {removed:n} / {removed:n}; getCommittedAt
+    // returns a 'yyyy-MM-dd HH:mm:ss' string, or null when the run isn't in the log.
+    commitRunToVINLog: function (key, rowIndex, dealId, producedVins) { return { committed: (producedVins || []).length }; },
+    getCommittedAt: function (key, dealId) { return String(dealId) === '44702' ? null : '2026-09-19 14:05:33'; },
+    rollbackRunFromVINLog: function (key, rowIndex, dealId) {
+      var r = ALL_RUNS.filter(function (x) { return String(x.dealId) === String(dealId); })[0];
+      return { removed: r ? r.vinCount : 0 };
+    },
+    deleteRun: function (key, rowIndex, dealId) {
+      var r = ALL_RUNS.filter(function (x) { return String(x.dealId) === String(dealId); })[0];
+      return { removed: r && r.status === 'committed' ? r.vinCount : 0 };
+    },
 
     // ── VIN Inbox ───────────────────────────────────────────────────────────
     getVinSubmissions: { ok: true, configured: true, submissions: SUBS },
