@@ -232,7 +232,10 @@
     /* Data table — token-bound, tabular figures, like the dash/runs tables */
     #view-run .rv-table-scroll { flex: 1; min-height: 0; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); }
     #view-run #vinDataTable td { white-space: nowrap; }
-    #view-run #vinDataTable td.rv-vin { font-family: var(--font-mono); color: var(--text-2); }
+    /* VIN: the serial (last 6) is what the crew matches on the lot — set bold, the
+       WMI/VDS/check/plant prefix lighter. rvVinCell_() splits it. */
+    #view-run #vinDataTable td.rv-vin { font-family: var(--font-mono); font-size: 12px; color: var(--text-3); letter-spacing: .01em; }
+    #view-run #vinDataTable td.rv-vin b { color: var(--text); font-weight: 600; }
     #view-run #vinDataTable tr.rv-empty-row td { color: var(--text-muted); text-align: center; padding: var(--space-4); }
     #view-run #vinDataTable td.rv-link { white-space: nowrap; }
     #view-run #vinDataTable td.rv-link a { color: var(--accent); text-decoration: none; font-size: var(--fs-sm); }
@@ -2017,7 +2020,7 @@
             '<td>' + escHtml(d.model) + '</td>' +
             '<td>' + rvTypePill(d.type) + '</td>' +
             '<td>' + escHtml(d.stock) + '</td>' +
-            '<td class="rv-vin">' + escHtml(lines[j]) + '</td>' +
+            '<td class="rv-vin">' + rvVinCell_(lines[j]) + '</td>' +
             '<td>' + escHtml(d.status) + (isDupe ? ' · ALREADY PRINTED' : '') +
               (filtReason ? ' · ⚠ WILL BE FILTERED (' + escHtml(filtReason) + ')' : '') + '</td>' +
             '<td class="rv-link">' + urlCell + '</td>' +
@@ -2030,7 +2033,7 @@
           editCols.forEach(function() { blankEdit += '<td>—</td>'; });
           html += '<tr class="row-danger">' +
             '<td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>' +
-            '<td class="rv-vin">' + escHtml(lines[j]) + '</td>' +
+            '<td class="rv-vin">' + rvVinCell_(lines[j]) + '</td>' +
             '<td>⚠ Not In Dealer Inventory</td>' +
             '<td>—</td>' +
             (rvHasFeatures ? '<td>—</td>' : '') +
@@ -2051,7 +2054,13 @@
     }
 
     // Reuse the themed type-pill classes (.pill + .type-*) so it themes everywhere.
-    function rvTypePill(type) {
+    // VIN cell markup: prefix + <b>serial</b> (last 6). Short/non-VIN input prints as-is.
+      function rvVinCell_(v) {
+        v = String(v || '');
+        if (v.length < 8) return escHtml(v);
+        return escHtml(v.slice(0, -6)) + '<b>' + escHtml(v.slice(-6)) + '</b>';
+      }
+      function rvTypePill(type) {
       var t = String(type || '').trim();
       var cls = t.toUpperCase() === 'NEW' ? 'type-new'
               : t.toUpperCase() === 'PO'  ? 'type-po'

@@ -11,6 +11,35 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Changed
+- **EXPERIMENT — "job ticket" UI direction (branch `exp/ui-playground`, Sep 25, 2026).**
+  First pass at a distinctive visual identity, built with the `frontend-design`
+  skill and verified through the full-app screenshot harness. Concept: the app
+  reads like the paper it prints (Monroney sticker / addendum / lot tag) —
+  uncoated white stock, true black ink, structure from rules instead of shadows
+  and rounded cards. Scope of this pass, all CSS/markup (zero Code.gs changes):
+  - **Tokens (SharedUtils):** `--bg/--surface` neutral white stock, `--text`
+    `#000` ink, `--radius-*` 0, `--shadow` none / `--shadow-lg` = a 1px ink
+    outline (dark: `--border-2`), new `--rule` (2px ink) and `--fs-display`
+    (48px), `--shell-header-h` 52px. Fonts: **Barlow** (body) + **Barlow
+    Condensed** (display) + **IBM Plex Mono** (identifiers) replace
+    Montserrat/Poppins. Buttons and `.table-u` headers set in the condensed face.
+  - **Shell (App.html):** sidebar on the page's own paper with a 2px ink rule,
+    uppercase condensed wordmark aligned to the header rule, plain typographic
+    index (emoji icon column hidden unless the Icon Rail nav pref is on), active
+    item = orange left bar on ink text, sentence-case System Settings group.
+  - **Home:** hero is now the ticket — today's day name at 48px condensed over a
+    ruled list of dealers to print with one Run button each; stat tiles become
+    ruled rows of tabular figures; Dealer Focus becomes ruled sections; all
+    section titles sentence case; middle-dot joins in the per-dealer rows are
+    commas; no emoji on buttons/chips.
+  - **Run Order:** VIN cells print the serial (last 6) bold and the prefix
+    lighter (`rvVinCell_`), since the last six is what the crew matches on the
+    lot.
+  Not touched yet: the other 14 views' per-view eyebrows/emoji buttons, the six
+  non-default themes (they inherit the type + radius change untested), and
+  Classic.html's font link.
+
+### Changed
 - **`--logo-fill` token replaces the dark-logo selector allowlist** (Sep 25, 2026).
   `.app-brand .logo` (App.html) now paints its mask with `var(--logo-fill)`
   (default `#4a4a4d` on `:root` in SharedUtils); `dark`, `midnight`, `encarta`,

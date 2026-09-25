@@ -16,7 +16,8 @@
 
       <div class="home-hud-band" id="homeSchedule" hidden>
         <div class="home-hud-head">
-          <div class="home-hud-title">Today's Print Schedule <span class="home-sched-day" id="homeSchedDay"></span></div>
+          <div class="home-sched-day" id="homeSchedDay"></div>
+          <div class="home-hud-title">To print today</div>
         </div>
         <div class="home-sched-cards" id="homeSchedRows">
           <div class="home-muted">Loading schedule&hellip;</div>
@@ -25,9 +26,9 @@
 
       <div class="home-hud-col">
         <div class="home-hud-head">
-          <div class="home-hud-title">System Stats</div>
+          <div class="home-hud-title">Stats</div>
           <span id="homeDraftsChip" class="tag tone-info" onclick="navTo('view-run')" title="Resume from the Drafts strip in Run Order" hidden></span>
-          <button class="btn-secondary" id="homeRefresh" onclick="loadHomeHud(true)">&#8635; Refresh</button>
+          <button class="btn-secondary" id="homeRefresh" onclick="loadHomeHud(true)">Refresh</button>
         </div>
 
         <div class="home-statgroup hero">
@@ -38,19 +39,19 @@
         </div>
 
         <div class="home-statgroup">
-          <div class="home-sub-label">This Week</div>
+          <div class="home-sub-label">This week</div>
           <div class="home-tiles" id="homeWeek"></div>
         </div>
 
         <div class="home-statgroup quiet">
-          <div class="home-sub-label">All Time</div>
+          <div class="home-sub-label">All time</div>
           <div class="home-tiles" id="homeAllTime"></div>
         </div>
       </div>
 
       <div class="home-hud-col">
         <div class="home-hud-head">
-          <div class="home-hud-title">Dealer Focus</div>
+          <div class="home-hud-title">Dealer focus</div>
         </div>
         <div class="home-focus">
           <div class="home-focus-pick">
@@ -68,221 +69,178 @@
 </div>
 
 <style>
+  /* EXPERIMENT (exp/ui-playground): Home as a job ticket. The day name is the
+     one big element; everything under it is ruled rows of tabular figures.
+     No panels, no tiles, no shadows — ink rules carry the structure. */
   #view-home .home-scroll {
-    box-sizing: border-box;   /* include the 22px vertical padding in height:100% so the bottom rows aren't clipped */
+    box-sizing: border-box;
     height: 100%;
     overflow-y: auto;
-    padding: 22px 26px;
-    /* Grid skeleton (default = the original vertical stack, no-op): no gap, so
-       each section's own margin-bottom carries spacing exactly as block flow did.
-       Named areas let a theme reorder sections with no markup change. */
+    padding: 22px 32px 36px;
     display: grid;
     grid-template-columns: 1fr;
     grid-template-areas: "status" "hud";
     align-content: start;
   }
-  #view-home .home-status { grid-area: status; justify-self: start; }  /* no-op: keep the inline-flex pill content-width (grid items default to stretch) */
+  #view-home .home-status { grid-area: status; justify-self: start; }
   #view-home .home-hud { grid-area: hud; }
 
+  /* Import freshness — one plain line, no pill. */
   #view-home .home-status {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    padding: 7px 14px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    font-size: 12px;
+    font-size: var(--fs-sm);
     color: var(--text-2);
-    margin-bottom: 22px;
+    margin-bottom: 14px;
   }
-  #view-home .home-status .dot { color: var(--text-muted); font-size: 10px; }
+  #view-home .home-status .dot { color: var(--text-muted); font-size: 9px; }
   #view-home .home-status.fresh .dot { color: var(--success); }
   #view-home .home-status.stale .dot { color: var(--warning); }
 
-  /* ── HUD: System Stats left half | Dealer Focus right half; the schedule
-     band spans both. EXPLICIT two tracks — the previous auto-fit minmax(440px)
-     broke the moment the band spanned 1/-1: auto-fit only collapses tracks no
-     item SPANS, so on a wide monitor the full-width band held 4+ tracks open
-     and System Stats got squeezed into one quarter-width column. Mobile drops
-     to a single column via data-viewport below. */
+  /* Two columns: stats (wider) | dealer focus. The ticket spans both. */
   #view-home .home-hud {
-    padding-bottom: 10px;
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 22px;
+    grid-template-columns: 3fr 2fr;
+    gap: 0 44px;
     align-items: start;
   }
   #view-home .home-hud-head {
     display: flex;
-    align-items: center;
+    align-items: baseline;
     justify-content: space-between;
-    min-height: 30px;      /* the Refresh button exists on one side only — keep both column headers level */
-    margin-bottom: 10px;
+    gap: 12px;
+    padding-bottom: 6px;
+    margin-bottom: 4px;
+    border-bottom: var(--rule);
   }
-  #view-home .home-hud-title {      /* top-level accent seclabel (eomr-seclabel idiom) */
+  #view-home .home-hud-title {
     font-family: var(--font-head);
-    font-size: 13px;
-    font-weight: 800;
-    letter-spacing: .08em;
-    text-transform: uppercase;
-    color: var(--accent);
-  }
-  #view-home .home-muted { font-size: 12px; color: var(--text-3); }
-
-  /* ── Today's Print Schedule band: full-width above the two HUD columns ── */
-  #view-home .home-hud-band {
-    grid-column: 1 / -1;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-left: 3px solid var(--accent);
-    border-radius: var(--radius);
-    box-shadow: var(--shadow);
-    padding: 12px 14px;
-  }
-  #view-home .home-hud-band .home-hud-head { min-height: 0; margin-bottom: 4px; }
-  #view-home .home-sched-day {   /* inherits the uppercase accent title — soften back to a muted suffix */
-    color: var(--text-3);
+    font-size: 22px;
     font-weight: 700;
-    text-transform: none;
-    letter-spacing: normal;
-    margin-left: 6px;
+    line-height: 1.1;
+    color: var(--text);
   }
-  /* Dealer cards: same idiom as the stat tiles (surface-2 cards in an
-     auto-fill grid), sized down — name over a Run-Order/inbox footer row. */
-  #view-home .home-sched-cards {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 230px));
-    gap: 10px;
-  }
-  #view-home .home-sched-card {
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 10px 12px;
-    display: flex;
+  #view-home .home-muted { font-size: var(--fs-sm); color: var(--text-3); padding: 8px 0; }
+
+  /* ── The ticket: today's day name over the print list ── */
+  #view-home .home-hud-band { grid-column: 1 / -1; margin-bottom: 30px; }
+  #view-home .home-hud-band .home-hud-head {
     flex-direction: column;
-    gap: 8px;
+    align-items: flex-start;
+    gap: 0;
+    padding-bottom: 8px;
+    margin-bottom: 0;
+    border-bottom: 3px solid var(--text);
   }
-  #view-home .home-sched-card .name { font-size: 12.5px; font-weight: 700; line-height: 1.3; }
-  #view-home .home-sched-card .stats { font-size: 11.5px; color: var(--text-2); font-variant-numeric: tabular-nums; }
-  #view-home .home-sched-card .foot { margin-top: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  #view-home .home-sched-card .btn-secondary { padding: 4px 10px; font-size: 11.5px; }
-  #view-home .home-sched-card.done-sched { border-left: 3px solid var(--success); }   /* scheduled AND printed — visibly "moved over" */
+  #view-home .home-sched-day {
+    font-family: var(--font-head);
+    font-size: var(--fs-display);
+    font-weight: 800;
+    line-height: .95;
+    letter-spacing: -.01em;
+    color: var(--text);
+  }
+  #view-home .home-sched-day:empty { display: none; }
+  #view-home .home-hud-band .home-hud-title {
+    font-family: var(--font-body);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-2);
+    margin-top: 10px;
+  }
+  /* Dealer rows — a ruled list, one line per dealer. Shared by the ticket
+     and the "Today" stat group (same markup, same idiom). */
+  #view-home .home-sched-cards { display: block; }
+  #view-home .home-sched-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  #view-home .home-sched-card .name { flex: 1; min-width: 0; font-size: 15px; font-weight: 600; line-height: 1.3; }
+  #view-home .home-sched-card .stats { font-size: var(--fs-sm); color: var(--text-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  #view-home .home-sched-card .foot { display: flex; align-items: center; gap: 8px; }
+  #view-home .home-sched-card .btn-secondary { padding: 4px 12px !important; }
+  #view-home .home-sched-card .foot .btn-secondary { order: 2; }   /* button always on the right edge; tags sit before it */
+  #view-home .home-sched-card.done-sched .name::before {   /* printed AND scheduled — checked off */
+    content: "\2713";
+    display: inline-block;
+    width: 18px;
+    color: var(--success);
+    font-weight: 700;
+  }
   #view-home .home-sched-inbox { cursor: pointer; }
   #view-home #homeDraftsChip { cursor: pointer; }
-  /* .tag's own display beats the UA [hidden] rule (the .view[hidden] trap) —
-     re-pin it so the zero-drafts chip actually hides. */
-  #view-home #homeDraftsChip[hidden] { display: none !important; }
-  #view-home .home-today-totals {   /* aggregate line beside the "Today" sub-label (tiles carry it in fallback mode) */
-    text-transform: none;
-    letter-spacing: normal;
-    font-weight: 600;
+  #view-home #homeDraftsChip[hidden] { display: none !important; }   /* .tag's display beats UA [hidden] */
+  #view-home .home-today-totals {
+    font-family: var(--font-body);
+    font-size: var(--fs-sm);
+    font-weight: 500;
     color: var(--text-3);
-    margin-left: 6px;
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
   }
 
-  /* Stat groups: surface panels that visibly separate from the page (border +
-     shadow; tiles inside step up again to --surface-2). One accent left edge
-     on the hero GROUP, not 14 accent tiles. */
-  #view-home .home-statgroup {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-left: 3px solid var(--border);   /* same width on all groups so left edges align */
-    border-radius: var(--radius);
-    box-shadow: var(--shadow);
-    padding: 12px 14px;
-    margin-bottom: 14px;
-  }
-  #view-home .home-statgroup.hero { border-left-color: var(--accent); }
+  /* ── Stat groups: a ruled heading, then figures in a row ── */
+  #view-home .home-statgroup { margin-bottom: 22px; }
   #view-home .home-sub-label {
-    font-size: 10.5px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    font-family: var(--font-head);
+    font-size: 17px;
     font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: .06em;
-    color: var(--text-3);
-    margin-bottom: 8px;
+    color: var(--text);
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--text);
   }
-
-  /* Stat tiles: big numeral over a small uppercase label. Zero counts mute. */
   #view-home .home-tiles {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(130px, 170px));   /* content-width tiles that wrap at narrow widths */
-    gap: 10px;
+    grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+    gap: 0 18px;
   }
-  /* Fixed-count stat groups fill their row instead of orphaning a tile:
-     THIS WEEK's 4 tiles share the width (4-up from ~520px, 2×2 below — at
-     1440 the 170px cap left "21 DUPLICATES" alone on row 2); ALL TIME's 6
-     always sit 3×2. TODAY keeps the content-width grid (dealer cards). */
-  #view-home #homeWeek { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
   #view-home #homeAllTime { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  #view-home .home-tile {
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 12px 14px;
-  }
+  #view-home .home-tile { padding: 10px 0 8px; border-bottom: 1px solid var(--border); }
   #view-home .home-tile .num {
     font-family: var(--font-head);
-    font-size: 26px;
-    font-weight: 800;
-    line-height: 1.15;
+    font-size: 30px;
+    font-weight: 700;
+    line-height: 1;
     color: var(--text);
     font-variant-numeric: tabular-nums;
   }
-  #view-home .home-tile.zero .num { color: var(--text-muted); font-weight: 600; }
-  #view-home .home-tile .lbl {
-    margin-top: 3px;
-    font-size: 10px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text-3);
-  }
-  /* Priority gradient: Today hero (biggest, accent non-zero numerals) →
-     This Week standard → All Time ambient (smallest, muted). Zeros stay muted. */
-  #view-home .home-statgroup.hero .home-tile .num { font-size: 30px; }
+  #view-home .home-tile.zero .num { color: var(--text-muted); font-weight: 500; }
+  #view-home .home-tile .lbl { margin-top: 4px; font-size: var(--fs-sm); font-weight: 500; color: var(--text-3); }
+  /* Priority: Today (accent figures) → This week → All time (smaller, quieter) */
+  #view-home .home-statgroup.hero .home-tile .num { font-size: 34px; }
   #view-home .home-statgroup.hero .home-tile:not(.zero) .num { color: var(--accent); }
-  #view-home .home-statgroup.quiet .home-tile .num { font-size: 19px; font-weight: 700; color: var(--text-2); }
+  #view-home .home-statgroup.quiet .home-tile .num { font-size: 22px; font-weight: 600; color: var(--text-2); }
   #view-home .home-statgroup.quiet .home-tile.zero .num { color: var(--text-muted); }
 
-  /* Dealer Focus card — the interactive centerpiece: accent-topped surface
-     card, inner sections step to --surface-2 (.eomr-contact presence). */
-  #view-home .home-focus {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-top: 3px solid var(--accent);
-    border-radius: var(--radius);
-    box-shadow: var(--shadow);
-    padding: 14px 16px;
-    width: 100%;
-    box-sizing: border-box;
-  }
-  #view-home .home-focus-pick { max-width: 320px; margin-bottom: 4px; }
+  /* ── Dealer focus: picker, then ruled sections ── */
+  #view-home .home-focus { width: 100%; box-sizing: border-box; }
+  #view-home .home-focus-pick { max-width: 100%; margin: 6px 0 2px; }
   #view-home .home-focus-pick select { width: 100%; }
-  #view-home .home-focus-sec {
-    margin-top: 12px;
-    background: var(--surface-2);
-    border-radius: var(--radius-sm);
-    padding: 10px 12px;
-  }
-  #view-home .home-focus-sec .eomr-chip { background: var(--surface-3); }   /* chips default to --surface-2 — invisible on a --surface-2 panel */
-  #view-home .home-focus-h {      /* accent seclabel idiom, small tier */
-    font-size: 10px;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: .08em;
-    color: var(--accent);
-    margin-bottom: 6px;
+  #view-home .home-focus-sec { padding: 12px 0; border-bottom: 1px solid var(--border); }
+  #view-home .home-focus-sec .eomr-chip { background: var(--surface-2); color: var(--text); border-radius: 0; }
+  #view-home .home-focus-h {
+    font-family: var(--font-head);
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 8px;
   }
   #view-home .home-chipline { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
-  #view-home .home-lastrun { font-size: 12.5px; color: var(--text-2); }
+  #view-home .home-lastrun { font-size: var(--fs-body); color: var(--text-2); }
   #view-home .home-lastrun b { color: var(--text); }
   #view-home .home-lastrun .tag { margin-left: 4px; vertical-align: 1px; }
   #view-home .home-eom {
     font-family: var(--font-head);
-    font-size: 22px;
-    font-weight: 800;
+    font-size: 34px;
+    font-weight: 700;
+    line-height: 1;
     color: var(--text);
     font-variant-numeric: tabular-nums;
   }
@@ -294,6 +252,8 @@
   :root[data-viewport="mobile"] #view-home .home-scroll,
   :root[data-viewport="mobile"] #view-home .home-hud { min-width: 0; }
   :root[data-viewport="mobile"] #view-home .home-hud { grid-template-columns: 1fr; }
+  :root[data-viewport="mobile"] #view-home .home-sched-card { flex-wrap: wrap; }
+  :root[data-viewport="mobile"] #view-home .home-sched-card .name { flex-basis: 100%; }   /* name on its own line; figures + tags share the next */
 </style>
 
 <script>
@@ -370,20 +330,20 @@
     homeHudData = res;
     var at = res.allTime || {};
     document.getElementById('homeAllTime').innerHTML =
-      homeTile_('Total Runs', at.runs) +
+      homeTile_('Total runs', at.runs) +
       homeTile_('Total VINs', at.vins) +
       homeTile_('Avg VINs/Run', at.avgVinsPerRun,
                 { raw: (Number(at.avgVinsPerRun) || 0).toLocaleString(undefined, { maximumFractionDigits: 1 }) }) +
       homeTile_('Committed', at.committed) +
       homeTile_('Pending', at.pending) +
-      homeTile_('Rolled Back', at.rolledBack);
+      homeTile_('Rolled back', at.rolledBack);
     renderHomeBucket_('homeWeek', res.week);
     renderHomeToday_();   // Today is owned jointly with the schedule response
 
     // Saved Run Order drafts — chip jumps to the Run view's Drafts strip.
     var chip = document.getElementById('homeDraftsChip');
     var n = Number(res.draftCount) || 0;
-    chip.textContent = '📝 ' + n + ' draft' + (n === 1 ? '' : 's');
+    chip.textContent = n + ' draft' + (n === 1 ? '' : 's');
     chip.hidden = (n === 0);
   }
 
@@ -391,8 +351,8 @@
     b = b || {};
     document.getElementById(id).innerHTML =
       homeTile_('Runs', b.runs) +
-      homeTile_('VINs Produced', b.vins) +
-      homeTile_('Dealers Served', b.dealers) +
+      homeTile_('VINs produced', b.vins) +
+      homeTile_('Dealers served', b.dealers) +
       homeTile_('Duplicates', b.dupes);
   }
 
@@ -434,7 +394,7 @@
     renderHomeToday_();
     if (!res.configured) { band.hidden = true; return; }   // Pipedrive / field not set up — stay quiet
     band.hidden = false;
-    document.getElementById('homeSchedDay').textContent = res.day ? '· ' + res.day : '';
+    document.getElementById('homeSchedDay').textContent = res.day || '';
     homeSchedDealers = res.upNext || [];
     if (!res.ok) {
       rows.innerHTML = '<div class="home-muted">Schedule unavailable.</div>';
@@ -451,7 +411,7 @@
       html += '<div class="home-sched-card">' +
         '<div class="name">' + escHtml(d.name) + '</div>' +
         '<div class="foot">' +
-          '<button class="btn-secondary" onclick="homeSchedRun_(' + i + ')">&#9654; Run Order</button>' +
+          '<button class="btn-secondary" onclick="homeSchedRun_(' + i + ')">Run Order</button>' +
           homeInboxTag_(d) +
         '</div></div>';
     });
@@ -468,14 +428,14 @@
       el.className = 'home-sched-cards';
       var t = s.totals;
       totalsEl.textContent = t
-        ? '· ' + t.runs + ' runs · ' + t.vins.toLocaleString() + ' VINs · ' + t.dupes + ' dupes'
+        ? t.runs + ' runs, ' + t.vins.toLocaleString() + ' VINs, ' + t.dupes + ' dupes'
         : '';
       var html = '';
       (s.ranToday || []).forEach(function(d) {
         html += '<div class="home-sched-card' + (d.scheduled ? ' done-sched' : '') + '">' +
           '<div class="name">' + escHtml(d.name) + '</div>' +
           '<div class="stats">' + d.runs + (d.runs === 1 ? ' run' : ' runs') +
-            ' · ' + Number(d.vins).toLocaleString() + ' VINs · ' + d.dupes + ' dupes</div>' +
+            ', ' + Number(d.vins).toLocaleString() + ' VINs, ' + d.dupes + ' dupes</div>' +
           '<div class="foot">' +
             (d.scheduled ? '<span class="tag tone-success">&#10003; Scheduled</span>' : '') +
             homeInboxTag_(d) +
@@ -552,7 +512,7 @@
     // Run stats
     var rs = d.runStats || {};
     var bt = rs.byType || {};
-    html += '<div class="home-focus-sec"><div class="home-focus-h">Run Stats</div>';
+    html += '<div class="home-focus-sec"><div class="home-focus-h">Run stats</div>';
     if (Number(rs.runs)) {
       html += '<div class="home-chipline">' +
         chip(rs.runs, 'runs') +
@@ -570,7 +530,7 @@
     html += '</div>';
 
     // Most recent run
-    html += '<div class="home-focus-sec"><div class="home-focus-h">Most Recent Run</div>';
+    html += '<div class="home-focus-sec"><div class="home-focus-h">Most recent run</div>';
     var lr = d.lastRun;
     if (lr) {
       var st = String(lr.vinLogStatus || 'pending');
@@ -585,7 +545,7 @@
     html += '</div>';
 
     // EOM open orders (null = Pipedrive unconfigured/unreachable or no linked org)
-    html += '<div class="home-focus-sec"><div class="home-focus-h">EOM Open Orders</div>';
+    html += '<div class="home-focus-sec"><div class="home-focus-h">EOM open orders</div>';
     html += (d.eomOrders == null)
       ? '<div class="home-muted">&mdash; (EOM unavailable)</div>'
       : '<div class="home-eom">' + (Number(d.eomOrders) || 0).toLocaleString() + '</div>';

@@ -25,18 +25,22 @@
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
     /* surfaces (bright white fields) */
+    /* EXPERIMENT (exp/ui-playground): "job ticket" direction — the app reads
+       like the paper it prints. Uncoated white stock, true black ink, rules
+       instead of shadows, condensed display type. */
     --bg: #ffffff;
-    --surface: #f7f5f2;
-    --surface-2: #efeae4;
-    --surface-3: #e7e1da;
-    /* text (Licorice-tinted near-black → Taupe Gray) */
-    --text: #221a14;
-    --text-2: #5c544c;
-    --text-3: #8d8d92;          /* Taupe Gray (brand) */
-    --text-muted: #a9a6a2;
+    --surface: #f4f4f2;
+    --surface-2: #e9e9e6;
+    --surface-3: #dcdcd8;
+    /* text — ink */
+    --text: #000000;
+    --text-2: #3a3a3a;
+    --text-3: #6f6f6f;
+    --text-muted: #9a9a9a;
     /* borders */
-    --border: #e7e1da;
-    --border-2: #d9d3cd;
+    --border: #d6d6d2;
+    --border-2: #b9b9b4;
+    --rule: 2px solid var(--text);   /* the structural ink rule (section heads, shell edges) */
     /* .table-u header bar. Light themes keep the inverted bar (near-black on
        cream); the dark-family themes override to a surface tint — the
        inverted bar there was a near-white band across a dark UI. */
@@ -61,19 +65,21 @@
     --type-cpoel: #2563a8;
     --on-type: #ffffff;
     /* effects */
-    --radius-sm: 5px;
-    --radius: 8px;
-    --radius-lg: 12px;
-    --shadow: 0 2px 10px rgba(34,9,1,.10);
-    --shadow-lg: 0 6px 24px rgba(34,9,1,.16);
+    --radius-sm: 0;
+    --radius: 0;
+    --radius-lg: 0;
+    --shadow: none;                       /* rules carry structure, not shadows */
+    --shadow-lg: 0 0 0 1px var(--text);   /* floating layers get an ink outline instead of a drop shadow */
     --focus-ring: 0 0 0 3px rgba(253,65,13,.30);
-    /* typography */
-    --font-head: 'Poppins', 'Montserrat', Arial, sans-serif;
-    --font-body: 'Montserrat', Arial, sans-serif;
-    --font-mono: ui-monospace, 'Cascadia Mono', Consolas, Menlo, monospace;
-    --fs-h1: 22px;
-    --fs-h2: 18px;
-    --fs-h3: 15px;
+    /* typography — one superfamily, two widths (Barlow: drawn from highway
+       signage + license plates), mono only for identifiers (VIN / stock). */
+    --font-head: 'Barlow Condensed', 'Arial Narrow', Arial, sans-serif;
+    --font-body: 'Barlow', Arial, sans-serif;
+    --font-mono: 'IBM Plex Mono', ui-monospace, 'Cascadia Mono', Consolas, Menlo, monospace;
+    --fs-display: 48px; /* the one big thing on a page (Home: today's day name) */
+    --fs-h1: 26px;
+    --fs-h2: 20px;
+    --fs-h3: 16px;
     --fs-overline: 11px;
     --fs-lg: 16px;      /* large body / section-title size (between --fs-h3 and --fs-h2) */
     --fs-body: 13px;
@@ -96,7 +102,7 @@
     /* element-size tokens — base :root defaults = today's literals, so a no-op
        until a theme overrides one. Let a theme resize chrome / view columns with
        zero per-view CSS. (The side-column width uses --col-form-side above.) */
-    --shell-header-h: 46px;    /* #appHeader height (App.html) */
+    --shell-header-h: 52px;    /* #appHeader height (App.html) */
     --shell-sidebar-w: 210px;  /* #sidebar width (App.html) */
     --brand-fs: 17px;          /* .app-brand font-size (App.html) */
     --rv-vin-w: 200px;         /* Run Order VIN textarea column (ViewRun) — ~one 17-char monospace VIN */
@@ -133,8 +139,8 @@
     --danger:  #ef5350; --danger-weak:  rgba(239,83,80,.16);  --on-danger:  #1f0c0b;
     --warning: #ffc817; --warning-weak: rgba(255,200,23,.15); --warning-strong: #ffd75a;
     --info:    #6ea8e6; --info-weak:    rgba(110,168,230,.16);
-    --shadow: 0 2px 12px rgba(0,0,0,.45);
-    --shadow-lg: 0 8px 28px rgba(0,0,0,.55);
+    --shadow: none;
+    --shadow-lg: 0 0 0 1px var(--border-2);
     --focus-ring: 0 0 0 3px rgba(253,65,13,.45);
   }
 
@@ -446,8 +452,8 @@
        `#view-xxx * { padding:0 }` reset (ViewImport, ViewPipedriveSettings,
        ViewRules — specificity 1,0,0, beats this unscoped 0,1,0 rule). The
        component defends its own layout (see .cs-btn above). */
-    padding: 8px 16px !important;
-    font-family: var(--font-body); font-size: 12.5px; font-weight: 700;
+    padding: 7px 14px !important;
+    font-family: var(--font-head); font-size: 14px; font-weight: 700; letter-spacing: .02em;
     border: none; border-radius: var(--radius-sm);
     cursor: pointer; white-space: nowrap;
     transition: background .15s, border-color .15s, color .15s;
@@ -459,8 +465,8 @@
   .btn-primary { background: var(--accent); color: var(--on-accent); }
   .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
   .btn-primary:disabled { background: var(--text-muted); }
-  .btn-secondary { background: var(--bg); color: var(--text-2); border: 1px solid var(--border-2); }
-  .btn-secondary:hover:not(:disabled) { background: var(--surface); border-color: var(--text-muted); }
+  .btn-secondary { background: var(--bg); color: var(--text); border: 1px solid var(--text-2); }
+  .btn-secondary:hover:not(:disabled) { background: var(--surface); border-color: var(--text); }
   .btn-secondary:disabled { opacity: .5; }
   .btn-ghost { background: var(--bg); color: var(--accent); border: 1.5px solid var(--accent); }
   .btn-ghost:hover:not(:disabled) { background: var(--accent-weak); }
@@ -527,9 +533,9 @@
   .table-u th {
     position: sticky; top: 0; z-index: 1;
     background: var(--th-bg); color: var(--th-fg);
-    text-align: left; padding: 7px 12px;
-    font-family: var(--font-head); font-size: 10px; font-weight: 700;
-    text-transform: uppercase; letter-spacing: .1em;
+    text-align: left; padding: 6px 12px;
+    font-family: var(--font-head); font-size: 13px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .05em;
   }
   .table-u td { padding: 6px 12px; border-bottom: 1px solid var(--border); color: var(--text); }
   .table-u tbody tr:hover td { background: var(--surface); }
