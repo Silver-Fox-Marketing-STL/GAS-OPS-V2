@@ -8,65 +8,103 @@
      persists via updateVinSubmissionStatus, no reload) — discard bad reads,
      or jump a batch's valid VINs straight into Run Order ("Create order" →
      runPrefillFromInbox; the batch is offered for discard once that order
-     finalizes). (escHtml/toast from SharedUtils; batch styling mirrors
-     EomReportRenderer's .eomr-contact idiom.)
+     finalizes). (escHtml/toast from SharedUtils.)
+
+     Rebuild increment 8a (docs/rebuild-order-desk-design.md): job-ticket
+     idiom — ink rules instead of cards, condensed sentence-case headings,
+     shared .tag / .btn-* components, photos as a ruled list. The JS is
+     unchanged apart from the HTML it emits and its user-facing strings.
 ════════════════════════════════════════════════════════════════════════════ -->
-<div class="view" id="view-vin-inbox" hidden>
-  <div class="vi-scroll">
+<div class="view" id="view-vin-inbox" data-layout="data" hidden>
+  <div class="vi-scroll app-measure">
+
+    <!-- The shell header already prints the view title — the head carries the
+         one-sentence hint and the actions, never a repeat of the title. -->
     <div class="vi-head">
-      <h2 class="u-h2" style="margin:0;">VIN Inbox</h2>
+      <span class="vi-hint">Photos from the lot, grouped by dealer &mdash; correct a read VIN, discard a bad read, or start the order from a batch.</span>
       <div class="vi-head-actions">
-        <button type="button" class="btn-ghost" id="viOcrBtn" onclick="viRunOcr()" hidden>Run OCR (<span id="viOcrCount">0</span> queued)</button>
-        <button type="button" class="btn-danger" id="viSelDiscardBtn" onclick="viSelDiscard()" hidden>Discard selected (<span id="viSelCount">0</span>)</button>
-        <button type="button" class="btn-ghost" id="viSelBtn" onclick="viSelToggle()">Select</button>
-        <button type="button" class="btn-ghost" onclick="viLoad()">&#8635; Refresh</button>
+        <button type="button" class="btn-primary" id="viOcrBtn" onclick="viRunOcr()" hidden>Read <span id="viOcrCount">0 photos</span></button>
+        <button type="button" class="btn-danger" id="viSelDiscardBtn" onclick="viSelDiscard()" hidden>Discard <span id="viSelCount">0</span> selected</button>
+        <button type="button" class="btn-secondary" id="viSelBtn" onclick="viSelToggle()">Select</button>
+        <button type="button" class="btn-secondary" onclick="viLoad()">Refresh</button>
       </div>
     </div>
-    <p class="u-hint" style="max-width:70ch;">Photos submitted from the Lot Scanner, grouped by dealer. Review/correct the read VIN, <strong>Discard</strong> bad reads — or <strong>Create order</strong> to jump the batch's valid VINs into Run Order.</p>
-    <div id="viBody"><p class="u-hint">Loading&hellip;</p></div>
+
+    <div id="viBody"><p class="vi-empty">Loading&hellip;</p></div>
+
   </div>
 </div>
 
 <style>
-  #view-vin-inbox { height: 100%; background: var(--bg); color: var(--text); }
-  #view-vin-inbox .vi-scroll { height: 100%; overflow-y: auto; padding: var(--space-5) var(--space-6); }
-  #view-vin-inbox .vi-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
-  #view-vin-inbox .vi-head-actions { display: flex; align-items: center; gap: var(--space-2); }
+  #view-vin-inbox * { box-sizing: border-box; }
+  #view-vin-inbox {
+    font-family: var(--font-body); font-size: var(--fs-body);
+    height: 100%; overflow-y: auto;
+    background: var(--bg); color: var(--text);
+  }
+  #view-vin-inbox .vi-scroll { padding: 18px 28px 40px; }
 
-  /* ponytail: .vi-batch deliberately mirrors EomReportRenderer's .eomr-contact
-     (border/radius/summary hover/[open] rule/indented body) and the summary
-     reuses the live .eomr-chips/.eomr-chip classes directly — EOM report
-     restyles should propagate here by intent. */
-  #view-vin-inbox .vi-batch { margin-top: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
-  #view-vin-inbox .vi-batch > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: var(--space-3); padding: 12px 16px; }
-  #view-vin-inbox .vi-batch > summary:hover { background: var(--surface-2); }
+  /* ── Head: one sentence + the actions, under the structural rule ─────── */
+  #view-vin-inbox .vi-head { display: flex; align-items: center; gap: 16px; padding-bottom: 8px; margin-bottom: 4px; border-bottom: var(--rule); }
+  #view-vin-inbox .vi-hint { flex: 1; min-width: 0; font-size: var(--fs-sm); color: var(--text-3); }
+  #view-vin-inbox .vi-head-actions { margin-left: auto; display: flex; gap: 8px; flex-shrink: 0; }
+
+  /* ── A batch is a ruled section, not a card ──────────────────────────── */
+  #view-vin-inbox .vi-batch { border-bottom: 1px solid var(--border); }
+  #view-vin-inbox .vi-batch > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px; padding: 11px 0; }
   #view-vin-inbox .vi-batch > summary::-webkit-details-marker { display: none; }
-  #view-vin-inbox .vi-batch[open] > summary { border-bottom: 2px solid var(--text); }
-  #view-vin-inbox .vi-caret { display: inline-block; flex-shrink: 0; color: var(--text-3); font-size: var(--fs-sm); transition: transform .15s ease; }
+  #view-vin-inbox .vi-batch > summary:hover .vi-dealer { color: var(--accent); }
+  #view-vin-inbox .vi-batch[open] > summary { border-bottom: 1px solid var(--border); }
+  #view-vin-inbox .vi-caret { flex-shrink: 0; width: 10px; font-size: 11px; color: var(--text-3); transition: transform .15s ease; }
   #view-vin-inbox .vi-batch[open] > summary .vi-caret { transform: rotate(90deg); }
-  #view-vin-inbox .vi-batch-title { display: flex; flex-direction: column; min-width: 0; }
-  #view-vin-inbox .vi-dealer { font-family: var(--font-head); font-weight: 800; font-size: var(--fs-lg); letter-spacing: -0.2px; }
-  #view-vin-inbox .vi-group-sub { font-weight: 400; font-size: var(--fs-hint); color: var(--text-3); margin-top: 2px; }
-  #view-vin-inbox .vi-note { font-size: var(--fs-sm); color: var(--text); opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60ch; }
-  #view-vin-inbox .vi-batch-actions { display: flex; gap: var(--space-2); flex-shrink: 0; }
-  #view-vin-inbox .vi-batch-body { padding: var(--space-2) var(--space-4) var(--space-4) 34px; }
+  #view-vin-inbox .vi-batch-title { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  #view-vin-inbox .vi-dealer { font-family: var(--font-head); font-size: 18px; font-weight: 700; line-height: 1.15; color: var(--text); }
+  #view-vin-inbox .vi-group-sub { margin-top: 2px; font-size: var(--fs-hint); color: var(--text-3); }
+  #view-vin-inbox .vi-note { margin-top: 3px; font-size: var(--fs-sm); color: var(--text-2); max-width: 60ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #view-vin-inbox .vi-sum-tags { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; flex-shrink: 0; }
+  #view-vin-inbox .vi-sum-tags .tag { font-variant-numeric: tabular-nums; }
+  #view-vin-inbox .vi-batch-actions { display: flex; gap: 8px; flex-shrink: 0; }
+  /* Ceiling: the shared button recipe sets `padding … !important` (it defends
+     itself against host views' wildcard resets), so a compact in-row variant
+     can only be reached the same way — same pattern as ViewRun's #openVinLogBtn. */
+  #view-vin-inbox .vi-batch-actions button { padding: 4px 12px !important; font-size: 13px; }
 
-  #view-vin-inbox .vi-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: var(--space-2); }
-  #view-vin-inbox .vi-card { display: flex; gap: var(--space-2); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: var(--space-2); }
-  #view-vin-inbox .vi-card.miss { border-color: var(--warning); }
-  #view-vin-inbox .vi-thumb { width: 72px; height: 72px; flex-shrink: 0; border-radius: var(--radius-sm); object-fit: cover; background: var(--surface-3); border: 1px solid var(--border); }
-  #view-vin-inbox .vi-info { flex: 1; min-width: 0; }
-  #view-vin-inbox .vi-tags { display: flex; gap: var(--space-2); margin: var(--space-1) 0; flex-wrap: wrap; }
-  #view-vin-inbox .vi-veh { font-size: var(--fs-sm); color: var(--text-2); }
-  #view-vin-inbox .vi-actions { display: flex; gap: var(--space-2); margin-top: var(--space-2); flex-wrap: wrap; }
-  #view-vin-inbox .vi-actions input { flex: 1; min-width: 130px; padding: 6px; font-family: var(--font-mono, ui-monospace, monospace); text-transform: uppercase; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); }
-  /* Buttons: don't shrink next to the flex:1 VIN input. */
-  #view-vin-inbox .vi-actions button { flex-shrink: 0; }
-  #view-vin-inbox .vi-empty { color: var(--text-3); margin-top: var(--space-5); }
+  /* ── Photos: a ruled list, one row per submission ─────────────────────── */
+  #view-vin-inbox .vi-batch-body { padding: 0 0 14px 20px; }
+  #view-vin-inbox .vi-row { display: flex; align-items: center; gap: 12px; padding: 9px 0 9px 12px; border-bottom: 1px solid var(--border); }
+  #view-vin-inbox .vi-row:last-child { border-bottom: none; }
+  #view-vin-inbox .vi-row.miss { border-left: 3px solid var(--warning-strong); padding-left: 9px; }
+  #view-vin-inbox .vi-thumb { display: block; width: 64px; height: 64px; flex-shrink: 0; overflow: hidden; border: 1px solid var(--border); background: var(--surface-2); }
+  #view-vin-inbox .vi-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  #view-vin-inbox .vi-row-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 16px; }
+  #view-vin-inbox .vi-vin {
+    width: 21ch; flex-shrink: 0; padding: 6px 8px;
+    font-family: var(--font-mono); font-size: 12px; letter-spacing: .02em; text-transform: uppercase;
+    border: 1px solid var(--border-2); background: var(--bg); color: var(--text);
+  }
+  #view-vin-inbox .vi-vin:focus { outline: none; border-color: var(--text); box-shadow: var(--focus-ring); }
+  #view-vin-inbox .vi-stat { min-width: 0; }
+  #view-vin-inbox .vi-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+  #view-vin-inbox .vi-veh { margin-top: 4px; font-size: var(--fs-sm); color: var(--text-2); }
+  #view-vin-inbox .vi-x { flex-shrink: 0; background: none; border: 0; padding: 0; font: inherit; font-size: var(--fs-sm); font-weight: 600; color: var(--text-3); cursor: pointer; }
+  #view-vin-inbox .vi-x:hover { color: var(--danger); text-decoration: underline; }
+
+  #view-vin-inbox .vi-empty { color: var(--text-3); padding: 16px 0 0; margin: 0; max-width: 70ch; }
 
   /* Select mode: checkboxes only exist visually while the mode is on. */
   #view-vin-inbox .vi-check { display: none; width: 18px; height: 18px; margin: 0; flex-shrink: 0; align-self: center; cursor: pointer; accent-color: var(--accent); }
   #view-vin-inbox.vi-select-mode .vi-check { display: inline-block; }
+
+  /* ── Mobile (data-viewport="mobile") — one column, wrapping rows ─────── */
+  :root[data-viewport="mobile"] #view-vin-inbox .vi-scroll { padding: 14px 16px 40px; }
+  :root[data-viewport="mobile"] #view-vin-inbox .vi-head { flex-wrap: wrap; }
+  :root[data-viewport="mobile"] #view-vin-inbox .vi-head-actions { margin-left: 0; flex-basis: 100%; flex-wrap: wrap; }
+  :root[data-viewport="mobile"] #view-vin-inbox .vi-batch > summary { flex-wrap: wrap; }
+  :root[data-viewport="mobile"] #view-vin-inbox .vi-batch-actions { flex-basis: 100%; }
+  :root[data-viewport="mobile"] #view-vin-inbox .vi-batch-body { padding-left: 0; }
+  :root[data-viewport="mobile"] #view-vin-inbox .vi-row { align-items: flex-start; }
+  :root[data-viewport="mobile"] #view-vin-inbox .vi-row-main { flex-wrap: wrap; gap: 8px; }
+  :root[data-viewport="mobile"] #view-vin-inbox .vi-vin { width: 100%; }
 </style>
 
 <script>
@@ -96,7 +134,7 @@
     if (!body) return;
     viVinMaps = {};          // refetch inventory each visit — same freshness as the submission list
     viPendingChecks = {};
-    body.innerHTML = '<p class="u-hint">Loading&hellip;</p>';
+    body.innerHTML = '<p class="vi-empty">Loading&hellip;</p>';
     google.script.run
       .withSuccessHandler(viRender)
       .withFailureHandler(function (e) {
@@ -179,7 +217,7 @@
     }
     viSubs = res.submissions || [];
     viRefreshOcrBtn();
-    if (!viSubs.length) { body.innerHTML = '<p class="vi-empty">No open submissions.</p>'; viSelCountUpdate(); return; }
+    if (!viSubs.length) { body.innerHTML = '<p class="vi-empty">No photos are waiting.</p>'; viSelCountUpdate(); return; }
 
     // Group by order batch (field app); legacy/blank-batch rows fall back to one group per dealer.
     var groups = {};
@@ -206,25 +244,25 @@
       html += '<span class="vi-caret">&#9656;</span>';
       html += '<span class="vi-batch-title"><span class="vi-dealer">' + escHtml(name) + '</span>';
       if (isBatch) {
-        html += '<span class="vi-group-sub">' + escHtml(rows[0].email || '') + (rows[0].ts ? (' · ' + escHtml(rows[0].ts)) : '') + '</span>';
+        html += '<span class="vi-group-sub">' + escHtml(rows[0].email || '') + (rows[0].ts ? (' &middot; ' + escHtml(rows[0].ts)) : '') + '</span>';
         var batchNote = '';
         for (var ni = 0; ni < rows.length; ni++) { if (rows[ni].notes) { batchNote = rows[ni].notes; break; } }
-        if (batchNote) html += '<span class="vi-note" title="' + escHtml(batchNote) + '">&#128221; ' + escHtml(batchNote) + '</span>';
+        if (batchNote) html += '<span class="vi-note" title="' + escHtml(batchNote) + '">' + escHtml(batchNote) + '</span>';
       }
       html += '</span>';
-      html += '<span class="eomr-chips">';
-      html += '<span class="eomr-chip" id="visubs_' + gi + '">' + viSubsChip_(rows.length) + '</span>';
+      html += '<span class="vi-sum-tags">';
+      html += '<span class="tag tone-neutral" id="visubs_' + gi + '">' + viSubsChip_(rows.length) + '</span>';
       if (isBatch && doneCount < rows.length) {
         html += '<span class="tag tone-info">' + doneCount + '/' + rows.length + ' read</span>';
       }
-      html += '<span class="eomr-chip"><b id="vivalid_' + gi + '">' + validCount + '</b> valid</span>';
+      html += '<span class="tag tone-neutral"><span id="vivalid_' + gi + '">' + validCount + '</span> valid</span>';
       html += '</span>';
       html += '<span class="vi-batch-actions">';
-      html += '<button type="button" class="btn-secondary" onclick="viCreateOrder(' + gi + ', event)">Create order</button>';
+      html += '<button type="button" class="btn-primary" onclick="viCreateOrder(' + gi + ', event)">Create order</button>';
       html += '<button type="button" class="btn-danger" onclick="viDeleteBatch(' + gi + ', event)">Discard batch</button>';
       html += '</span>';
       html += '</summary>';
-      html += '<div class="vi-batch-body"><div class="vi-cards">';
+      html += '<div class="vi-batch-body"><div class="vi-list">';
       rows.forEach(function (s) { html += viCard(s); });
       html += '</div></div></details>';
     });
@@ -272,26 +310,29 @@
 
   function viCard(s) {
     // photoFileId / id are system-generated (no quotes) → safe in handlers.
+    // The 64px box is a <span> when there is no photo (and stays put when the
+    // thumbnail 404s) so every row in the list keeps the same left edge.
     var thumb = s.photoFileId
-      ? '<a href="' + escHtml(s.photoUrl) + '" target="_blank" rel="noopener"><img class="vi-thumb" alt="VIN photo" ' +
+      ? '<a class="vi-thumb" href="' + escHtml(s.photoUrl) + '" target="_blank" rel="noopener"><img alt="VIN photo" ' +
         'src="https://drive.google.com/thumbnail?id=' + encodeURIComponent(s.photoFileId) + '&sz=w200" ' +
         'onerror="this.style.display=\'none\'"></a>'
-      : '';
+      : '<span class="vi-thumb"></span>';
     var queued = (s.ocrState === 'queued');
     var h = '';
-    h += '<div class="vi-card' + (queued || s.matched ? '' : ' miss') + '" id="vicard_' + s.id + '">';
+    h += '<div class="vi-row' + (queued || s.matched ? '' : ' miss') + '" id="vicard_' + s.id + '">';
     h += '<input type="checkbox" class="vi-check vi-check-card" data-id="' + escHtml(s.id) + '" aria-label="Select photo">';
     h += thumb;
-    h += '<div class="vi-info">';
-    h += '<div id="vistat_' + s.id + '">' + viStatusHtml(s, false) + '</div>';
+    h += '<div class="vi-row-main">';
     if (!queued) {
-      h += '<div class="vi-actions">';
-      h += '<input id="vivin_' + s.id + '" type="text" maxlength="17" value="' + escHtml(s.vin || '') + '" placeholder="Correct VIN…"' +
+      h += '<input id="vivin_' + s.id + '" class="vi-vin" type="text" maxlength="17" value="' + escHtml(s.vin || '') + '" placeholder="Correct VIN…"' +
         ' oninput="viLiveCheck(\'' + s.id + '\')" onchange="viSaveVin(\'' + s.id + '\')">';
-      h += '<button type="button" class="btn-secondary" onclick="viDiscard(\'' + s.id + '\')">Discard</button>';
-      h += '</div>';
     }
-    h += '</div></div>';
+    h += '<div class="vi-stat" id="vistat_' + s.id + '">' + viStatusHtml(s, false) + '</div>';
+    h += '</div>';
+    if (!queued) {
+      h += '<button type="button" class="vi-x" onclick="viDiscard(\'' + s.id + '\')">Discard</button>';
+    }
+    h += '</div>';
     return h;
   }
 
@@ -299,7 +340,7 @@
   function viStatusHtml(s, mapPending) {
     var h = '<div class="vi-tags">';
     if (s.ocrState === 'queued') {
-      h += '<span class="tag tone-neutral">still processing…</span>';
+      h += '<span class="tag tone-neutral">not read yet</span>';
     } else {
       h += '<span class="tag ' + (s.valid ? 'tone-success' : 'tone-danger') + '">' + (s.valid ? 'valid VIN' : 'invalid VIN') + '</span>';
       h += mapPending
@@ -321,7 +362,7 @@
   }
 
   function viSubsChip_(n) {
-    return '<b>' + n + '</b> submission' + (n === 1 ? '' : 's');
+    return n + ' photo' + (n === 1 ? '' : 's');
   }
 
   // Optimistic removal: drop rows from viSubs + the DOM in place — no reload.
@@ -349,7 +390,7 @@
       var validB = document.getElementById('vivalid_' + gi);
       if (validB) validB.textContent = left.filter(function (s) { return s.valid; }).length;
     }
-    if (!viSubs.length) document.getElementById('viBody').innerHTML = '<p class="vi-empty">No open submissions.</p>';
+    if (!viSubs.length) document.getElementById('viBody').innerHTML = '<p class="vi-empty">No photos are waiting.</p>';
     viRefreshOcrBtn();
     viSelCountUpdate();   // a checked card can be removed via its own Discard button mid-select
   }
@@ -486,7 +527,7 @@
     if (!btn) return;
     var n = viSubs.filter(function (s) { return s.ocrState === 'queued'; }).length;
     var countEl = document.getElementById('viOcrCount');
-    if (countEl) countEl.textContent = n;
+    if (countEl) countEl.textContent = n + ' photo' + (n === 1 ? '' : 's');
     btn.hidden = (n === 0);
   }
 

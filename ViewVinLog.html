@@ -1,78 +1,89 @@
+<!-- ════════════════════════════════════════════════════════════════════════════
+     VIN LOGS — the run log for a dealer (or every dealer) and what you can do
+     to a run: commit it to the VIN log, roll it back, delete it, push it to
+     Pipedrive, or add VINs to the log by hand.
+
+     Rebuild increment 8a (docs/rebuild-order-desk-design.md): job-ticket idiom
+     — runs as a shared .table-u, actions as ruled sections, ink outlines
+     instead of cards. Every element id the JS reads is unchanged; the JS
+     differs from the previous version only in the HTML it emits and in its
+     user-facing strings.
+════════════════════════════════════════════════════════════════════════════ -->
 <div class="view" id="view-vinlog" data-layout="data" hidden>
+  <div class="vl-wrap app-measure">
 
-
-  <div class="layout app-measure">
-
-    <!-- ── Left column: dealer + runs list ──────────────────────────────── -->
-    <div class="col-main">
-      <label for="vinlogDealerSelect">Dealer</label>
-      <select id="vinlogDealerSelect">
-        <option value="">-- Loading dealers... --</option>
-      </select>
-
-      <!-- Latest order number (shown after dealer loads) -->
+    <!-- ── Head: which dealer, where the log stands ─────────────────────── -->
+    <div class="vl-head">
+      <div class="vl-field">
+        <label for="vinlogDealerSelect">Dealer</label>
+        <select id="vinlogDealerSelect">
+          <option value="">-- Loading dealers... --</option>
+        </select>
+      </div>
       <div id="latestOrderRow">
-        Most recent order in log: <span id="latestOrderSpan" class="tag tone-neutral">—</span>
-      </div>
-
-      <!-- Runs list (shown after dealer selected) -->
-      <div id="runsSection">
-        <h3>Order Runs</h3>
-        <div id="runsContainer"><div class="loading">Loading runs...</div></div>
+        Latest order in the log <span id="latestOrderSpan" class="tag tone-neutral">&mdash;</span>
       </div>
     </div>
 
-    <!-- ── Right column: actions on the selected run + manual entry ─────── -->
-    <div class="col-side">
+    <div class="layout">
 
-      <!-- Action panel (shown after run selected) -->
-      <div id="actionPanel">
-        <div class="run-detail" id="runDetail"></div>
-        <div class="action-btns">
-          <button class="btn-commit"   id="commitBtn"   onclick="commitRun()">Commit to VIN Log</button>
-          <button class="btn-rollback" id="rollbackBtn" onclick="rollbackRun()">Rollback</button>
+      <!-- ── Runs ──────────────────────────────────────────────────────── -->
+      <div class="col-main">
+        <div id="runsSection">
+          <h3>Order runs</h3>
+          <div id="runsContainer"><div class="loading">Loading runs&hellip;</div></div>
         </div>
+      </div>
 
-        <!-- Pipedrive push / retry (shown for finalized runs — i.e. those with a Deal ID) -->
-        <div id="pushPanel">
-          <div class="push-title">Push to Pipedrive</div>
-          <div class="push-modes">
-            <label><input type="radio" name="vlPushMode" value="create" checked onchange="onVlPushModeChange()"> Create new deal</label>
-            <label><input type="radio" name="vlPushMode" value="link" onchange="onVlPushModeChange()"> Link existing deal</label>
+      <!-- ── Actions on the selected run + manual entry ─────────────────── -->
+      <div class="col-side">
+
+        <div id="actionPanel">
+          <div class="vl-sec">
+            <div class="vl-sec-h">Selected run</div>
+            <div class="run-detail" id="runDetail"></div>
+            <div class="action-btns">
+              <button type="button" class="btn-primary" id="commitBtn"   onclick="commitRun()">Commit to VIN log</button>
+              <button type="button" class="btn-danger"  id="rollbackBtn" onclick="rollbackRun()">Roll back</button>
+            </div>
           </div>
-          <input type="text" id="vlPushDealId" placeholder="Existing Deal ID" style="display:none;" />
-          <button class="btn-push" id="vlPushBtn" onclick="pushSelectedRun()">Push to Pipedrive</button>
+
+          <!-- Pipedrive push / retry (shown for finalized runs — i.e. those with a deal id) -->
+          <div id="pushPanel">
+            <div class="vl-sec-h">Pipedrive</div>
+            <div class="push-modes">
+              <label><input type="radio" name="vlPushMode" value="create" checked onchange="onVlPushModeChange()"> Create new deal</label>
+              <label><input type="radio" name="vlPushMode" value="link" onchange="onVlPushModeChange()"> Link existing deal</label>
+            </div>
+            <input type="text" id="vlPushDealId" placeholder="Existing deal ID" style="display:none;" />
+            <button type="button" class="btn-primary" id="vlPushBtn" onclick="pushSelectedRun()">Push to Pipedrive</button>
+          </div>
         </div>
-      </div>
 
-      <!-- Manual entry toggle button (shown after dealer selected) -->
-      <button id="manualToggle" onclick="toggleManualPanel()">
-        ＋ Manually add VINs to log <span class="arrow">▼</span>
-      </button>
-
-      <!-- Manual entry panel -->
-      <div id="manualPanel">
-        <div class="panel-title">Manual VIN Entry</div>
-
-        <label for="manualOrderId">Order Number</label>
-        <input type="text" id="manualOrderId" placeholder="e.g. 47350" />
-        <div class="hint">Enter the Pipedrive deal ID or order number for this entry.</div>
-
-        <label for="manualVins">VINs</label>
-        <textarea id="manualVins" placeholder="One VIN or stock number per line" oninput="updateVinlogVinCount()"></textarea>
-        <div id="vinlogVinCount">0 VINs</div>
-
-        <button class="btn-manual-submit" id="manualSubmitBtn" onclick="submitManual()">
-          Add to VIN Log
+        <!-- Manual entry (dealer mode only — the toggle is hidden for All dealers) -->
+        <button type="button" id="manualToggle" onclick="toggleManualPanel()">
+          Add VINs by hand <span class="arrow">&#9662;</span>
         </button>
-      </div>
 
-      <div class="side-bottom">
-        <div id="vinlogStatus" class="empty"></div>
+        <div id="manualPanel">
+          <label for="manualOrderId">Order number</label>
+          <input type="text" id="manualOrderId" placeholder="e.g. 47350" />
+          <div class="hint">The Pipedrive deal id or order number this entry belongs to.</div>
+
+          <label for="manualVins">VINs</label>
+          <textarea id="manualVins" placeholder="One VIN or stock number per line" oninput="updateVinlogVinCount()"></textarea>
+          <div id="vinlogVinCount">0 VINs</div>
+
+          <button type="button" class="btn-primary" id="manualSubmitBtn" onclick="submitManual()">Add to VIN log</button>
+        </div>
+
+        <div class="side-bottom">
+          <div id="vinlogStatus" class="empty"></div>
+        </div>
+
       </div>
 
     </div>
-
   </div>
 
   <!-- VIN list popup — fixed overlay, shown by showVinPopup(idx) -->
@@ -81,8 +92,8 @@
       <p class="vl-popup-title" id="vlVinPopupTitle">VINs</p>
       <textarea id="vlVinPopupText" readonly></textarea>
       <div class="vl-popup-actions">
-        <button id="vlVinCopyBtn" onclick="vlCopyVins()">Copy</button>
-        <button class="btn-secondary" onclick="closeVinPopup()">Close</button>
+        <button type="button" class="btn-secondary" id="vlVinCopyBtn" onclick="vlCopyVins()">Copy</button>
+        <button type="button" class="btn-secondary" onclick="closeVinPopup()">Close</button>
       </div>
     </div>
   </div>
@@ -90,387 +101,171 @@
 </div>
 
 <style>
-#view-vinlog * { box-sizing: border-box; }
-    #view-vinlog {
-      font-family: var(--font-body);
-      margin: 0;
-      padding: 0;
-      font-size: 13px;
-      color: var(--text);
-      height: 100%;
-      overflow: hidden;
-    }
+  #view-vinlog * { box-sizing: border-box; }
+  #view-vinlog {
+    font-family: var(--font-body); font-size: var(--fs-body);
+    height: 100%; overflow-y: auto;
+    background: var(--bg); color: var(--text);
+  }
+  #view-vinlog .vl-wrap { padding: 18px 28px 40px; }
 
-    /* ── Two-column layout (wide modal) ──────────────────────────────────────
-       Grid skeleton (default = the original main / side row, no-op): named areas
-       let a theme swap the columns or restyle widths with no markup change. */
-    #view-vinlog .layout { display: grid; grid-template-columns: 1fr var(--col-form-side);
-                           grid-template-areas: "main side"; height: 100%; }
-    #view-vinlog .col-main {
-      grid-area: main;
-      min-width: 0;
-      padding: 20px;
-      display: flex;
-      flex-direction: column;
-      border-right: 1px solid var(--border);
-      overflow: hidden;
-    }
-    #view-vinlog .col-side {
-      grid-area: side;
-      padding: 20px;
-      overflow-y: auto;
-      background: var(--bg);
-      display: flex;
-      flex-direction: column;
-    }
-    #view-vinlog .side-bottom { margin-top: auto; padding-top: 16px; }
+  /* ── Head ────────────────────────────────────────────────────────────── */
+  #view-vinlog .vl-head {
+    display: grid; grid-template-columns: minmax(280px, 420px) 1fr; gap: 20px; align-items: end;
+    padding-bottom: 10px; border-bottom: var(--rule);
+  }
+  #view-vinlog .vl-field label { display: block; font-size: var(--fs-sm); font-weight: 600; color: var(--text-2); margin: 0 0 4px; }
+  /* The dealer picker is the loudest control on the view. CustomSelect hides
+     the native <select> and paints a .cs-btn in its place, so the size has to
+     be set on BOTH or it never shows. */
+  #view-vinlog .vl-field select { font-family: var(--font-head); font-size: 20px; font-weight: 700; padding: 6px 10px; }
+  #view-vinlog .vl-field .cs-field .cs-btn { font-family: var(--font-head); font-size: 20px; font-weight: 700; }
+  #view-vinlog select, #view-vinlog input[type="text"], #view-vinlog textarea {
+    width: 100%; padding: 8px; font-size: var(--fs-body); font-family: var(--font-body);
+    border: 1px solid var(--border-2); border-radius: var(--radius-sm);
+    background: var(--bg); color: var(--text);
+  }
+  #view-vinlog select:focus, #view-vinlog input[type="text"]:focus, #view-vinlog textarea:focus {
+    outline: none; border-color: var(--text); box-shadow: var(--focus-ring);
+  }
+  #view-vinlog #latestOrderRow { display: none; padding-bottom: 6px; font-size: var(--fs-sm); color: var(--text-2); }
+  #view-vinlog #latestOrderRow .tag { margin-left: 4px; font-variant-numeric: tabular-nums; }
 
-    #view-vinlog label {
-      display: block;
-      font-weight: bold;
-      margin-bottom: 4px;
-      margin-top: 14px;
-    }
-    #view-vinlog label:first-of-type { margin-top: 0; }
-    #view-vinlog select,
-  #view-vinlog input[type="text"] {
-      width: 100%;
-      padding: 8px;
-      font-size: 13px;
-      border: 1px solid var(--border-2);
-      border-radius: 4px;
-    }
-    #view-vinlog input[type="text"]:focus,
-  #view-vinlog textarea:focus {
-      outline: none;
-      border-color: var(--accent);
-      box-shadow: var(--focus-ring);
-    }
-    #view-vinlog textarea {
-      width: 100%;
-      padding: 8px;
-      font-size: 12px;
-      font-family: monospace;
-      border: 1px solid var(--border-2);
-      border-radius: 4px;
-      resize: vertical;
-    }
+  /* ── Two columns: runs | actions ─────────────────────────────────────── */
+  #view-vinlog .layout { display: grid; grid-template-columns: 3fr 2fr; gap: 28px; align-items: start; padding-top: 16px; }
+  #view-vinlog .col-main, #view-vinlog .col-side { min-width: 0; }
 
-    /* ── Latest order number pill ──────────────────────────────────────────── */
-    #view-vinlog #latestOrderRow {
-      display: none;
-      margin-top: 8px;
-      font-size: 11px;
-      color: var(--text-2);
-    }
-    #view-vinlog #latestOrderSpan { margin-left: 4px; }   /* positioning only — chip styling now .tag.tone-neutral */
+  /* ── Runs table ──────────────────────────────────────────────────────── */
+  #view-vinlog #runsSection { display: none; flex-direction: column; min-width: 0; }
+  #view-vinlog #runsSection h3 {
+    font-family: var(--font-head); font-size: 16px; font-weight: 700; color: var(--text);
+    margin: 0 0 8px; line-height: 1.2;
+  }
+  #view-vinlog #runsContainer { max-height: clamp(300px, 56vh, 700px); overflow: auto; border-bottom: 1px solid var(--border); }
+  #view-vinlog #runsTable { table-layout: fixed; }
+  #view-vinlog #runsTable td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
+  /* Per-dealer: Timestamp / Deal ID / VINs / Status / ✕.
+     All-dealers adds Dealer. Fixed widths so the columns don't jitter as the
+     band widens; the SPLIT:* badge sits on its own line under the timestamp. */
+  #view-vinlog #runsTable th:nth-child(1), #view-vinlog #runsTable td:nth-child(1) { width: 30%; }
+  #view-vinlog #runsTable th:nth-child(2), #view-vinlog #runsTable td:nth-child(2) { width: 16%; }
+  #view-vinlog #runsTable th:nth-child(3), #view-vinlog #runsTable td:nth-child(3) { width: 24%; }
+  #view-vinlog #runsTable th:nth-child(4), #view-vinlog #runsTable td:nth-child(4) { width: 22%; }
+  #view-vinlog #runsTable th:nth-child(5), #view-vinlog #runsTable td:nth-child(5) { width: 8%; text-align: right; }
+  #view-vinlog #runsTable.with-dealer th:nth-child(1), #view-vinlog #runsTable.with-dealer td:nth-child(1) { width: 22%; }
+  #view-vinlog #runsTable.with-dealer th:nth-child(2), #view-vinlog #runsTable.with-dealer td:nth-child(2) { width: 29%; }
+  #view-vinlog #runsTable.with-dealer th:nth-child(3), #view-vinlog #runsTable.with-dealer td:nth-child(3) { width: 10%; }
+  #view-vinlog #runsTable.with-dealer th:nth-child(4), #view-vinlog #runsTable.with-dealer td:nth-child(4) { width: 17%; }
+  #view-vinlog #runsTable.with-dealer th:nth-child(5), #view-vinlog #runsTable.with-dealer td:nth-child(5) { width: 16%; text-align: left; }
+  #view-vinlog #runsTable.with-dealer th:nth-child(6), #view-vinlog #runsTable.with-dealer td:nth-child(6) { width: 7%; text-align: right; }
+  #view-vinlog #runsTable tbody tr { cursor: pointer; }
+  #view-vinlog #runsTable tbody tr.selected td { background: var(--surface); }
+  #view-vinlog #runsTable tbody tr.selected td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+  #view-vinlog #runsTable td.vl-x-cell { padding-left: 0; padding-right: 6px; }
+  #view-vinlog .vl-dim { color: var(--text-muted); }
+  /* Billing-split note — its own line under the timestamp so it never fights
+     the stamp for width (a block child breaks the line inside the nowrap cell). */
+  #view-vinlog .vl-note-badge { display: block; width: fit-content; margin-top: 3px; }
 
-    /* ── Runs table ────────────────────────────────────────────────────────── */
-    /* Fills the left column; long run lists scroll inside runsContainer. */
-    #view-vinlog #runsSection {
-      display: none;
-      margin-top: 16px;
-      flex: 1;
-      min-height: 0;
-      flex-direction: column;
-    }
-    #view-vinlog #runsSection h3 {
-      font-size: 12px;
-      font-weight: bold;
-      color: var(--text-2);
-      margin: 0 0 8px 0;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      flex-shrink: 0;
-    }
-    #view-vinlog #runsContainer {
-      flex: 1;
-      min-height: 0;
-      overflow-y: auto;
-      border: 1px solid var(--border);
-      border-radius: 4px;
-    }
-    #view-vinlog #runsTable thead th { position: sticky; top: 0; z-index: 1; }
-    #view-vinlog #runsTable {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 12px;
-      table-layout: fixed;   /* fixed columns (Timestamp/Deal ID/VINs/Status) — no jitter as the band widens */
-      font-variant-numeric: tabular-nums;   /* Deal ID / VIN counts align — no digit-width shift */
-    }
-    /* Static column widths — 4 columns per-dealer (Timestamp/Deal ID/VINs/Status).
-       The table lives in the ~750px left column, so budget in px at that width:
-       VINs must hold "22 " + the Show VINs button (~95px + cell padding),
-       Status must hold the ROLLED_BACK badge (~100px). The SPLIT:* badge sits
-       on its own line under the timestamp (display:block), so Timestamp only
-       needs the 19-char stamp (~125px). Sep 23, 2026 audit: at the old
-       24/24/18/12/14/8 split, VINs showed "11 …" and the badge "S…". */
-    #view-vinlog #runsTable th:nth-child(1), #view-vinlog #runsTable td:nth-child(1) { width: 32%; }
-    #view-vinlog #runsTable th:nth-child(2), #view-vinlog #runsTable td:nth-child(2) { width: 20%; }
-    #view-vinlog #runsTable th:nth-child(3), #view-vinlog #runsTable td:nth-child(3) { width: 22%; }
-    #view-vinlog #runsTable th:nth-child(4), #view-vinlog #runsTable td:nth-child(4) { width: 18%; }
-    #view-vinlog #runsTable th:nth-child(5), #view-vinlog #runsTable td:nth-child(5) { width: 8%; text-align: center; }
-    /* All-Dealers mode adds a Dealer column (Timestamp/Dealer/Deal ID/VINs/Status).
-       Dealer names longer than the cell ellipsize (full name in the title tooltip). */
-    #view-vinlog #runsTable.with-dealer th:nth-child(1), #view-vinlog #runsTable.with-dealer td:nth-child(1) { width: 21%; }
-    #view-vinlog #runsTable.with-dealer th:nth-child(2), #view-vinlog #runsTable.with-dealer td:nth-child(2) { width: 24%; }
-    #view-vinlog #runsTable.with-dealer th:nth-child(3), #view-vinlog #runsTable.with-dealer td:nth-child(3) { width: 12%; }
-    #view-vinlog #runsTable.with-dealer th:nth-child(4), #view-vinlog #runsTable.with-dealer td:nth-child(4) { width: 21%; }
-    #view-vinlog #runsTable.with-dealer th:nth-child(5), #view-vinlog #runsTable.with-dealer td:nth-child(5) { width: 15%; }
-    #view-vinlog #runsTable.with-dealer th:nth-child(6), #view-vinlog #runsTable.with-dealer td:nth-child(6) { width: 7%; text-align: center; }
-    /* Billing-split note badge — its own line under the timestamp so it never
-       fights the stamp for width (a block child breaks the line even inside
-       the nowrap cell). Only split rows get the second line. */
-    #view-vinlog .vl-note-badge { display: block; width: fit-content; margin-top: 3px;
-      font-size: 10px; line-height: 1.4; padding: 1px 5px; border-radius: 3px;
-      background: var(--info-weak); color: var(--info); white-space: nowrap; }
-    #view-vinlog #runsTable td {
-      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    }
-    #view-vinlog #runsTable th {
-      text-align: left;
-      padding: 6px 8px;
-      background: var(--surface-2);
-      border-bottom: 1px solid var(--border);
-      font-weight: bold;
-      color: var(--text-2);
-      font-size: 11px;
-    }
-    #view-vinlog #runsTable td {
-      padding: 7px 8px;
-      border-bottom: 1px solid var(--border);
-      vertical-align: middle;
-    }
-    #view-vinlog #runsTable tr:hover td { background: var(--bg); cursor: pointer; }
-    #view-vinlog #runsTable tr.selected td { background: var(--accent-weak); }
-    #view-vinlog .status-badge {
-      display: inline-block;
-      padding: 2px 7px;
-      border-radius: 10px;
-      font-size: 10px;
-      font-weight: bold;
-      text-transform: uppercase;
-    }
-    #view-vinlog .status-pending { background: var(--warning-weak); color: var(--warning-strong); }
-    #view-vinlog .status-committed { background: var(--success-weak); color: var(--success); }
-    #view-vinlog .status-rolled_back { background: var(--danger-weak); color: var(--danger); }
+  /* In-row controls read as text, not chrome. */
+  #view-vinlog .vl-show-vins-btn {
+    background: none; border: 0; padding: 0; margin-left: 8px;
+    font-family: var(--font-body); font-size: var(--fs-sm); font-weight: 600;
+    color: var(--accent); cursor: pointer; line-height: 1.4;
+  }
+  #view-vinlog .vl-show-vins-btn:hover { text-decoration: underline; }
+  #view-vinlog .vl-delete-btn {
+    background: none; border: 0; padding: 2px 4px;
+    font-family: var(--font-body); font-size: var(--fs-sm); line-height: 1;
+    color: var(--text-3); cursor: pointer;
+  }
+  #view-vinlog .vl-delete-btn:hover { color: var(--danger); }
+  #view-vinlog .vl-delete-btn:disabled { opacity: .5; cursor: default; }
 
-    /* ── Show VINs button (inside runs table VIN count cell) ──────────────── */
-    /* Compact in-row controls in the shared .btn-secondary grammar (body
-       font, bold, token colors) — a bare <button> here inherits the browser's
-       system font and reads as an unstyled control in the dark themes. */
-    #view-vinlog .vl-show-vins-btn {
-      font-family: var(--font-body); font-weight: 700;
-      font-size: 10px; padding: 2px 7px; margin-left: 5px; vertical-align: middle;
-      border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text-2);
-      border-radius: var(--radius-sm); cursor: pointer; line-height: 1.4;
-    }
-    #view-vinlog .vl-show-vins-btn:hover { background: var(--bg); color: var(--text); border-color: var(--text-muted); }
-    #view-vinlog .vl-delete-btn {
-      font-family: var(--font-body); font-weight: 700;
-      font-size: 11px; padding: 2px 7px; vertical-align: middle;
-      border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text-muted);
-      border-radius: var(--radius-sm); cursor: pointer; line-height: 1.4;
-    }
-    #view-vinlog .vl-delete-btn:hover { background: var(--danger-weak); color: var(--danger); border-color: var(--danger); }
-    #view-vinlog .vl-delete-btn:disabled { opacity: 0.5; cursor: default; }
+  #view-vinlog .empty-msg { color: var(--text-3); font-size: var(--fs-sm); padding: 14px 0; }
+  #view-vinlog .loading   { color: var(--text-3); font-size: var(--fs-sm); padding: 14px 0; }
 
-    /* ── VIN popup overlay ────────────────────────────────────────────────── */
-    #vlVinPopup {
-      display: none; position: fixed; inset: 0; z-index: 1000;
-      background: rgba(0,0,0,0.45); align-items: center; justify-content: center;   /* scrim — intentional literal */
-    }
-    #vlVinPopup .vl-popup-card {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: var(--radius, 6px); padding: 20px;
-      width: 360px; max-height: 68vh;
-      display: flex; flex-direction: column; gap: 12px;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.28);   /* scrim — intentional literal */
-    }
-    #vlVinPopup .vl-popup-title {
-      margin: 0; font-size: 13px; font-weight: bold; color: var(--text);
-    }
-    #vlVinPopup #vlVinPopupText {
-      flex: 1; min-height: 120px; resize: none;
-      font-family: monospace; font-size: 12px; line-height: 1.7;
-      border: 1px solid var(--border-2); border-radius: 4px;
-      background: var(--bg); color: var(--text); padding: 8px;
-    }
-    #vlVinPopup .vl-popup-actions { display: flex; gap: 8px; justify-content: flex-end; }
+  /* ── Action panel — ruled sections, no cards ─────────────────────────── */
+  #view-vinlog #actionPanel { display: none; }
+  #view-vinlog .vl-sec-h {
+    font-family: var(--font-head); font-size: 16px; font-weight: 700; color: var(--text);
+    padding-bottom: 5px; margin-bottom: 8px; border-bottom: 1px solid var(--text);
+  }
+  #view-vinlog .run-detail { font-size: var(--fs-sm); line-height: 1.8; color: var(--text-2); font-variant-numeric: tabular-nums; }
+  #view-vinlog .run-detail strong { color: var(--text); font-weight: 600; }
+  #view-vinlog .action-btns { display: flex; gap: 10px; margin-top: 12px; }
+  #view-vinlog .action-btns button { flex: 1; }
 
-    /* ── Action panel ──────────────────────────────────────────────────────── */
-    #view-vinlog #actionPanel {
-      display: none;
-      margin-top: 14px;
-      padding: 12px;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 4px;
-      font-size: 12px;
-    }
-    #view-vinlog #actionPanel .run-detail {
-      margin-bottom: 10px;
-      line-height: 1.8;
-      color: var(--text);
-    }
-    #view-vinlog #actionPanel .run-detail strong { color: var(--text); }
-    #view-vinlog .action-btns { display: flex; gap: 10px; margin-top: 10px; }
-    #view-vinlog .btn-commit {
-      flex: 1; padding: 9px; background: var(--accent); color: white;
-      border: none; font-size: 13px; font-weight: bold; cursor: pointer; border-radius: 4px;
-    }
-    #view-vinlog .btn-commit:hover { background: var(--accent-hover); }
-    #view-vinlog .btn-commit:disabled { background: var(--text-muted); cursor: default; }
-    #view-vinlog .btn-rollback {
-      flex: 1; padding: 9px; background: var(--bg); color: var(--danger);
-      border: 1.5px solid var(--danger); font-size: 13px; font-weight: bold;
-      cursor: pointer; border-radius: 4px;
-    }
-    #view-vinlog .btn-rollback:hover { background: var(--danger-weak); }
-    #view-vinlog .btn-rollback:disabled { background: var(--surface); color: var(--text-muted); border-color: var(--border-2); cursor: default; }
+  #view-vinlog #pushPanel { display: none; margin-top: 18px; }
+  #view-vinlog .push-modes { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-bottom: 8px; }
+  #view-vinlog .push-modes label {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: var(--fs-sm); color: var(--text-2); cursor: pointer;
+  }
+  #view-vinlog .push-modes input[type="radio"] { width: auto; margin: 0; cursor: pointer; accent-color: var(--accent); }
+  #view-vinlog #vlPushDealId { font-family: var(--font-mono); letter-spacing: .02em; margin-bottom: 8px; }
+  #view-vinlog #vlPushBtn { width: 100%; }
 
-    /* ── Pipedrive push panel ──────────────────────────────────────────────── */
-    #view-vinlog #pushPanel {
-      display: none;
-      margin-top: 12px;
-      padding-top: 12px;
-      border-top: 1px dashed var(--border-2);
-    }
-    #view-vinlog #pushPanel .push-title {
-      font-size: 11px; font-weight: bold; text-transform: uppercase;
-      letter-spacing: 0.3px; color: var(--text-3); margin-bottom: 8px;
-    }
-    #view-vinlog #pushPanel .push-modes { display: flex; gap: 14px; margin-bottom: 8px; }
-    #view-vinlog #pushPanel .push-modes label {
-      display: inline-flex; align-items: center; gap: 5px;
-      font-weight: normal; font-size: 12px; color: var(--text-2);
-      margin: 0; cursor: pointer;
-    }
-    #view-vinlog #pushPanel .push-modes input[type="radio"] {
-      width: auto; margin: 0; cursor: pointer; accent-color: var(--accent);
-    }
-    #view-vinlog #pushPanel #vlPushDealId {
-      font-family: monospace; letter-spacing: 0.5px; margin-bottom: 8px;
-    }
-    #view-vinlog .btn-push {
-      width: 100%; padding: 9px; background: var(--accent); color: var(--on-accent);
-      border: none; font-size: 13px; font-weight: bold; cursor: pointer; border-radius: 4px;
-    }
-    #view-vinlog .btn-push:hover { background: var(--accent-hover); }
-    #view-vinlog .btn-push:disabled { background: var(--text-muted); cursor: default; }
+  /* ── Manual entry — a ruled form under its own heading ───────────────── */
+  #view-vinlog #manualToggle {
+    display: none; width: 100%; margin-top: 22px; padding: 10px 0;
+    background: none; border: 0; border-top: var(--rule);
+    font-family: var(--font-head); font-size: 16px; font-weight: 700; color: var(--text);
+    text-align: left; cursor: pointer;
+  }
+  #view-vinlog #manualToggle:hover { color: var(--accent); }
+  #view-vinlog #manualToggle .arrow { float: right; font-size: 13px; color: var(--text-2); transition: transform .15s ease; }
+  #view-vinlog #manualToggle.open .arrow { transform: rotate(180deg); }
+  #view-vinlog #manualPanel { display: none; padding: 2px 0 6px; }
+  #view-vinlog #manualPanel label { display: block; font-size: var(--fs-sm); font-weight: 600; color: var(--text-2); margin: 12px 0 4px; }
+  #view-vinlog #manualPanel .hint { margin-top: 4px; font-size: var(--fs-hint); color: var(--text-3); }
+  #view-vinlog #manualOrderId { font-family: var(--font-mono); letter-spacing: .02em; }
+  #view-vinlog #manualVins {
+    min-height: 150px; max-height: 320px; resize: vertical;
+    font-family: var(--font-mono); font-size: 12px; line-height: 1.7;
+  }
+  #view-vinlog #vinlogVinCount { margin-top: 4px; text-align: right; font-size: var(--fs-hint); color: var(--text-3); font-variant-numeric: tabular-nums; }
+  #view-vinlog #manualSubmitBtn { width: 100%; margin-top: 12px; }
 
-    /* ── Manual entry section ──────────────────────────────────────────────── */
-    #view-vinlog #manualSection { display: none; margin-top: 20px; }
-    #view-vinlog #manualToggle {
-      display: none;
-      width: 100%;
-      padding: 8px 12px;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: 4px;
-      font-size: 12px;
-      color: var(--text-2);
-      cursor: pointer;
-      text-align: left;
-      margin-top: 16px;
-    }
-    #view-vinlog #manualToggle:hover { background: var(--surface); }
-    #view-vinlog #manualToggle .arrow { float: right; transition: transform 0.2s; }
-    #view-vinlog #manualToggle.open .arrow { transform: rotate(180deg); }
+  /* ── Status line — setVinlogStatus REPLACES className, so every base rule
+     has to hang off the id alone. ─────────────────────────────────────── */
+  #view-vinlog .side-bottom { margin-top: 18px; }
+  #view-vinlog #vinlogStatus {
+    min-height: 18px; padding: 5px 0 5px 10px;
+    font-size: var(--fs-sm); border-left: 3px solid transparent;
+  }
+  #view-vinlog #vinlogStatus.error   { border-left-color: var(--danger);  color: var(--danger); }
+  #view-vinlog #vinlogStatus.success { border-left-color: var(--success); color: var(--success); }
+  #view-vinlog #vinlogStatus.info    { border-left-color: var(--accent);  color: var(--accent); }
+  #view-vinlog #vinlogStatus.empty   { border-left-color: transparent;    color: var(--text-2); }
 
-    #view-vinlog #manualPanel {
-      display: none;
-      margin-top: 8px;
-      padding: 14px;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 4px;
-    }
-    #view-vinlog #manualPanel .panel-title {
-      font-size: 12px;
-      font-weight: bold;
-      color: var(--text-2);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-bottom: 12px;
-    }
-    #view-vinlog #manualPanel label {
-      font-size: 12px;
-      margin-top: 10px;
-    }
-    #view-vinlog #manualPanel label:first-of-type { margin-top: 0; }
-    #view-vinlog #manualPanel .hint {
-      font-size: 11px;
-      color: var(--text-3);
-      margin-top: 3px;
-    }
-    #view-vinlog #manualOrderId {
-      font-family: monospace;
-      letter-spacing: 0.5px;
-    }
-    #view-vinlog #manualVins {
-      min-height: 140px;
-      max-height: 320px;
-    }
-    #view-vinlog #vinlogVinCount {
-      font-size: 11px;
-      color: var(--text-3);
-      margin-top: 4px;
-      text-align: right;
-    }
-    #view-vinlog .btn-manual-submit {
-      width: 100%;
-      margin-top: 12px;
-      padding: 9px;
-      background: var(--success);
-      color: white;
-      border: none;
-      font-size: 13px;
-      font-weight: bold;
-      cursor: pointer;
-      border-radius: 4px;
-    }
-    #view-vinlog .btn-manual-submit:hover { background: var(--success); }
-    #view-vinlog .btn-manual-submit:disabled { background: var(--text-muted); cursor: default; }
+  /* ── VIN popup — an ink outline (--shadow-lg IS the 1px outline) ─────── */
+  #vlVinPopup {
+    display: none; position: fixed; inset: 0; z-index: 1000;
+    background: rgba(0,0,0,0.45);   /* scrim — intentional literal, same as SharedUtils' dialog backdrop */
+    align-items: center; justify-content: center;
+  }
+  #vlVinPopup .vl-popup-card {
+    width: 380px; max-height: 70vh; padding: 20px;
+    display: flex; flex-direction: column; gap: 12px;
+    background: var(--bg); color: var(--text); box-shadow: var(--shadow-lg);
+  }
+  #vlVinPopup .vl-popup-title { margin: 0; font-family: var(--font-head); font-size: 18px; font-weight: 700; color: var(--text); }
+  #vlVinPopup #vlVinPopupText {
+    flex: 1; min-height: 150px; resize: none; padding: 8px;
+    font-family: var(--font-mono); font-size: 12px; line-height: 1.8;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  }
+  #vlVinPopup .vl-popup-actions { display: flex; gap: 8px; justify-content: flex-end; }
 
-    /* ── Bottom buttons ────────────────────────────────────────────────────── */
-    #view-vinlog .btn-row { display: flex; gap: 10px; margin-top: 18px; }
-    /* .btn-secondary dialect removed — shared recipe (SharedUtils) covers it */
-
-    /* ── Status ────────────────────────────────────────────────────────────── */
-    #view-vinlog #vinlogStatus {
-      margin-top: 12px; font-size: 12px; min-height: 18px;
-      padding: 6px 8px; border-radius: 4px;
-    }
-    #view-vinlog #vinlogStatus.error { background: var(--danger-weak); color: var(--danger); }
-    #view-vinlog #vinlogStatus.success { background: var(--success-weak); color: var(--success); }
-    #view-vinlog #vinlogStatus.info { background: var(--accent-weak); color: var(--accent); }
-    #view-vinlog #vinlogStatus.empty { background: none; color: var(--text-2); }
-
-    #view-vinlog .empty-msg { color: var(--text-3); font-size: 12px; padding: 12px 0; text-align: center; }
-    #view-vinlog .loading { color: var(--text-3); font-size: 12px; padding: 12px 0; }
-
-    /* ── Divider ───────────────────────────────────────────────────────────── */
-    #view-vinlog .divider {
-      border: none;
-      border-top: 1px solid var(--border);
-      margin: 18px 0 0 0;
-    }
-
-    /* themed root (overrides the interim .view light guard) */
-    #view-vinlog { background: var(--bg); color: var(--text); }
-
-    /* ── Mobile (data-viewport="mobile") — phone ≤760px ─────────────────────
-       .layout already stacks (App.html). The runs table holds little data, so
-       make it FIT ~360px with NO horizontal scroll: drop the min-width + x-scroll,
-       shrink the cell font/padding, and let the status cell wrap. The VIN popup
-       card caps to the viewport width. No-op on desktop. */
-    :root[data-viewport="mobile"] #view-vinlog #runsTable { font-size: 11px; }
-    :root[data-viewport="mobile"] #view-vinlog #runsTable th,
-    :root[data-viewport="mobile"] #view-vinlog #runsTable td { padding: 5px 4px; }
-    :root[data-viewport="mobile"] #view-vinlog #runsTable td:nth-child(4) { white-space: normal; overflow: visible; }
-    :root[data-viewport="mobile"] #view-vinlog .status-badge { font-size: 9px; padding: 2px 5px; }
-    :root[data-viewport="mobile"] #vlVinPopup .vl-popup-card { width: 92vw; max-width: 360px; }
+  /* ── Mobile (data-viewport="mobile") — one column; the table scrolls in
+     its own box (the shell no longer carries this view's stacking). ───── */
+  :root[data-viewport="mobile"] #view-vinlog .vl-wrap { padding: 14px 16px 40px; }
+  :root[data-viewport="mobile"] #view-vinlog .vl-head { grid-template-columns: 1fr; align-items: start; gap: 10px; }
+  :root[data-viewport="mobile"] #view-vinlog .layout { grid-template-columns: 1fr; gap: 20px; }
+  :root[data-viewport="mobile"] #view-vinlog #runsContainer { overflow-x: auto; max-height: 52vh; }
+  :root[data-viewport="mobile"] #view-vinlog #runsTable { table-layout: auto; min-width: 520px; }
+  :root[data-viewport="mobile"] #vlVinPopup .vl-popup-card { width: 92vw; max-width: 380px; }
 </style>
 
 <script>
@@ -592,7 +387,7 @@
     function loadRuns(dealerKey) {
       var section = document.getElementById('runsSection');
       section.style.display = 'flex';  // flex column — runs list fills the left column and scrolls
-      document.getElementById('runsContainer').innerHTML = '<div class="loading">Loading runs...</div>';
+      document.getElementById('runsContainer').innerHTML = '<div class="loading">Loading runs…</div>';
 
       google.script.run
         .withSuccessHandler(function(runs) { renderRunsTable(runs); })
@@ -612,31 +407,36 @@
         return;
       }
 
-      var html = '<table id="runsTable"' + (allMode ? ' class="with-dealer"' : '') + '><thead><tr>' +
+      var html = '<table id="runsTable" class="table-u' + (allMode ? ' with-dealer' : '') + '"><thead><tr>' +
         '<th>Timestamp</th>' + (allMode ? '<th>Dealer</th>' : '') +
         '<th>Deal ID</th><th>VINs</th><th>Status</th><th></th>' +
         '</tr></thead><tbody>';
 
       runs.forEach(function(run, idx) {
-        var statusClass = 'status-' + (run.status || 'pending');
-        var statusLabel = run.status || 'pending';
+        // The raw RUN_LOG col-W value is a snake_case key and .tag uppercases
+        // whatever it is given, so 'rolled_back' would print ROLLED_BACK.
+        var status = run.status || 'pending';
+        var tone = status === 'committed' ? 'tone-success'
+                 : status === 'rolled_back' ? 'tone-neutral'
+                 : 'tone-warning';
+        var statusLabel = status === 'rolled_back' ? 'Rolled back' : status;
         // Billing-split runs write two rows sharing a timestamp — the SPLIT:*
         // note badge is what tells them apart (e.g. SPLIT:PRIMARY / SPLIT:SPRINTER).
         var noteBadge = (run.note && run.note.indexOf('SPLIT:') === 0)
-          ? '<span class="vl-note-badge">' + escHtml(run.note) + '</span>'
+          ? '<span class="tag tone-info vl-note-badge">' + escHtml(run.note) + '</span>'
           : '';
         var vinCell = run.vinCount +
           (run.producedVins && run.producedVins.length
-            ? ' <button class="vl-show-vins-btn" onclick="event.stopPropagation();showVinPopup(' + idx + ')">Show VINs</button>'
+            ? ' <button type="button" class="vl-show-vins-btn" onclick="event.stopPropagation();showVinPopup(' + idx + ')">Show VINs</button>'
             : '');
         html += '<tr data-idx="' + idx + '" onclick="selectRun(' + idx + ', this)">' +
           '<td>' + run.timestamp + noteBadge + '</td>' +
           (allMode ? '<td title="' + escHtml(run.dealerName || run.dealerKey || '') + '">' +
             escHtml(run.dealerName || run.dealerKey || '—') + '</td>' : '') +
-          '<td>' + (run.dealId || '<em style="color:var(--text-muted)">—</em>') + '</td>' +
+          '<td class="mono">' + (run.dealId || '<span class="vl-dim">—</span>') + '</td>' +
           '<td>' + vinCell + '</td>' +
-          '<td><span class="status-badge ' + statusClass + '">' + statusLabel + '</span></td>' +
-          '<td><button class="vl-delete-btn" title="Delete this run" onclick="event.stopPropagation();deleteRunRow(' + idx + ', this)">✕</button></td>' +
+          '<td><span class="tag ' + tone + '">' + escHtml(statusLabel) + '</span></td>' +
+          '<td class="vl-x-cell"><button type="button" class="vl-delete-btn" title="Delete this run" onclick="event.stopPropagation();deleteRunRow(' + idx + ', this)">✕</button></td>' +
           '</tr>';
       });
 
@@ -752,7 +552,7 @@
           btn.textContent = 'Push to Pipedrive';
           if (res.ok) {
             btn.disabled = true;   // idempotent done — keep disabled to discourage re-push
-            toast('✓ ' + (res.message || 'Pushed to Pipedrive.'), 'success');
+            toast(res.message || 'Pushed to Pipedrive.', 'success');
             setVinlogStatus((res.message || 'Pushed to Pipedrive.') +
               (res.dealId != null ? ' (deal #' + res.dealId + ')' : ''), 'success');
           } else {
@@ -811,13 +611,13 @@
         .withSuccessHandler(function(result) {
           setVinlogStatus('Committed ' + result.committed + ' VINs to the ' +
             dealerName + ' VIN log.', 'success');
-          btn.textContent = 'Commit to VIN Log';
+          btn.textContent = 'Commit to VIN log';
           loadRuns(sel.value);                          // reload whatever view mode is showing
           if (sel.value) loadLatestOrderId(sel.value);  // latest-order row is dealer-mode only
         })
         .withFailureHandler(function(e) {
           setVinlogStatus('Commit failed: ' + e.message, 'error');
-          btn.disabled = false; btn.textContent = 'Commit to VIN Log';
+          btn.disabled = false; btn.textContent = 'Commit to VIN log';
         })
         .commitRunToVINLog(dealerKey, selectedRun.rowIndex, selectedRun.dealId, selectedRun.producedVins, selectedRun.timestamp);
     }
@@ -839,7 +639,7 @@
         .withSuccessHandler(function(committedAt) {
           if (!committedAt) {
             setVinlogStatus('Could not find committed entries for this run in the VIN log.', 'error');
-            btn.disabled = false; btn.textContent = 'Rollback';
+            btn.disabled = false; btn.textContent = 'Roll back';
             return;
           }
           setVinlogStatus('Removing entries from VIN log...', 'info');
@@ -848,19 +648,19 @@
             .withSuccessHandler(function(result) {
               setVinlogStatus('Rolled back ' + result.removed + ' entries from the ' +
                 dealerName + ' VIN log.', 'success');
-              btn.textContent = 'Rollback';
+              btn.textContent = 'Roll back';
               loadRuns(sel.value);                          // reload whatever view mode is showing
               if (sel.value) loadLatestOrderId(sel.value);  // latest-order row is dealer-mode only
             })
             .withFailureHandler(function(e) {
               setVinlogStatus('Rollback failed: ' + e.message, 'error');
-              btn.disabled = false; btn.textContent = 'Rollback';
+              btn.disabled = false; btn.textContent = 'Roll back';
             })
             .rollbackRunFromVINLog(dealerKey, selectedRun.rowIndex, selectedRun.dealId, committedAt);
         })
         .withFailureHandler(function(e) {
           setVinlogStatus('Error fetching committed_at: ' + e.message, 'error');
-          btn.disabled = false; btn.textContent = 'Rollback';
+          btn.disabled = false; btn.textContent = 'Roll back';
         })
         .getCommittedAt(dealerKey, selectedRun.dealId);
     }
@@ -947,7 +747,7 @@
         .withSuccessHandler(function(result) {
           setVinlogStatus('Added ' + result.committed + ' VIN' + (result.committed === 1 ? '' : 's') +
             ' to the VIN log under order ' + orderId + '.', 'success');
-          btn.disabled = false; btn.textContent = 'Add to VIN Log';
+          btn.disabled = false; btn.textContent = 'Add to VIN log';
           // Clear the textarea but keep the order number in case user wants to add more
           document.getElementById('manualVins').value = '';
           document.getElementById('vinlogVinCount').textContent = '0 VINs';
@@ -955,7 +755,7 @@
         })
         .withFailureHandler(function(e) {
           setVinlogStatus('Failed: ' + e.message, 'error');
-          btn.disabled = false; btn.textContent = 'Add to VIN Log';
+          btn.disabled = false; btn.textContent = 'Add to VIN log';
         })
         .manualCommitToVINLog(dealerKey, orderId, vins);
     }
@@ -985,7 +785,7 @@
       ta.select();
       try { document.execCommand('copy'); } catch (_e) {}
       var btn = document.getElementById('vlVinCopyBtn');
-      btn.textContent = '✓ Copied';
+      btn.textContent = 'Copied';
       setTimeout(function() { btn.textContent = 'Copy'; }, 1600);
     }
 </script>
