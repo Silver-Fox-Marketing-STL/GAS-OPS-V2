@@ -110,37 +110,79 @@ shapes carry over unchanged.
 4. Order flow: dealer → CAO → run → test finalize → folder link.
 5. Pages workflow + live proof against DEV + write-up (keep / extend / stop).
 
+## Transport decision — 2026-09-25 (evening)
+
+Option B was built end to end (manifest, `apiEnabled`, promote Gate 1.6,
+`doPost` router + tokeninfo check + allowlist + function map, 14-test harness
+suite) and then refused at push time by the Workspace domain policy:
+
+    clasp push → "ANYONE access has been disabled by your domain administrator."
+
+An open web app is not available on this domain, so option B is dead here
+regardless of the token check. Option A is dead too (a credentialed
+cross-origin fetch cannot pair with the `ACAO: *` that Apps Script returns).
+
+**Chosen: option D — the Apps Script Execution API** (`scripts.run`). The desk
+signs the user in with the GIS token client requesting the script's own scopes
+(imported from `appsscript.json`), then calls
+`https://script.googleapis.com/v1/scripts/<EXP id>:run` with the bearer token.
+Every function runs **as that user** — exactly the trust model of
+`google.script.run` today — so there is no open web app, no allowlist, no
+router and no identity context to maintain. What it needs instead: the EXP
+script linked to a standard Google Cloud project that also holds the OAuth
+client and has the Apps Script API enabled, plus an "API executable"
+deployment (EXP only). The per-user consent screen lists the script's scopes
+once. Cost: the same per-execution quota as before; latency unchanged.
+
+Server side after the pivot: `appsscript.json` gains `executionApi: DOMAIN`
++ explicit `oauthScopes`; `Code.gs` gains only `deskWhoAmI()`; the harness
+guards scope drift both ways. Option B's code is in git history
+(`b79b557`, `a3c8407`) if the policy ever changes.
+
 ## Progress
 
 | # | Increment | State |
 |---|---|---|
-| 1 | Branch + manifest + `apiEnabled` on the exp env + promote Gate 1.6 | done 2026-09-25 (harness asserts the flag states; Gate 1.6 checked standalone) |
-| 2 | Router + token check + function map + identity context | done 2026-09-25 offline (Section 36; harness suite `desk api router`). Live curl proof pending Nick's OAuth client id + script props + EXP redeploy — recipe in `docs/dev-environment.md` |
-| 3 | `desk/` shell: sign-in, `api.ts`, tokens/CSS, queue rail | done 2026-09-25 offline (`desk/src/{main,auth,api,queue}.ts`, `styles.css`) |
-| 4 | Order flow: dealer → CAO → run → test finalize → folder link | done 2026-09-25 offline (`desk/src/order.ts`; headless smoke walk against a mocked API passes) |
-| 5 | Pages workflow + live proof against DEV + write-up | workflow in place (`.github/workflows/desk-pages.yml`); **live proof + write-up pending** Nick's steps below |
+| 1 | Manifest + env gate + promote gate | superseded: manifest = `executionApi` + `oauthScopes` (harness `manifest scopes` suite) |
+| 2 | Router + token check + function map + identity | superseded: not needed with the Execution API; `deskWhoAmI()` only |
+| 3 | `desk/` shell: sign-in, `api.ts`, tokens/CSS, queue rail | done offline (GIS token client + `scripts.run` client) |
+| 4 | Order flow: dealer → CAO → run → test finalize → folder link | done offline (`desk/src/order.ts`; headless smoke walk against a mocked Execution API passes) |
+| 5 | Pages workflow + live proof against DEV + write-up | workflow in place; **live proof + write-up pending** the checklist below |
 
 ## Live proof — Nick's checklist (in order)
 
-1. Google Cloud console → APIs & Services → Credentials → Create OAuth client
-   id (Web application). Authorized JavaScript origins:
-   `https://silver-fox-marketing-stl.github.io` and `http://localhost:5173`.
-   No redirect URIs (GIS uses the popup/One-Tap flow).
-2. EXP script properties: `API_OAUTH_CLIENT_ID` = that id;
-   `API_ALLOWLIST` = your email (add the crew later).
-3. From `spike/desk-api`: `scripts/push-exp.ps1`. Then, in the EXP script
-   editor, Deploy → Manage deployments → edit → New version and confirm the
-   web app now says "Execute as: Me" / "Anyone" — consent as owner once.
-4. Local check first: `cd desk && copy .env.example .env.local` (paste the
-   client id) → `npm install` → `npm run dev` → http://localhost:5173 →
-   sign in → the top-bar chip should read **EXP · you@sfoxmarketing.com**.
-   Then the flow: Bommarito from the queue → Pre-fill from CAO → Run → Log as
-   test order → Open output folder.
-5. Negatives: sign in with a non-allowlisted account → the sign-in screen
-   shows "Account … is not allowed to use the desk"; point `VITE_EXEC_URL`
-   at the DEV or PROD `/exec` → "not enabled in this environment".
-6. Pages: repo Settings → Pages → Source "GitHub Actions"; Settings →
-   Secrets and variables → Actions → Variables: `DESK_EXEC_URL`,
-   `DESK_GOOGLE_CLIENT_ID`. Push the branch (or run the workflow by hand) →
-   the site is at https://silver-fox-marketing-stl.github.io/GAS-OPS-V2/.
-7. Write-up: keep / extend / stop, appended here.
+1. **Cloud project.** console.cloud.google.com → project picker → New
+   project, e.g. `silverfox-desk`. Note the **project number** (Dashboard).
+2. **Enable the API.** In that project: APIs & Services → Library → search
+   "Apps Script API" → Enable.
+3. **Consent screen.** APIs & Services → OAuth consent screen → User type
+   **Internal** → app name "SilverFox desk", your email → Save (no scopes
+   need listing for an internal app).
+4. **OAuth client.** Credentials → Create credentials → OAuth client ID →
+   Web application. Authorized JavaScript origins:
+   `http://localhost:5173` and `https://silver-fox-marketing-stl.github.io`.
+   No redirect URIs. Copy the client id.
+5. **Link the EXP script.** EXP script editor → Project Settings (gear) →
+   "Google Cloud Platform (GCP) Project" → Change project → paste the
+   project number → Set project.
+6. **Push + deploy.** From `spike/desk-api`: `scripts/push-exp.ps1`
+   (this now succeeds — the manifest is domain-restricted again). Then in
+   the editor: Deploy → New deployment → type **API executable** → access
+   "Anyone within Silver Fox" (DOMAIN) → Deploy. Once is enough: with
+   `VITE_DEV_MODE=true` the desk runs HEAD, so later pushes need no new
+   version while iterating.
+7. **Local run.** `cd desk` → `Copy-Item .env.example .env.local` → paste
+   the client id → `npm install` → `npm run dev` → http://localhost:5173 →
+   Sign in with Google → allow the listed scopes → the chip should read
+   **EXP · nvenable@sfoxmarketing.com**. Then: Bommarito from the queue →
+   Pre-fill from CAO → Run → Log as test order → Open output folder.
+8. **Negatives.** A non-Silver-Fox Google account is refused by Google at
+   sign-in (internal app). Point `VITE_SCRIPT_ID` at PROD's id → 404/403
+   (no API-executable deployment there).
+9. **Pages.** Repo Settings → Pages → Source "GitHub Actions"; Settings →
+   Secrets and variables → Actions → Variables: `DESK_SCRIPT_ID`,
+   `DESK_GOOGLE_CLIENT_ID`. `git push -u origin spike/desk-api`. Site:
+   https://silver-fox-marketing-stl.github.io/GAS-OPS-V2/ (the Pages build
+   uses `VITE_DEV_MODE=false`, i.e. the API-executable version — bump it in
+   Manage deployments after each push you want live there).
+10. Write-up: keep / extend / stop, appended here.

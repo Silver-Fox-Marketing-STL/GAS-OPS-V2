@@ -1,7 +1,8 @@
 // The order workspace: dealer → Vehicles (CAO pre-fill / VIN list / match
 // table) → Run (checklist + progress) → Finalize as a TEST order → output
 // folder. Same server calls as ViewRun.html, google.script.run swapped for
-// call(); the finalize is server-forced to 'test' (Code.gs apiFunctionMap_).
+// call() (Execution API, runs as the signed-in user); finalize always passes
+// dealId 'test' — the spike never touches Pipedrive or the VIN log.
 import { call, ApiError } from './api';
 import { POLL_MS } from './config';
 import { el, clear, plural, tag } from './dom';
@@ -394,7 +395,8 @@ async function finalizeCard(i: number): Promise<void> {
   const entry = S.result!.pendingRuns[i]; const c = S.cards[i];
   c.state = 'busy'; c.msg = 'Logging test run…'; c.err = false; renderCards();
   try {
-    const r = await call<FinalizeResult>('finalizeRun', [S.dealerKey, entry]);
+    // Spike scope: ALWAYS a test order (dealId 'test' → never Pipedrive, never committable).
+    const r = await call<FinalizeResult>('finalizeRun', [S.dealerKey, entry, 'test']);
     c.state = 'finalized'; c.rowIndex = r.rowIndex; c.msg = 'Logged ✓ (run log row ' + r.rowIndex + ', ' + plural(r.vinCount, 'VIN') + ') — test orders are never committed.';
   } catch (e) {
     c.state = 'pending'; c.msg = 'Error: ' + (e as Error).message; c.err = true;

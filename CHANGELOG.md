@@ -11,58 +11,35 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Added
-- **SPIKE — desk API groundwork (branch `spike/desk-api`, EXPERIMENTAL only,
-  Sep 25, 2026): increment 1 of `docs/spike-separate-frontend.md`.** The
-  manifest flips `webapp` to `executeAs: USER_DEPLOYING` / `access: ANYONE`
-  so the EXP `/exec` can serve a JSON API to a frontend on our own origin;
-  the `exp` `ENV_IDS` entry gains `apiEnabled: true` (the router, increment 2,
-  dispatches only when it is exactly `true`; prod and dev never set it);
-  `scripts/promote.ps1` gains **Gate 1.6**, refusing to promote while the
-  manifest is not `DOMAIN` + `USER_ACCESSING` or the PROD `ENV_IDS` entry
-  carries `apiEnabled: true`. Harness: the ENV resolver suite reads the ids
-  from `.clasp.exp.json` / `.clasp.prod.json` and asserts the flag states.
-  Side effect, EXP only: the HtmlService desk on the EXP `/exec` now runs as
-  the deploying account (per-user theme / nav preferences become the owner's).
-- **SPIKE increment 2 — the desk API router (`Code.gs` Section 36).** `doPost`
-  takes a text/plain JSON body `{fn, args, idToken}` and answers ContentService
-  JSON `{ok, result, email}` / `{ok:false, error}` (message only, never a
-  stack). Gates, in order, all before any dispatch: `ENV.apiEnabled === true`
-  → body / `fn` / `idToken` present → script properties `API_OAUTH_CLIENT_ID`
-  + `API_ALLOWLIST` set → Google tokeninfo verifies issuer / `aud` /
-  `email_verified` / expiry → email on the allowlist → `fn` is a key of the
-  explicit `apiFunctionMap_()` (queue-rail reads + the one order flow;
-  `finalizeRun` is wrapped to force a **test** order; no VIN-log commits,
-  Pipedrive pushes, or preference writes). Verified tokens cache in
-  `CacheService` under a SHA-256 key for their remaining life (≤ 1 h); the
-  allowlist is re-checked on cache hits. **Identity context:** `API_CTX.email`
-  is set for the dispatched call and `activeUserEmail_()` reads it before
-  `Session.getActiveUser()` — `runDraftEmail_`, the two inbox "by" stamps,
-  and the EOM publish stamp now go through it (owner-executed web app ⇒ the
-  session user is the owner, not the operator). `apiPing` is the live-proof
-  smoke call. Harness: 14-test router suite with stubbed tokeninfo / cache /
-  digest / ContentService (153/153).
-- **SPIKE increments 3–5 — `desk/`, the frontend on our own origin.** Vite +
-  TypeScript, no framework: `index.html` loads Google Identity Services;
-  `auth.ts` keeps the ID token in sessionStorage (memory fallback) and decodes
-  it for display only; `api.ts` is the whole transport (one text/plain POST
-  per call, `redirect: 'follow'`, auth-class errors clear the token and route
-  back to sign-in); `queue.ts` ports the shell's work queue (four reads,
-  assembled client-side, printed dealers folded); `order.ts` is the one order
-  flow — dealer → Vehicles (CAO pre-fill strip, VIN list, match table with
-  filtered / logged / not-in-inventory flags, Features inputs) → Run (inline
-  checklist, "Run anyway" while a warning stands, progress poll) → Finalize
-  (per-run cards, **test order only**, Abandon behind a native `confirm`) →
-  Open output folder. Native `<select>`s and dialogs throughout (the
-  CustomSelect layer does not exist here); light/dark palettes from the
-  job-ticket tokens; Barlow / Barlow Condensed / IBM Plex Mono.
-  `.github/workflows/desk-pages.yml` builds `desk/dist` and publishes it to
-  GitHub Pages on pushes of the spike branch (repo variables `DESK_EXEC_URL` +
-  `DESK_GOOGLE_CLIENT_ID`). `desk/**` and `.github/**` are clasp-ignored.
-  Verified offline: strict `tsc` + Vite build clean; a headless-Chrome smoke
-  walk against a mocked API (sign-in gate → shell + queue → open dealer → CAO
-  → run with progress → test finalize → folder link → rejected-token path)
-  passes with screenshots. **Not yet verified live** — needs Nick's OAuth
-  client id, the EXP script properties, and one EXP push + owner re-deploy.
+- **SPIKE — `desk/`, a frontend on our own origin over the Apps Script
+  Execution API (branch `spike/desk-api`, EXP only, Sep 25, 2026).** Design:
+  `docs/spike-separate-frontend.md`. The first transport (an execute-as-owner
+  web app open to "anyone" + our own Google ID-token check, allowlist and
+  function map) was built, harness-tested, and then **rejected by the Google
+  Workspace domain policy** at push time ("ANYONE access has been disabled by
+  your domain administrator"); it was backed out the same day. The transport is
+  now the **Apps Script Execution API** (`scripts.run`): the desk obtains an
+  OAuth access token via Google sign-in with the script's own scopes and every
+  function runs **as the signed-in user** — the same trust model as
+  `google.script.run`, with no open web app, no allowlist and no server-side
+  router. Server side: `appsscript.json` gains `executionApi: DOMAIN` and an
+  explicit `oauthScopes` list (the caller's scopes must match); `Code.gs`
+  gains only `deskWhoAmI()` (Section 36, the live-proof smoke call). Harness:
+  a `manifest scopes` suite greps every Google service the code touches
+  against the listed scopes, both ways (141/141). Desk: Vite + TypeScript, no
+  framework — `auth.ts` (GIS token client, scopes imported from
+  `appsscript.json`), `api.ts` (one `scripts.run` POST per call, 401/403/404
+  mapped to plain messages), `queue.ts` (the shell's work queue ported),
+  `order.ts` (dealer → CAO pre-fill / VIN list / match table with flags →
+  inline checklist + "Run anyway" + progress poll → per-run cards that finalize
+  as **test orders** or abandon → output folder). Native selects and dialogs;
+  job-ticket tokens, light/dark. `.github/workflows/desk-pages.yml` publishes
+  `desk/dist` to GitHub Pages from the spike branch (repo variables
+  `DESK_SCRIPT_ID` + `DESK_GOOGLE_CLIENT_ID`). `desk/**` and `.github/**`
+  are clasp-ignored. Verified offline: strict `tsc` + Vite build; headless
+  smoke walk against a mocked Execution API (sign-in gate → shell → CAO → run
+  → test finalize → expired token). **Live proof pending** Nick's Cloud-project
+  steps (spike note, "Live proof").
 
 ### Changed
 - **REBUILD — Order Desk client (branch `exp/ui-playground`, EXPERIMENTAL env,

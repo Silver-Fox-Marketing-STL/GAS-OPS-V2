@@ -1,17 +1,17 @@
 // Entry: config check → sign-in gate → shell (top bar, work-queue rail,
-// workspace) → bootstrap + queue. Everything is a real page on our own origin:
-// native selects, native dialogs, real storage, no HtmlService sandbox.
+// workspace) → whoami + bootstrap + queue. Everything is a real page on our
+// own origin: native selects, native dialogs, real storage, no HtmlService
+// sandbox. Transport = the Apps Script Execution API, as the signed-in user.
 import './styles.css';
-import { APP_NAME, CONFIG_OK, EXEC_URL } from './config';
-import { Auth } from './auth';
+import { APP_NAME, CONFIG_OK, SCRIPT_ID, DEV_MODE } from './config';
+import { Auth, SCOPES } from './auth';
 import { call, ApiError } from './api';
 import { el, clear, byId } from './dom';
 import * as Queue from './queue';
 import * as Order from './order';
-import type { Bootstrap, Ping } from './types';
+import type { Bootstrap, WhoAmI } from './types';
 
 const root = byId('app');
-let lastAuthMessage = '';
 
 function theme(): string { try { return localStorage.getItem('desk.theme') ?? ''; } catch { return ''; } }
 function setTheme(t: string): void {
@@ -29,33 +29,35 @@ function screenConfig(): void {
   clear(root);
   root.append(el('div', { class: 'gate' },
     el('h1', { text: APP_NAME }),
-    el('p', { text: 'This build has no API URL or OAuth client id. Copy desk/.env.example to desk/.env.local (local dev) or set the DESK_EXEC_URL / DESK_GOOGLE_CLIENT_ID repository variables (Pages build).' })
+    el('p', { text: 'This build has no script id or OAuth client id. Copy desk/.env.example to desk/.env.local (local dev) or set the DESK_SCRIPT_ID / DESK_GOOGLE_CLIENT_ID repository variables (Pages build).' })
   ));
 }
 
 function screenSignIn(message = ''): void {
   clear(root);
-  const btnHost = el('div', { class: 'gsi' });
+  const msg = el('div', { class: 'gate-msg', text: message, hidden: !message });
+  const btn = el('button', { class: 'btn primary', type: 'button' }, 'Sign in with Google');
+  btn.addEventListener('click', async () => {
+    btn.disabled = true; btn.textContent = 'Signing in…';
+    try { await Auth.signIn(); await boot(); }
+    catch (e) { msg.textContent = (e as Error).message; msg.hidden = false; btn.disabled = false; btn.textContent = 'Sign in with Google'; }
+  });
   root.append(el('div', { class: 'gate' },
     el('div', { class: 'brand', text: 'SilverFox' }),
     el('h1', { text: 'Order desk' }),
-    el('p', { class: 'hint', text: 'Sign in with your Silver Fox Google account. The desk API checks the account against its allowlist on every call.' }),
-    message ? el('div', { class: 'gate-msg', text: message }) : null,
-    btnHost,
-    el('p', { class: 'hint small', text: 'API: ' + EXEC_URL.replace(/^https:\/\/script\.google\.com\/macros\/s\//, '…/').slice(0, 48) + '…' })
+    el('p', { class: 'hint', text: 'Sign in with your Silver Fox Google account. Google will ask you to allow the desk the same access the Sheets app has; every action then runs as you.' }),
+    msg,
+    el('div', { class: 'gsi' }, btn),
+    el('p', { class: 'hint small', text: 'Script ' + SCRIPT_ID.slice(0, 10) + '… · ' + SCOPES.length + ' scopes' + (DEV_MODE ? ' · dev mode (HEAD)' : '') })
   ));
-  Auth.renderButton(btnHost, () => void boot()).catch((e: Error) => {
-    btnHost.replaceWith(el('div', { class: 'gate-msg', text: e.message }));
-  });
 }
 
 async function boot(): Promise<void> {
-  const claims = Auth.claims();
-  if (!claims) { screenSignIn(lastAuthMessage); return; }
+  if (!Auth.token()) { screenSignIn(); return; }
   clear(root);
 
   const envChip = el('span', { class: 'chip', text: 'connecting…' });
-  const userChip = el('span', { class: 'chip user', text: claims.email });
+  const userChip = el('span', { class: 'chip user', text: Auth.email() || 'signed in' });
   const status = el('span', { class: 'hd-status empty', hidden: true });
   const title = el('span', { class: 'hd-title', text: 'Pick a dealer' });
   const queueList = el('div', { class: 'queue' }, el('div', { class: 'rail-empty', text: 'Loading today’s work…' }));
@@ -69,7 +71,7 @@ async function boot(): Promise<void> {
       el('span', { class: 'spacer' }),
       userChip,
       el('button', { class: 'tb-btn', type: 'button', onclick: toggleTheme, title: 'Toggle light / dark' }, 'Theme'),
-      el('button', { class: 'tb-btn', type: 'button', onclick: () => { Auth.signOut(); lastAuthMessage = ''; screenSignIn(); } }, 'Sign out')
+      el('button', { class: 'tb-btn', type: 'button', onclick: () => { Auth.signOut(); screenSignIn(); } }, 'Sign out')
     ),
     el('div', { class: 'body' },
       el('nav', { class: 'rail', 'aria-label': 'Work' },
@@ -89,12 +91,13 @@ async function boot(): Promise<void> {
   const queueHost = { list: queueList, sub: queueSub, onOpen: (key: string, name: string) => Order.open(key, name) };
 
   try {
-    const [ping, bs] = await Promise.all([
-      call<Ping>('apiPing', ['desk boot']),
+    const [who, bs] = await Promise.all([
+      call<WhoAmI>('deskWhoAmI'),
       call<Bootstrap>('getAppBootstrap')
     ]);
-    envChip.textContent = ping.env.toUpperCase() + ' · ' + ping.email;
-    envChip.classList.add(ping.env === 'prod' ? 'prod' : 'ok');
+    envChip.textContent = who.env.toUpperCase() + ' · ' + (who.email || Auth.email());
+    envChip.classList.add(who.env === 'prod' ? 'prod' : 'ok');
+    if (who.email) userChip.textContent = who.email;
     Order.mount({
       root: workspace, title, status,
       dealers: bs.dealers, users: bs.users.profiles, lastUser: bs.users.lastUser,
@@ -103,7 +106,7 @@ async function boot(): Promise<void> {
     await Queue.load(queueHost);
   } catch (e) {
     const err = e as ApiError;
-    if (err.kind === 'auth') { lastAuthMessage = err.message; screenSignIn(err.message); return; }
+    if (err.kind === 'auth') { screenSignIn(err.message); return; }
     envChip.textContent = 'offline';
     envChip.classList.add('bad');
     workspace.append(el('div', { class: 'gate-msg', text: err.message }));
@@ -113,5 +116,4 @@ async function boot(): Promise<void> {
 // ── Go ───────────────────────────────────────────────────────────────────────
 setTheme(theme());
 if (!CONFIG_OK) screenConfig();
-else if (Auth.token()) void boot();
-else screenSignIn();
+else void boot();

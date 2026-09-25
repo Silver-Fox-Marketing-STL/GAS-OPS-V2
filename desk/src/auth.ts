@@ -1,75 +1,77 @@
-// Google Identity Services sign-in. The credential is a Google ID token (JWT);
-// the desk API verifies it server-side (issuer, aud, email_verified, expiry,
-// allowlist). Here we only decode the payload for display + expiry bookkeeping.
-import { CLIENT_ID } from './config';
+// Google sign-in via the GIS token client: an OAuth ACCESS token carrying the
+// script's own scopes (read from appsscript.json — one source of truth), so the
+// Execution API runs every function as this user. The token lives ~1 h in
+// sessionStorage (memory fallback); expiry sends the user back to sign-in.
+import { CLIENT_ID, USERINFO_URL } from './config';
+import manifest from '../../appsscript.json';
 
 declare global {
   interface Window { google?: any }
 }
 
-const KEY = 'desk.idToken';
-let memoryToken: string | null = null;   // fallback when sessionStorage is blocked
+export const SCOPES: string[] = (manifest as { oauthScopes?: string[] }).oauthScopes ?? [];
 
-export interface Claims { email: string; exp: number; name: string; picture: string }
+const KEY = 'desk.session';
+interface Session { accessToken: string; exp: number; email: string }
+let memory: Session | null = null;
 
-function decode(jwt: string): Claims | null {
+function read(): Session | null {
   try {
-    const part = jwt.split('.')[1] ?? '';
-    const json = atob(part.replace(/-/g, '+').replace(/_/g, '/'));
-    const c = JSON.parse(json);
-    return { email: String(c.email ?? ''), exp: Number(c.exp ?? 0), name: String(c.name ?? ''), picture: String(c.picture ?? '') };
-  } catch {
-    return null;
-  }
+    const raw = sessionStorage.getItem(KEY);
+    if (raw) return JSON.parse(raw) as Session;
+  } catch { /* fall through */ }
+  return memory;
+}
+function write(s: Session | null): void {
+  memory = s;
+  try { s ? sessionStorage.setItem(KEY, JSON.stringify(s)) : sessionStorage.removeItem(KEY); } catch { /* memory only */ }
 }
 
-function read(): string | null {
-  try { return sessionStorage.getItem(KEY) ?? memoryToken; } catch { return memoryToken; }
+async function gis(): Promise<any> {
+  for (let i = 0; i < 100; i++) {
+    const g = window.google?.accounts?.oauth2;
+    if (g) return g;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error('Google sign-in did not load. Check the network and reload.');
 }
 
 export const Auth = {
-  /** Current token, or null when missing / within 30 s of expiry. */
+  /** Current access token, or null when missing / within 60 s of expiry. */
   token(): string | null {
-    const t = read();
-    if (!t) return null;
-    const c = decode(t);
-    if (!c || c.exp * 1000 < Date.now() + 30_000) { Auth.clear(); return null; }
-    return t;
+    const s = read();
+    if (!s) return null;
+    if (s.exp < Date.now() + 60_000) { Auth.clear(); return null; }
+    return s.accessToken;
   },
-  claims(): Claims | null {
-    const t = Auth.token();
-    return t ? decode(t) : null;
-  },
-  set(t: string): void {
-    memoryToken = t;
-    try { sessionStorage.setItem(KEY, t); } catch { /* private window: memory only */ }
-  },
-  clear(): void {
-    memoryToken = null;
-    try { sessionStorage.removeItem(KEY); } catch { /* ignore */ }
+  email(): string { return read()?.email ?? ''; },
+  clear(): void { write(null); },
+  /** Opens Google's consent popup (scopes = the script's), then resolves with the signed-in email. */
+  async signIn(): Promise<string> {
+    const g = await gis();
+    const token: { access_token: string; expires_in: number } = await new Promise((resolve, reject) => {
+      const client = g.initTokenClient({
+        client_id: CLIENT_ID,
+        scope: SCOPES.join(' '),
+        callback: (r: { access_token?: string; expires_in?: number; error?: string; error_description?: string }) => {
+          if (r.error || !r.access_token) reject(new Error(r.error_description || r.error || 'Sign-in was cancelled.'));
+          else resolve({ access_token: r.access_token, expires_in: Number(r.expires_in) || 3600 });
+        },
+        error_callback: (e: { type?: string; message?: string }) => reject(new Error(e.message || e.type || 'Sign-in popup failed.'))
+      });
+      client.requestAccessToken();
+    });
+    let email = '';
+    try {
+      const res = await fetch(USERINFO_URL, { headers: { Authorization: 'Bearer ' + token.access_token } });
+      if (res.ok) email = String(((await res.json()) as { email?: string }).email ?? '');
+    } catch { /* email is display-only */ }
+    write({ accessToken: token.access_token, exp: Date.now() + token.expires_in * 1000, email });
+    return email;
   },
   signOut(): void {
-    Auth.clear();
-    try { window.google?.accounts?.id?.disableAutoSelect(); } catch { /* ignore */ }
-  },
-  /** Resolves google.accounts.id once the GSI script has loaded (≤ 10 s). */
-  async gis(): Promise<any> {
-    for (let i = 0; i < 100; i++) {
-      const g = window.google?.accounts?.id;
-      if (g) return g;
-      await new Promise((r) => setTimeout(r, 100));
-    }
-    throw new Error('Google sign-in did not load. Check the network and reload.');
-  },
-  /** Renders the official button into `host`; `onToken` fires with each new credential. */
-  async renderButton(host: HTMLElement, onToken: (token: string) => void): Promise<void> {
-    const gis = await Auth.gis();
-    gis.initialize({
-      client_id: CLIENT_ID,
-      callback: (r: { credential: string }) => { Auth.set(r.credential); onToken(r.credential); },
-      auto_select: true,
-      use_fedcm_for_prompt: true
-    });
-    gis.renderButton(host, { theme: 'outline', size: 'large', text: 'signin_with', shape: 'rectangular', width: 280 });
+    const s = read();
+    write(null);
+    try { if (s) window.google?.accounts?.oauth2?.revoke(s.accessToken, () => undefined); } catch { /* ignore */ }
   }
 };

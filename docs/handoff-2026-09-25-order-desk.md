@@ -86,3 +86,19 @@ Harness: 153/153. Gotcha added today: `Code.gs`, `run-tests.js`, `CHANGELOG.md`,
 `dev-environment.md`, `promote.ps1` are CRLF on disk too (autocrlf), and a
 `grep $'\r'` check in this Git Bash reports LF for them — check with Node.
 `.gitignore` line 24 (`.env*`) also catches `desk/.env.example` (force-added).
+
+## Addendum 2 — the transport pivot
+
+Nick's first local run failed ("Could not reach the desk API"): the EXP
+`/exec` was still version 8 (old code, domain manifest → 401 login page, no
+CORS). Running `push-exp.ps1` then surfaced the real blocker: **"ANYONE access
+has been disabled by your domain administrator"** — the Workspace policy
+forbids open web apps, so option B cannot exist on this domain. Nick chose
+the **Execution API** pivot (spike note "Transport decision"). Option B's
+server code was backed out (`Code.gs`, `promote.ps1`, harness restored to
+`4e79a0e` + `deskWhoAmI()` + a `manifest scopes` suite); the manifest is
+domain-restricted again with `executionApi` + explicit `oauthScopes`; the
+desk's `auth.ts` / `api.ts` / `main.ts` were rewritten for GIS token client +
+`scripts.run`. EXP was never changed today (the rejected push was atomic).
+Harness 141/141; desk tsc + build + mocked smoke walk pass. Live proof =
+Nick's 10-step checklist in the spike note. Still not pushed to origin.

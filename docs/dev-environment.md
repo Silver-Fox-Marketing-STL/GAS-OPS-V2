@@ -142,41 +142,26 @@ DEV's HEAD, which stays the test bed for the next promote.
 - **Anything that changes sheet structure** does NOT belong on EXP: it shares
   the DEV sheets, so a schema experiment would leak into DEV testing. Use the
   normal DEV path with a migration.
-- **Desk API spike (branch `spike/desk-api`, 2026-09-25):** on that branch
-  `appsscript.json` is `executeAs: USER_DEPLOYING` + `access: ANYONE` and the
-  `exp` `ENV_IDS` entry carries `apiEnabled: true`, so the EXP `/exec` doubles
-  as the JSON API (`doPost`) for `desk/`. Pushing that branch with
-  `push-exp.ps1` changes the EXP web app's identity model: Nick must re-deploy
-  once and consent as owner, and the HtmlService desk on EXP then runs as him.
-  `promote.ps1` Gate 1.6 refuses that manifest, so it can never reach PROD by
-  accident; DEV keeps the domain manifest because `clasp push` runs from
-  `main`. Design + increments: `docs/spike-separate-frontend.md`.
-  - **EXP script properties for the API:** `API_OAUTH_CLIENT_ID` (the Web
-    OAuth client id from Google Cloud console; authorized JavaScript origins =
-    the Pages origin and `http://localhost:5173` for local dev) and
-    `API_ALLOWLIST` (comma-separated crew emails, any case). The router
-    refuses everything until both are set.
-  - **Live proof (increment 2):** after `push-exp.ps1` and the one-time
-    owner re-deploy / consent, POST to the EXP `/exec` URL with a real Google
-    ID token (the desk sign-in mints one; for a bare curl, the browser
-    devtools of any signed-in `desk/` page shows it):
-    ```
-    curl -sL -X POST "$EXP_EXEC" -H "Content-Type: text/plain" \
-      -d '{"fn":"apiPing","args":["hello"],"idToken":"'"$TOKEN"'"}'
-    # → {"ok":true,"result":{"env":"exp","email":"you@sfoxmarketing.com",...},"email":"..."}
-    ```
-    Negatives to confirm: no `idToken` → `Not signed in`; an account outside
-    `API_ALLOWLIST` → `... is not allowed to use the desk`; the same body at
-    the PROD or DEV `/exec` → `not enabled in this environment` (PROD also
-    still refuses non-domain callers at the manifest).
+- **Desk spike (branch `spike/desk-api`, 2026-09-25) — Execution API:** the
+  `desk/` frontend calls the EXP script through `scripts.run` with the
+  signed-in user's OAuth token, so functions run as that user (no web-app
+  change; the first "anyone" web-app transport was refused by the Workspace
+  domain policy and backed out). Needs, EXP only: the script linked to a
+  standard Cloud project (Project Settings → GCP project number) that has the
+  Apps Script API enabled and holds the Web OAuth client; an **API executable**
+  deployment (Deploy → New deployment). `appsscript.json` now carries
+  `executionApi: DOMAIN` and explicit `oauthScopes` — the harness's
+  `manifest scopes` suite fails if the code uses a service whose scope is
+  missing, or lists a scope nothing uses. Steps: spike note "Live proof".
   - **The desk itself (`desk/`):** Vite + TypeScript. Local: `cd desk`,
-    copy `.env.example` → `.env.local` (git-ignored), `npm install`,
-    `npm run dev` (http://localhost:5173; the origin must be on the OAuth
-    client). `npm run build` = strict `tsc` + Vite → `desk/dist`. Published
-    by `.github/workflows/desk-pages.yml` to GitHub Pages from the spike
-    branch (repo variables `DESK_EXEC_URL`, `DESK_GOOGLE_CLIENT_ID`; Pages
-    source = GitHub Actions). `desk/**` and `.github/**` are in
-    `.claspignore` — never Apps Script source.
+    copy `.env.example` → `.env.local` (git-ignored: script id, client id,
+    `VITE_DEV_MODE=true` runs HEAD), `npm install`, `npm run dev`
+    (http://localhost:5173; the origin must be on the OAuth client).
+    `npm run build` = strict `tsc` + Vite → `desk/dist`. Published by
+    `.github/workflows/desk-pages.yml` to GitHub Pages from the spike branch
+    (repo variables `DESK_SCRIPT_ID`, `DESK_GOOGLE_CLIENT_ID`; Pages source =
+    GitHub Actions; `VITE_DEV_MODE=false` there). `desk/**` and `.github/**`
+    are in `.claspignore` — never Apps Script source.
 
 ## clasp targets
 

@@ -9,7 +9,7 @@ export interface Bootstrap {
   appTheme: string;
 }
 
-export interface Ping { env: string; email: string; note: string; at: string }
+export interface WhoAmI { env: string; email: string; at: string }
 
 export interface ScheduleDealer { key: string; name: string; pending: number; runs?: number; vins?: number; dupes?: number; scheduled?: boolean }
 export interface PrintSchedule {

@@ -1,7 +1,7 @@
 # Builds desk/ and publishes desk/dist to GitHub Pages (spike:
 # docs/spike-separate-frontend.md). One-time repo setup: Settings → Pages →
-# Source = "GitHub Actions"; Settings → Variables → DESK_EXEC_URL (the EXP
-# /exec URL) and DESK_GOOGLE_CLIENT_ID (the Web OAuth client id). Both are
+# Source = "GitHub Actions"; Settings → Variables → DESK_SCRIPT_ID (the EXP
+# script id) and DESK_GOOGLE_CLIENT_ID (the Web OAuth client id). Both are
 # public values, not secrets. The workflow only runs for the spike branch.
 name: desk-pages
 
@@ -36,8 +36,9 @@ jobs:
       - run: npm ci
       - run: npm run build
         env:
-          VITE_EXEC_URL: ${{ vars.DESK_EXEC_URL }}
+          VITE_SCRIPT_ID: ${{ vars.DESK_SCRIPT_ID }}
           VITE_GOOGLE_CLIENT_ID: ${{ vars.DESK_GOOGLE_CLIENT_ID }}
+          VITE_DEV_MODE: 'false'
       - uses: actions/upload-pages-artifact@v3
         with:
           path: desk/dist

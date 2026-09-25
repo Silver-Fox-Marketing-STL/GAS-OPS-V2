@@ -26,31 +26,6 @@ if ($head -ne $remote) { throw "Refusing: HEAD ($head) != origin/main ($remote).
 node test/run-tests.js
 if ($LASTEXITCODE -ne 0) { throw 'Refusing: test harness is red (node test/run-tests.js).' }
 
-# -- Gate 1.6: the manifest is still the domain-restricted desk ---------------
-# The desk-API spike (docs/spike-separate-frontend.md) flips appsscript.json to
-# executeAs USER_DEPLOYING + access ANYONE so the EXP /exec can serve JSON to a
-# frontend on our own origin. That manifest must never reach PROD: every request
-# would run as the deploying account and the desk would be open to the internet.
-# Belt and braces: the PROD ENV_IDS entry must not carry apiEnabled: true either
-# (the router refuses without it, so a mistaken promote would still serve nothing).
-$manifest = Get-Content appsscript.json -Raw | ConvertFrom-Json
-$webapp = $manifest.webapp
-if (-not $webapp) { throw 'Refusing: appsscript.json has no webapp block.' }
-if ($webapp.access -ne 'DOMAIN') {
-    throw ('Refusing: appsscript.json webapp.access is "' + $webapp.access + '", not DOMAIN (spike manifest on main?).')
-}
-if ($webapp.executeAs -ne 'USER_ACCESSING') {
-    throw ('Refusing: appsscript.json webapp.executeAs is "' + $webapp.executeAs + '", not USER_ACCESSING (spike manifest on main?).')
-}
-$code = Get-Content Code.gs -Raw
-$prodId = (Get-Content .clasp.prod.json -Raw | ConvertFrom-Json).scriptId
-$prodAt = $code.IndexOf("'" + $prodId + "'")                        # first hit = the ENV_IDS key (Section 1)
-$blockEnd = if ($prodAt -ge 0) { $code.IndexOf("`n  }", $prodAt) } else { -1 }   # closing brace of that entry
-if ($prodAt -lt 0 -or $blockEnd -lt 0) { throw 'Refusing: could not locate the PROD ENV_IDS entry in Code.gs Section 1.' }
-if ($code.Substring($prodAt, $blockEnd - $prodAt) -match 'apiEnabled\s*:\s*true') {
-    throw 'Refusing: the PROD ENV_IDS entry in Code.gs carries apiEnabled: true.'
-}
-
 # -- Show what is about to ship -----------------------------------------------
 Write-Host ''
 Write-Host ('Promoting: ' + (git log -1 --format='%h %s'))
