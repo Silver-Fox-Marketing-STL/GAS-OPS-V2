@@ -157,7 +157,9 @@
   #view-run .ro-head { display: grid; grid-template-columns: minmax(280px, 420px) 220px; gap: 20px; align-items: end; }
   #view-run .ro-field-log[hidden] { display: none !important; }
   #view-run .ro-field label { display: block; font-size: var(--fs-sm); font-weight: 600; color: var(--text-2); margin: 0 0 4px; }
-  #view-run .ro-field-dealer select { font-family: var(--font-head); font-size: 20px; font-weight: 700; padding: 6px 10px; }
+  /* CustomSelect hides the native select and paints .cs-btn — size both */
+  #view-run .ro-field-dealer select,
+  #view-run .ro-field-dealer .cs-btn { font-family: var(--font-head); font-size: 20px; font-weight: 700; padding: 6px 10px; }
   #view-run select, #view-run textarea, #view-run input[type="text"] {
     width: 100%; padding: 8px; font-size: var(--fs-body); font-family: var(--font-body);
     border: 1px solid var(--border-2); border-radius: var(--radius-sm);

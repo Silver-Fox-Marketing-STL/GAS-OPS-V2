@@ -1,17 +1,24 @@
+<!-- ════════════════════════════════════════════════════════════════════════════
+     STACK CLEANUP VIEW — read side-by-side with the physical graphics stack
+     (rebuild increment 8b). Row order is the SORT KEY of the stack: the server
+     returns rows sorted by the last two VIN characters and we render them in
+     that order — never re-sort here. Job-ticket idiom: ruled head, ruled
+     figures, one .table-u. The JS is the proven logic (ids unchanged).
+════════════════════════════════════════════════════════════════════════════ -->
 <div class="view" id="view-stack-cleanup" data-layout="data" hidden>
 
   <div class="sc-scroll app-measure">
 
-    <label for="scDealerSelect">Dealer</label>
-    <select id="scDealerSelect">
-      <option value="">-- Loading dealers... --</option>
-    </select>
+    <div class="sc-head">
+      <span class="sc-hint">Anything in the stack that is NOT on this list is sold &mdash; pull it.</span>
+    </div>
 
-    <p class="sc-blurb">
-      Vehicles in BOTH this dealer's VIN log and the current imported data —
-      graphics for these are still valid. Any graphic in the stack that is
-      <strong>not</strong> on this list is sold: pull it.
-    </p>
+    <div class="sc-pick">
+      <label for="scDealerSelect">Dealer</label>
+      <select id="scDealerSelect">
+        <option value="">-- Loading dealers... --</option>
+      </select>
+    </div>
 
     <div id="scStats"></div>
     <div id="scStatus" class="empty"></div>
@@ -23,44 +30,56 @@
 </div>
 
 <style>
-  /* themed root (overrides the .view light guard) */
-  #view-stack-cleanup { background: var(--bg); color: var(--text); height: 100%; overflow: hidden; font-size: 13px; }
-  #view-stack-cleanup .sc-scroll { height: 100%; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; }
+  /* themed root (overrides the SharedUtils .view white readability guard) */
+  #view-stack-cleanup { height: 100%; overflow-y: auto; background: var(--bg); color: var(--text); }
+  #view-stack-cleanup .sc-scroll { padding: 18px 28px 40px; }
 
-  #view-stack-cleanup label { display: block; font-weight: bold; margin-bottom: 4px; }
-  #view-stack-cleanup select {
-    width: 100%; max-width: 420px; padding: 8px; font-size: 13px;
-    border: 1px solid var(--border-2); border-radius: 4px;
+  #view-stack-cleanup .sc-head { display: flex; align-items: baseline; gap: 12px; padding-bottom: 6px; margin-bottom: 16px; border-bottom: var(--rule); }
+  #view-stack-cleanup .sc-title { font-family: var(--font-head); font-size: 22px; font-weight: 700; margin: 0; line-height: 1; color: var(--text); }
+  #view-stack-cleanup .sc-hint { font-size: var(--fs-sm); color: var(--text-3); min-width: 0; }
+
+  /* Dealer picker — the one control on the screen (ViewRun's dealer idiom) */
+  #view-stack-cleanup .sc-pick { max-width: 420px; }
+  #view-stack-cleanup .sc-pick label { display: block; font-size: var(--fs-sm); font-weight: 600; color: var(--text-2); margin: 0 0 4px; }
+  #view-stack-cleanup .sc-pick select {
+    width: 100%; font-family: var(--font-head); font-size: 20px; font-weight: 700;
+    padding: 6px 10px; border: 1px solid var(--border-2); border-radius: var(--radius-sm);
+    background: var(--bg); color: var(--text);
   }
+  #view-stack-cleanup .sc-pick select:focus { outline: none; border-color: var(--text); box-shadow: var(--focus-ring); }
+  #view-stack-cleanup .sc-pick .cs-btn { font-family: var(--font-head); font-size: 20px; font-weight: 700; }
 
-  #view-stack-cleanup .sc-blurb { color: var(--text-2); font-size: 12px; max-width: 560px; }
-
-  #view-stack-cleanup #scStats { display: none; margin-bottom: 10px; font-size: 12px; color: var(--text-2); }
-  #view-stack-cleanup #scStats .tag { margin-right: 6px; }
-
-  #view-stack-cleanup #scStatus { font-size: 12px; min-height: 18px; padding: 6px 8px; border-radius: 4px; margin-bottom: 8px; }
-  #view-stack-cleanup #scStatus.error { background: var(--danger-weak); color: var(--danger); }
-  #view-stack-cleanup #scStatus.info  { background: var(--accent-weak); color: var(--accent); }
-  #view-stack-cleanup #scStatus.empty { background: none; color: var(--text-2); padding-left: 0; }
-
-  #view-stack-cleanup #scTableWrap { flex: 1; min-height: 0; overflow-y: auto; }
-  #view-stack-cleanup .table-u { width: 100%; max-width: 720px; }
-  /* Header on a surface tint — the shared .table-u th is the INVERTED header
-     (bg: var(--text), color: var(--bg)); overriding only the background left
-     bg-on-surface text = an invisible header in every non-Encarta theme
-     (Sep 2026 screenshot audit). Set the color too. */
-  #view-stack-cleanup .table-u thead th { position: sticky; top: 0; z-index: 1; background: var(--surface-2); color: var(--text-2); }
-
-  /* the read-at-a-glance bit: VIN in mono, last 2 chars big and accent-marked */
-  #view-stack-cleanup .sc-vin { font-family: var(--font-mono); white-space: nowrap; }
-  #view-stack-cleanup .sc-last2 {
-    font-weight: bold; font-size: 15px; color: var(--accent);
-    background: var(--accent-weak); border-radius: 3px; padding: 1px 3px; margin-left: 1px;
+  /* Three ruled figures (ViewHome .home-tile idiom). JS toggles #scStats
+     between none/block, so the grid lives on the inner .sc-tiles wrapper. */
+  #view-stack-cleanup #scStats { display: none; margin-top: 18px; }
+  #view-stack-cleanup .sc-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 18px; max-width: 520px; }
+  #view-stack-cleanup .sc-tile { padding: 10px 0 8px; border-bottom: 1px solid var(--border); }
+  #view-stack-cleanup .sc-tile .num {
+    font-family: var(--font-head); font-size: 30px; font-weight: 700; line-height: 1;
+    color: var(--text); font-variant-numeric: tabular-nums;
   }
+  #view-stack-cleanup .sc-tile.key .num { color: var(--accent); }
+  #view-stack-cleanup .sc-tile .lbl { margin-top: 4px; font-size: var(--fs-sm); font-weight: 500; color: var(--text-3); }
 
-  :root[data-viewport="mobile"] #view-stack-cleanup .sc-scroll { padding: 12px; }
+  /* Status + empty state: plain sentences, no boxes */
+  #view-stack-cleanup #scStatus { margin-top: 14px; min-height: 18px; font-size: var(--fs-body); color: var(--text-2); }
+  #view-stack-cleanup #scStatus.error { color: var(--danger); font-weight: 600; }
+  #view-stack-cleanup .sc-note { font-size: var(--fs-body); color: var(--text-2); max-width: 60ch; }
+
+  #view-stack-cleanup #scTableWrap { margin-top: 16px; }
+  #view-stack-cleanup .table-u { max-width: 760px; }
+
+  /* the read-at-a-glance bit: VIN in mono, last 2 chars bold + accent (the
+     stack is sorted by them, so they carry the scan) */
+  #view-stack-cleanup .sc-vin { font-family: var(--font-mono); white-space: nowrap; color: var(--text-2); }
+  #view-stack-cleanup .sc-last2 { font-weight: 700; color: var(--accent); }
+
+  :root[data-viewport="mobile"] #view-stack-cleanup .sc-scroll { padding: 14px 16px 28px; }
+  :root[data-viewport="mobile"] #view-stack-cleanup .sc-pick { max-width: none; }
+  :root[data-viewport="mobile"] #view-stack-cleanup .sc-tiles { max-width: none; }
+  :root[data-viewport="mobile"] #view-stack-cleanup #scTableWrap { overflow-x: auto; }
   :root[data-viewport="mobile"] #view-stack-cleanup .table-u th,
-  :root[data-viewport="mobile"] #view-stack-cleanup .table-u td { padding: 5px 6px; font-size: 12px; }
+  :root[data-viewport="mobile"] #view-stack-cleanup .table-u td { padding: 5px 8px; }
 </style>
 
 <script>
@@ -116,16 +135,19 @@
     scSetStatus('', 'empty');
     stats.style.display = 'block';
     stats.innerHTML =
-      '<span class="tag tone-success">' + rows.length + ' still on the lot</span>' +
-      '<span class="tag tone-neutral">' + result.loggedCount + ' logged</span>' +
-      '<span class="tag tone-neutral">' + result.inventoryCount + ' in current data</span>' +
-      ' — graphics NOT on this list are sold: pull them from the stack.';
+      '<div class="sc-tiles">' +
+        '<div class="sc-tile key"><div class="num">' + rows.length + '</div><div class="lbl">still on the lot</div></div>' +
+        '<div class="sc-tile"><div class="num">' + escHtml(result.loggedCount) + '</div><div class="lbl">logged</div></div>' +
+        '<div class="sc-tile"><div class="num">' + escHtml(result.inventoryCount) + '</div><div class="lbl">in current data</div></div>' +
+      '</div>';
 
     if (rows.length === 0) {
-      wrap.innerHTML = '<p class="sc-blurb">No logged vehicles are in the current data — every graphic in this dealer\'s stack can be pulled.</p>';
+      wrap.innerHTML = '<p class="sc-note">No logged vehicles are in the current data — every graphic in this dealer\'s stack can be pulled.</p>';
       return;
     }
 
+    // Rows arrive sorted by the last two VIN characters — the order the crew
+    // walks the stack in. Render them as they come; never re-sort.
     var html = '<table class="table-u"><thead><tr>' +
       '<th>VIN</th><th>Stock</th><th>Vehicle</th>' +
       '</tr></thead><tbody>';

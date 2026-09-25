@@ -1,25 +1,46 @@
 <!-- ════════════════════════════════════════════════════════════════════════════
-     UTILITIES VIEW — maintenance actions (moved off the Home page)
+     UTILITIES VIEW — one-off maintenance actions (rebuild increment 8b).
+     Job-ticket idiom: ruled sections, one ruled ROW per action (button left,
+     the sentence that says what it does on the right). The JS is unchanged —
+     runUtility dispatches google.script.run[serverFn]() dynamically and the
+     two destructive actions go through confirmUtility first.
 ════════════════════════════════════════════════════════════════════════════ -->
 <div class="view" id="view-utilities" data-layout="form" hidden>
   <div class="util-scroll app-measure">
 
-    <div class="util-intro">One-off maintenance actions. Each runs on the server and reports back here.</div>
+    <div class="util-head">
+      <span class="util-hint">One-off maintenance. Each action reports back here.</span>
+    </div>
 
     <div class="util-group">
-      <div class="util-group-label">Data &amp; Reference</div>
+      <div class="util-group-label">Data and reference</div>
       <div class="util-list">
-        <button class="btn-secondary" onclick="runUtility(this, 'fillScraperDateTime')">&#8635; Update Scraper Timestamp</button>
-        <button class="btn-secondary" onclick="runUtility(this, 'appRefreshNormReference')">&#128270; Refresh Norm/Field Reference</button>
-        <button class="btn-secondary" onclick="runUtility(this, 'appOpenRunLog')">&#128202; View Run Log</button>
+        <div class="util-row">
+          <button class="btn-secondary" onclick="runUtility(this, 'fillScraperDateTime')">Update scraper timestamp</button>
+          <span class="util-desc">Stamps the current date and time as the scraper import time.</span>
+        </div>
+        <div class="util-row">
+          <button class="btn-secondary" onclick="runUtility(this, 'appRefreshNormReference')">Refresh norm and field reference</button>
+          <span class="util-desc">Rebuilds the static reference columns on the NORM_MAPS tab.</span>
+        </div>
+        <div class="util-row">
+          <button class="btn-secondary" onclick="runUtility(this, 'appOpenRunLog')">View run log</button>
+          <span class="util-desc">Opens the RUN_LOG tab behind this window.</span>
+        </div>
       </div>
     </div>
 
     <div class="util-group">
       <div class="util-group-label">Cleanup</div>
       <div class="util-list">
-        <button class="btn-danger" onclick="confirmUtility(this, 'appEraseAllQRFolders', 'Clear the QR folders for ALL active dealers?')">&#129529; Clear QR Folders</button>
-        <button class="btn-danger" onclick="confirmUtility(this, 'appCleanUpOutputDocs', 'Trash output docs older than 30 days?')">&#128465; Clean Up Old Output Docs</button>
+        <div class="util-row">
+          <button class="btn-danger" onclick="confirmUtility(this, 'appEraseAllQRFolders', 'Clear the QR folders for ALL active dealers?')">Clear QR folders</button>
+          <span class="util-desc">Empties the QR code folder of every active dealer. New codes are rebuilt on the next run.</span>
+        </div>
+        <div class="util-row">
+          <button class="btn-danger" onclick="confirmUtility(this, 'appCleanUpOutputDocs', 'Trash output docs older than 30 days?')">Clean up old output docs</button>
+          <span class="util-desc">Moves order output documents older than 30 days to the Drive trash.</span>
+        </div>
       </div>
     </div>
 
@@ -27,21 +48,32 @@
 </div>
 
 <style>
-  #view-utilities .util-scroll { height: 100%; overflow-y: auto; padding: 22px 26px; }
-  #view-utilities .util-intro { font-size: 12.5px; color: var(--text-2); margin-bottom: 22px; }
-  #view-utilities .util-group { margin-bottom: 24px; }
-  #view-utilities .util-group-label {
-    font-size: 11px;
-    font-weight: bold;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--text-3);
-    margin-bottom: 10px;
-  }
-  #view-utilities .util-list { display: flex; flex-wrap: wrap; gap: 10px; }
+  /* themed root (overrides the SharedUtils .view white readability guard) */
+  #view-utilities { height: 100%; overflow-y: auto; background: var(--bg); color: var(--text); }
+  /* A list of one-line actions reads badly at 1400px: cap it at the shell's
+     form measure (the .app-measure rule only engages above 1500px). */
+  #view-utilities .util-scroll { box-sizing: border-box; max-width: var(--measure-form); padding: 18px 28px 40px; }
 
-    /* themed root (overrides the interim .view light guard) */
-    #view-utilities { background: var(--bg); color: var(--text); }
+  #view-utilities .util-head { display: flex; align-items: baseline; gap: 12px; padding-bottom: 6px; margin-bottom: 22px; border-bottom: var(--rule); }
+  #view-utilities .util-title { font-family: var(--font-head); font-size: 22px; font-weight: 700; margin: 0; line-height: 1; color: var(--text); }
+  #view-utilities .util-hint { font-size: var(--fs-sm); color: var(--text-3); min-width: 0; }
+
+  #view-utilities .util-group { margin-bottom: 26px; }
+  #view-utilities .util-group-label {
+    font-family: var(--font-head); font-size: 17px; font-weight: 700; color: var(--text);
+    padding-bottom: 4px; border-bottom: 1px solid var(--text);
+  }
+
+  /* One action = one ruled row: button, then the sentence that explains it. */
+  #view-utilities .util-row {
+    display: grid; grid-template-columns: minmax(0, 230px) 1fr; gap: 6px 18px;
+    align-items: center; padding: 11px 0; border-bottom: 1px solid var(--border);
+  }
+  #view-utilities .util-row button { justify-self: start; }
+  #view-utilities .util-desc { font-size: var(--fs-body); color: var(--text-2); min-width: 0; }
+
+  :root[data-viewport="mobile"] #view-utilities .util-scroll { padding: 14px 16px 28px; }
+  :root[data-viewport="mobile"] #view-utilities .util-row { grid-template-columns: 1fr; align-items: start; }
 </style>
 
 <script>
