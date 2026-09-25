@@ -169,6 +169,14 @@ DEV's HEAD, which stays the test bed for the next promote.
     `API_ALLOWLIST` → `... is not allowed to use the desk`; the same body at
     the PROD or DEV `/exec` → `not enabled in this environment` (PROD also
     still refuses non-domain callers at the manifest).
+  - **The desk itself (`desk/`):** Vite + TypeScript. Local: `cd desk`,
+    copy `.env.example` → `.env.local` (git-ignored), `npm install`,
+    `npm run dev` (http://localhost:5173; the origin must be on the OAuth
+    client). `npm run build` = strict `tsc` + Vite → `desk/dist`. Published
+    by `.github/workflows/desk-pages.yml` to GitHub Pages from the spike
+    branch (repo variables `DESK_EXEC_URL`, `DESK_GOOGLE_CLIENT_ID`; Pages
+    source = GitHub Actions). `desk/**` and `.github/**` are in
+    `.claspignore` — never Apps Script source.
 
 ## clasp targets
 

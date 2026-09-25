@@ -38,3 +38,8 @@ eom-viewer/**
 
 # Lot Scan PWA experiment (static GitHub Pages test page; never Apps Script source)
 lot-scan-pwa-experiment/**
+
+# Desk frontend spike (Vite + TS on our own origin; docs/spike-separate-frontend.md)
+# and the GitHub Actions workflow that publishes it. Never Apps Script source.
+desk/**
+.github/**

@@ -116,6 +116,31 @@ shapes carry over unchanged.
 |---|---|---|
 | 1 | Branch + manifest + `apiEnabled` on the exp env + promote Gate 1.6 | done 2026-09-25 (harness asserts the flag states; Gate 1.6 checked standalone) |
 | 2 | Router + token check + function map + identity context | done 2026-09-25 offline (Section 36; harness suite `desk api router`). Live curl proof pending Nick's OAuth client id + script props + EXP redeploy — recipe in `docs/dev-environment.md` |
-| 3 | `desk/` shell: sign-in, `api.ts`, tokens/CSS, queue rail | — |
-| 4 | Order flow: dealer → CAO → run → test finalize → folder link | — |
-| 5 | Pages workflow + live proof against DEV + write-up | — |
+| 3 | `desk/` shell: sign-in, `api.ts`, tokens/CSS, queue rail | done 2026-09-25 offline (`desk/src/{main,auth,api,queue}.ts`, `styles.css`) |
+| 4 | Order flow: dealer → CAO → run → test finalize → folder link | done 2026-09-25 offline (`desk/src/order.ts`; headless smoke walk against a mocked API passes) |
+| 5 | Pages workflow + live proof against DEV + write-up | workflow in place (`.github/workflows/desk-pages.yml`); **live proof + write-up pending** Nick's steps below |
+
+## Live proof — Nick's checklist (in order)
+
+1. Google Cloud console → APIs & Services → Credentials → Create OAuth client
+   id (Web application). Authorized JavaScript origins:
+   `https://silver-fox-marketing-stl.github.io` and `http://localhost:5173`.
+   No redirect URIs (GIS uses the popup/One-Tap flow).
+2. EXP script properties: `API_OAUTH_CLIENT_ID` = that id;
+   `API_ALLOWLIST` = your email (add the crew later).
+3. From `spike/desk-api`: `scripts/push-exp.ps1`. Then, in the EXP script
+   editor, Deploy → Manage deployments → edit → New version and confirm the
+   web app now says "Execute as: Me" / "Anyone" — consent as owner once.
+4. Local check first: `cd desk && copy .env.example .env.local` (paste the
+   client id) → `npm install` → `npm run dev` → http://localhost:5173 →
+   sign in → the top-bar chip should read **EXP · you@sfoxmarketing.com**.
+   Then the flow: Bommarito from the queue → Pre-fill from CAO → Run → Log as
+   test order → Open output folder.
+5. Negatives: sign in with a non-allowlisted account → the sign-in screen
+   shows "Account … is not allowed to use the desk"; point `VITE_EXEC_URL`
+   at the DEV or PROD `/exec` → "not enabled in this environment".
+6. Pages: repo Settings → Pages → Source "GitHub Actions"; Settings →
+   Secrets and variables → Actions → Variables: `DESK_EXEC_URL`,
+   `DESK_GOOGLE_CLIENT_ID`. Push the branch (or run the workflow by hand) →
+   the site is at https://silver-fox-marketing-stl.github.io/GAS-OPS-V2/.
+7. Write-up: keep / extend / stop, appended here.

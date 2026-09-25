@@ -1388,7 +1388,7 @@ t('the real map: finalizeRun is forced to a TEST order; writes outside the spike
   ['commitRunRows', 'commitRunToVINLog', 'rollbackRunFromVINLog', 'deleteRun', 'pushRunToPipedrive',
    'finalizeRunNewDeal', 'finalizeRunExisting', 'saveThemePreference', 'saveUiPref', 'createDealer']
     .forEach(function (n) { assert.ok(!(n in map), n + ' must not be exposed in the spike'); });
-  ['getAppBootstrap', 'getPrintSchedule', 'getMyRunDrafts', 'getCaoVins', 'pasteVinsAndRun', 'getRunProgress',
+  ['getAppBootstrap', 'getPrintSchedule', 'getMyRunDrafts', 'getCaoVins', 'getDealerVinData', 'getLoggedIdentifiers', 'pasteVinsAndRun', 'getRunProgress',
    'clearRunProgress', 'abandonRun', 'saveRunDraft', 'deleteRunDraft', 'getDealerSummary']
     .forEach(function (n) { assert.strictEqual(typeof map[n], 'function', n); });
 });

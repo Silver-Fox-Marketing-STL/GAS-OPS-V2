@@ -29,3 +29,10 @@ node_modules/
 .claude/skills/ui-screenshot-repro/full-app/app.html
 .claude/skills/ui-screenshot-repro/full-app/shots/
 .claude/skills/ui-screenshot-repro/full-app/package-lock.json
+
+# Desk frontend spike (desk/): installed deps, build output, local env
+desk/node_modules/
+desk/dist/
+desk/.env
+desk/.env.local
+desk/.env.*.local

@@ -41,6 +41,28 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   session user is the owner, not the operator). `apiPing` is the live-proof
   smoke call. Harness: 14-test router suite with stubbed tokeninfo / cache /
   digest / ContentService (153/153).
+- **SPIKE increments 3–5 — `desk/`, the frontend on our own origin.** Vite +
+  TypeScript, no framework: `index.html` loads Google Identity Services;
+  `auth.ts` keeps the ID token in sessionStorage (memory fallback) and decodes
+  it for display only; `api.ts` is the whole transport (one text/plain POST
+  per call, `redirect: 'follow'`, auth-class errors clear the token and route
+  back to sign-in); `queue.ts` ports the shell's work queue (four reads,
+  assembled client-side, printed dealers folded); `order.ts` is the one order
+  flow — dealer → Vehicles (CAO pre-fill strip, VIN list, match table with
+  filtered / logged / not-in-inventory flags, Features inputs) → Run (inline
+  checklist, "Run anyway" while a warning stands, progress poll) → Finalize
+  (per-run cards, **test order only**, Abandon behind a native `confirm`) →
+  Open output folder. Native `<select>`s and dialogs throughout (the
+  CustomSelect layer does not exist here); light/dark palettes from the
+  job-ticket tokens; Barlow / Barlow Condensed / IBM Plex Mono.
+  `.github/workflows/desk-pages.yml` builds `desk/dist` and publishes it to
+  GitHub Pages on pushes of the spike branch (repo variables `DESK_EXEC_URL` +
+  `DESK_GOOGLE_CLIENT_ID`). `desk/**` and `.github/**` are clasp-ignored.
+  Verified offline: strict `tsc` + Vite build clean; a headless-Chrome smoke
+  walk against a mocked API (sign-in gate → shell + queue → open dealer → CAO
+  → run with progress → test finalize → folder link → rejected-token path)
+  passes with screenshots. **Not yet verified live** — needs Nick's OAuth
+  client id, the EXP script properties, and one EXP push + owner re-deploy.
 
 ### Changed
 - **REBUILD — Order Desk client (branch `exp/ui-playground`, EXPERIMENTAL env,

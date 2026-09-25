@@ -10893,6 +10893,7 @@ function apiFunctionMap_() {
     // order workspace
     getCaoVins:         getCaoVins,
     getDealerVinData:   getDealerVinData,
+    getLoggedIdentifiers: getLoggedIdentifiers,   // dupe highlighting in the match table
     getLatestOrderId:   getLatestOrderId,
     pasteVinsAndRun:    pasteVinsAndRun,
     getRunProgress:     getRunProgress,

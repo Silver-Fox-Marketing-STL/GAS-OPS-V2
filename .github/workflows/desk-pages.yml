@@ -1,0 +1,53 @@
+# Builds desk/ and publishes desk/dist to GitHub Pages (spike:
+# docs/spike-separate-frontend.md). One-time repo setup: Settings → Pages →
+# Source = "GitHub Actions"; Settings → Variables → DESK_EXEC_URL (the EXP
+# /exec URL) and DESK_GOOGLE_CLIENT_ID (the Web OAuth client id). Both are
+# public values, not secrets. The workflow only runs for the spike branch.
+name: desk-pages
+
+on:
+  push:
+    branches: [spike/desk-api]
+    paths: ['desk/**', '.github/workflows/desk-pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desk
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desk/package-lock.json
+      - run: npm ci
+      - run: npm run build
+        env:
+          VITE_EXEC_URL: ${{ vars.DESK_EXEC_URL }}
+          VITE_GOOGLE_CLIENT_ID: ${{ vars.DESK_GOOGLE_CLIENT_ID }}
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: desk/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
