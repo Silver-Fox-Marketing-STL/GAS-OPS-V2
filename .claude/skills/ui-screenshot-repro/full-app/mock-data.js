@@ -2,6 +2,10 @@
 // Shapes follow Code.gs (documented by the shape-audit agents, 2026-09-23).
 (function () {
   var NOW = Date.now();
+  // Import freshness fixtures say 'today' (yyyy/mm/dd) — Run Order's stale-import
+  // pre-flight compares against the real date, so a fixed literal breaks the
+  // scripted run scenarios the day after it was written.
+  var TODAY = (function(){ var d=new Date(); var p=function(n){return (n<10?'0':'')+n;}; return d.getFullYear()+'/'+p(d.getMonth()+1)+'/'+p(d.getDate()); })();
   var D = 'BOMMARITO_WEST_COUNTY';
 
   var DEALERS = [
@@ -86,7 +90,7 @@
     saveUiPref: { ok: true },
 
     // ── Home ────────────────────────────────────────────────────────────────
-    getHomeHud: { lastImport: { date: '2026/09/23', time: '07:42:10' },
+    getHomeHud: { lastImport: { date: TODAY, time: '07:42:10' },
       today: { runs: 4, vins: 57, dealers: 3, dupes: 6 }, week: { runs: 15, vins: 212, dealers: 9, dupes: 21 },
       allTime: { runs: 842, vins: 11873, avgVinsPerRun: 14.1, committed: 801, pending: 38, rolledBack: 3 }, draftCount: 2 },
     getPrintSchedule: { ok: true, configured: true, day: 'Wednesday',
@@ -95,7 +99,7 @@
                  { key: 'MB_CREVE_COEUR', name: 'Mercedes-Benz of Creve Coeur', pending: 0, runs: 2, vins: 17, dupes: 2, scheduled: true },
                  { key: 'FRANK_LETA_HONDA', name: 'Frank Leta Honda', pending: 0, runs: 1, vins: 29, dupes: 3, scheduled: false }],
       totals: { runs: 4, vins: 57, dupes: 6 } },
-    getAppHomeStatus: { lastImportDate: '2026/09/23', lastImportTime: '07:42:10' },
+    getAppHomeStatus: { lastImportDate: TODAY, lastImportTime: '07:42:10' },
     getDealerSummary: function (key) {
       return { dealerKey: key, dealerName: (DEALERS.filter(function (d) { return d.key === key; })[0] || {}).name,
         inventory: { byType: { New: 212, PO: 88, CPO: 14, 'CPO-EL': 0, Other: 0 }, total: 314, onlot: 301, offlot: 13, noPrice: 2, noStock: 0, asOf: '2026/09/23 07:42' },

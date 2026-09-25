@@ -14,18 +14,27 @@
         var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
         root.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
       }
-      // Mobile = narrow viewport. Set pre-paint so the responsive (start-menu) nav
-      // paints on the first frame; a matchMedia listener in SharedUtils keeps it live.
+      // Mobile = narrow viewport. Set pre-paint so the phone layout paints on the
+      // first frame; a matchMedia listener in SharedUtils keeps it live.
       if (window.matchMedia && window.matchMedia('(max-width: 760px)').matches) {
         root.setAttribute('data-viewport', 'mobile');
       }
     })();
-    // Per-user UI prefs (nav layout) from the server — read pre-paint by
-    // SharedUtils' UiPrefs so the chosen nav layout paints on the first frame.
+    // Per-user UI prefs from the server. The Order Desk shell has ONE layout, so
+    // the nav-layout pref is read (SharedUtils' UiPrefs still reflects it onto
+    // <html>) but no shell CSS keys on it. See docs/rebuild-order-desk-design.md.
     window.UI_PREFS = { navLayout: '<?= initialNavLayout ?>' };
   </script>
   <style>
-    /* ── App shell ─────────────────────────────────────────────────────────── */
+    /* ═══════════════════════════════════════════════════════════════════════
+       ORDER DESK SHELL — exp/ui-playground rebuild (design note:
+       docs/rebuild-order-desk-design.md). Three regions on one fixed layout:
+         top bar   — wordmark, import freshness, busy, settings, theme, close
+         rail      — today's work queue + periodic tasks (the nav IS the queue)
+         workspace — #appContent hosting the views (unchanged view contract)
+         inspector — dealer facts beside an open order (filled by ViewOrder)
+       Structure comes from ink rules (--rule), not panels or shadows.
+       ═══════════════════════════════════════════════════════════════════════ */
     html, body { height: 100%; margin: 0; padding: 0; }
     body {
       font-family: var(--font-body);
@@ -34,40 +43,31 @@
       background: var(--bg);
       overflow: hidden;
     }
+    #appRoot { display: flex; flex-direction: column; height: 100vh; }
 
-    #appRoot { display: flex; height: 100vh; }
-
-    /* ── Sidebar ───────────────────────────────────────────────────────────── */
-    /* EXPERIMENT (exp/ui-playground): the sidebar is a typographic index on
-       the same paper as the page — one ink rule separates it, no tinted panel. */
-    #sidebar {
-      width: var(--shell-sidebar-w);
+    /* ── Top bar ─────────────────────────────────────────────────────────── */
+    #topBar {
+      height: var(--shell-header-h);
       flex-shrink: 0;
-      background: var(--bg);
-      border-right: var(--rule, 1px solid var(--border));
-      display: flex;
-      flex-direction: column;
-      padding-top: 0;
-    }
-    .app-brand {
       display: flex;
       align-items: center;
-      gap: 9px;
-      height: var(--shell-header-h);          /* brand row lines up with the page header rule */
-      box-sizing: border-box;
-      padding: 0 16px;
-      font-family: var(--font-head);
-      font-size: 22px;
-      font-weight: 800;
-      letter-spacing: .01em;
-      text-transform: uppercase;              /* a wordmark, set like a plate */
-      color: var(--text);
-      border-bottom: var(--rule, 1px solid var(--border));
-      margin-bottom: 8px;
-      cursor: pointer;
-      user-select: none;
+      gap: 10px;
+      padding: 0 16px 0 0;
+      border-bottom: var(--rule);
+      background: var(--bg);
     }
-    .app-brand .logo {
+    .brand {
+      display: flex; align-items: center; gap: 9px;
+      height: 100%; box-sizing: border-box;
+      width: var(--shell-rail-w);
+      padding: 0 16px;
+      border-right: var(--rule);
+      font-family: var(--font-head); font-size: 22px; font-weight: 800;
+      letter-spacing: .01em; text-transform: uppercase;
+      color: var(--text); cursor: pointer; user-select: none;
+      flex-shrink: 0;
+    }
+    .brand .logo {
       display: inline-block;
       width: 54px;
       height: 22px;
@@ -76,448 +76,125 @@
       -webkit-mask: url("data:image/png;base64,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") center / contain no-repeat;
               mask: url("data:image/png;base64,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") center / contain no-repeat;
     }
-    /* Theme picker (sidebar) — a CUSTOM dropdown, NOT a native <select>. The
-       native open option list is OS-rendered, and the Apps Script web-app
-       sandbox iframe doesn't propagate color-scheme to it — so a native <select>
-       rendered light-on-light in dark themes IN THE WEB APP (it worked in the
-       modal, where the scheme is honored, but not the full-page web app). A
-       button + a themed <ul> renders identically and readably in the modal AND
-       the web app, in every theme. (The color-scheme tokens still help other
-       native controls — scrollbars, checkboxes — render dark in dark themes.) */
+    .tb-chip {
+      display: inline-flex; align-items: center; gap: 7px;
+      height: 30px; padding: 0 10px;
+      font-size: var(--fs-sm); font-weight: 500; color: var(--text-2);
+      border: 1px solid var(--border-2);
+      cursor: pointer; white-space: nowrap;
+    }
+    .tb-chip:hover { border-color: var(--text); color: var(--text); }
+    .tb-chip .dot { font-size: 9px; color: var(--text-muted); }
+    .tb-chip.fresh .dot { color: var(--success); }
+    .tb-chip.stale .dot { color: var(--warning); }
+    .tb-chip.busy  { border-color: var(--accent); color: var(--accent); cursor: default; }
+    .tb-chip[hidden] { display: none; }
+    .tb-spacer { flex: 1; }
+    .tb-btn {
+      height: 30px; padding: 0 12px;
+      font-family: var(--font-head); font-size: 14px; font-weight: 700; letter-spacing: .02em;
+      color: var(--text); background: var(--bg); border: 1px solid var(--text-2);
+      cursor: pointer; white-space: nowrap;
+    }
+    .tb-btn:hover { background: var(--surface); border-color: var(--text); }
+    .tb-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+    .tb-btn.on { background: var(--text); color: var(--bg); border-color: var(--text); }
+    :root[data-mode="webapp"] .tb-btn.tb-close { display: none; }   /* no host dialog to close in a tab */
+
+    /* Theme picker — a CUSTOM dropdown (native <select> popups can't be themed
+       inside the Apps Script web-app sandbox). SharedUtils' Theme.initPicker
+       owns #themeBtn / #themeMenu / #themeBtnLabel. Opens DOWNWARD from the bar. */
     .nav-theme { position: relative; }
     .theme-btn {
-      flex: 1; min-width: 0;
       display: flex; align-items: center; gap: 6px;
-      background: var(--surface); color: var(--text-2);
-      border: 1px solid var(--border); border-radius: var(--radius-sm);
-      font-family: var(--font-body); font-size: 12.5px; font-weight: 600;
-      padding: 4px 8px; cursor: pointer; text-align: left;
+      height: 30px; padding: 0 10px;
+      background: var(--bg); color: var(--text-2);
+      border: 1px solid var(--border-2);
+      font-family: var(--font-body); font-size: var(--fs-sm); font-weight: 600;
+      cursor: pointer; text-align: left; min-width: 110px;
     }
-    .theme-btn:hover { color: var(--text); border-color: var(--border-2); }
+    .theme-btn:hover { color: var(--text); border-color: var(--text); }
     .theme-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
     #themeBtnLabel { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .theme-caret { font-size: 9px; color: var(--text-3); flex-shrink: 0; }
-
     .theme-menu {
-      position: absolute; z-index: 60; left: 0; right: 0;
-      bottom: calc(100% + 4px);            /* opens UPWARD — the picker sits near the sidebar bottom */
+      position: absolute; z-index: 60; right: 0; min-width: 100%;
+      top: calc(100% + 4px);
       margin: 0; padding: 4px; list-style: none;
-      background: var(--surface); border: 1px solid var(--border-2);
-      border-radius: var(--radius); box-shadow: var(--shadow-lg);
+      background: var(--bg); border: 1px solid var(--text); box-shadow: var(--shadow-lg);
       max-height: 60vh; overflow-y: auto;
     }
     .theme-menu[hidden] { display: none; }
-    .theme-menu li {
-      padding: 6px 9px; border-radius: var(--radius-sm); cursor: pointer;
-      font-size: 12.5px; font-weight: 600; color: var(--text); white-space: nowrap;
+    .theme-menu li { padding: 6px 10px; cursor: pointer; font-size: var(--fs-sm); font-weight: 600; color: var(--text); white-space: nowrap; }
+    .theme-menu li:hover, .theme-menu li:focus { outline: none; background: var(--surface); }
+    .theme-menu li[aria-selected="true"] { background: var(--text); color: var(--bg); }
+
+    /* ── Body: rail | workspace | inspector ──────────────────────────────── */
+    #appBody { flex: 1; min-height: 0; display: flex; }
+
+    #rail {
+      width: var(--shell-rail-w);
+      flex-shrink: 0;
+      box-sizing: border-box;
+      border-right: var(--rule);
+      display: flex; flex-direction: column;
+      overflow-y: auto;
+      background: var(--bg);
     }
-    .theme-menu li:hover,
-    .theme-menu li:focus { outline: none; background: var(--accent-weak); }
-    .theme-menu li[aria-selected="true"] { background: var(--accent); color: var(--on-accent); }
-    /* Top Rail layouts put the picker in a horizontal TOP bar — open DOWNWARD. */
-    :root[data-shell="top-rail"] .theme-menu { bottom: auto; top: calc(100% + 4px); }
-
-    /* ── Top-rail layout (data-shell="top-rail") ───────────────────────────────
-       STRUCTURAL axis: the side rail becomes a horizontal TOP bar. Keyed on
-       data-shell, set by the UI Settings nav pref (UiPrefs.applyOverrides in
-       SharedUtils) — themes are palette-only and never set it.
-       Pure CSS; markup + nav onclick wiring (and thus the backend calls) untouched.
-       The active marker moves from the left edge to a bottom underline (tab
-       metaphor), and the System Settings group becomes a hover flyout since it
-       can't stack inline. */
-    :root[data-shell="top-rail"] #appRoot { flex-direction: column; }
-    :root[data-shell="top-rail"] #sidebar {
-      width: 100%; flex-direction: row; align-items: center; padding-top: 0;
-      border-right: none; border-bottom: 1px solid var(--border);
+    .rail-sec { padding: 14px 0 6px; }
+    .rail-sec + .rail-sec { border-top: 1px solid var(--border); }
+    .rail-h {
+      display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+      padding: 0 16px 6px;
+      font-family: var(--font-head); font-size: 17px; font-weight: 700; color: var(--text);
     }
-    /* Column layout needs min-height:0 on the main pane so #appContent can take
-       the leftover height and scroll. Without it the pane grows to content height
-       and body{overflow:hidden} clips it — the "can't scroll any page" bug. The
-       base #appMain only sets min-width:0 (what the default ROW layout needs). */
-    :root[data-shell="top-rail"] #appMain { min-height: 0; }
-    :root[data-shell="top-rail"] .app-brand { border-bottom: none; border-right: 1px solid var(--border); margin-bottom: 0; }
-    :root[data-shell="top-rail"] .nav-item,
-    :root[data-shell="top-rail"] .nav-group-header { border-left-width: 0; border-bottom: 3px solid transparent; }
-    :root[data-shell="top-rail"] .nav-item.active { border-bottom-color: var(--accent); }
-    :root[data-shell="top-rail"] .nav-footer { display: none; }
-    /* System Settings → flyout dropdown. Mouse: hover reveals. The :focus-within
-       path is kept so the flyout becomes keyboard-reachable FOR FREE the moment
-       the nav's div[onclick] items get tabindex — but that's a pre-existing,
-       app-wide gap (every theme's nav is mouse-only today), NOT this theme's to
-       fix. ponytail: hover/mouse flyout; keyboard nav-activation is app-wide debt.
-       The data-theme attr out-specifies .nav-group.collapsed, so the JS collapse
-       toggle is inert here — hover/focus drives visibility. */
-    :root[data-shell="top-rail"] .nav-group { position: relative; }
-    :root[data-shell="top-rail"] .nav-group-items {
-      position: absolute; top: 100%; left: 0; min-width: 190px;
-      background: var(--surface); border: 1px solid var(--border);
-      box-shadow: var(--shadow-lg); z-index: 50; display: none;
-    }
-    :root[data-shell="top-rail"] .nav-group:hover .nav-group-items,
-    :root[data-shell="top-rail"] .nav-group:focus-within .nav-group-items { display: block; }
-    :root[data-shell="top-rail"] .nav-group-items .nav-sub { padding-left: 16px; }
+    .rail-h .rail-sub { font-family: var(--font-body); font-size: var(--fs-sm); font-weight: 500; color: var(--text-3); }
+    .rail-empty { padding: 4px 16px 8px; font-size: var(--fs-sm); color: var(--text-3); }
 
-    /* ── Nav axis (data-nav) — set by the UI Settings "Icon Rail" nav pref
-       (UiPrefs.applyOverrides in SharedUtils; themes never set it).
-       "icons": collapse the side rail to an icon strip that expands on hover/focus
-       (VS Code style). Sidebar shell only — inert under the horizontal shells (a
-       top/bottom bar has no width to reclaim). Pure CSS; nav markup + onclick
-       wiring untouched.
-       ponytail: hover-expand, no titles/markup change; the collapsed brand logo is
-       clipped by overflow (it expands on hover). Add a compact mark if a theme
-       wants a polished collapsed brand. */
-    :root[data-nav="icons"]:not([data-shell="top-rail"]):not([data-shell="bottom-rail"]):not([data-shell="start-menu"]) #sidebar {
-      width: 60px; overflow: hidden; transition: width .12s ease;
-    }
-    :root[data-nav="icons"]:not([data-shell="top-rail"]):not([data-shell="bottom-rail"]):not([data-shell="start-menu"]) #sidebar:hover,
-    :root[data-nav="icons"]:not([data-shell="top-rail"]):not([data-shell="bottom-rail"]):not([data-shell="start-menu"]) #sidebar:focus-within { width: 210px; }
-    /* collapsed (not hovered): font-size:0 collapses each row's text label; the
-       .icon span restores its own size, so only the glyphs show. */
-    :root[data-nav="icons"]:not([data-shell="top-rail"]):not([data-shell="bottom-rail"]):not([data-shell="start-menu"]) #sidebar:not(:hover):not(:focus-within) .nav-item,
-    :root[data-nav="icons"]:not([data-shell="top-rail"]):not([data-shell="bottom-rail"]):not([data-shell="start-menu"]) #sidebar:not(:hover):not(:focus-within) .nav-group-header,
-    :root[data-nav="icons"]:not([data-shell="top-rail"]):not([data-shell="bottom-rail"]):not([data-shell="start-menu"]) #sidebar:not(:hover):not(:focus-within) .app-brand { font-size: 0; gap: 0; }
-    :root[data-nav="icons"]:not([data-shell="top-rail"]):not([data-shell="bottom-rail"]):not([data-shell="start-menu"]) #sidebar:not(:hover):not(:focus-within) .icon { font-size: 14px; }
-    :root[data-nav="icons"]:not([data-shell="top-rail"]):not([data-shell="bottom-rail"]):not([data-shell="start-menu"]) #sidebar:not(:hover):not(:focus-within) .nav-group-caret,
-    :root[data-nav="icons"]:not([data-shell="top-rail"]):not([data-shell="bottom-rail"]):not([data-shell="start-menu"]) #sidebar:not(:hover):not(:focus-within) .theme-caret,
-    :root[data-nav="icons"]:not([data-shell="top-rail"]):not([data-shell="bottom-rail"]):not([data-shell="start-menu"]) #sidebar:not(:hover):not(:focus-within) #themeBtnLabel { display: none; }
-
-    /* ── Bottom-rail layout (data-shell="bottom-rail") — horizontal nav at the
-       BOTTOM. Mirrors top-rail; active marker is a TOP border and the Settings
-       flyout / theme menu open UPWARD. Chosen via UI Settings (user pref). ── */
-    :root[data-shell="bottom-rail"] #appRoot { flex-direction: column-reverse; }
-    :root[data-shell="bottom-rail"] #sidebar {
-      width: 100%; flex-direction: row; align-items: center; padding-top: 0;
-      border-right: none; border-top: 1px solid var(--border);
-    }
-    :root[data-shell="bottom-rail"] #appMain { min-height: 0; }
-    :root[data-shell="bottom-rail"] .app-brand { border-bottom: none; border-right: 1px solid var(--border); margin-bottom: 0; }
-    :root[data-shell="bottom-rail"] .nav-item,
-    :root[data-shell="bottom-rail"] .nav-group-header { border-left-width: 0; border-top: 3px solid transparent; }
-    :root[data-shell="bottom-rail"] .nav-item.active { border-top-color: var(--accent); }
-    :root[data-shell="bottom-rail"] .nav-footer { display: none; }
-    :root[data-shell="bottom-rail"] .nav-group { position: relative; }
-    :root[data-shell="bottom-rail"] .nav-group-items {
-      position: absolute; bottom: 100%; top: auto; left: 0; min-width: 190px;
-      background: var(--surface); border: 1px solid var(--border);
-      box-shadow: var(--shadow-lg); z-index: 50; display: none;
-    }
-    :root[data-shell="bottom-rail"] .nav-group:hover .nav-group-items,
-    :root[data-shell="bottom-rail"] .nav-group:focus-within .nav-group-items { display: block; }
-    :root[data-shell="bottom-rail"] .nav-group-items .nav-sub { padding-left: 16px; }
-    :root[data-shell="bottom-rail"] .theme-menu { bottom: calc(100% + 4px); top: auto; }
-
-    /* ── Start-menu layout (data-shell="start-menu") — a bottom TASKBAR (#startBar)
-       with a Start button; the sidebar becomes a pop-up "Start" panel toggled by
-       toggleStartMenu() (sets data-start-open on <html>). #startBar is display:none
-       in every other layout (true no-op). Chosen via UI Settings (user pref). ── */
-    :root[data-shell="start-menu"] #appRoot { display: block; position: relative; }
-    :root[data-shell="start-menu"] #appMain { height: calc(100vh - var(--taskbar-h, 40px)); }
-    :root[data-shell="start-menu"] #startBar {
-      display: flex; align-items: center; gap: var(--space-3);
-      position: absolute; left: 0; right: 0; bottom: 0; height: var(--taskbar-h, 40px);
-      box-sizing: border-box;   /* padding stays inside the bar width (no horizontal overflow) */
-      background: var(--surface); border-top: 1px solid var(--border-2);
-      /* Pull the Start button (left) + clock (right) inboard from the rounded screen
-         corners — original bar height, no growth. Extra LEFT inset because the Start
-         button sits deepest in the bottom-left corner curve; the clock (right) clears
-         at 28px. (default viewport keeps the bar above the home indicator). */
-      padding: 0 28px 0 48px;
-      z-index: 150;
-    }
-    :root[data-shell="start-menu"] #sidebar {
-      position: absolute; left: 6px; bottom: calc(var(--taskbar-h, 40px) + 6px);
-      width: 240px; max-height: 72vh; overflow-y: auto;
-      border: 1px solid var(--border-2); border-radius: var(--radius-lg);
-      box-shadow: var(--shadow-lg); z-index: 200; display: none;
-    }
-    :root[data-shell="start-menu"][data-start-open] #sidebar { display: flex; }
-    :root[data-shell="start-menu"] #sidebar .nav-spacer { display: none; }   /* compact panel — don't push Close to the bottom */
-
-    /* Start button + taskbar clock — hidden unless the start-menu layout is active. */
-    #startBar { display: none; }
-    .start-btn {
-      display: inline-flex; align-items: center; gap: 6px;
-      font-family: var(--font-head); font-weight: 700; font-size: 13px;
-      color: var(--on-accent); background: var(--accent);
-      border: none; border-radius: var(--radius); padding: 6px 14px; cursor: pointer;
-    }
-    .start-btn:hover { background: var(--accent-hover); }
-    .start-btn .start-logo { font-size: 14px; line-height: 1; }
-    .start-clock { margin-left: auto; font-size: var(--fs-sm); color: var(--text-2); font-variant-numeric: tabular-nums; }
-    /* Luna dresses the taskbar + Start button as Windows XP. */
-    :root[data-theme="luna"] #startBar { background: linear-gradient(180deg,#2a8bf2 0%,#1860c8 50%,#0a52c0 100%); border-top: 1px solid #003bbf; }
-    :root[data-theme="luna"] .start-btn { background: linear-gradient(180deg,#7bbf4a,#3c8d0d); color: #fff; border-radius: 0 12px 12px 0; font-style: italic; box-shadow: inset 0 1px 0 rgba(255,255,255,.4); }
-    :root[data-theme="luna"] .start-clock { color: #fff; }
-
-    /* ════════════════════════════════════════════════════════════════════════
-       MOBILE (data-viewport="mobile") — auto by viewport width (<=760px), set in
-       the head pre-paint + a matchMedia listener in SharedUtils. On mobile,
-       UiPrefs.applyOverrides forces data-shell="start-menu", so EVERY theme gets
-       the start-menu taskbar nav (this REUSES that layout's CSS as-is); below we
-       widen the Start panel for touch, fix the height to dvh, stack the
-       grid-skeleton views to one column, and trim padding. Theme palettes/tokens
-       carry through automatically; per-theme mobile tweaks are scoped
-       [data-viewport="mobile"][data-theme="x"]. Placed AFTER the start-menu block
-       so these (equal-specificity) overrides win on source order. ── */
-    :root[data-viewport="mobile"] #appMain { height: calc(100dvh - var(--taskbar-h, 40px)); }   /* dvh dodges the mobile address-bar jump; falls back to the start-menu 100vh rule */
-    :root[data-viewport="mobile"] #sidebar { width: 84vw; max-width: 320px; }
-    :root[data-viewport="mobile"] .nav-item,
-    :root[data-viewport="mobile"] .nav-group-header { padding-top: 12px; padding-bottom: 12px; }   /* finger-sized targets */
-
-    /* Grid-skeleton views collapse to a single column. */
-    :root[data-viewport="mobile"] #view-run .rv-body { grid-template-columns: 1fr; grid-template-areas: "vin" "table"; }
-    :root[data-viewport="mobile"] #view-vinlog .layout { grid-template-columns: 1fr; grid-template-areas: "main" "side"; }
-    :root[data-viewport="mobile"] #view-vinlog .col-main { border-right: none; border-bottom: 1px solid var(--border); }
-    :root[data-viewport="mobile"] #view-import .import-cols { grid-template-columns: 1fr; grid-template-areas: "left" "right"; }
-
-    /* Trim oversized desktop padding; let wide tables scroll instead of overflowing the screen. */
-    :root[data-viewport="mobile"] #view-run .rv-wrap,
-    :root[data-viewport="mobile"] .uis-scroll,
-    :root[data-viewport="mobile"] .home-scroll,
-    :root[data-viewport="mobile"] .ds-scroll,
-    :root[data-viewport="mobile"] .ps-scroll { padding: var(--space-3); }
-    :root[data-viewport="mobile"] .table-wrap,
-    :root[data-viewport="mobile"] .ds-table,
-    :root[data-viewport="mobile"] .dash-table { overflow-x: auto; }
-
-    /* Config views: collapse internal multi-column grids to one column so cards
-       go full-width (labels stop clipping, pills wrap instead of overflowing).
-       Dealer Rules — both the Filtering tab (.filter-grid 4-col, .filter-grid-2
-       2-col) and the Pipedrive tab (.ps-thenelse 2-col, .pd-overrides-grid 3-col). */
-    :root[data-viewport="mobile"] #view-rules .filter-grid,
-    :root[data-viewport="mobile"] #view-rules .filter-grid-2,
-    :root[data-viewport="mobile"] #view-rules .ps-thenelse,
-    :root[data-viewport="mobile"] #view-rules .pd-overrides-grid { grid-template-columns: 1fr; }
-
-    /* Per-theme mobile tweak: Luna sheds its desktop window chrome (full-bleed client). */
-    :root[data-viewport="mobile"][data-theme="luna"] #appMain { margin: 0; border-radius: 0; border: none; }
-
-    /* ── "Encarta" — Win95/98 window-frame reskin ────────────────────────────────
-       Reframes the app as a Win95 application window over the existing markup:
-       navy title-bar header, raised gray sidebar chrome, sunken white client
-       area, 3D beveled controls, Explorer-style navy selection, chunky 3D
-       scrollbars, dotted focus, and NO motion. Pure CSS; fully reversible.
-       (Per-view "primary" buttons that hard-set their own background keep their
-       colour — a theme can't out-specify an id-scoped rule — but go sharp +
-       beveled like the rest; everything token-driven reskins automatically.)   */
-    :root[data-theme="encarta"] #appRoot { background: #008080; }   /* classic teal "desktop" peeks at any seam */
-
-    /* Title bar = the header: active-title navy→blue gradient, white bold caption */
-    :root[data-theme="encarta"] #appHeader {
-      background: linear-gradient(90deg, #000080 0%, #1084d0 100%);
-      border-bottom: 2px solid #404040;
-      box-shadow: inset 1px 1px #3a93e0;
-    }
-    :root[data-theme="encarta"] #appHeaderTitle { color: #ffffff; font-weight: 700; letter-spacing: .01em; }
-    :root[data-theme="encarta"] #appHeaderRight { color: #d2e2f6; }
-
-    /* Sidebar = raised window chrome; brand = a navy title strip + pixel wordmark */
-    :root[data-theme="encarta"] #sidebar {
-      border-right: 2px solid #404040;
-      box-shadow: inset -1px 0 #808080, inset 1px 1px #ffffff;
-    }
-    :root[data-theme="encarta"] .app-brand {
-      background: linear-gradient(90deg, #000080 0%, #1084d0 100%);
-      color: #ffffff; border-bottom: 2px solid #404040; margin-bottom: 0;
-      font-family: 'Pixelify Sans', Tahoma, sans-serif; font-weight: 700; letter-spacing: .02em;
-    }
-
-    /* Nav = Explorer list: flat rows, light hover, full navy selection bar */
-    :root[data-theme="encarta"] .nav-item,
-    :root[data-theme="encarta"] .nav-group-header { border-left: none; border-radius: 0; color: #000; }
-    :root[data-theme="encarta"] .nav-item:hover { background: var(--accent-weak); color: #000; }
-    :root[data-theme="encarta"] .nav-item.active,
-    :root[data-theme="encarta"] .nav-item.active:hover { background: var(--accent); color: #fff; box-shadow: none; }
-    :root[data-theme="encarta"] .nav-item.active .icon { color: #fff; }
-
-    /* Client area = sunken white work zone */
-    :root[data-theme="encarta"] #appContent {
-      background: #ffffff;
-      box-shadow: inset 1px 1px #404040, inset 2px 2px #808080;
-    }
-
-    /* Buttons = raised 3D; pressed = sunken (no scale); dotted focus rectangle */
-    :root[data-theme="encarta"] button {
-      border: 2px outset #dfdfdf; border-radius: 0; box-shadow: none;
-      font-family: var(--font-body);
-    }
-    :root[data-theme="encarta"] button:active { border-style: inset; transform: none; }
-    :root[data-theme="encarta"] button:focus-visible { outline: 1px dotted #000; outline-offset: -4px; box-shadow: none; }
-
-    /* Fields = sunken inset, white, sharp (checkboxes/radios left native) */
-    :root[data-theme="encarta"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
-    :root[data-theme="encarta"] select,
-    :root[data-theme="encarta"] textarea {
-      background: #ffffff; color: #000; border: 2px inset #dfdfdf; border-radius: 0; box-shadow: none;
-    }
-
-    /* Footer = sunken status bar */
-    :root[data-theme="encarta"] .nav-footer {
-      background: var(--surface); color: #1d1d1d;
-      box-shadow: inset 1px 1px #808080, inset -1px -1px #ffffff;
-    }
-
-    /* Chunky 3D scrollbars (webkit) */
-    :root[data-theme="encarta"] ::-webkit-scrollbar { width: 17px; height: 17px; }
-    :root[data-theme="encarta"] ::-webkit-scrollbar-track { background: #d8d4cc; }
-    :root[data-theme="encarta"] ::-webkit-scrollbar-thumb { background: var(--surface); border: 2px outset #dfdfdf; }
-    :root[data-theme="encarta"] ::-webkit-scrollbar-corner { background: #d8d4cc; }
-
-    /* Retro = instant, no motion + SHARP corners everywhere (no rounded pills,
-       cards, toggles, or dots — the whole point of the theme). */
-    :root[data-theme="encarta"] * { border-radius: 0 !important; transition: none !important; animation: none !important; }
-
-    /* ── Encarta component overrides — kill the pills & cards, add Win95 bevels ──
-       These use !important on purpose: the targets are id-scoped per-view rules
-       (#view-… .filter-card / .pill / .toggle-slider) that a theme can't out-rank
-       otherwise — a theme is the legitimate top layer of intent here. */
-    /* Cards / panels → raised gray 3D group-boxes (no soft shadow). */
-    :root[data-theme="encarta"] .filter-card,
-    :root[data-theme="encarta"] .ps-card,
-    :root[data-theme="encarta"] .ps-group,
-    :root[data-theme="encarta"] .ps-rule {
-      background: var(--surface) !important;
-      border: 2px outset #dfdfdf !important;
-      box-shadow: none !important;
-    }
-    /* Home status strip → a sunken readout panel (not a pill). */
-    :root[data-theme="encarta"] .home-status {
-      background: var(--surface) !important; border: 2px inset #dfdfdf !important; box-shadow: none !important;
-    }
-    /* Pills → flat beveled toggle-tags: raised when off, pressed-IN when active.
-       Per-type colour coding is preserved — only the shape + bevel change. */
-    :root[data-theme="encarta"] .pill { border: 2px outset #dfdfdf !important; }
-    :root[data-theme="encarta"] .pill.active { border-style: inset !important; }
-    /* Every button gets the 3D bevel regardless of per-view styling. */
-    :root[data-theme="encarta"] button { border: 2px outset #dfdfdf !important; box-shadow: none !important; }
-    :root[data-theme="encarta"] button:active { border-style: inset !important; transform: none !important; }
-    /* Toggle switches → squared, beveled Win95 sliders. */
-    :root[data-theme="encarta"] .toggle-slider { border: 2px inset #dfdfdf !important; }
-    :root[data-theme="encarta"] .toggle-slider:before { border: 2px outset #dfdfdf !important; background: var(--surface) !important; }
-    /* Secondary buttons sit on the face gray, not white: on a white face the
-       bevel's light edges vanish and the button reads flat (Sep 23 audit). */
-    :root[data-theme="encarta"] .btn-secondary { background: var(--surface); color: var(--text); }
-    :root[data-theme="encarta"] .btn-secondary:hover:not(:disabled) { background: var(--surface-2); }
-    /* The CAO card's "Filtered out (n) ▾" toggle is a button dressed as a
-       text row — no bevel, or it becomes a full-width sunken box. */
-    :root[data-theme="encarta"] #view-run .rej-toggle { border: 0 !important; }
-    /* Every unified table header goes flat gray — Win95 has no sticky inverted headers. */
-    :root[data-theme="encarta"] .table-u th { background: var(--surface) !important; color: var(--text) !important; position: static; }
-    /* Encarta — Run Order table as a Win95 panel (the old right rail is retired;
-       its content lives in the topbar flow zone, themed by its own child borders) */
-    :root[data-theme="encarta"] #view-run .rv-table-scroll { border: 2px inset #dfdfdf !important; }
-
-    /* ── "Windows XP" (Luna) — window-frame reskin over the existing shell. ── */
-    :root[data-theme="luna"] #appRoot { background: linear-gradient(180deg,#5a7edc,#4a6fc8); }
-    :root[data-theme="luna"] #appMain { margin: 6px 6px 0; border-radius: 8px 8px 0 0; overflow: hidden; border: 1px solid #0831d9; }
-    :root[data-theme="luna"] #appHeader { background: linear-gradient(180deg,#0058ee 0%,#2a8bf2 9%,#1d6fd6 45%,#0054e3 90%,#003bbf 100%); border-bottom: 1px solid #003bbf; }
-    :root[data-theme="luna"] #appHeaderTitle { color: #fff; font-weight: 700; text-shadow: 1px 1px 1px rgba(0,0,0,.4); }
-    :root[data-theme="luna"] #appHeaderRight { color: #dce8ff; }
-    :root[data-theme="luna"] #sidebar { background: linear-gradient(180deg,#f0f4fb,#d6e2f5); border-right: 1px solid #7f9db9; }
-    :root[data-theme="luna"] .app-brand { background: linear-gradient(180deg,#0058ee,#0054e3); color: #fff; border-bottom: 1px solid #003bbf; }
-    :root[data-theme="luna"] .nav-item.active { background: var(--accent); color: #fff; border-left-color: #002d8a; }
-    :root[data-theme="luna"] .nav-item.active .icon { color: #fff; }
-    :root[data-theme="luna"] .nav-footer { background: linear-gradient(180deg,#57a818,#3c8d0d); color: #fff; border-top: 1px solid #2a6a08; }
-    /* XP button chrome. Primaries are excluded: this 0,1,1 rule out-specifies
-       .btn-primary (0,1,0) and left white --on-accent text on the cream
-       gradient — "Run Dealer" / "Run anyway" / "Save" read as disabled
-       (Sep 2026 screenshot audit). Primaries get the XP-blue bevel instead. */
-    :root[data-theme="luna"] button:not(.btn-primary) { background: linear-gradient(180deg,#fdfdfd,#e8e8d8); border: 1px solid #8a8a7a; border-radius: 3px; box-shadow: none; }
-    :root[data-theme="luna"] button:not(.btn-primary):hover { border-color: var(--accent-hover); }
-    :root[data-theme="luna"] .btn-primary { background: linear-gradient(180deg,#4a9cf7 0%,#2170de 50%,#0f55c8 100%); color: #fff; border: 1px solid #0a3d9c; border-radius: 3px; box-shadow: inset 0 1px 0 rgba(255,255,255,.35); }
-    :root[data-theme="luna"] .btn-primary:hover:not(:disabled) { background: linear-gradient(180deg,#5fabff 0%,#2f7eea 50%,#1a62d4 100%); }
-    :root[data-theme="luna"] .btn-primary:disabled { background: var(--text-muted); border-color: transparent; box-shadow: none; }
-    /* Section headings sit directly on the blue "desktop" — accent blue vanished there. */
-    :root[data-theme="luna"] .home-hud-title { color: #fff; text-shadow: 1px 1px 1px rgba(0,0,0,.35); }
-    :root[data-theme="luna"] input:not([type=checkbox]):not([type=radio]):not([type=range]),
-    :root[data-theme="luna"] select, :root[data-theme="luna"] textarea { background: #fff; border: 1px solid #7f9db9; border-radius: 2px; box-shadow: none; }
-
-    /* (The data-arrange="desktop" home-card icon rules died with the Workflows
-       cards, July 2026 — the arrange axis itself stays on the theme registry.) */
-    :root[data-theme="luna"] #view-home, :root[data-theme="luna"] #appContent { background: linear-gradient(180deg,#5a7edc,#4a6fc8); }
-    /* Luna mirrors the Run body — VIN column on the right, Explorer-style
-       (the rail is retired; base order is "vin table"). */
-    :root[data-theme="luna"] #view-run .rv-body { grid-template-columns: 1fr var(--rv-vin-w); grid-template-areas: "table vin"; }
-
+    /* Nav items (tasks, settings drawer) — a typographic index; the active
+       item carries the one hot mark. navTo() toggles .active by id. */
     .nav-item {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 8px 16px 8px 13px;
-      cursor: pointer;
-      font-family: var(--font-body);
-      font-size: 14px;
-      font-weight: 500;
-      color: var(--text-2);
+      display: flex; align-items: center; gap: 10px;
+      padding: 7px 16px 7px 13px;
       border-left: 3px solid transparent;
-      user-select: none;
+      font-size: 14px; font-weight: 500; color: var(--text-2);
+      cursor: pointer; user-select: none;
     }
     .nav-item:hover { background: var(--surface); color: var(--text); }
-    .nav-item.active {
-      background: transparent;
-      color: var(--text);
-      font-weight: 700;
-      border-left-color: var(--accent);   /* the one hot mark in the index */
-    }
-    .nav-item.pending { opacity: 0.38; cursor: default; }
-    .nav-item.pending:hover { background: none; }
-    .nav-item .icon { width: 20px; text-align: center; font-size: 14px; }
-    /* The default sidebar is a plain index — the emoji column only exists for
-       the Icon Rail nav pref, where it IS the nav. */
-    :root:not([data-nav="icons"]) #sidebar .nav-item .icon,
-    :root:not([data-nav="icons"]) #sidebar .nav-group-header .icon { display: none; }
-    .nav-spacer { flex: 1; }
-    .nav-footer {
-      padding: 10px 16px 14px;
-      font-size: 11px;
-      color: var(--text-3);
-      border-top: 1px solid var(--border);
-    }
-    /* Collapsible "System Settings" group — same voice as the items, quieter ink */
-    .nav-group-header {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 8px 16px 8px 13px;
-      margin-top: 10px;
-      cursor: pointer;
-      user-select: none;
-      font-family: var(--font-body);
-      font-size: 14px;
-      font-weight: 500;
-      color: var(--text-3);
-      border-left: 3px solid transparent;
-    }
-    .nav-group-header:hover { background: var(--surface); color: var(--text); }
-    .nav-group-header .icon { width: 20px; text-align: center; font-size: 14px; }
-    .nav-group-caret { margin-left: auto; font-size: 10px; transition: transform .15s; }
-    .nav-group.collapsed .nav-group-caret { transform: rotate(-90deg); }
-    .nav-group.collapsed .nav-group-items { display: none; }
-    .nav-group-items .nav-sub { padding-left: 26px; font-size: 13px; }
+    .nav-item.active { color: var(--text); font-weight: 700; border-left-color: var(--accent); }
+    .nav-item .nav-count { margin-left: auto; font-size: var(--fs-sm); font-weight: 600; color: var(--text-3); font-variant-numeric: tabular-nums; }
 
-    /* ── Main area ─────────────────────────────────────────────────────────── */
+    /* Work queue — one row per dealer with work to do today. Filled by
+       queueRender(); rows index into QUEUE.items (never a name in onclick). */
+    .queue-item {
+      display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: center;
+      padding: 8px 16px 8px 13px;
+      border-left: 3px solid transparent;
+      cursor: pointer; user-select: none;
+    }
+    .queue-item:hover { background: var(--surface); }
+    .queue-item.active { border-left-color: var(--accent); }
+    .queue-item .q-name { font-size: 14px; font-weight: 600; color: var(--text); line-height: 1.25; }
+    .queue-item.done .q-name { color: var(--text-3); font-weight: 500; }
+    .queue-item.done .q-name::before { content: "\2713"; display: inline-block; width: 16px; color: var(--success); font-weight: 700; }
+    .queue-item .q-tags { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px; }
+    .queue-item .q-tags:empty { display: none; }
+    .queue-item .tag { font-size: 9.5px; padding: 1px 6px; }
+    .rail-foot { margin-top: auto; padding: 10px 16px 12px; font-size: 11px; color: var(--text-3); border-top: 1px solid var(--border); }
+
+    /* Workspace */
     #appMain { flex: 1; min-width: 0; display: flex; flex-direction: column; }
     #appHeader {
-      height: var(--shell-header-h);
-      flex-shrink: 0;
-      background: var(--bg);
-      border-bottom: var(--rule, 1px solid var(--border));
-      display: flex;
-      align-items: center;
-      gap: 14px;
+      height: 44px; flex-shrink: 0;
+      display: flex; align-items: center; gap: 14px;
       padding: 0 28px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg);
     }
-    #appHeaderTitle {
-      font-family: var(--font-head);
-      font-size: 24px;
-      font-weight: 700;
-      line-height: 1;
-      color: var(--text);
-    }
+    #appHeaderTitle { font-family: var(--font-head); font-size: 22px; font-weight: 700; line-height: 1; color: var(--text); }
     #appHeaderRight { margin-left: auto; font-size: 11px; color: var(--text-3); }
-    /* Run Order status pill — same tones as the old in-view banner, header-sized */
-    #appHeaderStatus { font-size: 13px; padding: 4px 12px; border-radius: var(--radius-sm);
-                       min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* Run Order status line (setRunStatus) — fixed spot beside the title */
+    #appHeaderStatus { font-size: var(--fs-body); padding: 4px 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #appHeaderStatus.error   { background: var(--danger-weak);  color: var(--danger); }
     #appHeaderStatus.success { background: var(--success-weak); color: var(--success); }
     #appHeaderStatus.info    { background: var(--accent-weak);  color: var(--accent); }
@@ -525,29 +202,32 @@
     #appHeaderStatus[hidden] { display: none !important; }
     #appContent { flex: 1; min-height: 0; position: relative; background: var(--bg); }
 
-    /* ── Views ─────────────────────────────────────────────────────────────── */
-    .view { height: 100%; }
-    /* Author display rules on view roots (flex etc.) would defeat the UA's
-       [hidden] rule — force it. */
-    .view[hidden] { display: none !important; }
+    /* Inspector — reserved for the order workspace (ViewOrder shows it) */
+    #inspector {
+      width: var(--shell-inspector-w); flex-shrink: 0; box-sizing: border-box;
+      border-left: var(--rule); overflow-y: auto; background: var(--bg);
+    }
+    #inspector[hidden] { display: none; }
 
-    /* ── Wide-screen responsive frame ───────────────────────────────────────
-       Each view root declares a data-layout tier; its content wrapper(s) carry
-       the .app-measure marker. At width the wrapper caps to a comfortable
-       measure and centers, so extra space becomes calm gutters instead of the
-       "modal, stretched" look:
-         form       → 880px  (narrow single-column: Utilities)
-         form-wide  → 1280px (split / dense config: Rules, Import, Pipedrive,
-                              Data Sources)
-         data       → 1680px (tables: Home, VIN Logs, Normalization, Run)
-       Gated by viewport WIDTH, intentionally NOT by [data-mode]: the modal is
-       locked at 1400 so it sits under the 1500px gate and is untouched, while
-       the full-screen browser tab AND the installed standalone window (both
-       webapp mode) get the treatment. Do not add a [data-mode] qualifier here.
-       The selector requires [data-layout] (only ever on a view root) AND the
-       .app-measure marker on a direct child, so it can't leak across the shared
-       CSS scope. A flat multi-child view (Rules, Norm) tags each content row
-       with .app-measure — same measure + auto margins keep them column-aligned. */
+    /* ── Settings drawer — the eight config screens, off the main flow ───── */
+    #settingsDrawer {
+      position: absolute; z-index: 70;
+      top: var(--shell-header-h); right: 0; width: 280px;
+      max-height: calc(100vh - var(--shell-header-h));
+      overflow-y: auto;
+      background: var(--bg); border-left: var(--rule); border-bottom: var(--rule);
+      padding: 10px 0 12px;
+    }
+    #settingsDrawer[hidden] { display: none; }
+    #settingsDrawer .rail-h { padding-top: 4px; }
+
+    /* ── Views ───────────────────────────────────────────────────────────── */
+    .view { height: 100%; }
+    .view[hidden] { display: none !important; }   /* author display rules would defeat the UA [hidden] rule */
+
+    /* Wide-screen frame: view roots carry data-layout; wrappers carry
+       .app-measure. Above 1500px the wrapper caps + centers so extra width
+       becomes calm gutters. The 1400-wide modal sits under the gate. */
     @media (min-width: 1500px) {
       .view[data-layout="form"]      > .app-measure { max-width: var(--measure-form);      margin-inline: auto; }
       .view[data-layout="form-wide"] > .app-measure { max-width: var(--measure-form-wide); margin-inline: auto; }
@@ -556,6 +236,38 @@
     @media (min-width: 2100px) {
       .view[data-layout] > .app-measure { padding-inline: var(--gutter-wide); }
     }
+
+    /* ── Mobile (≤760px, data-viewport="mobile" pre-paint): the rail becomes
+       an off-canvas panel opened from a bottom bar; the inspector stacks under
+       the workspace; views go single-column (their own rules). ─────────────── */
+    #mobileBar { display: none; }
+    :root[data-viewport="mobile"] .brand { width: auto; border-right: none; font-size: 18px; }
+    :root[data-viewport="mobile"] #topBar { gap: 6px; padding-right: 8px; }
+    :root[data-viewport="mobile"] #importChip .tb-text { display: none; }
+    :root[data-viewport="mobile"] #rail {
+      position: fixed; z-index: 200; left: 0; bottom: 48px; top: var(--shell-header-h);
+      width: 84vw; max-width: 320px;
+      border-right: var(--rule); box-shadow: var(--shadow-lg);
+      display: none;
+    }
+    :root[data-viewport="mobile"][data-start-open] #rail { display: flex; }
+    :root[data-viewport="mobile"] #inspector { display: none; }
+    :root[data-viewport="mobile"] #appHeader { padding: 0 16px; }
+    :root[data-viewport="mobile"] #mobileBar {
+      display: flex; align-items: center; gap: 10px;
+      height: 48px; flex-shrink: 0; box-sizing: border-box;
+      padding: 0 28px 0 48px;   /* iPhone corner insets (env(safe-area-*) was tried and reverted) */
+      border-top: var(--rule); background: var(--bg);
+    }
+    :root[data-viewport="mobile"] #mobileBar .tb-btn { height: 32px; }
+    :root[data-viewport="mobile"] #mobileBar .m-clock { margin-left: auto; font-size: var(--fs-sm); color: var(--text-3); font-variant-numeric: tabular-nums; }
+    :root[data-viewport="mobile"] .nav-item, :root[data-viewport="mobile"] .queue-item { padding-top: 11px; padding-bottom: 11px; }
+    :root[data-viewport="mobile"] #settingsDrawer { width: 100vw; border-left: none; }
+
+    /* Encarta / Windows XP kept their shell chrome in the old App.html. The
+       Order Desk shell renders every theme as a palette (tokens only) — the
+       Win95/XP window-frame rules were shell-coupled and are not carried over.
+       Debt: docs/rebuild-order-desk-design.md. */
   </style>
 </head>
 <body>
@@ -567,68 +279,17 @@
 
   <div id="appRoot">
 
-    <nav id="sidebar">
-      <div class="app-brand" onclick="navTo('view-home')">
+    <header id="topBar">
+      <div class="brand" onclick="navTo('view-home')">
         <span class="logo" role="img" aria-label="SilverFox logo"></span> SilverFox<?= ENV.name !== 'prod' ? ' (' + ENV.name.toUpperCase() + ')' : '' ?>
       </div>
-      <div class="nav-item" id="nav-view-home" onclick="navTo('view-home')">
-        <span class="icon">&#8962;</span> Home
+      <div id="importChip" class="tb-chip" onclick="navTo('view-import')" title="Open Import Data">
+        <span class="dot">&#9679;</span><span class="tb-text" id="importChipText">Checking import&hellip;</span>
       </div>
-      <div class="nav-item" id="nav-view-run" onclick="navTo('view-run')">
-        <span class="icon">&#9654;</span> Run Order
-      </div>
-      <div class="nav-item" id="nav-view-import" onclick="navTo('view-import')">
-        <span class="icon">&#11014;</span> Import Data
-      </div>
-      <div class="nav-item" id="nav-view-vinlog" onclick="navTo('view-vinlog')">
-        <span class="icon">&#128203;</span> VIN Logs
-      </div>
-      <div class="nav-item" id="nav-view-vin-inbox" onclick="navTo('view-vin-inbox')">
-        <span class="icon">&#128229;</span> VIN Inbox
-      </div>
-      <div class="nav-item" id="nav-view-stack-cleanup" onclick="navTo('view-stack-cleanup')">
-        <span class="icon">&#129529;</span> Stack Cleanup
-      </div>
-      <div class="nav-item" id="nav-view-end-of-month" onclick="navTo('view-end-of-month')">
-        <span class="icon">&#128202;</span> End of Month
-      </div>
-      <div class="nav-item" id="nav-view-utilities" onclick="navTo('view-utilities')">
-        <span class="icon">&#128295;</span> Utilities
-      </div>
-      <div class="nav-group collapsed" id="nav-group-settings">
-        <div class="nav-group-header" onclick="toggleSettingsGroup()" title="Show / hide configuration screens">
-          <span class="icon">&#9881;</span> System Settings <span class="nav-group-caret">&#9662;</span>
-        </div>
-        <div class="nav-group-items">
-          <div class="nav-item nav-sub" id="nav-view-ui-settings" onclick="navTo('view-ui-settings')">
-            <span class="icon">&#127899;</span> UI Settings
-          </div>
-          <div class="nav-item nav-sub" id="nav-view-rules" onclick="navTo('view-rules')">
-            <span class="icon">&#9881;</span> Dealer Rules
-          </div>
-          <div class="nav-item nav-sub" id="nav-view-norm" onclick="navTo('view-norm')">
-            <span class="icon">Aa</span> Normalization
-          </div>
-          <div class="nav-item nav-sub" id="nav-view-datasources" onclick="navTo('view-datasources')">
-            <span class="icon">&#128452;</span> Data Sources
-          </div>
-          <div class="nav-item nav-sub" id="nav-view-pipedrive-settings" onclick="navTo('view-pipedrive-settings')">
-            <span class="icon">&#128279;</span> Pipedrive Settings
-          </div>
-          <div class="nav-item nav-sub" id="nav-view-fieldcodes" onclick="navTo('view-fieldcodes')">
-            <span class="icon">&#35;</span> Field Codes
-          </div>
-          <div class="nav-item nav-sub" id="nav-view-csvschemas" onclick="navTo('view-csvschemas')">
-            <span class="icon">&#128203;</span> CSV Schemas
-          </div>
-          <div class="nav-item nav-sub" id="nav-view-add-dealer" onclick="navTo('view-add-dealer')">
-            <span class="icon">&#10133;</span> Add Dealer
-          </div>
-        </div>
-      </div>
-      <div class="nav-spacer"></div>
-      <div class="nav-item nav-theme" title="Switch theme">
-        <span class="icon" aria-hidden="true">&#127912;</span>
+      <div class="tb-spacer"></div>
+      <div id="busyChip" class="tb-chip busy" hidden></div>
+      <button type="button" class="tb-btn" id="settingsBtn" onclick="toggleSettings(event)" aria-haspopup="true" aria-expanded="false">Settings</button>
+      <div class="nav-theme" title="Switch theme">
         <button type="button" id="themeBtn" class="theme-btn"
                 aria-haspopup="listbox" aria-expanded="false" aria-label="Theme">
           <span id="themeBtnLabel">Theme</span>
@@ -636,43 +297,78 @@
         </button>
         <ul id="themeMenu" class="theme-menu" role="listbox" aria-label="Theme" hidden></ul>
       </div>
-      <div class="nav-footer">SilverFox V2 &middot; GAS-OPS</div>
-    </nav>
+      <button type="button" class="tb-btn tb-close" onclick="exitApp()">Close</button>
+    </header>
 
-    <div id="appMain">
-      <div id="appHeader">
-        <span id="appHeaderTitle">Home</span>
-        <!-- Run Order's status line (setRunStatus) — fixed spot beside the title
-             instead of moving around the view; hidden on every other view. -->
-        <span id="appHeaderStatus" class="empty" hidden></span>
-        <span id="appHeaderRight"></span>
-      </div>
-      <div id="appContent">
-        <?!= include_('ViewHome') ?>
-        <?!= include_('ViewRun') ?>
-        <?!= include_('ViewImport') ?>
-        <?!= include_('ViewDataSources') ?>
-        <?!= include_('ViewVinLog') ?>
-        <?!= include_('ViewVinInbox') ?>
-        <?!= include_('ViewStackCleanup') ?>
-        <?!= include_('ViewEndOfMonth') ?>
-        <?!= include_('ViewRules') ?>
-        <?!= include_('ViewNorm') ?>
-        <?!= include_('ViewUtilities') ?>
-        <?!= include_('ViewPipedriveSettings') ?>
-        <?!= include_('ViewFieldCodes') ?>
-        <?!= include_('ViewCsvSchemas') ?>
-        <?!= include_('ViewUiSettings') ?>
-        <?!= include_('ViewAddDealer') ?>
-      </div>
+    <div id="appBody">
+
+      <nav id="rail" aria-label="Work">
+        <div class="rail-sec">
+          <div class="rail-h">Today <span class="rail-sub" id="queueSub"></span></div>
+          <div id="queue"><div class="rail-empty">Loading today&rsquo;s work&hellip;</div></div>
+        </div>
+        <div class="rail-sec">
+          <div class="rail-h">Tasks</div>
+          <div class="nav-item" id="nav-view-home" onclick="navTo('view-home')">Today</div>
+          <div class="nav-item" id="nav-view-run" onclick="navTo('view-run')">Run an order</div>
+          <div class="nav-item" id="nav-view-import" onclick="navTo('view-import')">Import data</div>
+          <div class="nav-item" id="nav-view-vin-inbox" onclick="navTo('view-vin-inbox')">VIN inbox <span class="nav-count" id="navInboxCount"></span></div>
+          <div class="nav-item" id="nav-view-vinlog" onclick="navTo('view-vinlog')">VIN logs</div>
+          <div class="nav-item" id="nav-view-stack-cleanup" onclick="navTo('view-stack-cleanup')">Stack cleanup</div>
+          <div class="nav-item" id="nav-view-end-of-month" onclick="navTo('view-end-of-month')">Month end</div>
+          <div class="nav-item" id="nav-view-utilities" onclick="navTo('view-utilities')">Utilities</div>
+        </div>
+        <div class="rail-foot">SilverFox V2 &middot; GAS-OPS</div>
+      </nav>
+
+      <main id="appMain">
+        <div id="appHeader">
+          <span id="appHeaderTitle">Today</span>
+          <span id="appHeaderStatus" class="empty" hidden></span>
+          <span id="appHeaderRight"></span>
+        </div>
+        <div id="appContent">
+          <?!= include_('ViewHome') ?>
+          <?!= include_('ViewRun') ?>
+          <?!= include_('ViewImport') ?>
+          <?!= include_('ViewDataSources') ?>
+          <?!= include_('ViewVinLog') ?>
+          <?!= include_('ViewVinInbox') ?>
+          <?!= include_('ViewStackCleanup') ?>
+          <?!= include_('ViewEndOfMonth') ?>
+          <?!= include_('ViewRules') ?>
+          <?!= include_('ViewNorm') ?>
+          <?!= include_('ViewUtilities') ?>
+          <?!= include_('ViewPipedriveSettings') ?>
+          <?!= include_('ViewFieldCodes') ?>
+          <?!= include_('ViewCsvSchemas') ?>
+          <?!= include_('ViewUiSettings') ?>
+          <?!= include_('ViewAddDealer') ?>
+        </div>
+      </main>
+
+      <aside id="inspector" aria-label="Dealer" hidden></aside>
+
     </div>
 
-    <!-- Bottom taskbar — only rendered in the start-menu nav layout (CSS display:none otherwise). -->
-    <div id="startBar">
-      <button type="button" class="start-btn" onclick="toggleStartMenu(event)" aria-label="Start menu">
-        <span class="start-logo" aria-hidden="true">&#8862;</span> Start
-      </button>
-      <span class="start-clock" id="startClock"></span>
+    <!-- Settings drawer: the eight setup/config screens (Nick-only, rare). -->
+    <div id="settingsDrawer" hidden>
+      <div class="rail-h">Settings</div>
+      <div class="nav-item" id="nav-view-rules" onclick="navTo('view-rules')">Dealer rules</div>
+      <div class="nav-item" id="nav-view-pipedrive-settings" onclick="navTo('view-pipedrive-settings')">Pipedrive</div>
+      <div class="nav-item" id="nav-view-add-dealer" onclick="navTo('view-add-dealer')">Add dealer</div>
+      <div class="nav-item" id="nav-view-norm" onclick="navTo('view-norm')">Normalization</div>
+      <div class="nav-item" id="nav-view-datasources" onclick="navTo('view-datasources')">Data sources</div>
+      <div class="nav-item" id="nav-view-fieldcodes" onclick="navTo('view-fieldcodes')">Field codes</div>
+      <div class="nav-item" id="nav-view-csvschemas" onclick="navTo('view-csvschemas')">CSV schemas</div>
+      <div class="nav-item" id="nav-view-ui-settings" onclick="navTo('view-ui-settings')">UI settings</div>
+    </div>
+
+    <!-- Phone: bottom bar opens the rail as a panel (data-start-open, same
+         attribute the old start-menu layout used, so SharedUtils stays inert). -->
+    <div id="mobileBar">
+      <button type="button" class="tb-btn" onclick="toggleStartMenu(event)" aria-label="Open work list">Work</button>
+      <span class="m-clock" id="startClock"></span>
     </div>
 
   </div>
@@ -680,7 +376,7 @@
   <script>
     // ── Shell boot — runs AFTER all view fragments have registered ──────────
     var NAV_TITLES = {
-      'view-home':   'Home',
+      'view-home':   'Today',
       'view-run':    'Run Order',
       'view-import': 'Import Data',
       'view-datasources': 'Data Sources',
@@ -697,74 +393,60 @@
       'view-ui-settings': 'UI Settings',
       'view-add-dealer': 'Add Dealer'
     };
+    var SETTINGS_VIEWS = ['view-ui-settings', 'view-rules', 'view-norm', 'view-datasources', 'view-pipedrive-settings', 'view-fieldcodes', 'view-csvschemas', 'view-add-dealer'];
     var _viewInited = {};
 
+    // Same contract as before: hidden views keep DOM + JS state; VIEW_LEFT on
+    // the leaving view, VIEW_INITS once, CustomSelect.enhanceAll while VISIBLE,
+    // then VIEW_SHOWN every visit. Active marks live on .nav-item / .queue-item
+    // anywhere in the shell (rail + settings drawer), matched by id.
     function navTo(viewId) {
       var target = document.getElementById(viewId);
-      if (!target) {
-        toast('This section is still being migrated into the App — use the Classic menu for now.', 'info');
-        return;
-      }
+      if (!target) { toast('That screen is not available in this build.', 'info'); return; }
 
-      // On-leave hook for the view being navigated away from (e.g. Run Order
-      // auto-saves typed work as a draft). Computed from the DOM — no extra
-      // "current view" state to keep in sync.
       var leaving = document.querySelector('#appContent .view:not([hidden])');
       if (leaving && leaving.id !== viewId && window.VIEW_LEFT && VIEW_LEFT[leaving.id]) {
         try { VIEW_LEFT[leaving.id](); } catch (e) {}
       }
 
-      // Show/hide views
       var views = document.querySelectorAll('#appContent .view');
-      for (var i = 0; i < views.length; i++) {
-        views[i].hidden = (views[i].id !== viewId);
-      }
+      for (var i = 0; i < views.length; i++) views[i].hidden = (views[i].id !== viewId);
 
-      // Sidebar active state + header title
-      var items = document.querySelectorAll('#sidebar .nav-item');
-      for (var j = 0; j < items.length; j++) {
-        items[j].classList.toggle('active', items[j].id === 'nav-' + viewId);
-      }
-      // Keep the System Settings group open when navigating to one of its children.
-      if (['view-ui-settings', 'view-rules', 'view-norm', 'view-datasources', 'view-pipedrive-settings', 'view-fieldcodes', 'view-csvschemas', 'view-add-dealer'].indexOf(viewId) !== -1) {
-        var sg = document.getElementById('nav-group-settings');
-        if (sg) sg.classList.remove('collapsed');
-      }
+      var items = document.querySelectorAll('.nav-item[id^="nav-"]');
+      for (var j = 0; j < items.length; j++) items[j].classList.toggle('active', items[j].id === 'nav-' + viewId);
+      if (viewId !== 'view-run') queueMarkActive_(null);   // a queue row only stays lit while its order is open
+
       document.getElementById('appHeaderTitle').textContent = NAV_TITLES[viewId] || '';
-      // The header status line belongs to Run Order; its text survives the
-      // round-trip (hidden views keep state, so does this).
       document.getElementById('appHeaderStatus').hidden = (viewId !== 'view-run');
+      document.getElementById('settingsBtn').classList.toggle('on', SETTINGS_VIEWS.indexOf(viewId) !== -1);
 
-      // Lazy init (once), then on-show hook (every visit)
       if (!_viewInited[viewId]) {
         _viewInited[viewId] = true;
         if (window.VIEW_INITS && VIEW_INITS[viewId]) {
           try { VIEW_INITS[viewId](); } catch (e) { toast('Init error: ' + e.message, 'error'); }
         }
       }
-      // Enhance this view's <select>s now that it's VISIBLE (real layout + options
-      // present). Enhancing while a view is hidden is unreliable, which is why only
-      // Run Order's selects (re-populated via innerHTML → caught by the observer)
-      // got the themed dropdown before. Idempotent — already-enhanced selects skip.
-      // Runs BEFORE VIEW_SHOWN so height-calc views (Norm/FieldCodes) measure the
-      // enhanced layout.
-      if (window.CustomSelect && CustomSelect.enhanceAll) {
-        try { CustomSelect.enhanceAll(target); } catch (e) {}
-      }
-      if (window.VIEW_SHOWN && VIEW_SHOWN[viewId]) {
-        try { VIEW_SHOWN[viewId](); } catch (e) {}
-      }
-      closeStartMenu();   // picking a destination closes the Start panel (no-op in other layouts)
+      if (window.CustomSelect && CustomSelect.enhanceAll) { try { CustomSelect.enhanceAll(target); } catch (e) {} }
+      if (window.VIEW_SHOWN && VIEW_SHOWN[viewId]) { try { VIEW_SHOWN[viewId](); } catch (e) {} }
+      closeSettings();
+      closeStartMenu();
     }
 
-    function toggleSettingsGroup() {
-      var g = document.getElementById('nav-group-settings');
-      if (g) g.classList.toggle('collapsed');
+    // ── Settings drawer ──────────────────────────────────────────────────────
+    function toggleSettings(e) {
+      if (e) e.stopPropagation();
+      var d = document.getElementById('settingsDrawer'), b = document.getElementById('settingsBtn');
+      d.hidden = !d.hidden;
+      b.setAttribute('aria-expanded', d.hidden ? 'false' : 'true');
+    }
+    function closeSettings() {
+      var d = document.getElementById('settingsDrawer'), b = document.getElementById('settingsBtn');
+      if (d && !d.hidden) { d.hidden = true; b.setAttribute('aria-expanded', 'false'); }
     }
 
-    // ── Start-menu layout: Start button popup + taskbar clock ────────────────
+    // ── Phone work panel (reuses the data-start-open attribute) ─────────────
     function toggleStartMenu(e) {
-      if (e) e.stopPropagation();   // don't let the click bubble to the outside-close handler
+      if (e) e.stopPropagation();
       var root = document.documentElement;
       if (root.hasAttribute('data-start-open')) root.removeAttribute('data-start-open');
       else root.setAttribute('data-start-open', '');
@@ -775,18 +457,108 @@
       if (el) { try { el.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); } catch (e) {} }
     }
 
-    // Mark not-yet-migrated sections in the sidebar
-    function markPendingViews() {
-      var ids = ['view-run', 'view-import', 'view-datasources', 'view-vinlog', 'view-rules', 'view-norm', 'view-utilities', 'view-pipedrive-settings', 'view-fieldcodes'];
-      ids.forEach(function(id) {
-        if (!document.getElementById(id)) {
-          var item = document.getElementById('nav-' + id);
-          if (item) {
-            item.classList.add('pending');
-            item.title = 'Coming soon — use the Classic menu for now';
-          }
-        }
+    // ── Import freshness chip (top bar) ─────────────────────────────────────
+    // getAppHomeStatus → {lastImportDate,lastImportTime}; "fresh" = imported
+    // today (homeDateIsToday_ from ViewHome — same rule Run Order's pre-flight uses).
+    function shellLoadImportChip() {
+      google.script.run
+        .withSuccessHandler(function(s) {
+          var chip = document.getElementById('importChip'), t = document.getElementById('importChipText');
+          var date = String((s && s.lastImportDate) || '').trim(), time = String((s && s.lastImportTime) || '').trim();
+          if (!date) { t.textContent = 'No import yet'; chip.className = 'tb-chip stale'; return; }
+          var today = (typeof homeDateIsToday_ === 'function') && homeDateIsToday_(date);
+          t.textContent = (today ? 'Imported today ' + time : 'Last import ' + date + (time ? ' ' + time : ''));
+          chip.className = 'tb-chip ' + (today ? 'fresh' : 'stale');
+        })
+        .withFailureHandler(function() {
+          document.getElementById('importChipText').textContent = 'Import status unavailable';
+          document.getElementById('importChip').className = 'tb-chip stale';
+        })
+        .getAppHomeStatus();
+    }
+
+    // ── Busy chip — mirrors AppBusy (run / import / eom) ─────────────────────
+    function shellTickBusy() {
+      var chip = document.getElementById('busyChip');
+      var label = AppBusy.is('run') ? 'Run in progress' : AppBusy.is('import') ? 'Import in progress' : AppBusy.is('eom') ? 'Month-end report running' : '';
+      chip.textContent = label;
+      chip.hidden = !label;
+    }
+
+    // ── Work queue (rail "Today") ────────────────────────────────────────────
+    // One row per dealer with work today, assembled client-side from existing
+    // server calls: print schedule (scheduled / printed), my drafts. Inbox
+    // batches and uncommitted runs join in the next increment. Rows index into
+    // QUEUE.items — never a dealer name inside onclick (apostrophe trap).
+    var QUEUE = { items: [], seq: 0, activeKey: null };
+    function queueLoad() {
+      var seq = ++QUEUE.seq, sched = null, drafts = null, pending = 2;
+      function done() {
+        if (--pending > 0 || seq !== QUEUE.seq) return;
+        queueBuild_(sched, drafts);
+      }
+      google.script.run.withSuccessHandler(function(r) { sched = r; done(); }).withFailureHandler(done).getPrintSchedule(false);
+      google.script.run.withSuccessHandler(function(r) { drafts = r; done(); }).withFailureHandler(done).getMyRunDrafts();
+    }
+    function queueBuild_(sched, drafts) {
+      var byKey = {}, order = [];
+      function row(key, name) {
+        if (!byKey[key]) { byKey[key] = { key: key, name: name, tags: [], done: false }; order.push(key); }
+        return byKey[key];
+      }
+      var s = sched && sched.ok ? sched : null;
+      if (s) {
+        (s.upNext || []).forEach(function(d) {
+          var r = row(d.key, d.name);
+          r.tags.push({ tone: 'tone-info', text: 'scheduled' });
+          if (Number(d.pending)) r.tags.push({ tone: 'tone-warning', text: d.pending + ' scanned' });
+        });
+      }
+      ((drafts && drafts.drafts) || []).forEach(function(d) {
+        var r = row(d.dealerKey, d.dealerName);
+        r.tags.push({ tone: 'tone-neutral', text: 'draft, ' + d.vinCount + ' VIN' + (d.vinCount === 1 ? '' : 's') });
       });
+      if (s) {
+        (s.ranToday || []).forEach(function(d) {
+          var key = d.key || d.name;   // ranToday rows carry a name; key when the server provides one
+          var r = row(key, d.name);
+          r.done = true;
+          r.tags.push({ tone: 'tone-success', text: d.runs + (d.runs === 1 ? ' run' : ' runs') + ', ' + d.vins + ' VINs' });
+          if (Number(d.pending)) r.tags.push({ tone: 'tone-warning', text: d.pending + ' scanned' });
+        });
+      }
+      QUEUE.items = order.map(function(k) { return byKey[k]; });
+      var todo = QUEUE.items.filter(function(r) { return !r.done; }).length;
+      document.getElementById('queueSub').textContent = s && s.day ? s.day + (todo ? ', ' + todo + ' to print' : '') : '';
+      queueRender_();
+    }
+    function queueRender_() {
+      var el = document.getElementById('queue');
+      if (!QUEUE.items.length) { el.innerHTML = '<div class="rail-empty">Nothing on the desk today.</div>'; return; }
+      var html = '';
+      QUEUE.items.forEach(function(r, i) {
+        html += '<div class="queue-item' + (r.done ? ' done' : '') + (r.key === QUEUE.activeKey ? ' active' : '') + '" onclick="queueOpen_(' + i + ')">' +
+          '<div class="q-name">' + escHtml(r.name) + '</div>' +
+          '<div class="q-tags">' + r.tags.map(function(t) { return '<span class="tag ' + t.tone + '">' + escHtml(t.text) + '</span>'; }).join('') + '</div>' +
+        '</div>';
+      });
+      el.innerHTML = html;
+    }
+    function queueMarkActive_(key) {
+      QUEUE.activeKey = key;
+      var rows = document.querySelectorAll('#queue .queue-item');
+      for (var i = 0; i < rows.length; i++) rows[i].classList.toggle('active', !!key && QUEUE.items[i] && QUEUE.items[i].key === key);
+    }
+    // Opening a row = the order workspace for that dealer. Until ViewOrder lands
+    // this is the existing Run Order screen with the dealer preselected (same
+    // path Home's Run buttons use).
+    function queueOpen_(i) {
+      var r = QUEUE.items[i];
+      if (!r || !r.key) return;
+      queueMarkActive_(r.key);
+      navTo('view-run');
+      if (typeof runPrefillFromInbox === 'function') runPrefillFromInbox(r.key, []);
+      queueMarkActive_(r.key);   // navTo cleared it for non-run views; re-pin for run
     }
 
     function exitApp() {
@@ -796,32 +568,32 @@
         : Promise.resolve(true);
       ask.then(function(ok) {
         if (!ok) return;
-        // In a browser tab (web app) there's no host dialog to close — the Close
-        // item is hidden, but guard the path anyway.
-        if (document.documentElement.getAttribute('data-mode') === 'webapp') {
-          toast('Close the browser tab to exit.', 'info');
-        } else {
-          google.script.host.close();
-        }
+        if (document.documentElement.getAttribute('data-mode') === 'webapp') toast('Close the browser tab to exit.', 'info');
+        else google.script.host.close();
       });
     }
 
-    markPendingViews();
     Theme.initPicker();                    // build the picker options from the registry
-    CustomSelect.start();                  // enhance native <select>s into themed dropdowns (web-app-themeable)
+    CustomSelect.start();                  // enhance native <select>s into themed dropdowns
     Theme.apply(Theme.current(), false);   // pin the attribute + sync the picker
     navTo('view-home');
-    // Prefetch shared bootstrap data (dealers + users) while the user is on
-    // Home — Run Order / VIN Logs then populate instantly on first visit.
-    AppData.load();
-    // Start-menu (taskbar) layout: live clock + click-outside-to-close (inert
-    // unless the start-menu nav layout is active and the panel is open).
+    AppData.load();                        // prefetch dealers + users for every view
+    shellLoadImportChip();
+    queueLoad();
+    shellTickBusy(); setInterval(shellTickBusy, 1000);
     tickStartClock(); setInterval(tickStartClock, 30000);
+    // Re-pull the queue whenever the user comes back to Today (a run or import
+    // changes it) — ViewHome's own VIEW_SHOWN keeps running; this wraps it.
+    (function() {
+      var prev = window.VIEW_SHOWN && VIEW_SHOWN['view-home'];
+      window.VIEW_SHOWN = window.VIEW_SHOWN || {};
+      VIEW_SHOWN['view-home'] = function() { if (prev) prev(); queueLoad(); shellLoadImportChip(); };
+    })();
     document.addEventListener('click', function(e) {
-      if (document.documentElement.hasAttribute('data-start-open') &&
-          e.target.closest && !e.target.closest('#sidebar') && !e.target.closest('#startBar')) {
-        closeStartMenu();
-      }
+      var root = document.documentElement;
+      if (root.hasAttribute('data-start-open') && e.target.closest && !e.target.closest('#rail') && !e.target.closest('#mobileBar')) closeStartMenu();
+      var d = document.getElementById('settingsDrawer');
+      if (d && !d.hidden && e.target.closest && !e.target.closest('#settingsDrawer') && !e.target.closest('#settingsBtn')) closeSettings();
     });
   </script>
 </body>
