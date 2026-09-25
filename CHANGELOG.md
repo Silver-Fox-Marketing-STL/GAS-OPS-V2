@@ -10,6 +10,20 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## [Unreleased]
 
+### Added
+- **SPIKE — desk API groundwork (branch `spike/desk-api`, EXPERIMENTAL only,
+  Sep 25, 2026): increment 1 of `docs/spike-separate-frontend.md`.** The
+  manifest flips `webapp` to `executeAs: USER_DEPLOYING` / `access: ANYONE`
+  so the EXP `/exec` can serve a JSON API to a frontend on our own origin;
+  the `exp` `ENV_IDS` entry gains `apiEnabled: true` (the router, increment 2,
+  dispatches only when it is exactly `true`; prod and dev never set it);
+  `scripts/promote.ps1` gains **Gate 1.6**, refusing to promote while the
+  manifest is not `DOMAIN` + `USER_ACCESSING` or the PROD `ENV_IDS` entry
+  carries `apiEnabled: true`. Harness: the ENV resolver suite reads the ids
+  from `.clasp.exp.json` / `.clasp.prod.json` and asserts the flag states.
+  Side effect, EXP only: the HtmlService desk on the EXP `/exec` now runs as
+  the deploying account (per-user theme / nav preferences become the owner's).
+
 ### Changed
 - **REBUILD — Order Desk client (branch `exp/ui-playground`, EXPERIMENTAL env,
   Sep 25, 2026).** Ground-up client rebuild on the fixed Code.gs server, per

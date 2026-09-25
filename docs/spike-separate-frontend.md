@@ -109,3 +109,13 @@ shapes carry over unchanged.
 3. `desk/` shell: sign-in, `api.ts`, tokens/CSS, queue rail.
 4. Order flow: dealer → CAO → run → test finalize → folder link.
 5. Pages workflow + live proof against DEV + write-up (keep / extend / stop).
+
+## Progress
+
+| # | Increment | State |
+|---|---|---|
+| 1 | Branch + manifest + `apiEnabled` on the exp env + promote Gate 1.6 | done 2026-09-25 (harness asserts the flag states; Gate 1.6 checked standalone) |
+| 2 | Router + token check + function map + identity context | — |
+| 3 | `desk/` shell: sign-in, `api.ts`, tokens/CSS, queue rail | — |
+| 4 | Order flow: dealer → CAO → run → test finalize → folder link | — |
+| 5 | Pages workflow + live proof against DEV + write-up | — |

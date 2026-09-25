@@ -144,6 +144,29 @@ t('dev ENV binds the DEV sheet IDs to the constants', function () {
   assert.strictEqual(MASTER_SHEET_ID, '1-0rHSoBmQip-yi_dB_S-kz-2fjc6x7pOxlbg2S7PEjk');
   assert.strictEqual(CONFIG_SHEET_ID, '1ajpIn_TD7fOZ_rZZMfK6KSdJ4niqiB4l85eC0dok5lA');
 });
+// Desk API gate (docs/spike-separate-frontend.md): the router dispatches only
+// when ENV.apiEnabled === true, and that flag lives on the exp entry alone.
+// The ids come from the real clasp targets, so a renamed/retargeted script
+// project can't leave the flag on the wrong environment unnoticed.
+function claspScriptId_(file) {
+  return JSON.parse(fs.readFileSync(path.join(ROOT, file), 'utf8')).scriptId;
+}
+t('exp scriptId (.clasp.exp.json) resolves ENV.name === exp with apiEnabled === true', function () {
+  currentScriptId = claspScriptId_('.clasp.exp.json');
+  loadAll();
+  assert.strictEqual(ENV.name, 'exp');
+  assert.strictEqual(ENV.apiEnabled, true);
+  assert.strictEqual(MASTER_SHEET_ID, '1-0rHSoBmQip-yi_dB_S-kz-2fjc6x7pOxlbg2S7PEjk', 'exp shares the DEV master');
+  currentScriptId = DEV_SCRIPT_ID;
+  loadAll();  // every later suite runs against the dev stub
+});
+t('prod (.clasp.prod.json) and dev entries never enable the desk API', function () {
+  var prod = ENV_IDS[claspScriptId_('.clasp.prod.json')];
+  assert.ok(prod && prod.name === 'prod', 'the prod clasp target is the prod ENV entry');
+  assert.notStrictEqual(prod.apiEnabled, true);
+  assert.notStrictEqual(ENV_IDS[DEV_SCRIPT_ID].apiEnabled, true);
+  assert.strictEqual(ENV.apiEnabled, undefined, 'dev ENV carries no flag at all');
+});
 
 if (typeof ENV === 'undefined' || !ENV) {
   console.error('Code.gs failed to eval-load — aborting (see FAIL above).');

@@ -142,6 +142,15 @@ DEV's HEAD, which stays the test bed for the next promote.
 - **Anything that changes sheet structure** does NOT belong on EXP: it shares
   the DEV sheets, so a schema experiment would leak into DEV testing. Use the
   normal DEV path with a migration.
+- **Desk API spike (branch `spike/desk-api`, 2026-09-25):** on that branch
+  `appsscript.json` is `executeAs: USER_DEPLOYING` + `access: ANYONE` and the
+  `exp` `ENV_IDS` entry carries `apiEnabled: true`, so the EXP `/exec` doubles
+  as the JSON API (`doPost`) for `desk/`. Pushing that branch with
+  `push-exp.ps1` changes the EXP web app's identity model: Nick must re-deploy
+  once and consent as owner, and the HtmlService desk on EXP then runs as him.
+  `promote.ps1` Gate 1.6 refuses that manifest, so it can never reach PROD by
+  accident; DEV keeps the domain manifest because `clasp push` runs from
+  `main`. Design + increments: `docs/spike-separate-frontend.md`.
 
 ## clasp targets
 
