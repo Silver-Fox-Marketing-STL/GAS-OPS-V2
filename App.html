@@ -498,47 +498,93 @@
     }
 
     // ── Work queue (rail "Today") ────────────────────────────────────────────
-    // One row per dealer with work today, assembled client-side from existing
-    // server calls: print schedule (scheduled / printed), my drafts. Inbox
-    // batches and uncommitted runs join in the next increment. Rows index into
-    // QUEUE.items — never a dealer name inside onclick (apostrophe trap).
+    // One row per dealer with work today, assembled client-side from four
+    // existing server calls (a single getWorkQueue() is the phase-2 Code.gs
+    // candidate — debt register): print schedule (scheduled / printed today),
+    // my drafts, submitted lot-scan batches (VIN inbox), and finalized runs not
+    // yet committed to the VIN log. Each call fails independently — a dead
+    // call drops its tags, never the queue. Rows index into QUEUE.items —
+    // never a dealer name inside onclick (apostrophe trap).
     var QUEUE = { items: [], seq: 0, activeKey: null };
     function queueLoad() {
-      var seq = ++QUEUE.seq, sched = null, drafts = null, pending = 2;
+      var seq = ++QUEUE.seq, sched = null, drafts = null, subs = null, runs = null, pending = 4;
       function done() {
         if (--pending > 0 || seq !== QUEUE.seq) return;
-        queueBuild_(sched, drafts);
+        queueBuild_(sched, drafts, subs, runs);
       }
       google.script.run.withSuccessHandler(function(r) { sched = r; done(); }).withFailureHandler(done).getPrintSchedule(false);
       google.script.run.withSuccessHandler(function(r) { drafts = r; done(); }).withFailureHandler(done).getMyRunDrafts();
+      google.script.run.withSuccessHandler(function(r) { subs = r; done(); }).withFailureHandler(done).getVinSubmissions();
+      google.script.run.withSuccessHandler(function(r) { runs = r; done(); }).withFailureHandler(done).getRunsForDealer('');
     }
-    function queueBuild_(sched, drafts) {
+    function queueBuild_(sched, drafts, subs, runs) {
       var byKey = {}, order = [];
       function row(key, name) {
         if (!byKey[key]) { byKey[key] = { key: key, name: name, tags: [], done: false }; order.push(key); }
         return byKey[key];
+      }
+      // Lot-scan batches waiting in the inbox, per dealer (the server returns
+      // submitted rows only). null = the call failed → fall back to the
+      // schedule's own per-dealer pending count.
+      // getVinSubmissions() returns {ok, configured, submissions:[…]}.
+      var subList = (subs && Array.isArray(subs.submissions)) ? subs.submissions : null;
+      var inbox = null, inboxTotal = 0;
+      if (subList) {
+        inbox = {};
+        subList.forEach(function(x) { if (x && x.dealerKey) { inbox[x.dealerKey] = (inbox[x.dealerKey] || 0) + 1; inboxTotal++; } });
+      }
+      // Finalized runs not committed to the VIN log, per dealer (test runs
+      // can never be committed, so they never count).
+      var uncommitted = null;
+      if (Array.isArray(runs)) {
+        uncommitted = {};
+        runs.forEach(function(r) {
+          if (r && r.status === 'pending' && String(r.dealId) !== 'test' && r.dealerKey) uncommitted[r.dealerKey] = (uncommitted[r.dealerKey] || 0) + 1;
+        });
+      }
+      function scannedTag(r, fallbackPending) {
+        var n = inbox ? (inbox[r.key] || 0) : Number(fallbackPending) || 0;
+        if (n) r.tags.push({ tone: 'tone-warning', text: n + ' scanned' });
       }
       var s = sched && sched.ok ? sched : null;
       if (s) {
         (s.upNext || []).forEach(function(d) {
           var r = row(d.key, d.name);
           r.tags.push({ tone: 'tone-info', text: 'scheduled' });
-          if (Number(d.pending)) r.tags.push({ tone: 'tone-warning', text: d.pending + ' scanned' });
+          scannedTag(r, d.pending);
         });
       }
       ((drafts && drafts.drafts) || []).forEach(function(d) {
         var r = row(d.dealerKey, d.dealerName);
         r.tags.push({ tone: 'tone-neutral', text: 'draft, ' + d.vinCount + ' VIN' + (d.vinCount === 1 ? '' : 's') });
       });
+      // Inbox batches for dealers the schedule doesn't list (unscheduled lot scans)
+      if (inbox) {
+        var names = {};
+        subList.forEach(function(x) { if (x && x.dealerKey && !names[x.dealerKey]) names[x.dealerKey] = x.dealerName || x.dealerKey; });
+        Object.keys(inbox).forEach(function(k) { if (!byKey[k]) scannedTag(row(k, names[k]), 0); });
+      }
       if (s) {
         (s.ranToday || []).forEach(function(d) {
-          var key = d.key || d.name;   // ranToday rows carry a name; key when the server provides one
+          var key = d.key || d.name;
           var r = row(key, d.name);
           r.done = true;
           r.tags.push({ tone: 'tone-success', text: d.runs + (d.runs === 1 ? ' run' : ' runs') + ', ' + d.vins + ' VINs' });
-          if (Number(d.pending)) r.tags.push({ tone: 'tone-warning', text: d.pending + ' scanned' });
+          if (!byKey[key].tags.some(function(t) { return /scanned$/.test(t.text); })) scannedTag(r, d.pending);
         });
       }
+      // Uncommitted runs — on every row that has them, and a row of their own
+      // for dealers with nothing else on the desk (the log still needs them).
+      if (uncommitted) {
+        var runNames = {};
+        runs.forEach(function(r) { if (r && r.dealerKey && !runNames[r.dealerKey]) runNames[r.dealerKey] = r.dealerName || r.dealerKey; });
+        Object.keys(uncommitted).forEach(function(k) {
+          var r = row(k, runNames[k]);
+          r.tags.push({ tone: 'tone-warning', text: uncommitted[k] + ' to commit' });
+        });
+      }
+      var inboxEl = document.getElementById('navInboxCount');
+      if (inboxEl) inboxEl.textContent = inbox && inboxTotal ? String(inboxTotal) : '';
       QUEUE.items = order.map(function(k) { return byKey[k]; });
       var todo = QUEUE.items.filter(function(r) { return !r.done; }).length;
       document.getElementById('queueSub').textContent = s && s.day ? s.day + (todo ? ', ' + todo + ' to print' : '') : '';
