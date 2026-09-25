@@ -129,6 +129,10 @@ DEV's HEAD, which stays the test bed for the next promote.
   `--project` flag — no `.clasp.json` swap, so the stat-cache trap that bit the
   lot-scan promote can't recur) and then bumps the EXP `/exec` deployment with
   `exp <branch> <sha>` as the description.
+- **URLs:** versioned `/exec` deployment `AKfycbzE7vg5xz-75kxmhskxidN58anS8nHM_Nvc5vuHKew5q8IBeRwJP607nag63tEdTtsf`
+  ("experimental", minted 2026-09-25 — the Experimental bookmark); HEAD `/dev` test
+  deployment `AKfycbxBHPbDMRBDbZr9R-uEU67Fpo3QyseVJU-v8SRdqMc` (editors only, always the
+  latest push).
 - **Script properties** (per project — EXP has its own): DUMMY secrets only,
   `PD_API_TOKEN` = `FAKE`, `PD_COMPANY_DOMAIN` = `fake-dev`, set by hand like DEV.
 - **Sheet menu:** both bound scripts add their menu to the DEV master on open —

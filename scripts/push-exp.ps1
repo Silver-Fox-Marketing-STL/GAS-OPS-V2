@@ -15,7 +15,7 @@ Set-Location (Join-Path $PSScriptRoot '..')
 $EXP_PROJECT_FILE = '.clasp.exp.json'
 # Minted once with:  clasp -P .clasp.exp.json deploy -d "experimental"
 # Same deployment id = same URL, new version on every push.
-$EXP_WEBAPP_DEPLOYMENT_ID = 'REPLACE_WITH_EXP_DEPLOYMENT_ID'
+$EXP_WEBAPP_DEPLOYMENT_ID = 'AKfycbzE7vg5xz-75kxmhskxidN58anS8nHM_Nvc5vuHKew5q8IBeRwJP607nag63tEdTtsf'
 
 # -- Gate 1: not main, no uncommitted tracked changes --------------------------
 # main belongs to DEV (clasp push) and PROD (promote.ps1). Experiments come from
