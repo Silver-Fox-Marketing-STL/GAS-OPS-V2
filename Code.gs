@@ -5657,10 +5657,9 @@ function saveUiPref(key, value) {
 var DRAFTS_TAB = 'DRAFTS';
 var RUN_DRAFT_MAX_JSON = 45000;   // Sheets cell hard cap is 50k chars
 
-/** Active user's email, lowercased; '' when unavailable. */
+/** Operator email, lowercased; '' when unavailable (API caller first — Section 36). */
 function runDraftEmail_() {
-  try { return String(Session.getActiveUser().getEmail() || '').trim().toLowerCase(); }
-  catch (e) { return ''; }
+  return activeUserEmail_().trim().toLowerCase();
 }
 
 function getOrCreateDraftsSheet_() {
@@ -8859,8 +8858,7 @@ function updateVinSubmissionStatus(submissionId, status, correctedVin) {
         ]]);
       }
 
-      var by = '';
-      try { by = Session.getActiveUser().getEmail() || ''; } catch (e2) {}
+      var by = activeUserEmail_();   // API caller first (Section 36), else the session user
       var ts = (status === 'processed' || status === 'discarded')
         ? Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'America/Chicago', 'yyyy-MM-dd HH:mm:ss')
         : '';
@@ -8899,8 +8897,7 @@ function updateVinSubmissionStatuses(submissionIds, status) {
       snapById[String(data[i][LOT_SUB.ID])] = i;
     }
 
-    var by = '';
-    try { by = Session.getActiveUser().getEmail() || ''; } catch (e2) {}
+    var by = activeUserEmail_();   // API caller first (Section 36), else the session user
     var ts = (status === 'processed' || status === 'discarded')
       ? Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'America/Chicago', 'yyyy-MM-dd HH:mm:ss')
       : '';
@@ -9962,7 +9959,7 @@ function finalizeEomReport(monthLabel) {
 
   var tz = Session.getScriptTimeZone() || 'America/Chicago';
   var at = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm:ss');
-  var by = ''; try { by = Session.getActiveUser().getEmail() || ''; } catch (e) {}
+  var by = activeUserEmail_();   // API caller first (Section 36), else the session user
   var sh = found.sheet, rowNum = found.rowNum;
   sh.getRange(rowNum, EOMIDX.STATUS + 1, 1, 1).setNumberFormat('@');
   sh.getRange(rowNum, EOMIDX.STATUS + 1, 1, 1).setValue('published');
@@ -10830,6 +10827,200 @@ function activateDealer(dealerKey) {
     }
   }
   return { ok: false, message: 'Dealer key not found: ' + key, checklist: checklist };
+}
+
+
+// ============================================================================
+// SECTION 36: DESK API — JSON router for a frontend on our own origin
+// ============================================================================
+// Spike (docs/spike-separate-frontend.md): the EXP /exec doubles as a JSON API
+// for the desk/ frontend. Request = POST with a text/plain body (no CORS
+// preflight — Apps Script cannot answer OPTIONS) holding JSON
+// {fn, args, idToken}; response = ContentService JSON
+// {ok:true, result, email} | {ok:false, error}. Errors carry the message the
+// client shows, never a stack.
+//
+// Gate order — every gate passes before ANY function runs:
+//   1. ENV.apiEnabled === true   Section 1; only the exp entry sets it, so a
+//                                mistaken promote of the open manifest serves
+//                                nothing from PROD (promote.ps1 Gate 1.6 too).
+//   2. body parses; fn and idToken present.
+//   3. configured: script properties API_OAUTH_CLIENT_ID + API_ALLOWLIST.
+//   4. Google's tokeninfo endpoint verifies the ID token: Google issuer,
+//      aud = our OAuth client id, email_verified, not expired.
+//   5. email (lowercased) is in API_ALLOWLIST (comma-separated).
+//   6. fn is a key of apiFunctionMap_() — an explicit map, never a global
+//      lookup, so nothing private or unlisted is reachable.
+// Verified tokens are cached in CacheService keyed by SHA-256 of the token for
+// their remaining lifetime (one tokeninfo fetch per hour per session); the
+// allowlist is re-checked on cache hits so removals take effect at once.
+//
+// Identity: under executeAs USER_DEPLOYING the session user is the OWNER, not
+// the operator. API_CTX.email holds the verified caller for the duration of the
+// dispatched call; activeUserEmail_() reads it before Session.getActiveUser(),
+// so draft ownership and the inbox / EOM "by" stamps name the real operator.
+// Per-user preferences (theme, nav, last user) are NOT in the map: a real
+// origin has its own persistent storage.
+
+var API_CTX = { email: '' };
+var API_TOKENINFO_URL = 'https://oauth2.googleapis.com/tokeninfo?id_token=';
+var API_TOKEN_CACHE_MAX_S = 3600;   // CacheService cap is 21600; a Google ID token lives ~1 h anyway
+
+/**
+ * Operator email for stamps and ownership: the verified API caller while a
+ * doPost dispatch is running, else the session user; '' when unavailable.
+ */
+function activeUserEmail_() {
+  if (API_CTX.email) return API_CTX.email;
+  try { return String(Session.getActiveUser().getEmail() || ''); } catch (e) { return ''; }
+}
+
+/**
+ * The ONLY functions the API can dispatch (spike scope: queue rail + one order
+ * flow finalized as a TEST order). Names only — the functions are untouched.
+ * finalizeRun is wrapped so the client cannot pass a real deal id.
+ */
+function apiFunctionMap_() {
+  return {
+    apiPing:            apiPing,
+    // shell + work queue
+    getAppBootstrap:    getAppBootstrap,
+    getAppHomeStatus:   getAppHomeStatus,
+    getPrintSchedule:   getPrintSchedule,
+    getMyRunDrafts:     getMyRunDrafts,
+    getRunsForDealer:   getRunsForDealer,
+    getVinSubmissions:  getVinSubmissions,
+    // order workspace
+    getCaoVins:         getCaoVins,
+    getDealerVinData:   getDealerVinData,
+    getLatestOrderId:   getLatestOrderId,
+    pasteVinsAndRun:    pasteVinsAndRun,
+    getRunProgress:     getRunProgress,
+    clearRunProgress:   clearRunProgress,
+    finalizeRun:        function (dealerKey, entry) { return finalizeRun(dealerKey, entry, 'test'); },
+    abandonRun:         abandonRun,
+    saveRunDraft:       saveRunDraft,
+    deleteRunDraft:     deleteRunDraft,
+    // inspector (reads only)
+    getDealerSummary:   getDealerSummary
+  };
+}
+
+/** Smoke test for the live proof: who am I, which environment — nothing else. */
+function apiPing(note) {
+  return { env: ENV.name, email: API_CTX.email, note: String(note || ''), at: new Date().toISOString() };
+}
+
+/** Web-app POST entry: the whole API. GET (doGet) still serves the HtmlService desk. */
+function doPost(e) {
+  var raw = e && e.postData && e.postData.contents;
+  var out = apiHandle_(raw);
+  return ContentService.createTextOutput(JSON.stringify(out))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * Router: raw body string → response object. Split from doPost so the harness
+ * drives it offline (UrlFetchApp / CacheService stubbed). `fnMap` is a test
+ * seam only; production always dispatches through apiFunctionMap_().
+ */
+function apiHandle_(rawBody, fnMap) {
+  if (ENV.apiEnabled !== true) {
+    return apiError_('The desk API is not enabled in this environment (' + ENV.name + ').');
+  }
+  var body = null;
+  try { body = JSON.parse(String(rawBody || '')); } catch (e) { return apiError_('Request body is not valid JSON.'); }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return apiError_('Request body must be a JSON object.');
+  var fn = String(body.fn || '');
+  var args = Array.isArray(body.args) ? body.args : [];
+  if (!fn) return apiError_('Missing fn.');
+  if (!body.idToken) return apiError_('Not signed in (missing idToken).');
+
+  var ident;
+  try { ident = apiVerifyToken_(String(body.idToken)); }
+  catch (e) { return apiError_((e && e.message) || 'Sign-in could not be verified.'); }
+
+  var map = fnMap || apiFunctionMap_();
+  if (!Object.prototype.hasOwnProperty.call(map, fn) || typeof map[fn] !== 'function') {
+    return apiError_('Unknown function: ' + fn);
+  }
+
+  API_CTX.email = ident.email;
+  try {
+    var result = map[fn].apply(null, args);
+    return { ok: true, result: (result === undefined ? null : result), email: ident.email };
+  } catch (e) {
+    return apiError_((e && e.message) || String(e));
+  } finally {
+    API_CTX.email = '';
+  }
+}
+
+function apiError_(msg) { return { ok: false, error: String(msg) }; }
+
+/**
+ * Google ID token → { email } (lowercased). Throws with a user-facing message on
+ * any failure. Order: configured → cache → tokeninfo → iss / aud /
+ * email_verified / exp → allowlist → cache put.
+ */
+function apiVerifyToken_(idToken) {
+  var props = PropertiesService.getScriptProperties();
+  var clientId = String(props.getProperty('API_OAUTH_CLIENT_ID') || '').trim();
+  var allow = apiAllowlist_(props.getProperty('API_ALLOWLIST'));
+  if (!clientId || !allow.length) {
+    throw new Error('The desk API is not configured (script properties API_OAUTH_CLIENT_ID / API_ALLOWLIST).');
+  }
+
+  var cache = CacheService.getScriptCache();
+  var cacheKey = 'api_tok_' + apiSha256_(idToken);
+  var cached = null;
+  try { cached = cache.get(cacheKey); } catch (e) {}
+  if (cached) {
+    if (allow.indexOf(cached) < 0) throw new Error('Account ' + cached + ' is not allowed to use the desk.');
+    return { email: cached };
+  }
+
+  var code = 0, text = '';
+  try {
+    var resp = UrlFetchApp.fetch(API_TOKENINFO_URL + encodeURIComponent(idToken),
+      { method: 'get', muteHttpExceptions: true });
+    code = resp.getResponseCode();
+    text = resp.getContentText();
+  } catch (e) {
+    throw new Error('Could not reach Google to verify the sign-in. Try again.');
+  }
+  var info = null;
+  try { info = JSON.parse(text); } catch (e) {}
+  if (code !== 200 || !info || typeof info !== 'object') throw new Error('Sign-in token was rejected. Sign in again.');
+
+  var iss = String(info.iss || '');
+  if (iss !== 'accounts.google.com' && iss !== 'https://accounts.google.com') {
+    throw new Error('Sign-in token has an unexpected issuer.');
+  }
+  if (String(info.aud || '') !== clientId) throw new Error('Sign-in token is for a different app.');
+  if (String(info.email_verified) !== 'true') throw new Error('Google account email is not verified.');
+  var expMs = Number(info.exp) * 1000, nowMs = Date.now();
+  if (!(expMs > nowMs)) throw new Error('Sign-in expired. Sign in again.');
+  var email = String(info.email || '').trim().toLowerCase();
+  if (!email) throw new Error('Sign-in token carries no email.');
+  if (allow.indexOf(email) < 0) throw new Error('Account ' + email + ' is not allowed to use the desk.');
+
+  var ttl = Math.max(1, Math.min(API_TOKEN_CACHE_MAX_S, Math.floor((expMs - nowMs) / 1000)));
+  try { cache.put(cacheKey, email, ttl); } catch (e) {}
+  return { email: email };
+}
+
+/** "a@x.com, B@x.com" → ['a@x.com', 'b@x.com'] */
+function apiAllowlist_(raw) {
+  return String(raw || '').split(',')
+    .map(function (s) { return s.trim().toLowerCase(); })
+    .filter(Boolean);
+}
+
+/** Hex SHA-256 — cache keys never hold the token itself. */
+function apiSha256_(s) {
+  var bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, s, Utilities.Charset.UTF_8);
+  return bytes.map(function (b) { return ('0' + (b & 0xff).toString(16)).slice(-2); }).join('');
 }
 
 

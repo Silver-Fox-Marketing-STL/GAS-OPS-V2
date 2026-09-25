@@ -115,7 +115,7 @@ shapes carry over unchanged.
 | # | Increment | State |
 |---|---|---|
 | 1 | Branch + manifest + `apiEnabled` on the exp env + promote Gate 1.6 | done 2026-09-25 (harness asserts the flag states; Gate 1.6 checked standalone) |
-| 2 | Router + token check + function map + identity context | — |
+| 2 | Router + token check + function map + identity context | done 2026-09-25 offline (Section 36; harness suite `desk api router`). Live curl proof pending Nick's OAuth client id + script props + EXP redeploy — recipe in `docs/dev-environment.md` |
 | 3 | `desk/` shell: sign-in, `api.ts`, tokens/CSS, queue rail | — |
 | 4 | Order flow: dealer → CAO → run → test finalize → folder link | — |
 | 5 | Pages workflow + live proof against DEV + write-up | — |

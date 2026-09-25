@@ -23,6 +23,24 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   from `.clasp.exp.json` / `.clasp.prod.json` and asserts the flag states.
   Side effect, EXP only: the HtmlService desk on the EXP `/exec` now runs as
   the deploying account (per-user theme / nav preferences become the owner's).
+- **SPIKE increment 2 — the desk API router (`Code.gs` Section 36).** `doPost`
+  takes a text/plain JSON body `{fn, args, idToken}` and answers ContentService
+  JSON `{ok, result, email}` / `{ok:false, error}` (message only, never a
+  stack). Gates, in order, all before any dispatch: `ENV.apiEnabled === true`
+  → body / `fn` / `idToken` present → script properties `API_OAUTH_CLIENT_ID`
+  + `API_ALLOWLIST` set → Google tokeninfo verifies issuer / `aud` /
+  `email_verified` / expiry → email on the allowlist → `fn` is a key of the
+  explicit `apiFunctionMap_()` (queue-rail reads + the one order flow;
+  `finalizeRun` is wrapped to force a **test** order; no VIN-log commits,
+  Pipedrive pushes, or preference writes). Verified tokens cache in
+  `CacheService` under a SHA-256 key for their remaining life (≤ 1 h); the
+  allowlist is re-checked on cache hits. **Identity context:** `API_CTX.email`
+  is set for the dispatched call and `activeUserEmail_()` reads it before
+  `Session.getActiveUser()` — `runDraftEmail_`, the two inbox "by" stamps,
+  and the EOM publish stamp now go through it (owner-executed web app ⇒ the
+  session user is the owner, not the operator). `apiPing` is the live-proof
+  smoke call. Harness: 14-test router suite with stubbed tokeninfo / cache /
+  digest / ContentService (153/153).
 
 ### Changed
 - **REBUILD — Order Desk client (branch `exp/ui-playground`, EXPERIMENTAL env,

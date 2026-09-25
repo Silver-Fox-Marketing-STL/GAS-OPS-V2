@@ -95,6 +95,51 @@ globalThis.SpreadsheetApp = {
   }
 };
 
+// Desk API router (Section 36) stubs: tokeninfo fetch (scripted), script cache
+// (in-memory), digest (node crypto), ContentService (captures the JSON), Session.
+var _crypto = require('crypto');
+var _tokeninfo = { code: 200, body: '{}' };   // what the next tokeninfo fetch returns
+var _fetchCount = 0, _fetchUrls = [];
+globalThis.UrlFetchApp = {
+  fetch: function (url) {
+    _fetchCount++; _fetchUrls.push(url);
+    var r = _tokeninfo;
+    return { getResponseCode: function () { return r.code; }, getContentText: function () { return r.body; } };
+  }
+};
+var _cacheStore = {};
+globalThis.CacheService = {
+  getScriptCache: function () {
+    return {
+      get: function (k) { return Object.prototype.hasOwnProperty.call(_cacheStore, k) ? _cacheStore[k] : null; },
+      put: function (k, v, ttl) { _cacheStore[k] = String(v); _lastTtl = ttl; },
+      remove: function (k) { delete _cacheStore[k]; }
+    };
+  }
+};
+var _lastTtl = null;
+globalThis.Utilities = {
+  DigestAlgorithm: { SHA_256: 'SHA_256' },
+  Charset: { UTF_8: 'UTF_8' },
+  computeDigest: function (alg, s) {   // GAS returns SIGNED bytes — mirror that
+    return Array.from(_crypto.createHash('sha256').update(String(s), 'utf8').digest())
+      .map(function (b) { return b > 127 ? b - 256 : b; });
+  }
+};
+globalThis.ContentService = {
+  MimeType: { JSON: 'application/json' },
+  createTextOutput: function (text) {
+    var o = { text: text, mime: null };
+    o.setMimeType = function (m) { o.mime = m; return o; };
+    return o;
+  }
+};
+var _sessionEmail = 'owner@sfoxmarketing.com';
+globalThis.Session = {
+  getActiveUser: function () { return { getEmail: function () { return _sessionEmail; } }; },
+  getScriptTimeZone: function () { return 'America/Chicago'; }
+};
+
 // ── Load Code.gs (and PdFake.gs if the Pipedrive-fake branch has landed) ────
 var codeSource = fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8');
 var pdFakePath = path.join(ROOT, 'PdFake.gs');
@@ -1189,6 +1234,179 @@ t('empty log or empty inventory yields empty list (never throws)', function () {
   assert.deepStrictEqual(buildStackCleanupRows_([], { X: {} }), []);
   assert.deepStrictEqual(buildStackCleanupRows_(['X'], {}), []);
 });
+
+// ============================================================================
+// Suite: desk API router (Section 36) — every gate before any dispatch
+// ============================================================================
+suite('desk api router');
+var CLIENT_ID = 'client-123.apps.googleusercontent.com';
+function apiReq_(over) {
+  return JSON.stringify(Object.assign({ fn: 'apiPing', args: ['hi'], idToken: 'tok-good' }, over || {}));
+}
+function goodInfo_(over) {
+  return Object.assign({
+    iss: 'https://accounts.google.com', aud: CLIENT_ID, email: 'Crew@SFoxMarketing.com',
+    email_verified: 'true', exp: String(Math.floor(Date.now() / 1000) + 3000)
+  }, over || {});
+}
+function apiSetup_(infoOver, props) {
+  _tokeninfo = { code: 200, body: JSON.stringify(goodInfo_(infoOver)) };
+  _fetchCount = 0; _fetchUrls = []; _cacheStore = {}; _lastTtl = null;
+  _scriptProps.setProperty('API_OAUTH_CLIENT_ID', CLIENT_ID);
+  _scriptProps.setProperty('API_ALLOWLIST', 'nick@sfoxmarketing.com, Crew@sfoxmarketing.com ,');
+  Object.keys(props || {}).forEach(function (k) {
+    if (props[k] === null) _scriptProps.deleteProperty(k); else _scriptProps.setProperty(k, props[k]);
+  });
+}
+t('dev env (no apiEnabled) refuses before parsing or fetching', function () {
+  apiSetup_();
+  assert.strictEqual(ENV.name, 'dev');
+  var r = apiHandle_(apiReq_());
+  assert.strictEqual(r.ok, false);
+  assert.match(r.error, /not enabled/);
+  assert.strictEqual(_fetchCount, 0);
+  assert.strictEqual(apiHandle_('not json').ok, false, 'env gate first, even for garbage');
+});
+
+// The rest runs as EXP (apiEnabled: true); the dev stub is restored at the end.
+currentScriptId = claspScriptId_('.clasp.exp.json');
+loadAll();
+
+t('exp env: bad body / missing fn / missing token refused without a fetch', function () {
+  apiSetup_();
+  assert.strictEqual(ENV.apiEnabled, true);
+  assert.match(apiHandle_('{nope').error, /valid JSON/);
+  assert.match(apiHandle_('[1,2]').error, /JSON object/);
+  assert.match(apiHandle_('null').error, /JSON object/);
+  assert.match(apiHandle_(apiReq_({ fn: '' })).error, /Missing fn/);
+  assert.match(apiHandle_(apiReq_({ idToken: '' })).error, /Not signed in/);
+  assert.strictEqual(_fetchCount, 0);
+});
+t('unconfigured (no client id or empty allowlist) refused without a fetch', function () {
+  apiSetup_(null, { API_OAUTH_CLIENT_ID: null });
+  assert.match(apiHandle_(apiReq_()).error, /not configured/);
+  apiSetup_(null, { API_ALLOWLIST: ' , ' });
+  assert.match(apiHandle_(apiReq_()).error, /not configured/);
+  assert.strictEqual(_fetchCount, 0);
+});
+t('tokeninfo non-200 / non-JSON refused', function () {
+  apiSetup_(); _tokeninfo = { code: 400, body: '{"error":"invalid_token"}' };
+  assert.match(apiHandle_(apiReq_()).error, /rejected/);
+  apiSetup_(); _tokeninfo = { code: 200, body: '<html>' };
+  assert.match(apiHandle_(apiReq_()).error, /rejected/);
+  assert.strictEqual(_fetchCount, 1);
+});
+t('tokeninfo fetch carries the token url-encoded and nothing else', function () {
+  apiSetup_();
+  apiHandle_(apiReq_({ idToken: 'a b&c' }));
+  assert.strictEqual(_fetchUrls[0], 'https://oauth2.googleapis.com/tokeninfo?id_token=a%20b%26c');
+});
+t('wrong issuer / wrong aud / unverified email / expired / no email refused', function () {
+  apiSetup_({ iss: 'https://evil.example' });
+  assert.match(apiHandle_(apiReq_()).error, /issuer/);
+  apiSetup_({ aud: 'other-client.apps.googleusercontent.com' });
+  assert.match(apiHandle_(apiReq_()).error, /different app/);
+  apiSetup_({ email_verified: 'false' });
+  assert.match(apiHandle_(apiReq_()).error, /not verified/);
+  apiSetup_({ exp: String(Math.floor(Date.now() / 1000) - 5) });
+  assert.match(apiHandle_(apiReq_()).error, /expired/);
+  apiSetup_({ email: '' });
+  assert.match(apiHandle_(apiReq_()).error, /no email/);
+  assert.deepStrictEqual(Object.keys(_cacheStore), [], 'nothing cached on refusal');
+});
+t('email not in allowlist refused, naming the account (case-insensitive list)', function () {
+  apiSetup_({ email: 'stranger@gmail.com' });
+  var r = apiHandle_(apiReq_());
+  assert.strictEqual(r.ok, false);
+  assert.match(r.error, /stranger@gmail\.com is not allowed/);
+  assert.deepStrictEqual(Object.keys(_cacheStore), []);
+});
+t('unknown / private / global names refused AFTER verification, never dispatched', function () {
+  ['nope', 'apiHandle_', 'apiVerifyToken_', 'ENV', 'eval', 'commitRunRows', 'pushRunToPipedrive',
+   'finalizeRunNewDeal', 'saveThemePreference', 'toString', 'constructor', '__proto__'].forEach(function (fn) {
+    apiSetup_();
+    var r = apiHandle_(apiReq_({ fn: fn }));
+    assert.strictEqual(r.ok, false, fn);
+    assert.match(r.error, /Unknown function/, fn);
+  });
+});
+t('happy path: dispatches with args, exposes the caller via activeUserEmail_, clears after', function () {
+  apiSetup_();
+  var seen = null;
+  var r = apiHandle_(apiReq_({ fn: 'probe', args: [1, 'two'] }), {
+    probe: function (a, b) { seen = { a: a, b: b, email: activeUserEmail_(), ctx: API_CTX.email }; return { sum: a + b }; }
+  });
+  assert.deepStrictEqual(r, { ok: true, result: { sum: '1two' }, email: 'crew@sfoxmarketing.com' });
+  assert.deepStrictEqual(seen, { a: 1, b: 'two', email: 'crew@sfoxmarketing.com', ctx: 'crew@sfoxmarketing.com' });
+  assert.strictEqual(API_CTX.email, '', 'context cleared after the call');
+  assert.strictEqual(activeUserEmail_(), 'owner@sfoxmarketing.com', 'outside a dispatch: the session user');
+  assert.strictEqual(runDraftEmail_(), 'owner@sfoxmarketing.com');
+});
+t('apiPing through the REAL map answers env + verified email', function () {
+  apiSetup_();
+  var r = apiHandle_(apiReq_({ args: ['live proof'] }));
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.result.env, 'exp');
+  assert.strictEqual(r.result.email, 'crew@sfoxmarketing.com');
+  assert.strictEqual(r.result.note, 'live proof');
+  assert.strictEqual(typeof r.result.at, 'string', 'Date-free: ISO string, JSON-safe');
+});
+t('verified token is cached for its remaining life (capped 1h); cache hit re-checks the allowlist', function () {
+  apiSetup_();
+  apiHandle_(apiReq_());
+  assert.strictEqual(_fetchCount, 1);
+  assert.ok(_lastTtl > 2900 && _lastTtl <= 3000, 'ttl = remaining seconds, got ' + _lastTtl);
+  var keys = Object.keys(_cacheStore);
+  assert.strictEqual(keys.length, 1);
+  assert.ok(/^api_tok_[0-9a-f]{64}$/.test(keys[0]), 'key is a hex sha256, not the token: ' + keys[0]);
+  assert.strictEqual(keys[0].indexOf('tok-good'), -1);
+  apiHandle_(apiReq_());
+  assert.strictEqual(_fetchCount, 1, 'second call served from cache');
+  _scriptProps.setProperty('API_ALLOWLIST', 'nick@sfoxmarketing.com');   // crew removed
+  var r = apiHandle_(apiReq_());
+  assert.strictEqual(r.ok, false);
+  assert.match(r.error, /crew@sfoxmarketing\.com is not allowed/);
+  assert.strictEqual(_fetchCount, 1, 'removal takes effect without a fetch');
+  apiSetup_({ exp: String(Math.floor(Date.now() / 1000) + 7200) });
+  apiHandle_(apiReq_());
+  assert.strictEqual(_lastTtl, 3600, 'ttl capped at API_TOKEN_CACHE_MAX_S');
+});
+t('a throwing function yields ok:false with the message only; context still cleared', function () {
+  apiSetup_();
+  var r = apiHandle_(apiReq_({ fn: 'boom' }), { boom: function () { throw new Error('Dealer XYZ is not active.'); } });
+  assert.deepStrictEqual(r, { ok: false, error: 'Dealer XYZ is not active.' });
+  assert.strictEqual(API_CTX.email, '');
+  assert.strictEqual(JSON.stringify(r).indexOf('at '), -1, 'no stack in the payload');
+});
+t('the real map: finalizeRun is forced to a TEST order; writes outside the spike are absent', function () {
+  var map = apiFunctionMap_();
+  assert.notStrictEqual(map.finalizeRun, finalizeRun, 'wrapped');
+  var captured = null, orig = globalThis.finalizeRun;
+  globalThis.finalizeRun = function (k, entry, dealId) { captured = [k, entry, dealId]; return 'ok'; };
+  try { map.finalizeRun('BOMM', { x: 1 }, 'REAL-DEAL-99'); } finally { globalThis.finalizeRun = orig; }
+  assert.deepStrictEqual(captured, ['BOMM', { x: 1 }, 'test']);
+  ['commitRunRows', 'commitRunToVINLog', 'rollbackRunFromVINLog', 'deleteRun', 'pushRunToPipedrive',
+   'finalizeRunNewDeal', 'finalizeRunExisting', 'saveThemePreference', 'saveUiPref', 'createDealer']
+    .forEach(function (n) { assert.ok(!(n in map), n + ' must not be exposed in the spike'); });
+  ['getAppBootstrap', 'getPrintSchedule', 'getMyRunDrafts', 'getCaoVins', 'pasteVinsAndRun', 'getRunProgress',
+   'clearRunProgress', 'abandonRun', 'saveRunDraft', 'deleteRunDraft', 'getDealerSummary']
+    .forEach(function (n) { assert.strictEqual(typeof map[n], 'function', n); });
+});
+t('doPost wraps the router as ContentService JSON', function () {
+  apiSetup_();
+  var out = doPost({ postData: { contents: apiReq_() } });
+  assert.strictEqual(out.mime, 'application/json');
+  var parsed = JSON.parse(out.text);
+  assert.strictEqual(parsed.ok, true);
+  assert.strictEqual(parsed.result.env, 'exp');
+  var none = JSON.parse(doPost({}).text);
+  assert.strictEqual(none.ok, false);
+  assert.match(none.error, /valid JSON/);
+});
+
+// Restore the dev stub so nothing after this (and a future suite) runs as EXP.
+currentScriptId = DEV_SCRIPT_ID;
+loadAll();
 
 // ── Report ───────────────────────────────────────────────────────────────────
 function report_() {

@@ -151,6 +151,24 @@ DEV's HEAD, which stays the test bed for the next promote.
   `promote.ps1` Gate 1.6 refuses that manifest, so it can never reach PROD by
   accident; DEV keeps the domain manifest because `clasp push` runs from
   `main`. Design + increments: `docs/spike-separate-frontend.md`.
+  - **EXP script properties for the API:** `API_OAUTH_CLIENT_ID` (the Web
+    OAuth client id from Google Cloud console; authorized JavaScript origins =
+    the Pages origin and `http://localhost:5173` for local dev) and
+    `API_ALLOWLIST` (comma-separated crew emails, any case). The router
+    refuses everything until both are set.
+  - **Live proof (increment 2):** after `push-exp.ps1` and the one-time
+    owner re-deploy / consent, POST to the EXP `/exec` URL with a real Google
+    ID token (the desk sign-in mints one; for a bare curl, the browser
+    devtools of any signed-in `desk/` page shows it):
+    ```
+    curl -sL -X POST "$EXP_EXEC" -H "Content-Type: text/plain" \
+      -d '{"fn":"apiPing","args":["hello"],"idToken":"'"$TOKEN"'"}'
+    # → {"ok":true,"result":{"env":"exp","email":"you@sfoxmarketing.com",...},"email":"..."}
+    ```
+    Negatives to confirm: no `idToken` → `Not signed in`; an account outside
+    `API_ALLOWLIST` → `... is not allowed to use the desk`; the same body at
+    the PROD or DEV `/exec` → `not enabled in this environment` (PROD also
+    still refuses non-domain callers at the manifest).
 
 ## clasp targets
 
