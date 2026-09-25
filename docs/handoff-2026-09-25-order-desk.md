@@ -66,3 +66,23 @@ the `run-confirm-dialog` harness scenario) — all listed in the vault
 ## Key files
 
 `docs/rebuild-order-desk-design.md` (design + progress table) · `docs/spike-separate-frontend.md` · `docs/dev-environment.md` (EXPERIMENTAL section) · `CHANGELOG.md` [Unreleased] · `.claude/rules/spa-htmlservice.md` · brain: `01-Projects/gas-ops-v2/{decision-client-rebuild-order-desk, standards, debt-register}.md`.
+
+## Addendum — later on 2026-09-25: spike approved and built
+
+Nick approved `docs/spike-separate-frontend.md`. `main` and `exp/ui-playground`
+were pushed to origin. New branch **`spike/desk-api`** (off `exp/ui-playground`,
+3 commits, NOT pushed, NOT on EXP yet):
+
+- `b79b557` increment 1 — open manifest, `apiEnabled: true` on the exp env
+  entry, promote **Gate 1.6**, harness asserts the flag states.
+- `a3c8407` increment 2 — `Code.gs` Section 36: `doPost` router, tokeninfo
+  check, allowlist, explicit function map (finalize forced to test),
+  `API_CTX` / `activeUserEmail_()` identity context; 14-test harness suite.
+- `708bf2c` increments 3–5 — `desk/` (Vite + TS) + Pages workflow; verified by
+  strict tsc, Vite build, and a headless smoke walk against a mocked API.
+  Live proof is still pending — Nick's numbered checklist is in the spike doc.
+
+Harness: 153/153. Gotcha added today: `Code.gs`, `run-tests.js`, `CHANGELOG.md`,
+`dev-environment.md`, `promote.ps1` are CRLF on disk too (autocrlf), and a
+`grep $'\r'` check in this Git Bash reports LF for them — check with Node.
+`.gitignore` line 24 (`.env*`) also catches `desk/.env.example` (force-added).
