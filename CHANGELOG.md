@@ -10,6 +10,15 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## [Unreleased]
 
+### Changed
+- **`--logo-fill` token replaces the dark-logo selector allowlist** (Sep 25, 2026).
+  `.app-brand .logo` (App.html) now paints its mask with `var(--logo-fill)`
+  (default `#4a4a4d` on `:root` in SharedUtils); `dark`, `midnight`, `encarta`,
+  `gruvbox-rail` and `luna` override it to `#d2d2d6` inside their own palette
+  blocks. A new dark theme carries its logo color with its other tokens — no
+  App.html edit, no cross-file allowlist to forget. Salvaged from the unmerged
+  `theme-acid` branch (Jul 9, 2026); the rest of that branch was obsolete.
+
 ### Added
 - **`csv_uppercase` dealer flag — force every CSV data cell to UPPERCASE**
   (Sep 24, 2026). New optional boolean in `filtering_rules` (DEALERS col W),
