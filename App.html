@@ -208,6 +208,8 @@
       border-left: var(--rule); overflow-y: auto; background: var(--bg);
     }
     #inspector[hidden] { display: none; }
+    :root[data-inspector-collapsed] #inspector { display: none; }
+    #inspectorToggle[hidden] { display: none; }
 
     /* ── Settings drawer — the eight config screens, off the main flow ───── */
     #settingsDrawer {
@@ -326,6 +328,7 @@
           <span id="appHeaderTitle">Today</span>
           <span id="appHeaderStatus" class="empty" hidden></span>
           <span id="appHeaderRight"></span>
+          <button type="button" class="tb-btn" id="inspectorToggle" onclick="toggleInspector()" hidden>Hide dealer panel</button>
         </div>
         <div id="appContent">
           <?!= include_('ViewHome') ?>
@@ -419,6 +422,7 @@
       document.getElementById('appHeaderTitle').textContent = NAV_TITLES[viewId] || '';
       document.getElementById('appHeaderStatus').hidden = (viewId !== 'view-run');
       document.getElementById('settingsBtn').classList.toggle('on', SETTINGS_VIEWS.indexOf(viewId) !== -1);
+      document.getElementById('inspectorToggle').hidden = (viewId !== 'view-run');
 
       if (!_viewInited[viewId]) {
         _viewInited[viewId] = true;
@@ -430,6 +434,14 @@
       if (window.VIEW_SHOWN && VIEW_SHOWN[viewId]) { try { VIEW_SHOWN[viewId](); } catch (e) {} }
       closeSettings();
       closeStartMenu();
+    }
+
+    // ── Inspector collapse (the order workspace's dealer panel) ─────────────
+    function toggleInspector() {
+      var root = document.documentElement, btn = document.getElementById('inspectorToggle');
+      var collapsed = root.hasAttribute('data-inspector-collapsed');
+      if (collapsed) root.removeAttribute('data-inspector-collapsed'); else root.setAttribute('data-inspector-collapsed', '');
+      btn.textContent = collapsed ? 'Hide dealer panel' : 'Show dealer panel';
     }
 
     // ── Settings drawer ──────────────────────────────────────────────────────

@@ -1,189 +1,299 @@
+<!-- ════════════════════════════════════════════════════════════════════════════
+     ORDER WORKSPACE (view id stays `view-run` — every jump into it keeps working)
+     Rebuild increment 2+3 (docs/rebuild-order-desk-design.md): one stepped flow
+     per dealer — 1 Vehicles (source + match table) → 2 Run (inline pre-flight
+     checklist, no dialog chain) → 3 Finalize (cards, files, VIN log). The
+     finalize / Pipedrive / draft / table JS is the proven ViewRun logic; the
+     element ids it reads are unchanged. Dealer facts live in the shell's
+     inspector (ViewInspector), driven from the dealer change here.
+════════════════════════════════════════════════════════════════════════════ -->
 <div class="view" id="view-run" data-layout="data" hidden>
+  <div class="ro-wrap app-measure">
 
-  <div class="rv-wrap app-measure">
-
-    <!-- TOP BAR: left cluster (selects + VIN-log status) | action buttons |
-         flow zone (CAO summary / progress / finalize / status — JS toggles
-         each panel's display; lays out HORIZONTALLY to keep the topbar short) -->
-    <div class="rv-topbar">
-      <div class="rv-topbar-main">
-
-        <div class="rv-topbar-inputs">
-          <div class="user-select-wrap">
-            <label for="userSelect">Running as</label>
-            <select id="userSelect">
-              <option value="">-- Loading... --</option>
-            </select>
-          </div>
-
-          <div>
-            <label for="runDealerSelect">Dealer</label>
-            <select id="runDealerSelect">
-              <option value="">-- Loading dealers... --</option>
-            </select>
-          </div>
-
-          <!-- Deal IDs are entered on the finalization cards after the run
-               ("Existing" method) — no pre-run Pipedrive field. -->
-
-          <!-- VIN log status row (shown after dealer selected) -->
-          <div id="vinLogStatusRow">
-            <span class="log-label">Most recent order in log: <span id="vinLogOrderSpan" class="tag tone-neutral">—</span><span id="vinLogPendingSpan" class="tag tone-warning" style="display:none" title="Finalized runs not yet committed to the VIN log"></span></span>
-            <button id="openVinLogBtn" onclick="openVinLogUpdater()">&#x1F4CB; Update VIN Log</button>
-          </div>
+    <!-- Order head: which dealer, who is running it, where the log stands -->
+    <div class="ro-head">
+      <div class="ro-field ro-field-dealer">
+        <label for="runDealerSelect">Dealer</label>
+        <select id="runDealerSelect"><option value="">-- Loading dealers... --</option></select>
+      </div>
+      <div class="ro-field user-select-wrap">
+        <label for="userSelect">Running as</label>
+        <select id="userSelect"><option value="">-- Loading... --</option></select>
+      </div>
+      <!-- VIN log status: the inspector owns it now. The row stays in the DOM
+           (hidden) because loadVinLogStatus() writes it and the checklist reads
+           the same response; openVinLogUpdater() is reached from the checklist. -->
+      <div class="ro-field ro-field-log" hidden>
+        <div id="vinLogStatusRow">
+          <span class="log-label">Latest order <span id="vinLogOrderSpan" class="tag tone-neutral">&mdash;</span><span id="vinLogPendingSpan" class="tag tone-warning" style="display:none" title="Finalized runs not yet committed to the VIN log"></span></span>
+          <button type="button" id="openVinLogBtn" class="btn-secondary" onclick="openVinLogUpdater()">Update VIN log</button>
         </div>
-
-        <div class="rv-topbar-actions">
-          <button id="rvSaveDraftBtn" class="btn-secondary" onclick="rvSaveDraft({manual:true})">&#128190; Save draft</button>
-          <button id="caoBtn" class="btn-ghost" onclick="prefillFromCAO()" disabled>&#x21BA; Pre-fill from CAO</button>
-          <button class="btn-primary" id="runBtn" onclick="runSelected()" disabled>Run Dealer</button>
-        </div>
-
-        <div class="rv-flow">
-          <div id="caoSummary">
-            <div class="summary-row"><span>Total inventory</span><span id="sTotal">—</span></div>
-            <div class="summary-row"><span>After filters</span><span id="sFiltered">—</span></div>
-            <div id="rejectionRows"></div>
-            <hr class="summary-divider">
-            <div class="summary-row"><span>Already printed</span><span id="sPrinted">—</span></div>
-            <hr class="summary-divider">
-            <div class="summary-row summary-net"><span><b>Net new (pre-filled)</b></span><span id="sNetNew">—</span></div>
-          </div>
-
-          <!-- Progress card — appears when a run starts (status messages render
-               in the app header via setRunStatus; idle guidance lives in the
-               VIN textarea's placeholder) -->
-          <div id="progressSection">
-            <div id="progressStep">Starting...</div>
-            <div class="progress-track">
-              <div class="progress-fill" id="progressFill"></div>
-            </div>
-            <div class="progress-meta">
-              <span id="progressElapsed"></span>
-              <span id="progressPercent">0%</span>
-            </div>
-          </div>
-
-          <!-- Post-run finalization — shown after successful completion.
-               One card per prospective run log entry; each is finalized (deal ID
-               required) or abandoned. Nothing is logged until a card is finalized. -->
-          <div id="postRunActions">
-            <div id="finalizeCards"></div>
-            <div class="post-run-btns">
-              <a id="driveFolderBtn" class="btn-ghost" href="#" target="_blank">&#128194; Open Output Folder</a>
-              <button id="vinLogBtn" onclick="addToVINLog()" disabled>&#10003; Add to VIN Log</button>
-            </div>
-          </div>
-        </div>
-
       </div>
     </div>
 
-    <!-- Order drafts — in-progress work saved per user (auto on dealer switch /
-         nav away / 15s after typing; deleted on a successful run). Hidden when
-         empty; rows render from rvDraftList by integer index. -->
+    <!-- Order drafts — per user; auto-saved on dealer switch / nav away / 15 s
+         after typing; deleted on a successful run. Rows index into rvDraftList. -->
     <div id="rvDraftsBand" class="rv-drafts-band" hidden></div>
 
-    <!-- BODY: VIN box | data table (the flow zone lives in the topbar now) -->
-    <div class="rv-body">
-
-      <div class="rv-vinzone">
-        <label for="vinInput">VINs / Stock Numbers</label>
-        <textarea id="vinInput" placeholder="Pre-fill from CAO, or paste VINs here — one per line..."></textarea>
-        <label class="bypass-label">
-          <input type="checkbox" id="bypassFilters" />
-          Bypass filtering rules
-          <span class="bypass-hint">Use if a vehicle is being incorrectly filtered out</span>
-        </label>
-        <div class="vin-count" id="runVinCount"></div>
-        <div class="rv-matchcount" id="vinMatchCount"></div>
-      </div>
-
-      <div class="rv-tablezone">
-        <div class="rv-zone-label rv-zone-label-row">
-          <span>Inventory match</span>
-          <button type="button" id="rvDedupeBtn" class="btn-danger" style="display:none" onclick="rvRemoveDuplicates()">Remove Duplicates</button>
-        </div>
-        <div class="rv-table-scroll">
-          <table id="vinDataTable" class="table-u">
-            <thead>
-              <tr>
-                <th>Year</th><th>Make</th><th>Model</th><th>Type</th>
-                <th>Stock</th><th>VIN</th><th>Status</th><th>Link</th>
-                <th id="rvFeatHead" style="display:none">Features</th>
-                <th id="rvXHead"></th>
-              </tr>
-            </thead>
-            <tbody id="vinDataBody">
-              <tr class="rv-empty-row"><td colspan="9">Select a dealer, then enter VINs to check them.</td></tr>
-            </tbody>
-          </table>
+    <!-- ── 1 · Vehicles ─────────────────────────────────────────────────── -->
+    <section class="ro-step" id="roStepSource">
+      <div class="ro-step-head">
+        <span class="ro-step-n">1</span>
+        <h2 class="ro-step-title">Vehicles</h2>
+        <span class="ro-step-hint">Pre-fill from the dealer&rsquo;s inventory, bring in a lot scan, or paste VINs.</span>
+        <div class="ro-step-actions">
+          <button type="button" id="rvSaveDraftBtn" class="btn-secondary" onclick="rvSaveDraft({manual:true})">Save draft</button>
+          <button type="button" id="caoBtn" class="btn-ghost" onclick="prefillFromCAO()" disabled>Pre-fill from CAO</button>
         </div>
       </div>
 
-    </div>
+      <!-- CAO summary — one ruled strip above the table (JS shows it with display:flex) -->
+      <div id="caoSummary">
+        <div class="summary-row"><span>Total inventory</span><span id="sTotal">&mdash;</span></div>
+        <div class="summary-row"><span>After filters</span><span id="sFiltered">&mdash;</span></div>
+        <div id="rejectionRows"></div>
+        <hr class="summary-divider">
+        <div class="summary-row"><span>Already printed</span><span id="sPrinted">&mdash;</span></div>
+        <hr class="summary-divider">
+        <div class="summary-row summary-net"><span>Net new</span><span id="sNetNew">&mdash;</span></div>
+      </div>
+
+      <div class="rv-body">
+        <div class="rv-vinzone">
+          <label for="vinInput">VINs or stock numbers</label>
+          <textarea id="vinInput" placeholder="One per line"></textarea>
+          <label class="bypass-label">
+            <input type="checkbox" id="bypassFilters" />
+            <span>Bypass filtering rules</span>
+          </label>
+          <div class="vin-count" id="runVinCount"></div>
+          <div class="rv-matchcount" id="vinMatchCount"></div>
+        </div>
+
+        <div class="rv-tablezone">
+          <div class="rv-zone-label-row">
+            <span class="rv-zone-label">Inventory match</span>
+            <button type="button" id="rvDedupeBtn" class="btn-danger" style="display:none" onclick="rvRemoveDuplicates()">Remove duplicates</button>
+          </div>
+          <div class="rv-table-scroll">
+            <table id="vinDataTable" class="table-u">
+              <thead>
+                <tr>
+                  <th>Year</th><th>Make</th><th>Model</th><th>Type</th>
+                  <th>Stock</th><th>VIN</th><th>Status</th><th>Link</th>
+                  <th id="rvFeatHead" style="display:none">Features</th>
+                  <th id="rvXHead"></th>
+                </tr>
+              </thead>
+              <tbody id="vinDataBody">
+                <tr class="rv-empty-row"><td colspan="9">Select a dealer, then enter VINs to check them.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── 2 · Run ──────────────────────────────────────────────────────── -->
+    <section class="ro-step" id="roStepRun">
+      <div class="ro-step-head">
+        <span class="ro-step-n">2</span>
+        <h2 class="ro-step-title">Run</h2>
+        <span class="ro-step-hint">Nothing is logged or billed by a run. Finalize afterwards.</span>
+      </div>
+      <div class="ro-run-grid">
+        <ul class="ro-checks" id="roChecks"></ul>
+        <div class="ro-run-col">
+          <button type="button" class="btn-primary ro-run-btn" id="runBtn" onclick="runSelected()" disabled>Run order</button>
+          <div id="progressSection">
+            <div id="progressStep">Starting...</div>
+            <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+            <div class="progress-meta"><span id="progressElapsed"></span><span id="progressPercent">0%</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── 3 · Finalize ─────────────────────────────────────────────────── -->
+    <section class="ro-step" id="roStepFinalize" hidden>
+      <div class="ro-step-head">
+        <span class="ro-step-n">3</span>
+        <h2 class="ro-step-title">Finalize</h2>
+        <span class="ro-step-hint">One card per billing account. Finalize writes the run log and the deal; commit the VIN log when the order prints.</span>
+      </div>
+      <div id="postRunActions">
+        <div id="finalizeCards"></div>
+        <div class="post-run-btns">
+          <a id="driveFolderBtn" class="btn-secondary" href="#" target="_blank" rel="noopener">Open output folder</a>
+          <button type="button" id="vinLogBtn" onclick="addToVINLog()" disabled>Add to VIN log</button>
+        </div>
+      </div>
+    </section>
+
   </div>
 </div>
 
 <style>
-#view-run * { box-sizing: border-box; }
-    #view-run {
-      font-family: var(--font-body);
-      margin: 0;
-      padding: 0;
-      font-size: var(--fs-body);
-      color: var(--text);
-      height: 100%;
-      overflow: hidden;
-    }
+  #view-run * { box-sizing: border-box; }
+  #view-run {
+    font-family: var(--font-body); font-size: var(--fs-body);
+    margin: 0; padding: 0; height: 100%; overflow-y: auto;
+    background: var(--bg); color: var(--text);
+  }
+  #view-run .ro-wrap { padding: 18px 28px 40px; display: flex; flex-direction: column; gap: 22px; }
 
-    /* ── Layout: top bar (left cluster | flow zone | actions) + 2-zone body ── */
-    #view-run .rv-wrap { display: flex; flex-direction: column; height: 100%; min-height: 0; gap: var(--space-3); padding: var(--space-3); }
-    #view-run .rv-topbar { display: flex; flex-direction: column; gap: var(--space-2); }
-    /* The topbar takes natural height (the flow zone grows during finalize) and
-       .rv-body's flex:1 absorbs the rest — the table shifts down, never overlaps. */
-    #view-run .rv-topbar-main { display: grid; grid-template-columns: minmax(300px, 360px) auto 1fr;
-                                align-items: start; gap: var(--space-3); }
-    #view-run .rv-topbar-inputs { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
-    /* Flow zone — HARD RULE: the table/VIN box NEVER shift for run-flow
-       elements. The zone is a FIXED-HEIGHT row of up to three equal-height
-       cards — [inventory stats] [progress] [finalize block] (status messages
-       render in the app header) — each filling the full height (shared top/bottom gridlines) and
-       distributing its contents evenly. Too narrow → the row scrolls
-       horizontally; it never wraps or grows taller. min-width:0 is
-       load-bearing: long text must wrap/clip, not stretch the 1fr track. */
-    #view-run .rv-flow { display: flex; align-items: stretch; gap: var(--space-2); min-width: 0;
-                         /* ponytail: the ONE height knob. 235px = a fully-finalized card
-                            (radios + deal input + Logged ✓ + Linked lines) + the button row —
-                            at the old 190px the card scrolled internally (bottom cut off). */
-                         height: 235px;
-                         overflow-x: auto; overflow-y: hidden; }
-    /* Empty-state placeholder — the fixed-height zone read as a blank before
-       a dealer is picked (Sep 23 audit). CSS-only: every card in the zone is
-       shown via inline `display: flex`, so "no child carries it" == empty.
-       Dashed outline + a faint caption, centered by margin:auto in the flex row. */
-    #view-run .rv-flow:not(:has(> [style*="display: flex"])) { border: 1px dashed var(--border-2); border-radius: var(--radius-sm); }
-    #view-run .rv-flow:not(:has(> [style*="display: flex"]))::before {
-      content: "Inventory stats, run progress and finalize cards appear here";
-      margin: auto; font-size: var(--fs-sm); color: var(--text-muted); text-align: center; padding: 0 var(--space-3); }
-    #view-run .rv-topbar-actions { flex-shrink: 0; display: flex; flex-direction: column; gap: var(--space-2); padding-top: 18px; }
-    #view-run .rv-topbar-actions button { width: 100%; white-space: nowrap; }
-    #view-run .rv-body { display: grid; grid-template-columns: var(--rv-vin-w) 1fr;
-                         grid-template-areas: "vin table"; gap: var(--space-3); flex: 1; min-height: 0; }
-    #view-run .rv-vinzone { grid-area: vin; display: flex; flex-direction: column; min-height: 0; }
-    #view-run .rv-tablezone { grid-area: table; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
-    #view-run .rv-zone-label { font-size: var(--fs-overline); text-transform: uppercase; letter-spacing: .04em; color: var(--text-3); margin-bottom: var(--space-2); }
-    /* The label row also carries the Remove Duplicates button (right-aligned,
-       directly above the ✕ column). It used to live INSIDE the ✕ header cell
-       as a "cap", which auto-widened that column to the button's width — fine
-       while the column scrolled with the table, but once the column is pinned
-       (below) that width became an opaque strip hiding a whole data column at
-       rest. Up here it covers nothing and needs no height math. min-height
-       keeps the row the same height whether or not the button is showing. */
-    /* 18px row + 4px margin = the plain label's 14px line + 8px margin, so the
-       table header still lines up with the VIN box's top edge. */
-    #view-run .rv-zone-label-row { display: flex; align-items: center; justify-content: space-between; min-height: 18px; margin-bottom: 4px; }
-    #view-run #rvDedupeBtn { padding: 1px 10px !important; font-size: 11px; line-height: 14px; white-space: nowrap; }  /* base .btn-danger padding is !important */
+  /* ── Order head ─────────────────────────────────────────────────────── */
+  #view-run .ro-head { display: grid; grid-template-columns: minmax(280px, 420px) 220px; gap: 20px; align-items: end; }
+  #view-run .ro-field-log[hidden] { display: none !important; }
+  #view-run .ro-field label { display: block; font-size: var(--fs-sm); font-weight: 600; color: var(--text-2); margin: 0 0 4px; }
+  #view-run .ro-field-dealer select { font-family: var(--font-head); font-size: 20px; font-weight: 700; padding: 6px 10px; }
+  #view-run select, #view-run textarea, #view-run input[type="text"] {
+    width: 100%; padding: 8px; font-size: var(--fs-body); font-family: var(--font-body);
+    border: 1px solid var(--border-2); border-radius: var(--radius-sm);
+    background: var(--bg); color: var(--text);
+  }
+  #view-run select:focus, #view-run textarea:focus, #view-run input[type="text"]:focus { outline: none; border-color: var(--text); box-shadow: var(--focus-ring); }
+  #view-run #vinLogStatusRow { display: none; align-items: center; gap: 10px; min-height: 34px; font-size: var(--fs-sm); color: var(--text-2); }
+  #view-run #vinLogStatusRow .log-label { flex: 1; }
+  #view-run #vinLogStatusRow .log-label .tag { margin-left: 4px; }
+  #view-run #openVinLogBtn { padding: 5px 12px !important; }
+
+  /* ── Steps: a numbered sequence (it IS one) under a rule ────────────── */
+  #view-run .ro-step-head { display: flex; align-items: baseline; gap: 12px; padding-bottom: 6px; margin-bottom: 12px; border-bottom: var(--rule); }
+  #view-run .ro-step-n { font-family: var(--font-head); font-size: 22px; font-weight: 800; color: var(--accent); line-height: 1; }
+  #view-run .ro-step-title { font-family: var(--font-head); font-size: 22px; font-weight: 700; margin: 0; line-height: 1; }
+  #view-run .ro-step-hint { font-size: var(--fs-sm); color: var(--text-3); min-width: 0; }
+  #view-run .ro-step-actions { margin-left: auto; display: flex; gap: 8px; align-self: center; }
+  #view-run .ro-step[hidden] { display: none; }
+
+  /* ── 1 · Vehicles: VIN box | match table, fixed working height ──────── */
+  #view-run .rv-body { display: grid; grid-template-columns: var(--rv-vin-w) 1fr; grid-template-areas: "vin table"; gap: 20px;
+                       height: clamp(340px, 52vh, 620px); }
+  #view-run .rv-vinzone { grid-area: vin; display: flex; flex-direction: column; min-height: 0; }
+  #view-run .rv-tablezone { grid-area: table; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+  #view-run .rv-vinzone > label { font-size: var(--fs-sm); font-weight: 600; color: var(--text-2); margin-bottom: 4px; }
+  #view-run textarea { flex: 1; min-height: 0; resize: none; font-family: var(--font-mono); font-size: 12px; line-height: 1.7; }
+  #view-run .vin-count { font-size: var(--fs-hint); color: var(--text-3); margin-top: 6px; min-height: 14px; font-variant-numeric: tabular-nums; }
+  #view-run .rv-matchcount { display: none; }   /* the step-2 checklist carries these counts */
+  #view-run .bypass-label { display: flex; align-items: center; gap: 7px; margin-top: 8px; font-size: var(--fs-sm); color: var(--text-2); cursor: pointer; user-select: none; }
+  #view-run .bypass-label input[type="checkbox"] { width: auto; margin: 0; cursor: pointer; accent-color: var(--warning); }
+  #view-run .bypass-label:has(input:checked) { color: var(--warning-strong); }
+  #view-run .rv-zone-label-row { display: flex; align-items: center; justify-content: space-between; min-height: 18px; margin-bottom: 4px; }
+  #view-run .rv-zone-label { font-size: var(--fs-sm); font-weight: 600; color: var(--text-2); }
+  #view-run #rvDedupeBtn { padding: 1px 10px !important; font-size: 11px; line-height: 14px; white-space: nowrap; }
+
+  /* CAO summary strip — one ruled line of figures (JS: display:flex) */
+  #view-run #caoSummary { display: none; flex-wrap: wrap; align-items: center; gap: 4px 28px;
+                          padding: 8px 0 10px; margin-bottom: 12px; border-bottom: 1px solid var(--border);
+                          font-size: var(--fs-sm); color: var(--text-2); font-variant-numeric: tabular-nums; }
+  #view-run #caoSummary .summary-row { display: inline-flex; align-items: baseline; gap: 8px; }
+  #view-run #caoSummary .summary-row span:last-child { font-family: var(--font-head); font-size: 20px; font-weight: 700; color: var(--text); line-height: 1; }
+  #view-run #caoSummary .summary-divider { display: none; }
+  #view-run #caoSummary .summary-net span:first-child { color: var(--accent); font-weight: 600; }
+  #view-run #caoSummary .summary-net span:last-child { color: var(--accent); }
+  #view-run #rejectionRows { display: inline-flex; }
+  #view-run .rej-toggle { display: inline-flex; align-items: baseline; gap: 6px; background: none; border: 0; padding: 0; font: inherit; cursor: pointer; color: var(--accent); }
+  #view-run .rej-toggle:hover span:first-child { text-decoration: underline; }
+  #view-run .rej-toggle span:last-child { font-size: 13px; line-height: 1; opacity: .75; }
+  #view-run .rej-pop { position: fixed; inset: auto; margin: 0; min-width: 260px; max-width: 360px; max-height: 300px; overflow-y: auto;
+                       padding: 10px 14px; font-size: var(--fs-sm); line-height: 1.7; background: var(--bg); color: var(--text);
+                       border: 1px solid var(--text); box-shadow: var(--shadow-lg); }
+  #view-run #caoSummary .rej-pop .summary-row { display: flex; justify-content: space-between; gap: 12px; }
+  #view-run #caoSummary .rej-pop .summary-row span:last-child { font-family: var(--font-body); font-size: var(--fs-sm); font-weight: 600; line-height: inherit; }
+
+  /* ── 2 · Run: checklist | button + progress ─────────────────────────── */
+  #view-run .ro-run-grid { display: grid; grid-template-columns: 1fr minmax(260px, 340px); gap: 28px; align-items: start; }
+  #view-run .ro-checks { list-style: none; margin: 0; padding: 0; }
+  #view-run .ro-check { display: flex; align-items: baseline; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: var(--fs-body); color: var(--text-2); }
+  #view-run .ro-check-mark { flex-shrink: 0; width: 18px; font-weight: 700; text-align: center; font-family: var(--font-head); font-size: 15px; }
+  #view-run .ro-check.ok .ro-check-mark { color: var(--success); }
+  #view-run .ro-check.warn .ro-check-mark { color: var(--warning-strong); }
+  #view-run .ro-check.block .ro-check-mark { color: var(--danger); }
+  #view-run .ro-check.idle .ro-check-mark { color: var(--text-muted); }
+  #view-run .ro-check.block { color: var(--danger); }
+  #view-run .ro-check.warn { color: var(--text); }
+  #view-run .ro-check-text { flex: 1; min-width: 0; }
+  #view-run .ro-check-act { background: none; border: 0; padding: 0; font: inherit; font-weight: 600; color: var(--accent); cursor: pointer; white-space: nowrap; }
+  #view-run .ro-check-act:hover { text-decoration: underline; }
+  #view-run .ro-run-col { display: flex; flex-direction: column; gap: 12px; }
+  #view-run .ro-run-btn { padding: 12px 22px !important; font-size: 18px; }
+  #view-run .ro-run-btn.warn:not(:disabled) { background: var(--warning-strong); }
+  #view-run #progressSection { display: none; flex-direction: column; gap: 6px; padding: 10px 0 0; }
+  #view-run #progressStep { font-size: var(--fs-sm); color: var(--text); min-height: 16px; }
+  #view-run .progress-track { height: 6px; background: var(--border); overflow: hidden; }
+  #view-run .progress-fill { height: 100%; background: var(--accent); width: 0%; transition: width .5s ease, background .3s ease; }
+  #view-run .progress-fill.done { background: var(--success); }
+  #view-run .progress-fill.error { background: var(--danger); }
+  #view-run .progress-meta { display: flex; justify-content: space-between; font-size: var(--fs-hint); color: var(--text-3); font-variant-numeric: tabular-nums; }
+  #view-run #progressPercent { font-weight: 700; color: var(--text-2); }
+
+  /* ── 3 · Finalize: cards as ruled blocks, then the two file/log actions ── */
+  #view-run #postRunActions { display: none; flex-direction: column; gap: 16px; }
+  #view-run #finalizeCards { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; }
+  #view-run .finalize-card { border: 1px solid var(--border-2); padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 10px; }
+  #view-run .finalize-card.finalized { border-color: var(--success); }
+  #view-run .finalize-card.abandoned { opacity: .55; }
+  #view-run .finalize-card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding-bottom: 6px; border-bottom: 1px solid var(--text); }
+  #view-run .finalize-card-title { font-family: var(--font-head); font-size: 18px; font-weight: 700; color: var(--text); }
+  #view-run .finalize-card-count { font-size: var(--fs-sm); color: var(--text-2); font-variant-numeric: tabular-nums; }
+  #view-run .card-methods { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; }
+  #view-run .card-method { display: inline-flex; align-items: center; gap: 7px; font-size: var(--fs-body); line-height: 16px; color: var(--text); cursor: pointer; font-weight: normal; margin: 0; }
+  #view-run .card-method.is-disabled { color: var(--text-muted); cursor: default; }
+  #view-run .card-method input[type="radio"] { width: 16px; height: 16px; margin: 0; cursor: pointer; accent-color: var(--accent); }
+  #view-run .card-method.is-disabled input[type="radio"] { cursor: default; }
+  #view-run .card-method-label { white-space: nowrap; }
+  #view-run .card-method-reason { font-size: var(--fs-hint); color: var(--text-muted); }
+  #view-run .card-method-idrow { display: flex; flex-basis: 100%; }
+  #view-run .card-method-idrow input { flex: 1; min-width: 0; padding: 6px 8px; font-size: var(--fs-sm); font-family: var(--font-mono); }
+  #view-run .finalize-card-actions { display: flex; gap: 10px; }
+  #view-run .card-finalize-btn { padding: 9px 18px; font-family: var(--font-head); font-size: 15px; font-weight: 700; letter-spacing: .02em;
+                                 border: none; background: var(--accent); color: var(--on-accent); cursor: pointer; white-space: nowrap; }
+  #view-run .card-finalize-btn:hover { background: var(--accent-hover); }
+  #view-run .card-finalize-btn:disabled { background: var(--text-muted); cursor: default; }
+  #view-run .card-abandon-btn { padding: 9px 18px; font-family: var(--font-head); font-size: 15px; font-weight: 700; letter-spacing: .02em;
+                                background: var(--bg); color: var(--danger); border: 1px solid var(--danger); cursor: pointer; white-space: nowrap; }
+  #view-run .card-abandon-btn:hover { background: var(--danger-weak); }
+  #view-run .card-abandon-btn:disabled { color: var(--text-muted); border-color: var(--border-2); cursor: default; }
+  #view-run .finalize-card-status { font-size: var(--fs-sm); color: var(--text-2); min-height: 14px; }
+  #view-run .finalize-card-status.error { color: var(--danger); }
+  #view-run .finalize-card-status.ok { color: var(--success); }
+  #view-run .card-push { padding-top: 8px; border-top: 1px dashed var(--border-2); }
+  #view-run .card-push-status { font-size: var(--fs-sm); color: var(--text-2); margin-top: 6px; min-height: 14px; }
+  #view-run .card-push-status.error { color: var(--danger); }
+  #view-run .card-push-status.ok { color: var(--success); }
+  #view-run .card-push-done { font-size: var(--fs-sm); color: var(--success); font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  #view-run .card-push-retry { margin-top: 6px; }
+  #view-run .post-run-btns { display: flex; gap: 10px; align-items: center; }
+  #view-run #driveFolderBtn { display: inline-block; text-decoration: none; line-height: 1.4; white-space: nowrap; }
+  #view-run #vinLogBtn { padding: 8px 16px; font-family: var(--font-head); font-size: 15px; font-weight: 700; letter-spacing: .02em;
+                         background: var(--success); color: var(--on-success); border: 1px solid var(--success); cursor: pointer; }
+  #view-run #vinLogBtn:disabled { background: var(--text-muted); border-color: var(--text-muted); cursor: default; }
+  #view-run #vinLogBtn.committed { background: var(--bg); color: var(--success); cursor: default; }
+
+  /* ── Drafts band ────────────────────────────────────────────────────── */
+  #view-run .rv-drafts-band[hidden] { display: none !important; }
+  #view-run .rv-drafts-band { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+  #view-run .rv-drafts-label { font-size: var(--fs-sm); font-weight: 600; color: var(--text-2); margin-right: 4px; }
+  #view-run .rv-draft-item { display: inline-flex; align-items: center; gap: 8px; padding: 3px 0 3px 10px; border-left: 3px solid var(--border-2); }
+  #view-run .rv-draft-name { font-weight: 600; }
+  #view-run .rv-draft-age { font-size: var(--fs-sm); color: var(--text-3); }
+  #view-run .rv-draft-item .btn-secondary { padding: 3px 10px !important; font-size: 13px; }
+  #view-run .rv-draft-x { background: none; border: none; color: var(--text-3); cursor: pointer; font-size: var(--fs-sm); line-height: 1; padding: 3px 6px; }
+  #view-run .rv-draft-x:hover { color: var(--danger); background: var(--danger-weak); }
+
+  /* ── Match table — the pinned ✕ column + row tints (kept verbatim from
+     the audited version; see docs/LEARNINGS.md) ───────────────────────── */
+  #view-run .rv-table-scroll { flex: 1; min-height: 0; overflow: auto; border: 1px solid var(--border); }
+  #view-run #vinDataTable td { white-space: nowrap; }
+  #view-run #vinDataTable td.rv-vin { font-family: var(--font-mono); font-size: 12px; color: var(--text-3); letter-spacing: .01em; }
+  #view-run #vinDataTable td.rv-vin b { color: var(--text); font-weight: 600; }
+  #view-run #vinDataTable tr.rv-empty-row td { color: var(--text-muted); text-align: center; padding: var(--space-4); }
+  #view-run #vinDataTable td.rv-link { white-space: nowrap; }
+  #view-run #vinDataTable td.rv-link a { color: var(--accent); text-decoration: none; font-size: var(--fs-sm); }
+  #view-run #vinDataTable td.rv-link a:hover { text-decoration: underline; }
+  #view-run #vinDataTable td.rv-feat { min-width: 12rem; }
+  #view-run .rv-feat-input, #view-run .rv-edit-input { width: 100%; font-size: var(--fs-sm); color: var(--text); background: var(--bg); border: 1px solid var(--border); padding: 2px var(--space-2); }
+  #view-run .rv-edit-input.rv-over { border-color: var(--danger); color: var(--danger); }
     /* PINNED right edge: sticky on BOTH axes (top from .table-u th, right here)
        so the per-row ✕ stays reachable when Features / editable columns push
        the table wider than its box — the wide table scrolls UNDER this column
@@ -209,399 +319,19 @@
     #view-run .rv-table-scroll.rv-more-right td.rv-x-cell,
     #view-run .rv-table-scroll.rv-more-right th#rvXHead { box-shadow: -8px 0 8px -6px rgba(0,0,0,.35); }
     #view-run .rv-x { background: none; border: none; color: var(--text-3); cursor: pointer;
-                      font-size: var(--fs-sm); line-height: 1; padding: 3px 6px; border-radius: var(--radius-sm); }
+                      font-size: var(--fs-sm); line-height: 1; padding: 3px 6px;  }
     #view-run .rv-x:hover { color: var(--danger); background: var(--danger-weak); }
-    /* Order-drafts band — one row per saved draft, natural height above the body.
-       display:flex beats the UA [hidden] rule (the .view[hidden] trap) — re-pin. */
-    #view-run .rv-drafts-band[hidden] { display: none !important; }
-    #view-run .rv-drafts-band { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2);
-                                padding: var(--space-2) var(--space-3);
-                                background: var(--surface); border: 1px solid var(--border-2); border-radius: var(--radius-sm); }
-    #view-run .rv-drafts-label { font-size: var(--fs-overline); text-transform: uppercase; letter-spacing: .04em; color: var(--text-3); }
-    #view-run .rv-draft-item { display: inline-flex; align-items: center; gap: var(--space-2);
-                               padding: 3px 8px; background: var(--bg); border: 1px solid var(--border);
-                               border-radius: var(--radius-sm); }
-    #view-run .rv-draft-name { font-weight: 600; }
-    #view-run .rv-draft-age { font-size: var(--fs-sm); color: var(--text-3); }
-    #view-run .rv-draft-item .btn-secondary { padding: 3px 10px !important; font-size: var(--fs-sm); }
-    #view-run .rv-draft-x { background: none; border: none; color: var(--text-3); cursor: pointer;
-                            font-size: var(--fs-sm); line-height: 1; padding: 3px 6px; border-radius: var(--radius-sm); }
-    #view-run .rv-draft-x:hover { color: var(--danger); background: var(--danger-weak); }
-    #view-run .rv-matchcount { font-size: var(--fs-sm); color: var(--text-2); margin-top: var(--space-2); }
 
-    /* Data table — token-bound, tabular figures, like the dash/runs tables */
-    #view-run .rv-table-scroll { flex: 1; min-height: 0; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); }
-    #view-run #vinDataTable td { white-space: nowrap; }
-    /* VIN: the serial (last 6) is what the crew matches on the lot — set bold, the
-       WMI/VDS/check/plant prefix lighter. rvVinCell_() splits it. */
-    #view-run #vinDataTable td.rv-vin { font-family: var(--font-mono); font-size: 12px; color: var(--text-3); letter-spacing: .01em; }
-    #view-run #vinDataTable td.rv-vin b { color: var(--text); font-weight: 600; }
-    #view-run #vinDataTable tr.rv-empty-row td { color: var(--text-muted); text-align: center; padding: var(--space-4); }
-    #view-run #vinDataTable td.rv-link { white-space: nowrap; }
-    #view-run #vinDataTable td.rv-link a { color: var(--accent); text-decoration: none; font-size: var(--fs-sm); }
-    #view-run #vinDataTable td.rv-link a:hover { text-decoration: underline; }
-    /* Features + editable-column text inputs (VersaWorks dealers) */
-    /* 12rem (was 16rem): two input columns at 1440 already overflow — the ✕
-       column is pinned, so a narrower floor just means less to scroll. The
-       input scrolls its own text; the caret is never lost. */
-    #view-run #vinDataTable td.rv-feat { min-width: 12rem; }
-    #view-run .rv-feat-input,
-    #view-run .rv-edit-input {
-      width: 100%; box-sizing: border-box;
-      font-size: var(--fs-sm); color: var(--text);
-      background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm);
-      padding: 2px var(--space-2);
-    }
-    /* Over the column's length budget (`edit<N>` in the schema) — VersaWorks
-       will shrink this text; flag it for manual shortening. */
-    #view-run .rv-edit-input.rv-over { border-color: var(--danger); color: var(--danger); }
-
-    #view-run label {
-      display: block;
-      font-weight: bold;
-      margin-bottom: 4px;
-      margin-top: 14px;
-    }
-    #view-run label:first-of-type { margin-top: 0; }
-    #view-run .user-select-wrap select {
-      border-color: var(--accent);
-    }
-    #view-run .user-select-wrap select:focus {
-      outline: none;
-      box-shadow: var(--focus-ring);
-    }
-    #view-run select,
-  #view-run textarea,
-  #view-run input[type="text"] {
-      width: 100%;
-      padding: 8px;
-      font-size: 13px;
-      border: 1px solid var(--border-2);
-      border-radius: var(--radius-sm);
-      background: var(--bg);
-      color: var(--text);
-    }
-    #view-run textarea {
-      flex: 1;
-      min-height: 0;
-      resize: none;
-      font-family: monospace;
-      font-size: 12px;
-      line-height: 1.6;
-      background: var(--bg);
-      color: var(--text);
-      width: 100%;
-    }
-    #view-run .vin-count { font-size: 11px; color: var(--text-3); margin-top: 4px; min-height: 16px; }
-    #view-run .field-hint { font-size: 11px; color: var(--text-3); margin-top: 3px; }
-    #view-run .bypass-label {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      margin-top: 8px;
-      font-weight: normal;
-      font-size: 12px;
-      color: var(--text-2);
-      cursor: pointer;
-      user-select: none;
-    }
-    #view-run .bypass-label input[type="checkbox"] {
-      width: auto;
-      margin: 0;
-      cursor: pointer;
-      accent-color: var(--warning);
-    }
-    #view-run .bypass-label:has(input:checked) { color: var(--warning); }
-    #view-run .bypass-hint {
-      font-size: 11px;
-      color: var(--text-muted);
-      margin-left: 2px;
-    }
-
-    /* ── VIN log status row ──────────────────────────────────────────────── */
-    #view-run #vinLogStatusRow {
-      display: none;
-      align-items: center;
-      gap: 8px;
-      font-size: 12.5px;
-      color: var(--text-2);
-    }
-    #view-run #vinLogStatusRow .log-label { flex: 1; }
-    /* positioning only — visual spec now owned by .tag.tone-neutral */
-    #view-run #vinLogStatusRow .log-label span { margin-left: 4px; }
-    #view-run #vinLogStatusRow .tag { font-size: 11.5px; }
-    #view-run #openVinLogBtn {
-      padding: 7px 14px;
-      font-size: 12.5px;
-      font-weight: bold;
-      background: var(--bg);
-      color: var(--accent);
-      border: 1.5px solid var(--accent);
-      border-radius: var(--radius-sm);
-      cursor: pointer;
-      white-space: nowrap;
-    }
-    #view-run #openVinLogBtn:hover { background: var(--accent-weak); }
-
-    /* ── CAO button (positioning only — visual spec now owned by .btn-ghost) ── */
-    #view-run #caoBtn { width: auto; margin: 0; }
-
-    /* ── CAO summary — compact vertical stat card. Fixed width; fills the flow
-       row's height, distributing its rows evenly (no dead top/bottom bands);
-       a long rejection breakdown scrolls inside. JS shows it with display:flex. */
-    #view-run #caoSummary {
-      display: none; flex-direction: column; justify-content: space-evenly;
-      flex: 1 0 230px; min-width: 230px; overflow-y: auto;
-      padding: 10px 14px;
-      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
-      font-size: 11px; line-height: 1.6;
-    }
-    #view-run #caoSummary .summary-row { display: flex; justify-content: space-between; gap: 12px; }
-    #view-run #caoSummary .summary-row span:last-child { font-weight: bold; color: var(--text); }
-    #view-run #caoSummary .summary-divider { border: none; border-top: 1px solid var(--border); margin: 2px 0; }
-    #view-run #caoSummary .summary-net { color: var(--accent); }
-    #view-run #caoSummary .summary-net span:last-child { color: var(--accent); }
-    #view-run #caoSummary .rejection-detail { color: var(--text-3); font-size: 10.5px; }
-    /* Breakdown toggle — a button dressed as a summary row, in the app's
-       link idiom (accent + hover underline, like the Vehicle URL links) so
-       it reads as clickable; the caret seals it. */
-    #view-run .rej-toggle { display: flex; justify-content: space-between; gap: 12px; width: 100%;
-                            background: none; border: 0; padding: 0; font: inherit; cursor: pointer;
-                            color: var(--accent); }
-    #view-run .rej-toggle:hover span:first-child { text-decoration: underline; }
-    /* The caret at 10.5px inherited size read as a stray "-" (Sep 23 audit). */
-    #view-run .rej-toggle span:last-child { font-size: 13px; line-height: 1; opacity: .75; }
-    /* Breakdown popover — top layer (never clipped by the card/band, zero
-       layout shift); anchored under the toggle by rvPositionRejPop. */
-    #view-run .rej-pop { position: fixed; inset: auto; margin: 0;
-                         min-width: 260px; max-width: 360px; max-height: 300px; overflow-y: auto;
-                         padding: 10px 14px; font-size: 11px; line-height: 1.6;
-                         background: var(--surface-2); color: var(--text);
-                         border: 1px solid var(--border-2); border-radius: var(--radius-sm);
-                         box-shadow: 0 8px 24px rgba(0,0,0,.35); }
-
-    /* ── Progress card — appears only while a run is live/complete, so the
-       idle band has no empty placeholder card. JS shows it with display:flex. */
-    #view-run #progressSection {
-      display: none; flex-direction: column; justify-content: center;
-      flex: 1.5 0 240px; min-width: 240px;
-      padding: 10px 14px; background: var(--surface);
-      border: 1px solid var(--border); border-radius: var(--radius-sm);
-      overflow-y: auto;
-    }
-    #view-run #progressStep {
-      font-size: 12px; color: var(--text); margin-bottom: 8px;
-      min-height: 16px;   /* wraps in the narrow middle cell — never clip run info */
-    }
-    #view-run .progress-track {
-      height: 6px; background: var(--border); border-radius: 3px; overflow: hidden;
-    }
-    #view-run .progress-fill {
-      height: 100%; background: var(--accent); border-radius: 3px;
-      width: 0%; transition: width 0.5s ease, background 0.3s ease;
-    }
-    #view-run .progress-fill.done { background: var(--success); }
-    #view-run .progress-fill.error { background: var(--danger); }
-    #view-run .progress-meta {
-      display: flex; justify-content: space-between;
-      margin-top: 5px; font-size: 11px; color: var(--text-3);
-    }
-    #view-run #progressPercent { font-weight: bold; color: var(--text-2); }
-
-    /* ── Post-run actions — finalize card(s) with the two action buttons as a
-       full-width row along the bottom. JS shows it with display:flex. */
-    #view-run #postRunActions {
-      display: none;
-      flex-direction: column;
-      gap: var(--space-2);
-      /* shrink 0 + no min-width:0 — cells keep their natural width and the
-         flow row scrolls horizontally instead of squishing them. */
-      flex: 2.5 0 340px;
-    }
-    #view-run .post-run-btns {
-      display: flex;
-      gap: var(--space-2);
-      flex-shrink: 0;
-    }
-    #view-run .post-run-btns > * { flex: 1; }
-    /* Drive folder button — an <a> styled as a button; positioning + anchor
-       resets only (visual spec now owned by .btn-ghost) */
-    #view-run #driveFolderBtn {
-      display: block;
-      text-align: center;
-      text-decoration: none;
-      line-height: 1.4;
-      white-space: nowrap;
-    }
-    /* VIN log button */
-    #view-run #vinLogBtn {
-      padding: 6px 12px;
-      background: var(--success);
-      color: var(--on-success);
-      border: none;
-      border-radius: var(--radius-sm);
-      font-size: 13px;
-      font-weight: bold;
-      cursor: pointer;
-    }
-    #view-run #vinLogBtn:hover { background: var(--success); }
-    #view-run #vinLogBtn:disabled { background: var(--text-muted); cursor: default; }
-    #view-run #vinLogBtn.committed {
-      background: var(--bg);
-      color: var(--success);
-      border: 1.5px solid var(--success);
-      cursor: default;
-    }
-
-    /* ── Finalization cards — one per prospective run log entry ──────────── */
-    /* Side-by-side in the post-run band (billing-split runs show two);
-       stretch keeps card edges on the same grid lines as the neighbors.
-       nowrap: a second card widens the block into the row's horizontal
-       scroll — wrapping would stack it past the fixed height. */
-    #view-run #finalizeCards { flex: 1 1 auto; min-height: 0; display: flex; flex-wrap: nowrap; justify-content: flex-start; align-items: stretch; gap: 8px; }
-    #view-run .finalize-card {
-      flex: 1 1 300px; min-width: 280px;
-      display: flex; flex-direction: column; justify-content: space-evenly;
-      /* safety valve: a wrapped flex line sizes to its content, so without the
-         cap an over-tall card paints PAST the cards zone (under the button
-         row) instead of scrolling — max-height pins it to the zone. */
-      max-height: 100%; overflow-y: auto;
-      border: 1px solid var(--border); border-radius: var(--radius-sm);
-      padding: 10px 14px; background: var(--surface);
-    }
-    #view-run .finalize-card.finalized { border-color: var(--success); background: var(--success-weak); }
-    #view-run .finalize-card.abandoned { opacity: 0.55; background: var(--surface-2); }
-    #view-run .finalize-card-head {
-      display: flex; justify-content: space-between; align-items: baseline;
-      margin-bottom: 12px;
-    }
-    #view-run .finalize-card-title { font-size: 14px; font-weight: 600; color: var(--text); }
-    #view-run .finalize-card-count { font-size: 12.5px; color: var(--text-2); }
-    #view-run .finalize-card-body { display: flex; gap: 8px; }
-    #view-run .finalize-card-body input {
-      flex: 1; min-width: 0; padding: 6px 8px; font-size: 12px;
-      border: 1px solid var(--border); border-radius: var(--radius-sm);
-      background: var(--bg); color: var(--text);
-    }
-
-    /* ── Method selector (New Deal / Existing / Test) ─────────────────────── */
-    #view-run .card-methods {
-      display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
-      gap: 8px 20px; margin-bottom: 12px;
-    }
-    #view-run .card-method {
-      display: inline-flex; align-items: center; gap: 7px;
-      font-size: 13.5px; line-height: 16px;   /* = radio height, so all three labels sit level */
-      color: var(--text); cursor: pointer; font-weight: normal;
-      margin: 0;
-    }
-    #view-run .card-method.is-disabled { color: var(--text-muted); cursor: default; }
-    #view-run .card-method input[type="radio"] {
-      width: 16px; height: 16px; margin: 0; cursor: pointer; accent-color: var(--accent);
-    }
-    #view-run .card-method.is-disabled input[type="radio"] { cursor: default; }
-    #view-run .card-method-label { white-space: nowrap; }
-    #view-run .card-method-reason { font-size: 10.5px; color: var(--text-muted); font-style: italic; }
-    #view-run .card-method-idrow { display: flex; flex-basis: 100%; margin-top: 2px; }
-    #view-run .card-method-idrow input {
-      flex: 1; min-width: 0; padding: 6px 8px; font-size: 12px;
-      border: 1px solid var(--border-2); border-radius: var(--radius-sm);
-      background: var(--bg); color: var(--text);
-    }
-    #view-run .card-method-idrow input:focus { outline: none; border-color: var(--accent); }
-    #view-run .finalize-card-actions { display: flex; gap: 10px; justify-content: center; }
-    #view-run .card-finalize-btn {
-      padding: 10px 22px; font-size: 13px; border: none; border-radius: var(--radius-sm);
-      background: var(--accent); color: var(--on-accent); cursor: pointer; white-space: nowrap;
-    }
-    #view-run .card-finalize-btn:hover { background: var(--accent-hover); }
-    #view-run .card-finalize-btn:disabled { background: var(--text-muted); cursor: default; }
-    #view-run .card-abandon-btn {
-      padding: 10px 22px; font-size: 13px; border-radius: var(--radius-sm);
-      background: var(--bg); color: var(--danger); border: 1px solid var(--danger);
-      cursor: pointer; white-space: nowrap;
-    }
-    #view-run .card-abandon-btn:hover { background: var(--danger-weak); }
-    #view-run .card-abandon-btn:disabled { color: var(--text-muted); border-color: var(--border-2); cursor: default; }
-    #view-run .finalize-card-status { font-size: 11px; color: var(--text-2); margin-top: 6px; min-height: 14px; }
-    #view-run .finalize-card-status.error { color: var(--danger); }
-    #view-run .finalize-card-status.ok { color: var(--success); }
-
-    /* ── Pipedrive push sub-block (inside a finalized card) — single-line;
-       it lives in the slot the hidden Finalize/Abandon buttons vacate. ── */
-    #view-run .card-push {
-      margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border-2);
-    }
-    #view-run .card-push-modes { display: flex; gap: 14px; margin-bottom: 6px; }
-    #view-run .card-push-modes label {
-      display: inline-flex; align-items: center; gap: 5px;
-      font-weight: normal; font-size: 12px; color: var(--text-2);
-      margin: 0; cursor: pointer;
-    }
-    #view-run .card-push-modes input[type="radio"] {
-      width: auto; margin: 0; cursor: pointer; accent-color: var(--accent);
-    }
-    #view-run .card-push-row { display: flex; gap: 8px; align-items: center; }
-    #view-run .card-push-row input[type="text"] {
-      flex: 1; min-width: 0; padding: 6px 8px; font-size: 12px;
-      border: 1px solid var(--border); border-radius: var(--radius-sm);
-      background: var(--bg); color: var(--text);
-    }
-    #view-run .card-push-btn {
-      padding: 6px 12px; font-size: 12px; border: none; border-radius: var(--radius-sm);
-      background: var(--accent); color: var(--on-accent); cursor: pointer; white-space: nowrap;
-    }
-    #view-run .card-push-btn:hover { background: var(--accent-hover); }
-    #view-run .card-push-btn:disabled { background: var(--text-muted); cursor: default; }
-    #view-run .card-push-status { font-size: 11px; color: var(--text-2); margin-top: 6px; min-height: 14px; }
-    #view-run .card-push-status.error { color: var(--danger); }
-    #view-run .card-push-status.ok { color: var(--success); }
-    #view-run .card-push-done {
-      font-size: 12px; color: var(--success); font-weight: 600;
-      display: flex; align-items: center; gap: 6px;
-    }
-    /* positioning only — visual spec now owned by .btn-ghost */
-    #view-run .card-push-retry { margin-top: 6px; }
-
-    /* (Run status renders in the app header — #appHeaderStatus in App.html.) */
-
-    /* themed root (overrides the interim .view light guard) */
-    #view-run { background: var(--bg); color: var(--text); }
-
-    /* ── Mobile (data-viewport="mobile") — phone ≤760px ─────────────────────
-       .rv-body already stacks (App.html). The topbar's 3-column grid (left
-       cluster | flow zone | actions) crams on a ~360px screen — stack it to one
-       column: cluster, then flow content, then full-width buttons. The VIN
-       table is already in .rv-table-scroll (overflow:auto). No-op on desktop. */
-    :root[data-viewport="mobile"] #view-run .rv-topbar-main { grid-template-columns: 1fr; }
-    :root[data-viewport="mobile"] #view-run .rv-topbar-actions { flex-direction: row; flex-wrap: wrap; padding-top: 0; }
-    :root[data-viewport="mobile"] #view-run .rv-topbar-actions button { flex: 1 1 auto; width: auto; }
-    /* The fixed-height flow row re-stacks (and un-fixes) on a phone. */
-    :root[data-viewport="mobile"] #view-run .rv-flow { flex-direction: column; align-items: stretch; height: auto; overflow: visible; }
-    :root[data-viewport="mobile"] #view-run #caoSummary { min-width: 0; }
-    :root[data-viewport="mobile"] #view-run #postRunActions { flex-direction: column; align-items: stretch; }
-    :root[data-viewport="mobile"] #view-run #finalizeCards { flex-wrap: wrap; }
-
-    /* Full-page scroll on mobile: drop the fixed-height panes so the whole view
-       flows naturally and the bottom (post-CAO breakdown, finalize cards) is
-       reachable by scrolling the page. The desktop layout (height:100% + internal
-       pane scroll) is untouched — everything here is under [data-viewport="mobile"]. */
-    :root[data-viewport="mobile"] #view-run { overflow-y: auto; }
-    :root[data-viewport="mobile"] #view-run .rv-wrap { height: auto; min-height: 100%; }
-    :root[data-viewport="mobile"] #view-run .rv-body { flex: 0 0 auto; min-height: 0; }
-    /* min-width:0 is the key: grid items default to min-width:auto, so a wide
-       element (the nowrap progress step / finalize-card rows in the flow zone)
-       would force the column wider than the viewport and stretch the page
-       horizontally. min-width:0 lets the column stay at viewport width and the
-       content clip/wrap within it. */
-    :root[data-viewport="mobile"] #view-run .rv-vinzone,
-    :root[data-viewport="mobile"] #view-run .rv-tablezone,
-    :root[data-viewport="mobile"] #view-run .rv-flow { min-height: 0; min-width: 0; }
-    /* Keep the VIN textarea usable (~8+ lines) even after a CAO fill shrinks the
-       grid row; it's flex:1 on desktop so a floor is all that's needed. */
-    :root[data-viewport="mobile"] #view-run textarea { min-height: 220px; }
-    /* The data table keeps its OWN internal scroll so it can't dominate the page. */
-    :root[data-viewport="mobile"] #view-run .rv-table-scroll { max-height: 55vh; overflow: auto; }
+  /* ── Mobile (data-viewport="mobile") ─────────────────────────────────── */
+  :root[data-viewport="mobile"] #view-run .ro-wrap { padding: 14px 16px 40px; }
+  :root[data-viewport="mobile"] #view-run .ro-head { grid-template-columns: 1fr; }
+  :root[data-viewport="mobile"] #view-run .ro-step-head { flex-wrap: wrap; }
+  :root[data-viewport="mobile"] #view-run .ro-step-actions { margin-left: 0; flex-basis: 100%; }
+  :root[data-viewport="mobile"] #view-run .rv-body { grid-template-columns: 1fr; grid-template-areas: "vin" "table"; height: auto; }
+  :root[data-viewport="mobile"] #view-run textarea { min-height: 200px; }
+  :root[data-viewport="mobile"] #view-run .rv-table-scroll { max-height: 55vh; }
+  :root[data-viewport="mobile"] #view-run .ro-run-grid { grid-template-columns: 1fr; }
+  :root[data-viewport="mobile"] #view-run #finalizeCards { grid-template-columns: 1fr; }
 </style>
 
 <script>
@@ -659,7 +389,7 @@
     // Re-fetch drafts on every visit (cheap; another device may have saved one),
     // and auto-save typed work when navigating away from the view.
     window.VIEW_SHOWN = window.VIEW_SHOWN || {};
-    VIEW_SHOWN['view-run'] = rvRefreshDrafts;
+    VIEW_SHOWN['view-run'] = function() { rvRefreshDrafts(); roRefreshImport_(); };
     window.VIEW_LEFT = window.VIEW_LEFT || {};
     VIEW_LEFT['view-run'] = function() {
       try { if (rvVinData.dealerKey && rvDirty && rvHasWork()) rvSaveDraft(); } catch (e) {}
@@ -701,6 +431,7 @@
       if (!t || !t.classList) return;
       if (t.classList.contains('rv-feat-input')) {
         rvFeatures[t.getAttribute('data-vin')] = t.value;
+        roChecks_.missingFeat = roMissingFeatures_(); roUpdateChecks();
       } else if (t.classList.contains('rv-edit-input')) {
         var vin = t.getAttribute('data-vin'), code = t.getAttribute('data-code');
         (rvEdits[vin] || (rvEdits[vin] = {}))[code] = t.value;
@@ -759,9 +490,13 @@
 
       if (!key) {
         document.getElementById('vinLogStatusRow').style.display = 'none';
+        if (window.Inspector) Inspector.hide();
+        roChecks_.pending = null; roUpdateChecks();
         return;
       }
       loadVinLogStatus(key);
+      roRefreshImport_();
+      if (window.Inspector) Inspector.show(key);
     }
 
     // (The pre-run Pipedrive Deal ID + split-deal fields were removed July 2026 —
@@ -854,13 +589,16 @@
     }
 
     function updateButtons() {
-      // Deal IDs are NOT required to run — they are entered (or confirmed) on
-      // the finalization cards after the run, once results are known.
+      // Deal IDs are NOT required to run — they are entered on the finalize
+      // cards. Missing Features text is the one hard block (the server
+      // fail-fasts on it too); everything else is a visible warning.
       var hasUser   = document.getElementById('userSelect').value !== '';
       var hasDealer = document.getElementById('runDealerSelect').value !== '';
       var hasVins   = getVins().length > 0;
       document.getElementById('caoBtn').disabled = !hasDealer;
-      document.getElementById('runBtn').disabled = !(hasUser && hasDealer && hasVins);
+      var runBtn = document.getElementById('runBtn');
+      runBtn.disabled = !(hasUser && hasDealer && hasVins) || roChecks_.missingFeat > 0;
+      if (!pollInterval) runBtn.textContent = roRunLabel_();
     }
 
     // ── VIN log status ────────────────────────────────────────────────────────
@@ -878,9 +616,11 @@
           var n = (result && result.pendingCount) || 0;
           pend.textContent = n + ' pending';
           pend.style.display = n > 0 ? '' : 'none';
+          roChecks_.pending = n; roUpdateChecks();
         })
         .withFailureHandler(function() {
           span.textContent = '—';
+          roChecks_.pending = null; roUpdateChecks();
         })
         .getLatestOrderId(dealerKey);
     }
@@ -889,6 +629,7 @@
     function refreshVinLogStatus_() {
       var key = document.getElementById('runDealerSelect').value;
       if (key) loadVinLogStatus(key);
+      if (window.Inspector) Inspector.refresh();
     }
 
     function openVinLogUpdater() {
@@ -908,7 +649,7 @@
       var key = document.getElementById('runDealerSelect').value;
       if (!key) return;
       var btn = document.getElementById('caoBtn');
-      btn.disabled = true; btn.textContent = '⟳ Loading...';
+      btn.disabled = true; btn.textContent = 'Loading…';
       setRunStatus('Pulling inventory and applying filters...', 'info');
       hideCaoSummary();
 
@@ -921,11 +662,11 @@
             : 'Added ' + result.vins.length + ' net-new VIN' +
               (result.vins.length === 1 ? '' : 's') + ' from CAO. Review and click Run.',
             result.vins.length === 0 ? 'info' : 'success');
-          btn.disabled = false; btn.textContent = '↺ Pre-fill from CAO';
+          btn.disabled = false; btn.textContent = 'Pre-fill from CAO';
         })
         .withFailureHandler(function(e) {
           setRunStatus('CAO error: ' + e.message, 'error');
-          btn.disabled = false; btn.textContent = '↺ Pre-fill from CAO';
+          btn.disabled = false; btn.textContent = 'Pre-fill from CAO';
         })
         .getCaoVins(key);
     }
@@ -1057,7 +798,7 @@
 
       var vinBtn = document.getElementById('vinLogBtn');
       vinBtn.disabled = true;
-      vinBtn.textContent = '✓ Add to VIN Log';
+      vinBtn.textContent = 'Add to VIN log';
       vinBtn.className = '';
 
       cardStates = result.pendingRuns.map(function(entry) {
@@ -1084,7 +825,9 @@
         '</div>';
       });
       document.getElementById('finalizeCards').innerHTML = html;
-      document.getElementById('postRunActions').style.display = 'flex';   // horizontal band
+      document.getElementById('postRunActions').style.display = 'flex';
+      roShowStep_('roStepFinalize', true);
+      roUpdateChecks();
     }
 
     // The up-front 3-way method selector + (Existing only) the deal-id input.
@@ -1146,6 +889,7 @@
     }
 
     function hidePostRunActions() {
+      roShowStep_('roStepFinalize', false);
       document.getElementById('postRunActions').style.display = 'none';
       document.getElementById('finalizeCards').innerHTML = '';
       // The progress card belongs to the run being cleared (a new run re-shows
@@ -1195,6 +939,7 @@
     // self-clears window.viPendingBatch, so this fires at most once per batch;
     // an all-abandoned run (no finalized card) never prompts.
     function runNotifyBatchIfDone_() {
+      roUpdateChecks();   // un-finalized-results warning follows the cards
       if (!window.viPendingBatch) return;
       if (hasUnfinalizedCards()) return;
       if (!cardStates.some(function(s) { return s.state === 'finalized'; })) return;
@@ -1536,7 +1281,7 @@
           cardStates.forEach(function(s) {
             if (s.state === 'finalized' && s.method !== 'test') s.committed = true;
           });
-          vinBtn.textContent = '✓ Added ' + result.committed + ' VINs';
+          vinBtn.textContent = 'Added ' + result.committed + ' VINs';
           vinBtn.className = 'committed';
           setRunStatus(result.committed + ' VINs committed to the ' +
             lastRunResult.dealerName + ' VIN log' +
@@ -1545,7 +1290,7 @@
         })
         .withFailureHandler(function(e) {
           vinBtn.disabled = false;
-          vinBtn.textContent = '✓ Add to VIN Log';
+          vinBtn.textContent = 'Add to VIN log';
           setRunStatus('VIN log error: ' + e.message, 'error');
         })
         .commitRunRows(lastDealerKey, rowIndexes);
@@ -1614,15 +1359,11 @@
 
       // Stale-import warning → pending-commit warning → un-finalized-results
       // guard. All themed confirms (async), so the run continues in .then().
-      rvImportFreshCheck_()
-        .then(function(ok) {
-          if (!ok) { setRunStatus('Run cancelled — import fresh data first.', 'info'); return false; }
-          return rvPendingCommitCheck_(key, name);
-        })
-        .then(function(ok) {
-          if (!ok) { setRunStatus('Run cancelled — commit or roll back the pending runs in the VIN log first.', 'info'); return false; }
-          return discardPendingGuard();   // a new run discards un-finalized results
-        })
+      // Pre-flight is the inline checklist (roUpdateChecks): a stale import and
+      // uncommitted runs are VISIBLE warnings and the button already reads
+      // "Run anyway" while any is active — no dialog chain. The one remaining
+      // ask is destructive: a new run discards un-finalized results.
+      discardPendingGuard()
         .then(function(ok) {
           if (!ok) return;
           if (dupsRemoved > 0) {
@@ -1648,7 +1389,7 @@
               lastRunResult = result;
               updateProgressUI({ message: 'Complete!', percent: 100, done: true, error: null });
               setRunStatus('Done! ' + name + ' order complete — finalize or abandon below.', 'success');
-              runBtn.textContent = 'Run Dealer';
+              runBtn.textContent = roRunLabel_();
               updateButtons();
               if (result) showFinalizePanel(result);
               // The run materialized this work — its draft is stale. Clear the
@@ -1665,7 +1406,7 @@
               updateProgressUI({ message: 'Error: ' + e.message, percent: 0, done: true, error: e.message });
               setRunStatus('Error: ' + e.message, 'error');
               runBtn.disabled = false;
-              runBtn.textContent = 'Run Dealer';
+              runBtn.textContent = roRunLabel_();
             })
             .pasteVinsAndRun(key, vins, '', runId, bypass, userKey, null, featuresMap, editsMap);
         });
@@ -1970,6 +1711,8 @@
           '</td></tr>';
         if (countEl) countEl.textContent = '';
         if (dedupeBtn) dedupeBtn.style.display = 'none';
+        roChecks_.lines = 0; roChecks_.found = 0; roChecks_.dupes = 0; roChecks_.filtered = 0; roChecks_.missingFeat = 0;
+        roUpdateChecks();
         rvUpdateScrollCue();
         return;
       }
@@ -2049,8 +1792,11 @@
       rvUpdateScrollCue();
       if (dedupeBtn) {
         dedupeBtn.style.display = dupes ? '' : 'none';
-        dedupeBtn.textContent = 'Remove Duplicates (' + dupes + ')';
+        dedupeBtn.textContent = 'Remove duplicates (' + dupes + ')';
       }
+      roChecks_.lines = lines.length; roChecks_.found = found; roChecks_.dupes = dupes; roChecks_.filtered = filteredN;
+      roChecks_.missingFeat = roMissingFeatures_();
+      roUpdateChecks();
     }
 
     // Reuse the themed type-pill classes (.pill + .type-*) so it themes everywhere.
@@ -2068,5 +1814,75 @@
               : t.toUpperCase() === 'CPO-EL' ? 'type-cpoel' : '';
       if (!t) return '';
       return '<span class="pill ' + cls + ' active" style="cursor:default">' + escHtml(t) + '</span>';
+    }
+    // ── Pre-flight checklist (Order Desk rebuild) ─────────────────────────
+    // Replaces the three sequential confirm dialogs: every condition is shown
+    // inline under step 2 as soon as it is known, the Run button reads
+    // "Run anyway" while a warning is active, and only the destructive case
+    // (discarding un-finalized results) still asks. Missing Features text is
+    // the one hard block, mirroring the server.
+    var roChecks_ = { importFresh: null, importDate: '', pending: null, lines: 0, found: 0, dupes: 0, filtered: 0, missingFeat: 0 };
+    function roRefreshImport_() {
+      google.script.run
+        .withSuccessHandler(function(st) {
+          var date = String((st && st.lastImportDate) || '').trim();
+          var time = String((st && st.lastImportTime) || '').trim();
+          roChecks_.importDate = date ? date + (time ? ' ' + time : '') : '';
+          roChecks_.importFresh = (typeof homeDateIsToday_ === 'function') ? homeDateIsToday_(date) : true;
+          roUpdateChecks();
+        })
+        .withFailureHandler(function() { roChecks_.importFresh = null; roUpdateChecks(); })
+        .getAppHomeStatus();
+    }
+    function roMissingFeatures_() {
+      var n = 0;
+      getVins().forEach(function(v) {
+        var k = v.toUpperCase(), d = rvVinData.map[k];
+        if (d && rvVinData.featuresTypes[d.type] && !(rvFeatures[k] || '').trim()) n++;
+      });
+      return n;
+    }
+    function roHasWarnings_() {
+      return roChecks_.importFresh === false || roChecks_.pending > 0 || hasUnfinalizedCards();
+    }
+    function roRunLabel_() { return roHasWarnings_() ? 'Run anyway' : 'Run order'; }
+    function roShowStep_(id, show) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      el.hidden = !show;
+      if (show) { try { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {} }
+    }
+    function roUpdateChecks() {
+      var ul = document.getElementById('roChecks');
+      if (!ul) return;
+      var c = roChecks_, items = [];
+      function item(state, text, act, actLabel) { items.push({ s: state, t: text, a: act || '', l: actLabel || '' }); }
+      if (c.importFresh === true) item('ok', 'Inventory was imported today');
+      else if (c.importFresh === false) item('warn', 'Inventory is not from today (last import ' + (c.importDate || 'never') + ')', "navTo('view-import')", 'Import now');
+      else item('idle', 'Import status not checked yet');
+      if (c.pending === null || c.pending === undefined) item('idle', 'VIN log not checked yet');
+      else if (c.pending > 0) item('warn', c.pending + ' finalized run' + (c.pending === 1 ? '' : 's') + ' not committed to the VIN log, so this order cannot be checked against ' + (c.pending === 1 ? 'it' : 'them'), 'openVinLogUpdater()', 'Commit or roll back');
+      else item('ok', 'VIN log is caught up');
+      if (!c.lines) item('block', 'No vehicles entered yet');
+      else {
+        var nf = c.lines - c.found;
+        item(nf ? 'warn' : 'ok', c.found + ' of ' + c.lines + ' in inventory' + (nf ? ', ' + nf + ' not found' : ''));
+        if (c.dupes) item('warn', c.dupes + ' already printed (still billed if left in)', 'rvRemoveDuplicates()', 'Remove duplicates');
+        if (c.filtered) item('warn', c.filtered + ' will be filtered out by this dealer\'s rules');
+        if (c.missingFeat) item('block', 'Features text missing on ' + c.missingFeat + ' row' + (c.missingFeat === 1 ? '' : 's'));
+      }
+      if (hasUnfinalizedCards()) item('warn', 'Running again discards the un-finalized results below');
+      var marks = { ok: '\u2713', warn: '!', block: '\u00d7', idle: '\u2013' };
+      var html = '';
+      items.forEach(function(it) {
+        html += '<li class="ro-check ' + it.s + '"><span class="ro-check-mark">' + marks[it.s] + '</span>' +
+          '<span class="ro-check-text">' + escHtml(it.t) + '</span>' +
+          (it.a ? '<button type="button" class="ro-check-act" onclick="' + it.a + '">' + escHtml(it.l) + '</button>' : '') +
+          '</li>';
+      });
+      ul.innerHTML = html;
+      var btn = document.getElementById('runBtn');
+      if (btn) btn.classList.toggle('warn', roHasWarnings_());
+      updateButtons();
     }
 </script>

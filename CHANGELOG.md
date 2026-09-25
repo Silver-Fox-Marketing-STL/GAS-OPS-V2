@@ -10,6 +10,38 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## [Unreleased]
 
+### Changed
+- **REBUILD — Order Desk client (branch `exp/ui-playground`, EXPERIMENTAL env,
+  Sep 25, 2026).** Ground-up client rebuild on the fixed Code.gs server, per
+  `docs/rebuild-order-desk-design.md`. The order is the unit of work: one work
+  queue, one stepped workspace per dealer, dealer facts beside it.
+  - **Shell (`App.html`, increment 1):** top bar (wordmark, import-freshness
+    chip, busy chip, Settings drawer, theme, Close); a rail whose "Today"
+    section is a work queue assembled client-side from `getPrintSchedule` +
+    `getMyRunDrafts` (scheduled / scanned / draft / printed per dealer) and a
+    "Tasks" index; the workspace hosts every existing view unchanged (same
+    `navTo` / `VIEW_*` / view-id contract); a reserved inspector column with a
+    header toggle; phone: off-canvas rail from a bottom bar. The sidebar /
+    rail / start-menu nav-layout CSS and the Encarta / Luna shell chrome are
+    not carried over (one layout; themes are palettes).
+  - **Order workspace (`ViewRun.html`, increments 2+3; view id stays
+    `view-run`):** new markup + CSS around the proven finalize / Pipedrive /
+    draft / match-table JS. Head = Dealer + Running as; **1 Vehicles** (CAO
+    summary as one ruled strip, VIN box, match table with the pinned ✕ column
+    kept verbatim); **2 Run** with an INLINE pre-flight checklist (import
+    freshness, uncommitted runs with a "Commit or roll back" jump, found / not
+    found, already printed with "Remove duplicates", will-be-filtered, missing
+    Features as the one hard block, un-finalized results) — the three
+    sequential confirm dialogs are gone; the button reads "Run anyway" while a
+    warning is active and only the destructive discard still asks; **3
+    Finalize** (cards as ruled blocks, Open output folder, Add to VIN log)
+    revealed and scrolled to after a run. The VIN-log status row and the
+    match-count sentence moved to the inspector / checklist (kept in the DOM
+    for the JS that writes them). No emoji; sentence-case labels.
+  - Harness: 40/40 existing scenarios render under the new shell; fixture
+    import date is now computed as today (was a fixed literal that tripped the
+    stale-import guard the day after it was written). Tests 137/137.
+
 ### Added
 - **EXPERIMENTAL environment — Prod / Dev / Experimental** (Sep 25, 2026). A
   second Apps Script project bound to DEV_SF_SYSTEM_MASTER, registered in
