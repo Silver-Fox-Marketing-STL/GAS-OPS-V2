@@ -17,6 +17,7 @@ docs/**
 # scripts/promote.ps1 — must never be pushed as an Apps Script .json file)
 test/**
 .clasp.prod.json
+.clasp.exp.json
 
 # Visual-brainstorming companion scratch (local-only mockups; never Apps Script source)
 .superpowers/**

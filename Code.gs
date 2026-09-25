@@ -55,6 +55,20 @@ var ENV_IDS = {
     VIN_LOGS_ID:              '1iXLrqW7e3DSdiGz5K13POjr561AwmfwL2DyXe3FR2no', // DEV_SF_VIN_LOGS
     LOT_SUBMISSIONS_SHEET_ID: '1mftxwQOW_Pdqka8ZNPBlczDbBIku2lS91hwWUqUwNfg', // DEV_SF_LOT_SUBMISSIONS
     EOM_INDEX_SHEET_ID:       '18EQEMCS6Z6ux767ETyeVsFFjsYxrmHMw_m00sQEaoDU'  // DEV_SF_EOM_REPORTS_INDEX
+  },
+  // EXPERIMENTAL — a second script project bound to DEV_SF_SYSTEM_MASTER with its
+  // own /exec URL, pushed from a branch by scripts/push-exp.ps1. Same sheets,
+  // folders and Pipedrive fake as DEV (every ENV.name !== 'prod' gate applies);
+  // only the name differs, so the badge reads (EXP). docs/dev-environment.md.
+  '1P8oMEhR0xpljFLCGnzEJQRGSs38aju2VUiUy0HIj3imB-Hopt26hD3Ha': {
+    name: 'exp',
+    MASTER_SHEET_ID:          '1-0rHSoBmQip-yi_dB_S-kz-2fjc6x7pOxlbg2S7PEjk', // DEV_SF_SYSTEM_MASTER (this script's container too)
+    CONFIG_SHEET_ID:          '1ajpIn_TD7fOZ_rZZMfK6KSdJ4niqiB4l85eC0dok5lA', // DEV_SF_DEALER_CONFIG
+    TEMPLATE_ID:              '1BgwoKC_QnRm4SF9HwrSZxmKTe8PznzwCBr33oJ5LFxg', // DEV_SF_UNIVERSAL_TEMPLATE
+    OUTPUT_FOLDER_ID:         '1h5FS0FDkY91bjKx2nTRMuCVflMYa77P2',            // DEV_OUTPUT
+    VIN_LOGS_ID:              '1iXLrqW7e3DSdiGz5K13POjr561AwmfwL2DyXe3FR2no', // DEV_SF_VIN_LOGS
+    LOT_SUBMISSIONS_SHEET_ID: '1mftxwQOW_Pdqka8ZNPBlczDbBIku2lS91hwWUqUwNfg', // DEV_SF_LOT_SUBMISSIONS
+    EOM_INDEX_SHEET_ID:       '18EQEMCS6Z6ux767ETyeVsFFjsYxrmHMw_m00sQEaoDU'  // DEV_SF_EOM_REPORTS_INDEX
   }
 };
 var ENV = ENV_IDS[ScriptApp.getScriptId()];
@@ -434,7 +448,7 @@ function openApp() {
   var html = t.evaluate()
     .setWidth(MODAL_WIDTH)
     .setHeight(MODAL_HEIGHT);
-  SpreadsheetApp.getUi().showModalDialog(html, 'SilverFox' + (ENV.name !== 'prod' ? ' (DEV)' : ''));
+  SpreadsheetApp.getUi().showModalDialog(html, 'SilverFox' + (ENV.name !== 'prod' ? ' (' + ENV.name.toUpperCase() + ')' : ''));
 }
 
 /**
@@ -453,7 +467,7 @@ function doGet(e) {
   t.initialNavLayout = uiPrefs_.navLayout;             // 'sidebar' | 'icons' | 'top-rail' | 'bottom-rail' | 'start-menu'
   t.appMode = 'webapp';
   return t.evaluate()
-    .setTitle('SilverFox' + (ENV.name !== 'prod' ? ' (DEV)' : ''))
+    .setTitle('SilverFox' + (ENV.name !== 'prod' ? ' (' + ENV.name.toUpperCase() + ')' : ''))
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
