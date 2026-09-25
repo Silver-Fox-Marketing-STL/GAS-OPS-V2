@@ -10,6 +10,19 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## [Unreleased]
 
+### Added
+- **EXPERIMENTAL environment — Prod / Dev / Experimental** (Sep 25, 2026). A
+  second Apps Script project bound to DEV_SF_SYSTEM_MASTER, registered in
+  `ENV_IDS` as `name: 'exp'` (same DEV sheet/folder ids, same Pipedrive fake),
+  with its own versioned `/exec` URL so a branch experiment (first user:
+  `exp/ui-playground`) can be clicked through without stomping DEV's HEAD.
+  New `scripts/push-exp.ps1` (gates: not main, committed tree, target is real /
+  not PROD / registered) pushes via `clasp -P .clasp.exp.json` and bumps the
+  deployment as `exp <branch> <sha>`. New committed `.clasp.exp.json` (in
+  `.claspignore`). The SPA / modal badge now prints the environment name
+  (`(DEV)` / `(EXP)`) instead of a hardcoded `(DEV)`. Runbook:
+  `docs/dev-environment.md` "EXPERIMENTAL".
+
 ### Changed
 - **`--logo-fill` token replaces the dark-logo selector allowlist** (Sep 25, 2026).
   `.app-brand .logo` (App.html) now paints its mask with `var(--logo-fill)`
