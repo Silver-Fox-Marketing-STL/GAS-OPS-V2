@@ -38,9 +38,23 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
     revealed and scrolled to after a run. The VIN-log status row and the
     match-count sentence moved to the inspector / checklist (kept in the DOM
     for the JS that writes them). No emoji; sentence-case labels.
-  - Harness: 40/40 existing scenarios render under the new shell; fixture
-    import date is now computed as today (was a fixed literal that tripped the
-    stale-import guard the day after it was written). Tests 137/137.
+  - **Work queue (increment 4):** + submitted lot-scan batches per dealer
+    ("N scanned", VIN inbox task count) and finalized-not-committed runs
+    ("N to commit"), each from its own existing call, failing independently.
+  - **Dealer inspector (`ViewInspector.html`, increment 5):** inventory by
+    type, VIN log status, newest runs with Commit / Roll back / Delete (the
+    VIN Logs server calls), Stack cleanup jump; collapsible from the header.
+  - **Lot-scan source (increment 6):** step 1 shows the dealer's waiting photos
+    on one line with "Add N VINs" (keeps the batch link for the post-finalize
+    discard prompt) and "Review photos" into the inbox.
+  - **Import data (increment 7)** and **VIN inbox, VIN logs, Stack cleanup,
+    Month end, Utilities (increment 8)** rebuilt in the same idiom around
+    their unchanged JS (string and emitted-markup changes only); view titles
+    are owned by the shell header in sentence case.
+  - Harness: all 41 scenarios render under the new client, light sweep + dark
+    spot-checks clean; fixture import date is now computed as today (a fixed
+    literal tripped the stale-import guard the day after it was written).
+    Tests 137/137. Phase 2 (the eight config views) not started.
 
 ### Added
 - **EXPERIMENTAL environment — Prod / Dev / Experimental** (Sep 25, 2026). A

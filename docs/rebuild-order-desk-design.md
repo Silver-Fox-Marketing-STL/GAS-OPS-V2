@@ -78,9 +78,9 @@ the slot; Trim cleanup; URL liveness; Lot Scanner; the eom-viewer sub-app.
 | 4 | Work queue: + inbox batches, + uncommitted runs | done, on EXP | 1a17c41 |
 | 5 | Inspector (`ViewInspector.html`) | done, on EXP | 32a5234 |
 | 6 | Lot-scan source strip in step 1 (photo correction stays in the inbox) | done, on EXP | 3159829 |
-| 7 | Import task | in progress (specialist) | |
-| 8 | Periodic: VIN inbox + VIN logs; stack cleanup + month end + utilities | in progress (two specialists) | |
-| 9 | Harness scenarios: `order-inspector` added; existing 40 still pass on the new DOM | ongoing | |
+| 7 | Import task | done, on EXP | 4bf255e |
+| 8 | Periodic: VIN inbox + VIN logs (cf29f6a); stack cleanup + month end + utilities (fc1dd3f) | done, on EXP | |
+| 9 | Harness: `order-inspector` added; 41/41 pass on the new DOM | done | |
 | 10 | Phase 2 | not started | |
 
 ## Increments (critical path first)
