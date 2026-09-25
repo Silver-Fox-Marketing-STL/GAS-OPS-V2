@@ -43,25 +43,14 @@
           <div class="home-tiles" id="homeWeek"></div>
         </div>
 
-        <div class="home-statgroup quiet">
-          <div class="home-sub-label">All time</div>
+        <details class="home-statgroup quiet">
+          <summary class="home-sub-label">All time</summary>
           <div class="home-tiles" id="homeAllTime"></div>
-        </div>
+        </details>
       </div>
 
-      <div class="home-hud-col">
-        <div class="home-hud-head">
-          <div class="home-hud-title">Dealer focus</div>
-        </div>
-        <div class="home-focus">
-          <div class="home-focus-pick">
-            <select id="homeDealerSelect"><option value="">-- Select a dealer --</option></select>
-          </div>
-          <div class="home-focus-body" id="homeDealerBody">
-            <div class="home-muted">Pick a dealer to see inventory, run stats, and open orders.</div>
-          </div>
-        </div>
-      </div>
+      <!-- (Dealer focus removed in the Order Desk rebuild: the inspector beside an
+           open order carries the same facts at the moment they matter.) -->
 
     </div>
 
@@ -76,7 +65,7 @@
     box-sizing: border-box;
     height: 100%;
     overflow-y: auto;
-    padding: 22px 32px 36px;
+    padding: 28px 36px 48px;
     display: grid;
     grid-template-columns: 1fr;
     grid-template-areas: "status" "hud";
@@ -101,10 +90,15 @@
   /* Two columns: stats (wider) | dealer focus. The ticket spans both. */
   #view-home .home-hud {
     display: grid;
-    grid-template-columns: 3fr 2fr;
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 960px;
     gap: 0 44px;
     align-items: start;
   }
+  #view-home summary.home-sub-label { list-style: none; cursor: pointer; }
+  #view-home summary.home-sub-label::-webkit-details-marker { display: none; }
+  #view-home summary.home-sub-label::after { content: "\25B8"; margin-left: auto; font-family: var(--font-body); font-size: 12px; color: var(--text-3); transition: transform .15s; }
+  #view-home details[open] > summary.home-sub-label::after { transform: rotate(90deg); }
   #view-home .home-hud-head {
     display: flex;
     align-items: baseline;
@@ -124,7 +118,7 @@
   #view-home .home-muted { font-size: var(--fs-sm); color: var(--text-3); padding: 8px 0; }
 
   /* ── The ticket: today's day name over the print list ── */
-  #view-home .home-hud-band { grid-column: 1 / -1; margin-bottom: 30px; }
+  #view-home .home-hud-band { grid-column: 1 / -1; margin-bottom: 40px; }
   #view-home .home-hud-band .home-hud-head {
     flex-direction: column;
     align-items: flex-start;
@@ -184,7 +178,7 @@
   }
 
   /* ── Stat groups: a ruled heading, then figures in a row ── */
-  #view-home .home-statgroup { margin-bottom: 22px; }
+  #view-home .home-statgroup { margin-bottom: 30px; }
   #view-home .home-sub-label {
     display: flex;
     align-items: baseline;
@@ -411,7 +405,7 @@
       html += '<div class="home-sched-card">' +
         '<div class="name">' + escHtml(d.name) + '</div>' +
         '<div class="foot">' +
-          '<button class="btn-secondary" onclick="homeSchedRun_(' + i + ')">Run Order</button>' +
+          '<button class="btn-secondary" onclick="homeSchedRun_(' + i + ')">Run order</button>' +
           homeInboxTag_(d) +
         '</div></div>';
     });
@@ -557,6 +551,7 @@
   // ── Init (once, on first nav — dealers from the shared AppData bootstrap) ──
   function initHomeView() {
     var sel = document.getElementById('homeDealerSelect');
+    if (!sel) return;   // Dealer focus removed (Order Desk): the inspector carries it
     AppData.get(function(data, err) {
       if (!data) {
         sel.innerHTML = '<option value="">Error loading dealers</option>';

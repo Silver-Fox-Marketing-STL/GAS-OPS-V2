@@ -55,6 +55,16 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
     spot-checks clean; fixture import date is now computed as today (a fixed
     literal tripped the stale-import guard the day after it was written).
     Tests 137/137. Phase 2 (the eight config views) not started.
+  - **Progressive disclosure pass** (Nick's review: too much on screen at
+    once). The order workspace is a real stepper: only the dealer picker and
+    drafts before a dealer is chosen; step 2 unlocks once there are vehicles;
+    after a run steps 1–2 collapse to one summary line each ("Edit" reopens)
+    and only Finalize is open; hints and actions show on the open step only;
+    the drafts band shows only the current dealer's draft; Save draft button
+    removed (autosave covers it). Inspector sections fold with only the VIN
+    log open; the rail folds printed dealers behind "N printed today"; Home
+    drops the Dealer focus column (the inspector carries it) and folds
+    all-time stats; more vertical space throughout.
 
 ### Added
 - **EXPERIMENTAL environment — Prod / Dev / Experimental** (Sep 25, 2026). A

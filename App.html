@@ -180,6 +180,14 @@
     .queue-item .q-tags { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px; }
     .queue-item .q-tags:empty { display: none; }
     .queue-item .tag { font-size: 9.5px; padding: 1px 6px; }
+    .queue-done { margin-top: 6px; }
+    .queue-done > summary { list-style: none; cursor: pointer; padding: 7px 16px 7px 13px; font-size: var(--fs-sm); font-weight: 600; color: var(--text-3); }
+    .queue-done > summary::-webkit-details-marker { display: none; }
+    .queue-done > summary::before { content: "\25B8"; display: inline-block; width: 14px; font-size: 11px; transition: transform .15s; }
+    .queue-done[open] > summary::before { transform: rotate(90deg); }
+    .queue-done > summary:hover { color: var(--text); }
+    .queue-item { padding-top: 9px; padding-bottom: 9px; }
+    .rail-sec { padding: 18px 0 8px; }
     .rail-foot { margin-top: auto; padding: 10px 16px 12px; font-size: 11px; color: var(--text-3); border-top: 1px solid var(--border); }
 
     /* Workspace */
@@ -255,6 +263,7 @@
     :root[data-viewport="mobile"][data-start-open] #rail { display: flex; }
     :root[data-viewport="mobile"] #inspector { display: none; }
     :root[data-viewport="mobile"] #inspectorToggle { display: none; }   /* no panel to toggle on a phone */
+    #appBody:has(#inspector[hidden]) #inspectorToggle { display: none; }   /* nothing to toggle until a dealer is open */
     :root[data-viewport="mobile"] #appHeader { padding: 0 16px; }
     :root[data-viewport="mobile"] #mobileBar {
       display: flex; align-items: center; gap: 10px;
@@ -594,13 +603,17 @@
     function queueRender_() {
       var el = document.getElementById('queue');
       if (!QUEUE.items.length) { el.innerHTML = '<div class="rail-empty">Nothing on the desk today.</div>'; return; }
-      var html = '';
-      QUEUE.items.forEach(function(r, i) {
-        html += '<div class="queue-item' + (r.done ? ' done' : '') + (r.key === QUEUE.activeKey ? ' active' : '') + '" onclick="queueOpen_(' + i + ')">' +
+      function rowHtml(r, i) {
+        return '<div class="queue-item' + (r.done ? ' done' : '') + (r.key === QUEUE.activeKey ? ' active' : '') + '" onclick="queueOpen_(' + i + ')">' +
           '<div class="q-name">' + escHtml(r.name) + '</div>' +
           '<div class="q-tags">' + r.tags.map(function(t) { return '<span class="tag ' + t.tone + '">' + escHtml(t.text) + '</span>'; }).join('') + '</div>' +
         '</div>';
-      });
+      }
+      var html = '', doneHtml = '', doneN = 0;
+      QUEUE.items.forEach(function(r, i) { if (r.done) { doneN++; doneHtml += rowHtml(r, i); } else html += rowHtml(r, i); });
+      if (!html) html = '<div class="rail-empty">Nothing left to print.</div>';
+      // Printed dealers fold behind a count: done work is reference, not a to-do.
+      if (doneN) html += '<details class="queue-done"><summary>' + doneN + ' printed today</summary>' + doneHtml + '</details>';
       el.innerHTML = html;
     }
     function queueMarkActive_(key) {

@@ -38,8 +38,7 @@
     'home': async function () {
       await nav('view-home');
       await sleep(150);
-      pick($('homeDealerSelect'), F.D);
-      await sleep(150);
+      await sleep(150);   // (Dealer focus removed in the Order Desk rebuild)
     },
     'run-empty': async function () { await nav('view-run'); await sleep(150); },
     'run-vins': async function () {

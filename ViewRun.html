@@ -7,7 +7,7 @@
      element ids it reads are unchanged. Dealer facts live in the shell's
      inspector (ViewInspector), driven from the dealer change here.
 ════════════════════════════════════════════════════════════════════════════ -->
-<div class="view" id="view-run" data-layout="data" hidden>
+<div class="view" id="view-run" data-layout="data" data-stage="pick" hidden>
   <div class="ro-wrap app-measure">
 
     <!-- Order head: which dealer, who is running it, where the log stands -->
@@ -20,6 +20,7 @@
         <label for="userSelect">Running as</label>
         <select id="userSelect"><option value="">-- Loading... --</option></select>
       </div>
+      <div class="ro-pick-hint">Pick a dealer to start an order, or resume a draft below.</div>
       <!-- VIN log status: the inspector owns it now. The row stays in the DOM
            (hidden) because loadVinLogStatus() writes it and the checklist reads
            the same response; openVinLogUpdater() is reached from the checklist. -->
@@ -40,9 +41,9 @@
       <div class="ro-step-head">
         <span class="ro-step-n">1</span>
         <h2 class="ro-step-title">Vehicles</h2>
-        <span class="ro-step-hint">Pre-fill from the dealer&rsquo;s inventory, bring in a lot scan, or paste VINs.</span>
+        <span class="ro-step-hint">Pre-fill from the dealer&rsquo;s inventory, bring in a lot scan, or paste VINs. Typed work saves itself.</span>
+        <span class="ro-step-summary" id="roSum1"></span>
         <div class="ro-step-actions">
-          <button type="button" id="rvSaveDraftBtn" class="btn-secondary" onclick="rvSaveDraft({manual:true})">Save draft</button>
           <button type="button" id="caoBtn" class="btn-ghost" onclick="prefillFromCAO()" disabled>Pre-fill from CAO</button>
         </div>
       </div>
@@ -111,6 +112,7 @@
         <span class="ro-step-n">2</span>
         <h2 class="ro-step-title">Run</h2>
         <span class="ro-step-hint">Nothing is logged or billed by a run. Finalize afterwards.</span>
+        <span class="ro-step-summary" id="roSum2"></span>
       </div>
       <div class="ro-run-grid">
         <ul class="ro-checks" id="roChecks"></ul>
@@ -151,7 +153,26 @@
     margin: 0; padding: 0; height: 100%; overflow-y: auto;
     background: var(--bg); color: var(--text);
   }
-  #view-run .ro-wrap { padding: 18px 28px 40px; display: flex; flex-direction: column; gap: 22px; }
+  #view-run .ro-wrap { padding: 26px 36px 60px; display: flex; flex-direction: column; gap: 30px; }
+  #view-run .ro-pick-hint { grid-column: 1 / -1; font-size: var(--fs-body); color: var(--text-3); }
+  #view-run:not([data-stage="pick"]) .ro-pick-hint { display: none; }
+
+  /* Progressive disclosure: a step is open, locked (head only, muted) or a
+     one-line summary (head + summary, body hidden). Only an open step shows
+     its hint and actions. Derived by roApplyStage_() from the order's state. */
+  #view-run[data-stage="pick"] .ro-step { display: none; }
+  #view-run .ro-step[data-state="locked"] > :not(.ro-step-head),
+  #view-run .ro-step[data-state="summary"] > :not(.ro-step-head) { display: none; }
+  #view-run .ro-step:not([data-state="open"]) .ro-step-hint,
+  #view-run .ro-step:not([data-state="open"]) .ro-step-actions { display: none; }
+  #view-run .ro-step[data-state="locked"] .ro-step-head { border-bottom-color: var(--border); }
+  #view-run .ro-step[data-state="locked"] .ro-step-n,
+  #view-run .ro-step[data-state="locked"] .ro-step-title { color: var(--text-muted); }
+  #view-run .ro-step[data-state="locked"] .ro-step-title::after { content: " \2014 add vehicles first"; font-family: var(--font-body); font-size: var(--fs-sm); font-weight: 500; color: var(--text-muted); }
+  #view-run .ro-step-summary { display: none; margin-left: auto; align-items: baseline; gap: 14px; font-size: var(--fs-body); color: var(--text-2); }
+  #view-run .ro-step[data-state="summary"] .ro-step-summary { display: flex; }
+  #view-run .ro-step-edit { background: none; border: 0; padding: 0; font: inherit; font-weight: 600; color: var(--accent); cursor: pointer; }
+  #view-run .ro-step-edit:hover { text-decoration: underline; }
 
   /* ── Order head ─────────────────────────────────────────────────────── */
   #view-run .ro-head { display: grid; grid-template-columns: minmax(280px, 420px) 220px; gap: 20px; align-items: end; }
@@ -172,7 +193,7 @@
   #view-run #openVinLogBtn { padding: 5px 12px !important; }
 
   /* ── Steps: a numbered sequence (it IS one) under a rule ────────────── */
-  #view-run .ro-step-head { display: flex; align-items: baseline; gap: 12px; padding-bottom: 6px; margin-bottom: 12px; border-bottom: var(--rule); }
+  #view-run .ro-step-head { display: flex; align-items: baseline; gap: 12px; padding-bottom: 8px; margin-bottom: 18px; border-bottom: var(--rule); }
   #view-run .ro-step-n { font-family: var(--font-head); font-size: 22px; font-weight: 800; color: var(--accent); line-height: 1; }
   #view-run .ro-step-title { font-family: var(--font-head); font-size: 22px; font-weight: 700; margin: 0; line-height: 1; }
   #view-run .ro-step-hint { font-size: var(--fs-sm); color: var(--text-3); min-width: 0; }
@@ -512,11 +533,13 @@
         if (window.Inspector) Inspector.hide();
         roChecks_.pending = null; roUpdateChecks();
         roLoadScan_('');
+        rvRenderDraftsBand();
         return;
       }
       loadVinLogStatus(key);
       roRefreshImport_();
       roLoadScan_(key);
+      rvRenderDraftsBand();
       if (window.Inspector) Inspector.show(key);
     }
 
@@ -847,6 +870,7 @@
       });
       document.getElementById('finalizeCards').innerHTML = html;
       document.getElementById('postRunActions').style.display = 'flex';
+      roForceOpen_ = false;
       roShowStep_('roStepFinalize', true);
       roUpdateChecks();
     }
@@ -910,6 +934,7 @@
     }
 
     function hidePostRunActions() {
+      roForceOpen_ = false;
       roShowStep_('roStepFinalize', false);
       document.getElementById('postRunActions').style.display = 'none';
       document.getElementById('finalizeCards').innerHTML = '';
@@ -1552,9 +1577,14 @@
     function rvRenderDraftsBand() {
       var band = document.getElementById('rvDraftsBand');
       if (!band) return;
-      if (!rvDraftList.length) { band.hidden = true; band.innerHTML = ''; return; }
-      var html = '<span class="rv-drafts-label">Drafts</span>';
+      // Once a dealer is open only THAT dealer's draft is relevant here (the
+      // others are on the rail); before that, every draft is a way to start.
+      var cur = rvVinData.dealerKey;
+      var shown = rvDraftList.filter(function(d) { return !cur || d.dealerKey === cur; });
+      if (!shown.length) { band.hidden = true; band.innerHTML = ''; return; }
+      var html = '<span class="rv-drafts-label">' + (cur ? 'Draft for this dealer' : 'Drafts') + '</span>';
       rvDraftList.forEach(function(d, i) {
+        if (cur && d.dealerKey !== cur) return;
         html += '<span class="rv-draft-item">'
           + '<span class="rv-draft-name"></span>'
           + '<span class="tag tone-info">' + d.vinCount + ' VIN' + (d.vinCount === 1 ? '' : 's') + '</span>'
@@ -1568,7 +1598,7 @@
       // Dealer names are user data — set via textContent, never interpolated HTML.
       var names = band.querySelectorAll('.rv-draft-name');
       for (var i = 0; i < names.length; i++) {
-        names[i].textContent = rvDraftList[i].dealerName || rvDraftList[i].dealerKey;
+        names[i].textContent = shown[i].dealerName || shown[i].dealerKey;
       }
       band.hidden = false;
     }
@@ -1873,6 +1903,31 @@
       el.hidden = !show;
       if (show) { try { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {} }
     }
+    // ── Stage machine (progressive disclosure) ────────────────────────────
+    // pick → vehicles → run → finalize, derived from state on every
+    // roUpdateChecks(): no dealer = only the head; step 2 unlocks once there
+    // are vehicles; after a run steps 1-2 collapse to summaries (Edit reopens).
+    var roForceOpen_ = false;
+    function roApplyStage_() {
+      var view = document.getElementById('view-run');
+      var s1 = document.getElementById('roStepSource'), s2 = document.getElementById('roStepRun'), s3 = document.getElementById('roStepFinalize');
+      if (!view || !s1 || !s2 || !s3) return;
+      var hasDealer = !!rvVinData.dealerKey, lines = roChecks_.lines, ran = lastRunResult !== null;
+      view.setAttribute('data-stage', !hasDealer ? 'pick' : ran ? 'finalize' : lines ? 'run' : 'vehicles');
+      if (ran && !roForceOpen_) {
+        s1.setAttribute('data-state', 'summary');
+        document.getElementById('roSum1').innerHTML = escHtml(lines + ' vehicle' + (lines === 1 ? '' : 's') + ', ' + roChecks_.found + ' in inventory') +
+          '<button type="button" class="ro-step-edit" onclick="roEditVehicles_()">Edit</button>';
+        s2.setAttribute('data-state', 'summary');
+        document.getElementById('roSum2').textContent = pollInterval ? 'Running' : 'Complete';
+      } else {
+        s1.setAttribute('data-state', 'open');
+        s2.setAttribute('data-state', lines ? 'open' : 'locked');
+      }
+      s3.hidden = !ran;
+    }
+    function roEditVehicles_() { roForceOpen_ = true; roApplyStage_(); }
+
     function roUpdateChecks() {
       var ul = document.getElementById('roChecks');
       if (!ul) return;
@@ -1906,6 +1961,7 @@
       if (btn) btn.classList.toggle('warn', roHasWarnings_());
       updateButtons();
       roRenderScan_();   // the "Add N VINs" count follows the VIN box
+      roApplyStage_();
     }
 
     // ── Lot-scan source (Order Desk rebuild) ──────────────────────────────

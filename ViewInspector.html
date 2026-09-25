@@ -19,20 +19,22 @@
     <div class="insp-asof" id="inspAsOf"></div>
   </div>
 
-  <div class="insp-sec">
-    <div class="insp-h">Inventory</div>
+  <!-- Folded by default except the VIN log, the one fact every order needs
+       before it runs. Inventory and past runs open on demand. -->
+  <details class="insp-sec">
+    <summary class="insp-h">Inventory</summary>
     <div id="inspInv"><div class="insp-muted">No dealer selected.</div></div>
-  </div>
+  </details>
 
-  <div class="insp-sec">
-    <div class="insp-h">VIN log</div>
+  <details class="insp-sec" open>
+    <summary class="insp-h">VIN log</summary>
     <div id="inspLog"><div class="insp-muted">&mdash;</div></div>
-  </div>
+  </details>
 
-  <div class="insp-sec">
-    <div class="insp-h">Recent runs</div>
+  <details class="insp-sec">
+    <summary class="insp-h">Recent runs</summary>
     <div id="inspRunList"><div class="insp-muted">&mdash;</div></div>
-  </div>
+  </details>
 
   <div class="insp-sec insp-sec-last">
     <button type="button" class="btn-secondary" id="inspStackBtn" onclick="inspStackCleanup_()">Stack cleanup for this dealer</button>
@@ -70,8 +72,14 @@
     font-size: 16px;
     font-weight: 700;
     color: var(--text);
-    margin-bottom: 8px;
+    margin-bottom: 0;
   }
+  #inspector details[open] > .insp-h { margin-bottom: 8px; }
+  #inspector summary.insp-h { list-style: none; cursor: pointer; display: flex; align-items: baseline; }
+  #inspector summary.insp-h::-webkit-details-marker { display: none; }
+  #inspector summary.insp-h::after { content: "\25B8"; margin-left: auto; font-size: 12px; color: var(--text-3); transition: transform .15s; }
+  #inspector details[open] > summary.insp-h::after { transform: rotate(90deg); }
+  #inspector .insp-sec { padding: 14px 0; }
 
   #inspector .insp-muted { font-size: var(--fs-sm); color: var(--text-3); }
   #inspector .insp-line { font-size: var(--fs-body); color: var(--text-2); }
