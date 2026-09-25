@@ -69,6 +69,20 @@ the existing view ids, the boot sequence, and the `<?= ?>` scriptlets.
 Code.gs changes; Order Types (Maintenance/Hybrid) — the Source step reserves
 the slot; Trim cleanup; URL liveness; Lot Scanner; the eom-viewer sub-app.
 
+## Progress (2026-09-25)
+
+| # | Increment | State | Commit |
+|---|---|---|---|
+| 1 | Shell | done, on EXP | 1877cf7 |
+| 2+3 | Order workspace (kept in `ViewRun.html` / view id `view-run`, not a new `ViewOrder` file — every jump into it keeps working) | done, on EXP | bd426be |
+| 4 | Work queue: + inbox batches, + uncommitted runs | done, on EXP | 1a17c41 |
+| 5 | Inspector (`ViewInspector.html`) | done, on EXP | 32a5234 |
+| 6 | Lot-scan source strip in step 1 (photo correction stays in the inbox) | done, on EXP | 3159829 |
+| 7 | Import task | in progress (specialist) | |
+| 8 | Periodic: VIN inbox + VIN logs; stack cleanup + month end + utilities | in progress (two specialists) | |
+| 9 | Harness scenarios: `order-inspector` added; existing 40 still pass on the new DOM | ongoing | |
+| 10 | Phase 2 | not started | |
+
 ## Increments (critical path first)
 
 1. **Shell** — `App.html` rewrite: top bar (wordmark + env, import freshness,
