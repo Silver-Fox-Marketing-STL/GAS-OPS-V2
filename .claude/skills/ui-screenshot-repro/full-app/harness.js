@@ -200,8 +200,8 @@
       if (el) el.scrollIntoView({ block: 'start' }); await sleep(100);
     },
     'home-bottom': async function () {
-      await nav('view-home'); await sleep(150);
-      pick($('homeDealerSelect'), F.D); await sleep(150);
+      await nav('view-home'); await sleep(200);
+      var at = document.querySelector('#view-home details.home-statgroup'); if (at) at.open = true;   // all-time is folded by default
       $('homeAllTime').scrollIntoView({ block: 'end' }); await sleep(100);
     },
     'fieldcodes': async function () { await nav('view-fieldcodes'); await sleep(250); },
