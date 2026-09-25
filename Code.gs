@@ -60,7 +60,7 @@ var ENV_IDS = {
   // own /exec URL, pushed from a branch by scripts/push-exp.ps1. Same sheets,
   // folders and Pipedrive fake as DEV (every ENV.name !== 'prod' gate applies);
   // only the name differs, so the badge reads (EXP). docs/dev-environment.md.
-  'REPLACE_WITH_EXP_SCRIPT_ID': {
+  '1P8oMEhR0xpljFLCGnzEJQRGSs38aju2VUiUy0HIj3imB-Hopt26hD3Ha': {
     name: 'exp',
     MASTER_SHEET_ID:          '1-0rHSoBmQip-yi_dB_S-kz-2fjc6x7pOxlbg2S7PEjk', // DEV_SF_SYSTEM_MASTER (this script's container too)
     CONFIG_SHEET_ID:          '1ajpIn_TD7fOZ_rZZMfK6KSdJ4niqiB4l85eC0dok5lA', // DEV_SF_DEALER_CONFIG
