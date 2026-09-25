@@ -100,6 +100,11 @@
     --shell-sidebar-w: 210px;  /* #sidebar width (App.html) */
     --brand-fs: 17px;          /* .app-brand font-size (App.html) */
     --rv-vin-w: 200px;         /* Run Order VIN textarea column (ViewRun) — ~one 17-char monospace VIN */
+
+    /* brand logo mask fill (.app-brand .logo, App.html). A dark palette or a
+       navy/blue title-strip theme overrides this in its OWN token block — App.html
+       keeps no per-theme selector allowlist. */
+    --logo-fill: #4a4a4d;
   }
 
   :root[data-theme="dark"] {
@@ -115,6 +120,7 @@
     --text-muted: #6e6e74;
     --border: #3a3a40;
     --border-2: #4a4a51;
+    --logo-fill: #d2d2d6;
     --th-bg: var(--surface-2); --th-fg: var(--text-2);   /* table header: tint, not inverted */
     /* darker orange for accent fills, lighter coral/mikado for highlights */
     --accent: #fd410d;          /* Coquelicot — primary accent */
@@ -142,6 +148,7 @@
     --bg: #000000; --surface: #0a0a0a; --surface-2: #141414; --surface-3: #1c1c1c;
     --text: #ffffff; --text-2: #dcdcdc; --text-3: #b0b0b0; --text-muted: #8a8a8a;
     --border: #5e5e5e; --border-2: #6a6a6a;   /* HC: ≥3:1 on near-black surfaces */
+    --logo-fill: #d2d2d6;
     --th-bg: var(--surface-3); --th-fg: var(--text);     /* table header: tint, not inverted (HC: full text) */
     --accent: #ff5a2c; --accent-hover: #ff8a64; --accent-active: #d8350a;
     --accent-weak: rgba(255,90,44,.18); --accent-weak-2: rgba(255,90,44,.30); --on-accent: #000000;
@@ -170,6 +177,7 @@
     --text: #000000; --text-2: #1d1d1d; --text-3: #3f3f3f; --text-muted: #5e5e5e;
     --border: #808080;             /* shadow-gray bevel edge */
     --border-2: #404040;           /* dark-shadow edge */
+    --logo-fill: #d2d2d6;          /* light logo on the navy title strip */
     --accent: #000080;             /* navy — title bar + selection */
     --accent-hover: #1084d0;       /* active-title gradient blue */
     --accent-active: #00006a;
@@ -196,7 +204,7 @@
      CURATED PALETTE PRESETS — pure token overrides (no structural change), so
      each reuses the default light/dark layout and is backend/UX-safe by
      construction. To add one: copy a block, add { id, label } to Theme.themes
-     below, and (DARK only) add the id to the .app-brand .logo list in App.html.
+     below, and (DARK / navy-strip only) set --logo-fill: #d2d2d6 inside the block.
      ════════════════════════════════════════════════════════════════════════ */
 
   /* ── Slate — cool neutral light (the crisp blue counterpart to warm Light) ── */
@@ -239,6 +247,7 @@
     --bg: #282828; --surface: #3c3836; --surface-2: #504945; --surface-3: #665c54;
     --text: #ebdbb2; --text-2: #d5c4a1; --text-3: #bdae93; --text-muted: #928374;
     --border: #504945; --border-2: #665c54;
+    --logo-fill: #d2d2d6;
     --th-bg: var(--surface-2); --th-fg: var(--text-2);   /* table header: tint, not inverted */
     --accent: #fe8019; --accent-hover: #ff9b47; --accent-active: #d65d0e;
     --accent-weak: rgba(254,128,25,.16); --accent-weak-2: rgba(254,128,25,.26); --on-accent: #1d1407;
@@ -258,6 +267,7 @@
     --bg: #ffffff; --surface: #ece9d8; --surface-2: #e3e0cf; --surface-3: #d6d3c2;
     --text: #000000; --text-2: #1c1c1c; --text-3: #444444; --text-muted: #6b6b6b;
     --border: #aca899; --border-2: #7f9db9;
+    --logo-fill: #d2d2d6;          /* light logo on the XP-blue title strip */
     --accent: #316ac5; --accent-hover: #2a5bb0; --accent-active: #1f4894;
     --accent-weak: #d8e4f8; --accent-weak-2: #bcd2f0; --on-accent: #ffffff;
     --success: #2f7d1f; --success-weak: #dcecd2; --on-success: #ffffff;
