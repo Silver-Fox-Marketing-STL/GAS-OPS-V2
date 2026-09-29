@@ -40,6 +40,10 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   smoke walk against a mocked Execution API (sign-in gate → shell → CAO → run
   → test finalize → expired token). **Live proof pending** Nick's Cloud-project
   steps (spike note, "Live proof").
+  First live run (Sep 29): sign-in, queue and CAO work against EXP; fixed the
+  desk treating a failed run as success — `runDealer` returns `null` on failure
+  and records the reason in the run progress record, so `order.ts` now reads
+  that reason before clearing it and shows it in the status line.
 
 ### Changed
 - **REBUILD — Order Desk client (branch `exp/ui-playground`, EXPERIMENTAL env,

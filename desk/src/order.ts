@@ -315,7 +315,17 @@ async function run(): Promise<void> {
   updateChecks();
   startPolling(runId);
   try {
-    const result = await call<RunResult>('pasteVinsAndRun', [S.dealerKey, vins, '', runId, S.bypass, S.userKey, null, featuresMap, {}]);
+    const result = await call<RunResult | null>('pasteVinsAndRun', [S.dealerKey, vins, '', runId, S.bypass, S.userKey, null, featuresMap, {}]);
+    if (!result) {
+      // runDealer does not throw on failure: it returns null and records the
+      // reason in the run's progress record. Read it BEFORE stopPolling clears it.
+      let msg = 'The run failed on the server (no reason recorded).';
+      try {
+        const p = await call<RunProgress>('getRunProgress', [runId]);
+        if (p && p.error) msg = p.error;
+      } catch { /* keep the generic message */ }
+      throw new Error(msg);
+    }
     stopPolling();
     progress({ message: 'Complete!', percent: 100, done: true, error: null });
     S.result = result;
