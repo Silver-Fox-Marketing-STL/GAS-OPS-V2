@@ -11,6 +11,14 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Added
+- **Prior-order hover on ALREADY PRINTED rows** (Sep 30, 2026). In the Run Order
+  Inventory match table, hovering the Status cell of an "ALREADY PRINTED" row
+  (dotted underline, help cursor) lists every prior order the VIN or its stock #
+  was logged under, newest first, with dates — the billing sheet's "Prior
+  Order #s", visible before the run. `getLoggedIdentifiers` now reads VIN-log
+  cols A–D and also returns `history` (identifier → `[{order, date}]`; date =
+  order_date, falling back to committed_at); `identifiers` is unchanged and the
+  read still fails safe to empty. Native `title` tooltip, no new JS widget.
 - **EXPERIMENTAL environment — Prod / Dev / Experimental** (Sep 25, 2026). A
   second Apps Script project bound to DEV_SF_SYSTEM_MASTER, registered in
   `ENV_IDS` as `name: 'exp'` (same DEV sheet/folder ids, same Pipedrive fake),

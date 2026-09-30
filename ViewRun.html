@@ -211,6 +211,8 @@
     #view-run .rv-x { background: none; border: none; color: var(--text-3); cursor: pointer;
                       font-size: var(--fs-sm); line-height: 1; padding: 3px 6px; border-radius: var(--radius-sm); }
     #view-run .rv-x:hover { color: var(--danger); background: var(--danger-weak); }
+    /* ALREADY PRINTED status carries a hover tooltip (title) listing prior orders */
+    #view-run #vinDataTable td.rv-dup-status { cursor: help; text-decoration: underline dotted; text-underline-offset: 3px; }
     /* Order-drafts band — one row per saved draft, natural height above the body.
        display:flex beats the UA [hidden] rule (the .view[hidden] trap) — re-pin. */
     #view-run .rv-drafts-band[hidden] { display: none !important; }
@@ -1684,7 +1686,7 @@
     var rvVinData = { dealerKey: '', map: {}, featuresTypes: {}, editCodes: {}, editSeeds: {} };
     var rvFeatures = {};   // {VIN(upper) → text} — survives table re-renders
     var rvEdits = {};      // {VIN(upper) → {code → text}} — editable-column values (seeded)
-    var rvLoggedIds = null;   // {identifier(upper) → 1} from the dealer's VIN log; null until loaded
+    var rvLoggedIds = null;   // {identifier(upper) → [{order, date}]} from the dealer's VIN log; null until loaded
     var rvDebounce = null;
 
     // ── Order drafts ──────────────────────────────────────────────────────────
@@ -1867,8 +1869,9 @@
       google.script.run
         .withSuccessHandler(function(res) {
           if (rvVinData.dealerKey !== dealerKey) return;
+          var hist = (res && res.history) || {};
           rvLoggedIds = {};
-          (((res && res.identifiers) || [])).forEach(function(id) { rvLoggedIds[id] = 1; });
+          (((res && res.identifiers) || [])).forEach(function(id) { rvLoggedIds[id] = hist[id] || []; });
           rvRenderTable();
         })
         .withFailureHandler(function() {})
@@ -1882,6 +1885,21 @@
       if (rvLoggedIds[key]) return true;
       var d = rvVinData.map[key];
       return !!(d && d.stock && rvLoggedIds[String(d.stock).toUpperCase()]);
+    }
+
+    // Hover text for an ALREADY PRINTED status cell: every prior order the VIN
+    // (or its stock) was logged under, newest first — the billing sheet's
+    // "Prior Order #s", shown before the run. Repeats a week apart = a red flag.
+    function rvPriorOrdersTitle(key) {
+      var d = rvVinData.map[key];
+      var list = (rvLoggedIds[key] || []).concat(
+        (d && d.stock && rvLoggedIds[String(d.stock).toUpperCase()]) || []);
+      var seen = {}, uniq = [];
+      list.forEach(function(o) { if (!seen[o.order]) { seen[o.order] = 1; uniq.push(o); } });
+      if (!uniq.length) return 'Already in the VIN log (no order # recorded)';
+      uniq.sort(function(a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
+      return 'Previously printed on ' + uniq.length + (uniq.length === 1 ? ' order:' : ' orders:') +
+        uniq.map(function(o) { return '\n• Order ' + o.order + (o.date ? '  (' + o.date + ')' : ''); }).join('');
     }
 
     // Union of edit-flagged codes across the dealer's types, first-seen order:
@@ -2018,7 +2036,9 @@
             '<td>' + rvTypePill(d.type) + '</td>' +
             '<td>' + escHtml(d.stock) + '</td>' +
             '<td class="rv-vin">' + escHtml(lines[j]) + '</td>' +
-            '<td>' + escHtml(d.status) + (isDupe ? ' · ALREADY PRINTED' : '') +
+            (isDupe ? '<td class="rv-dup-status" title="' + escHtml(rvPriorOrdersTitle(key)) + '">'
+                    : '<td>') +
+              escHtml(d.status) + (isDupe ? ' · ALREADY PRINTED' : '') +
               (filtReason ? ' · ⚠ WILL BE FILTERED (' + escHtml(filtReason) + ')' : '') + '</td>' +
             '<td class="rv-link">' + urlCell + '</td>' +
             featCell +
