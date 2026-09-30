@@ -11,14 +11,19 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Added
-- **Compare Lists view** (Sep 30, 2026). New sidebar screen (`ViewCompare.html`):
-  paste List A and List B (VINs or stock #s; newline/comma/tab/space separated,
-  case-insensitive, deduped) → **A only / In both / B only** tabs with counts.
-  The comparison runs in the browser; the server (`getCompareListData`) then
-  fills in each vehicle's year/make/model/stock/type/status/URL from current
-  inventory and its prior orders from the VIN log — "ALREADY PRINTED" status
-  with the same prior-orders hover as Run Order, plus a Prior orders column.
-  Sold vehicles show "Not in current inventory" but keep their order history.
+- **Compare Lists view** (Sep 30, 2026). New sidebar screen (`ViewCompare.html`)
+  with two modes. **Compare two lists:** paste List A and List B (VINs and/or
+  stock #s; newline/comma/tab/space separated, case-insensitive, deduped). Every
+  entry is looked up FIRST (`getCompareListData`; a stock # resolves to its
+  vehicle's VIN), then the lists split on the resolved VIN into **A only / In
+  both / B only** — a VIN in one list matches its stock # in the other (rows
+  note "(entered S100)"). **Look up list:** paste stock #s (VINs work too) →
+  **Found / Not found** with each vehicle's VIN and data; Copy VINs feeds Run
+  Order. Rows show year/make/model/stock/type/status/URL from current inventory
+  and prior orders from the VIN log — "ALREADY PRINTED" status with the same
+  prior-orders hover as Run Order, plus a Prior orders column. Sold vehicles
+  show "Not in current inventory" but keep their order history. A dealer (or All
+  dealers) is required.
   Dealer picker includes **All dealers (slower)** — reads all of SCRAPERDATA and
   every VIN-log tab and adds a Dealer column. **Copy VINs** and **Copy as table**
   (tab-separated, pastes into Sheets) act on the active tab. VIN-log parsing is
