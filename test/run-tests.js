@@ -1167,6 +1167,59 @@ t('empty log or empty inventory yields empty list (never throws)', function () {
   assert.deepStrictEqual(buildStackCleanupRows_(['X'], {}), []);
 });
 
+// ============================================================================
+// Suite: VIN-log history + Compare Lists — appendVinLogHistory_, resolveCompareIds_
+// ============================================================================
+suite('compare lists');
+t('history: one entry per order, order_date wins, committed_at fallback trimmed to date', function () {
+  var hist = {};
+  var ids = appendVinLogHistory_([
+    ['ORDER_ID', 'VIN', 'committed_at', 'order_date'],        // stray header row
+    ['5001', ' abc123 ', '2026-09-10 08:00:00', '2026-09-09'],
+    ['5002', 'ABC123', '2026-09-20 10:00:00', ''],             // legacy: no order_date
+    ['5002', 'ABC123', '2026-09-20 10:00:00', ''],             // same order twice
+    ['',     'STK9',   '', '']                                  // logged, no order #
+  ], hist, '');
+  assert.deepStrictEqual(ids, ['ABC123', 'ABC123', 'ABC123', 'STK9']);   // header skipped
+  assert.deepStrictEqual(hist.ABC123, [
+    { order: '5001', date: '2026-09-09', dealer: '' },
+    { order: '5002', date: '2026-09-20', dealer: '' }
+  ]);
+  assert.strictEqual(hist.STK9, undefined);
+});
+t('history: same order # under two dealers stays two entries', function () {
+  var hist = {};
+  appendVinLogHistory_([['7', 'V1', '', '2026-01-01']], hist, 'DEALER_A');
+  appendVinLogHistory_([['7', 'V1', '', '2026-02-01']], hist, 'DEALER_B');
+  assert.strictEqual(hist.V1.length, 2);
+});
+t('resolve: VIN-first then stock; history merged across VIN + stock, newest first', function () {
+  var row = function (vin, stock, loc) {
+    var r = new Array(21).fill('');
+    r[0] = vin; r[1] = stock; r[2] = 'PO'; r[3] = '2022'; r[4] = 'Ford'; r[5] = 'F-150';
+    r[8] = 'ONLOT'; r[19] = loc; r[20] = 'https://x/' + vin;
+    return r;
+  };
+  var rows = [row('VINAAA', 'S100', 'Loc A'), row('VINBBB', 'S200', 'Loc B')];
+  var history = {
+    VINAAA: [{ order: '1', date: '2026-08-01', dealer: '' }],
+    S100:   [{ order: '2', date: '2026-09-01', dealer: '' }, { order: '1', date: '2026-08-01', dealer: '' }]
+  };
+  var res = resolveCompareIds_(['VINAAA', 'S200', 'SOLDVIN'], rows, history, { 'Loc B': 'Dealer B' });
+  assert.strictEqual(res.vehicles.VINAAA.stock, 'S100');
+  assert.strictEqual(res.vehicles.VINAAA.dealer, '');                 // location not in map
+  assert.strictEqual(res.vehicles.S200.vin, 'VINBBB');                // resolved by stock
+  assert.strictEqual(res.vehicles.S200.dealer, 'Dealer B');
+  assert.deepStrictEqual(res.history.VINAAA.map(function (e) { return e.order; }), ['2', '1']);
+  assert.strictEqual(res.vehicles.SOLDVIN, undefined);
+  assert.strictEqual(res.history.S200, undefined);
+});
+t('resolve: sold vehicle keeps its history with no vehicle data', function () {
+  var res = resolveCompareIds_(['SOLDVIN'], [], { SOLDVIN: [{ order: '9', date: '', dealer: 'K' }] }, {});
+  assert.strictEqual(res.vehicles.SOLDVIN, undefined);
+  assert.strictEqual(res.history.SOLDVIN[0].order, '9');
+});
+
 // ── Report ───────────────────────────────────────────────────────────────────
 function report_() {
   var totalPass = 0, totalFail = 0;

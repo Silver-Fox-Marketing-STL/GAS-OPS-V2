@@ -11,6 +11,24 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Added
+- **Compare Lists view** (Sep 30, 2026). New sidebar screen (`ViewCompare.html`)
+  with two modes. **Compare two lists:** paste List A and List B (VINs and/or
+  stock #s; newline/comma/tab/space separated, case-insensitive, deduped). Every
+  entry is looked up FIRST (`getCompareListData`; a stock # resolves to its
+  vehicle's VIN), then the lists split on the resolved VIN into **A only / In
+  both / B only** — a VIN in one list matches its stock # in the other (rows
+  note "(entered S100)"). **Look up list:** paste stock #s (VINs work too) →
+  **Found / Not found** with each vehicle's VIN and data; Copy VINs feeds Run
+  Order. Rows show year/make/model/stock/type/status/URL from current inventory
+  and prior orders from the VIN log — "ALREADY PRINTED" status with the same
+  prior-orders hover as Run Order, plus a Prior orders column. Sold vehicles
+  show "Not in current inventory" but keep their order history. A dealer (or All
+  dealers) is required.
+  Dealer picker includes **All dealers (slower)** — reads all of SCRAPERDATA and
+  every VIN-log tab and adds a Dealer column. **Copy VINs** and **Copy as table**
+  (tab-separated, pastes into Sheets) act on the active tab. VIN-log parsing is
+  now shared via `appendVinLogHistory_`; new pure `resolveCompareIds_`; both
+  covered by a new `compare lists` harness suite.
 - **Prior-order hover on ALREADY PRINTED rows** (Sep 30, 2026). In the Run Order
   Inventory match table, hovering the Status cell of an "ALREADY PRINTED" row
   (dotted underline, help cursor) lists every prior order the VIN or its stock #

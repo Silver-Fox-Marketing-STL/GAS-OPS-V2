@@ -5002,28 +5002,46 @@ function getLoggedIdentifiers(dealerKey) {
     var lastRow = sheet.getLastRow();
     if (lastRow < 2) return { identifiers: [], history: {} };
 
-    var fmtDate = function(v) {
-      if (v instanceof Date) return Utilities.formatDate(v, 'America/Chicago', 'yyyy-MM-dd');
-      return String(v == null ? '' : v).trim().split(' ')[0];   // 'yyyy-MM-dd HH:mm:ss' → date
-    };
-    var values  = sheet.getRange(2, 1, lastRow - 1, 4).getValues();
-    var out     = [];
     var history = {};
-    for (var i = 0; i < values.length; i++) {
-      var val = String(values[i][1]).trim().toUpperCase();
-      if (val === '' || val === 'VIN') continue;
-      out.push(val);
-      var order = String(values[i][0] == null ? '' : values[i][0]).trim();
-      if (!order) continue;
-      var list = history[val] || (history[val] = []);
-      var seen = false;
-      for (var k = 0; k < list.length; k++) if (list[k].order === order) { seen = true; break; }
-      if (!seen) list.push({ order: order, date: fmtDate(values[i][3]) || fmtDate(values[i][2]) });
-    }
+    var out = appendVinLogHistory_(sheet.getRange(2, 1, lastRow - 1, 4).getValues(), history, '');
     return { identifiers: out, history: history };
   } catch (e) {
     return { identifiers: [], history: {} };
   }
+}
+
+/**
+ * Pure: folds VIN-log rows (cols A–D: ORDER_ID | VIN | committed_at |
+ * order_date) into `history` (identifier(upper) → [{order, date, dealer}]),
+ * one entry per distinct (dealer, order). date = order_date, falling back to
+ * committed_at on legacy rows, always a 'yyyy-MM-dd' string (google.script.run
+ * can't serialize Dates). Returns every identifier seen (header 'VIN' skipped).
+ *
+ * @param {Array[]} values    - VIN-log rows, cols A–D
+ * @param {Object}  history   - accumulator, mutated
+ * @param {string}  dealerKey - stamped on each entry ('' when single-dealer)
+ * @returns {string[]}
+ */
+function appendVinLogHistory_(values, history, dealerKey) {
+  var fmtDate = function(v) {
+    if (v instanceof Date) return Utilities.formatDate(v, 'America/Chicago', 'yyyy-MM-dd');
+    return String(v == null ? '' : v).trim().split(' ')[0];   // 'yyyy-MM-dd HH:mm:ss' → date
+  };
+  var out = [];
+  for (var i = 0; i < values.length; i++) {
+    var val = String(values[i][1] == null ? '' : values[i][1]).trim().toUpperCase();
+    if (val === '' || val === 'VIN') continue;
+    out.push(val);
+    var order = String(values[i][0] == null ? '' : values[i][0]).trim();
+    if (!order) continue;
+    var list = history[val] || (history[val] = []);
+    var seen = false;
+    for (var k = 0; k < list.length; k++) {
+      if (list[k].order === order && list[k].dealer === dealerKey) { seen = true; break; }
+    }
+    if (!seen) list.push({ order: order, date: fmtDate(values[i][3]) || fmtDate(values[i][2]), dealer: dealerKey });
+  }
+  return out;
 }
 
 
@@ -5102,6 +5120,124 @@ function getStackCleanupList(dealerKey) {
     loggedCount: logged.length,
     inventoryCount: inventoryCount
   };
+}
+
+
+// ── Compare Lists ───────────────────────────────────────────────────────────
+
+var COMPARE_ALL_DEALERS = '*ALL*';
+
+/**
+ * Pure: resolves requested identifiers (VIN or stock #) against inventory rows
+ * and VIN-log history. Each id resolves VIN-first, then stock. History for an
+ * id merges entries logged under the id itself AND under the resolved
+ * vehicle's VIN/stock (same identifier logic as the billing dupe flags),
+ * deduped per (dealer, order), newest first. Ids with nothing found are
+ * simply absent from both maps.
+ *
+ * @param {string[]} ids        - uppercase, trimmed, unique
+ * @param {Array[]}  rows       - SCRAPERDATA rows (≥ 21 cols)
+ * @param {Object}   history    - appendVinLogHistory_ output
+ * @param {Object}   locToName  - scraper location → dealer name ({} = don't stamp)
+ * @returns {{ vehicles: Object, history: Object }}
+ */
+function resolveCompareIds_(ids, rows, history, locToName) {
+  var byVin = {}, byStock = {};
+  var s = function(v) { return String(v == null ? '' : v).trim(); };
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    var vin = s(r[0]).toUpperCase(), stock = s(r[1]).toUpperCase();
+    if (vin && vin !== '*' && !byVin[vin]) byVin[vin] = r;
+    if (stock && stock !== '*' && !byStock[stock]) byStock[stock] = r;
+  }
+
+  var vehicles = {}, hist = {};
+  ids.forEach(function(id) {
+    var r = byVin[id] || byStock[id];
+    var v = null;
+    if (r) {
+      v = { vin: s(r[0]), stock: s(r[1]), type: s(r[2]), year: s(r[3]), make: s(r[4]),
+            model: s(r[5]), status: s(r[8]), url: s(r[20]), dealer: locToName[s(r[19])] || '' };
+      vehicles[id] = v;
+    }
+    var keys = [id];
+    if (v) keys.push(v.vin.toUpperCase(), v.stock.toUpperCase());
+    var seen = {}, merged = [];
+    keys.forEach(function(k) {
+      (k && history[k] || []).forEach(function(e) {
+        var dk = e.dealer + '|' + e.order;
+        if (!seen[dk]) { seen[dk] = true; merged.push(e); }
+      });
+    });
+    if (merged.length) {
+      merged.sort(function(a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
+      hist[id] = merged;
+    }
+  });
+  return { vehicles: vehicles, history: hist };
+}
+
+/**
+ * Client-callable (Compare Lists view). The list comparison itself runs in
+ * the browser; this only enriches the union of both lists with vehicle data
+ * (current SCRAPERDATA) and prior-order history (VIN logs).
+ *
+ * dealerKey = one dealer → that dealer's inventory span + its one log tab.
+ * dealerKey = COMPARE_ALL_DEALERS → full SCRAPERDATA + EVERY log tab (slower;
+ * vehicles/entries are stamped with the dealer name so mixed lists read).
+ *
+ * Fails LOUD on the inventory read (a silent empty would show every VIN as
+ * "not in inventory"); a missing log tab is just "no history".
+ *
+ * @param {string}   dealerKey
+ * @param {string[]} ids - identifiers from both lists
+ * @returns {{ vehicles: Object, history: Object, dealerNames: Object }}
+ */
+function getCompareListData(dealerKey, ids) {
+  if (!dealerKey) throw new Error('No dealer selected.');
+  var want = {}, list = [];
+  (ids || []).forEach(function(id) {
+    var k = String(id == null ? '' : id).trim().toUpperCase();
+    if (k && !want[k]) { want[k] = true; list.push(k); }
+  });
+  if (!list.length) return { vehicles: {}, history: {}, dealerNames: {} };
+
+  var cfgRows = getConfigSS_().getSheetByName('DEALERS').getDataRange().getValues();
+  var dealerNames = {};   // dealer_key → display name (VIN-log tabs are named by key)
+  var locToName = {};
+  for (var i = 1; i < cfgRows.length; i++) {
+    var key = String(cfgRows[i][CFG.KEY] || '').trim();
+    if (!key) continue;
+    dealerNames[key] = String(cfgRows[i][CFG.NAME] || key).trim();
+    var loc = String(cfgRows[i][CFG.SCRAPER_LOCATION] || '').trim();
+    if (loc && !locToName[loc]) locToName[loc] = dealerNames[key];
+  }
+
+  var rows, history = {};
+  if (dealerKey === COMPARE_ALL_DEALERS) {
+    var sheet = getMasterSS_().getSheetByName('SCRAPERDATA');
+    var lastRow = sheet.getLastRow();
+    rows = lastRow < 2 ? [] : sheet.getRange(2, 1, lastRow - 1, 21).getValues();
+    getVinLogsSS_().getSheets().forEach(function(tab) {
+      var n = tab.getLastRow();
+      if (n < 2) return;
+      appendVinLogHistory_(tab.getRange(2, 1, n - 1, 4).getValues(), history, tab.getName());
+    });
+  } else {
+    var config = getDealerConfig_(dealerKey);
+    if (!config) throw new Error('No dealer config found for: ' + dealerKey);
+    var location = String(config[CFG.SCRAPER_LOCATION] || '').trim();
+    rows = location ? getDealerScraperData_(location) : [];
+    locToName = {};   // single dealer — no per-row dealer column
+    var logTab = getVinLogsSS_().getSheetByName(dealerKey);
+    if (logTab && logTab.getLastRow() >= 2) {
+      appendVinLogHistory_(logTab.getRange(2, 1, logTab.getLastRow() - 1, 4).getValues(), history, '');
+    }
+  }
+
+  var res = resolveCompareIds_(list, rows, history, locToName);
+  res.dealerNames = dealerNames;
+  return res;
 }
 
 
