@@ -4982,30 +4982,47 @@ function backfillVinLogOrderDates() {
 
 /**
  * Returns every identifier (VIN or stock, col B) in the dealer's VIN log tab,
- * uppercased. The Run Order table uses this to highlight already-produced
- * vehicles pre-run. Non-fatal by design: any read failure returns an empty
- * list — a log hiccup must never degrade the Run screen.
+ * uppercased, plus each one's order history. The Run Order table uses this to
+ * highlight already-produced vehicles pre-run and to show (on hover) which
+ * prior orders they were in — the same ORDER_IDs the billing sheet's
+ * "Prior Order #s" column lists. Non-fatal by design: any read failure returns
+ * an empty result — a log hiccup must never degrade the Run screen.
+ *
+ * Dates are strings (google.script.run can't serialize Dates): order_date
+ * (col D), falling back to committed_at (col C) on legacy rows.
  *
  * @param {string} dealerKey - must match a tab name in SF_VIN_LOGS exactly
- * @returns {{ identifiers: string[] }}
+ * @returns {{ identifiers: string[], history: Object<string, Array<{order:string, date:string}>> }}
  */
 function getLoggedIdentifiers(dealerKey) {
   try {
     var sheet = getVinLogsSS_().getSheetByName(dealerKey);
-    if (!sheet) return { identifiers: [] };
+    if (!sheet) return { identifiers: [], history: {} };
 
     var lastRow = sheet.getLastRow();
-    if (lastRow < 2) return { identifiers: [] };
+    if (lastRow < 2) return { identifiers: [], history: {} };
 
-    var values = sheet.getRange(2, 2, lastRow - 1, 1).getValues();
-    var out = [];
+    var fmtDate = function(v) {
+      if (v instanceof Date) return Utilities.formatDate(v, 'America/Chicago', 'yyyy-MM-dd');
+      return String(v == null ? '' : v).trim().split(' ')[0];   // 'yyyy-MM-dd HH:mm:ss' → date
+    };
+    var values  = sheet.getRange(2, 1, lastRow - 1, 4).getValues();
+    var out     = [];
+    var history = {};
     for (var i = 0; i < values.length; i++) {
-      var val = String(values[i][0]).trim().toUpperCase();
-      if (val !== '' && val !== 'VIN') out.push(val);
+      var val = String(values[i][1]).trim().toUpperCase();
+      if (val === '' || val === 'VIN') continue;
+      out.push(val);
+      var order = String(values[i][0] == null ? '' : values[i][0]).trim();
+      if (!order) continue;
+      var list = history[val] || (history[val] = []);
+      var seen = false;
+      for (var k = 0; k < list.length; k++) if (list[k].order === order) { seen = true; break; }
+      if (!seen) list.push({ order: order, date: fmtDate(values[i][3]) || fmtDate(values[i][2]) });
     }
-    return { identifiers: out };
+    return { identifiers: out, history: history };
   } catch (e) {
-    return { identifiers: [] };
+    return { identifiers: [], history: {} };
   }
 }
 
