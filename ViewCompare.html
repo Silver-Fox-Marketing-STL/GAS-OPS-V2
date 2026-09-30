@@ -1,0 +1,367 @@
+<div class="view" id="view-compare" data-layout="data" hidden>
+
+  <div class="cl-scroll app-measure">
+
+    <label for="clDealerSelect">Dealer</label>
+    <select id="clDealerSelect">
+      <option value="">-- Loading dealers... --</option>
+    </select>
+
+    <p class="cl-blurb">
+      Paste two lists of VINs (or stock #s) — one per line, or separated by commas,
+      tabs or spaces. Compare splits them into <strong>A only</strong>,
+      <strong>in both</strong> and <strong>B only</strong>, then pulls each vehicle's
+      data and the orders it was printed on (hover an ALREADY PRINTED status for dates).
+    </p>
+
+    <div class="cl-lists">
+      <div class="cl-list">
+        <div class="cl-list-head"><label for="clListA">List A</label><span class="cl-count" id="clCountA"></span></div>
+        <textarea id="clListA" spellcheck="false" placeholder="Paste list A…"></textarea>
+      </div>
+      <div class="cl-list">
+        <div class="cl-list-head"><label for="clListB">List B</label><span class="cl-count" id="clCountB"></span></div>
+        <textarea id="clListB" spellcheck="false" placeholder="Paste list B…"></textarea>
+      </div>
+    </div>
+
+    <div class="cl-actions">
+      <button type="button" class="btn-primary" id="clCompareBtn">Compare</button>
+      <button type="button" class="btn-secondary" id="clSwapBtn">Swap A ⇄ B</button>
+      <button type="button" class="btn-secondary" id="clClearBtn">Clear</button>
+    </div>
+
+    <div id="clStatus" class="empty"></div>
+
+    <div id="clResults" hidden>
+      <div class="cl-bar">
+        <span class="pill" data-sec="a" role="button" tabindex="0">A only <span class="cl-n" id="clNa"></span></span>
+        <span class="pill" data-sec="both" role="button" tabindex="0">In both <span class="cl-n" id="clNboth"></span></span>
+        <span class="pill" data-sec="b" role="button" tabindex="0">B only <span class="cl-n" id="clNb"></span></span>
+        <span class="cl-bar-spacer"></span>
+        <button type="button" class="btn-secondary" id="clCopyVinsBtn">Copy VINs</button>
+        <button type="button" class="btn-secondary" id="clCopyTableBtn">Copy as table</button>
+      </div>
+      <div class="cl-table-wrap">
+        <table class="table-u">
+          <thead><tr id="clHeadRow"></tr></thead>
+          <tbody id="clBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- execCommand('copy') source (clipboard API is unreliable in the HtmlService iframe) -->
+    <textarea id="clCopyBuf" class="cl-copy-buf" aria-hidden="true" tabindex="-1"></textarea>
+
+  </div>
+
+</div>
+
+<style>
+  /* themed root (overrides the .view light guard) */
+  #view-compare { background: var(--bg); color: var(--text); height: 100%; overflow: hidden; font-size: 13px; }
+  #view-compare .cl-scroll { height: 100%; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; }
+
+  #view-compare label { display: block; font-weight: bold; margin-bottom: 4px; }
+  #view-compare select {
+    width: 100%; max-width: 420px; padding: 8px; font-size: 13px;
+    border: 1px solid var(--border-2); border-radius: 4px;
+  }
+  #view-compare .cl-blurb { color: var(--text-2); font-size: 12px; max-width: 640px; }
+
+  #view-compare .cl-lists { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  #view-compare .cl-list-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  #view-compare .cl-count { font-size: 11px; color: var(--text-3); }
+  #view-compare textarea#clListA,
+  #view-compare textarea#clListB {
+    width: 100%; box-sizing: border-box; height: 180px; resize: vertical;
+    padding: 8px; font-family: var(--font-mono); font-size: 12px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid var(--border-2); border-radius: 4px;
+  }
+
+  #view-compare .cl-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+
+  #view-compare #clStatus { font-size: 12px; min-height: 18px; padding: 6px 8px; border-radius: 4px; margin-bottom: 8px; }
+  #view-compare #clStatus.error { background: var(--danger-weak); color: var(--danger); }
+  #view-compare #clStatus.info  { background: var(--accent-weak); color: var(--accent); }
+  #view-compare #clStatus.empty { background: none; color: var(--text-2); padding-left: 0; }
+
+  #view-compare #clResults[hidden] { display: none !important; }
+  #view-compare #clResults { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  #view-compare .cl-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+  #view-compare .cl-bar .pill { cursor: pointer; }
+  #view-compare .cl-bar .pill:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+  #view-compare .cl-n { opacity: .8; margin-left: 2px; }
+  #view-compare .cl-bar-spacer { flex: 1; }
+
+  #view-compare .cl-table-wrap { flex: 1; min-height: 160px; overflow: auto; }
+  #view-compare .cl-vin { font-family: var(--font-mono); white-space: nowrap; }
+  #view-compare .cl-muted { color: var(--text-3); }
+  #view-compare .cl-orders { white-space: nowrap; }
+  /* ALREADY PRINTED status carries a hover tooltip (title) listing prior orders — same cue as Run Order */
+  #view-compare td.cl-dup-status { cursor: help; text-decoration: underline dotted; text-underline-offset: 3px; color: var(--danger); }
+
+  #view-compare .cl-copy-buf { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
+
+  :root[data-viewport="mobile"] #view-compare .cl-scroll { padding: 12px; }
+  :root[data-viewport="mobile"] #view-compare .cl-lists { grid-template-columns: 1fr; }
+  :root[data-viewport="mobile"] #view-compare .table-u th,
+  :root[data-viewport="mobile"] #view-compare .table-u td { padding: 5px 6px; font-size: 12px; }
+</style>
+
+<script>
+  var CL_ALL = '*ALL*';   // mirrors COMPARE_ALL_DEALERS in Code.gs
+  var clState = {
+    sec: 'both',          // active result section: 'a' | 'both' | 'b'
+    groups: null,         // { a: [], both: [], b: [] } — uppercase identifiers, list order
+    data: null,           // getCompareListData result for the current compare, or null
+    dealer: '',           // dealer the data was fetched for
+    reqId: 0              // stale-response guard
+  };
+
+  function initCompareView() {
+    AppData.get(function(data, err) {
+      var sel = document.getElementById('clDealerSelect');
+      if (!data) {
+        sel.innerHTML = '<option value="">Error loading dealers</option>';
+        clSetStatus('Could not load dealer list: ' + (err && err.message ? err.message : 'unknown error'), 'error');
+        return;
+      }
+      sel.innerHTML = '<option value="">-- Select a dealer --</option>' +
+        '<option value="' + CL_ALL + '">All dealers (slower)</option>';
+      data.dealers.forEach(function(d) {
+        var opt = document.createElement('option');
+        opt.value = d.key; opt.text = d.name;
+        sel.appendChild(opt);
+      });
+    });
+
+    document.getElementById('clDealerSelect').addEventListener('change', function() {
+      if (clState.groups) clFetchData();   // re-enrich an existing comparison
+    });
+    ['clListA', 'clListB'].forEach(function(id) {
+      document.getElementById(id).addEventListener('input', clUpdateCounts);
+    });
+    document.getElementById('clCompareBtn').addEventListener('click', clCompare);
+    document.getElementById('clSwapBtn').addEventListener('click', function() {
+      var a = document.getElementById('clListA'), b = document.getElementById('clListB');
+      var t = a.value; a.value = b.value; b.value = t;
+      clUpdateCounts();
+      if (clState.groups) clCompare();
+    });
+    document.getElementById('clClearBtn').addEventListener('click', function() {
+      document.getElementById('clListA').value = '';
+      document.getElementById('clListB').value = '';
+      clUpdateCounts();
+      clState.groups = null; clState.data = null; clState.reqId++;
+      document.getElementById('clResults').hidden = true;
+      clSetStatus('', 'empty');
+    });
+    var pills = document.querySelectorAll('#view-compare .cl-bar .pill');
+    for (var i = 0; i < pills.length; i++) {
+      pills[i].addEventListener('click', clPickSection);
+      pills[i].addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); clPickSection.call(this); }
+      });
+    }
+    document.getElementById('clCopyVinsBtn').addEventListener('click', clCopyVins);
+    document.getElementById('clCopyTableBtn').addEventListener('click', clCopyTable);
+  }
+
+  window.VIEW_INITS = window.VIEW_INITS || {};
+  VIEW_INITS['view-compare'] = initCompareView;
+
+  // Split on newlines / commas / semicolons / tabs / spaces; uppercase; keep
+  // first-seen order. Returns { ids: [...unique], repeats: n }.
+  function clParse(text) {
+    var seen = {}, ids = [], repeats = 0;
+    String(text || '').split(/[\s,;]+/).forEach(function(t) {
+      var k = t.trim().toUpperCase();
+      if (!k) return;
+      if (seen[k]) { repeats++; return; }
+      seen[k] = 1; ids.push(k);
+    });
+    return { ids: ids, repeats: repeats };
+  }
+
+  function clUpdateCounts() {
+    [['clListA', 'clCountA'], ['clListB', 'clCountB']].forEach(function(p) {
+      var r = clParse(document.getElementById(p[0]).value);
+      document.getElementById(p[1]).textContent = r.ids.length
+        ? r.ids.length + ' unique' + (r.repeats ? ' · ' + r.repeats + ' repeated' : '') : '';
+    });
+  }
+
+  function clCompare() {
+    var a = clParse(document.getElementById('clListA').value).ids;
+    var b = clParse(document.getElementById('clListB').value).ids;
+    if (!a.length || !b.length) {
+      clSetStatus('Paste something into both List A and List B.', 'error');
+      return;
+    }
+    var inA = {}, inB = {};
+    a.forEach(function(k) { inA[k] = 1; });
+    b.forEach(function(k) { inB[k] = 1; });
+    clState.groups = {
+      a:    a.filter(function(k) { return !inB[k]; }),
+      both: a.filter(function(k) { return inB[k]; }),
+      b:    b.filter(function(k) { return !inA[k]; })
+    };
+    clState.data = null;
+    document.getElementById('clNa').textContent    = '(' + clState.groups.a.length + ')';
+    document.getElementById('clNboth').textContent = '(' + clState.groups.both.length + ')';
+    document.getElementById('clNb').textContent    = '(' + clState.groups.b.length + ')';
+    document.getElementById('clResults').hidden = false;
+    clRender();
+    clFetchData();
+  }
+
+  // Enrich every identifier in the comparison with vehicle data + order history.
+  function clFetchData() {
+    var dealer = document.getElementById('clDealerSelect').value;
+    var g = clState.groups;
+    var reqId = ++clState.reqId;
+    clState.data = null;
+    if (!dealer) {
+      clSetStatus('Select a dealer (or All dealers) to pull vehicle data and prior orders.', 'info');
+      clRender();
+      return;
+    }
+    clSetStatus(dealer === CL_ALL
+      ? 'Looking up vehicles across all dealers and VIN logs… (this can take ~10–20s)'
+      : 'Looking up vehicles and prior orders…', 'info');
+    clRender();
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (reqId !== clState.reqId) return;
+        clState.data = res || { vehicles: {}, history: {}, dealerNames: {} };
+        clState.dealer = dealer;
+        clSetStatus('', 'empty');
+        clRender();
+      })
+      .withFailureHandler(function(e) {
+        if (reqId !== clState.reqId) return;
+        clSetStatus('Could not load vehicle data: ' + (e && e.message ? e.message : e), 'error');
+      })
+      .getCompareListData(dealer, g.a.concat(g.both, g.b));
+  }
+
+  function clPickSection() {
+    clState.sec = this.getAttribute('data-sec');
+    clRender();
+  }
+
+  function clShowDealerCol() { return !!clState.data && clState.dealer === CL_ALL; }
+
+  // Row model shared by the table and "Copy as table". (Type cells reuse
+  // ViewRun's rvTypePill — all fragments share one global JS scope.)
+  function clRowFor(id) {
+    var d = clState.data;
+    var v = d && d.vehicles[id];
+    var hist = (d && d.history[id]) || [];
+    var names = (d && d.dealerNames) || {};
+    return {
+      id: id,
+      vin: v ? v.vin : id,
+      v: v,
+      hist: hist,
+      orders: hist.map(function(e) { return e.order; }).join(', '),
+      title: hist.length
+        ? 'Previously printed on ' + hist.length + (hist.length === 1 ? ' order:' : ' orders:') +
+          hist.map(function(e) {
+            return '\n• Order ' + e.order + (e.date ? '  (' + e.date + ')' : '') +
+              (e.dealer ? '  — ' + (names[e.dealer] || e.dealer) : '');
+          }).join('')
+        : ''
+    };
+  }
+
+  function clRender() {
+    var g = clState.groups;
+    if (!g) return;
+    var pills = document.querySelectorAll('#view-compare .cl-bar .pill');
+    for (var i = 0; i < pills.length; i++) {
+      pills[i].classList.toggle('active', pills[i].getAttribute('data-sec') === clState.sec);
+    }
+    var showDealer = clShowDealerCol();
+    var heads = ['VIN', 'Stock', 'Year', 'Make', 'Model', 'Type', 'Status', 'Prior orders'];
+    if (showDealer) heads.push('Dealer');
+    heads.push('Link');
+    document.getElementById('clHeadRow').innerHTML =
+      heads.map(function(h) { return '<th>' + h + '</th>'; }).join('');
+
+    var ids = g[clState.sec] || [];
+    var body = document.getElementById('clBody');
+    if (!ids.length) {
+      body.innerHTML = '<tr><td colspan="' + heads.length + '" class="cl-muted">Nothing in this group.</td></tr>';
+      return;
+    }
+    var loaded = !!clState.data;
+    var html = '';
+    ids.forEach(function(id) {
+      var r = clRowFor(id), v = r.v;
+      var dash = '<span class="cl-muted">' + (loaded ? '—' : '…') + '</span>';
+      var cell = function(x) { return v && x ? escHtml(x) : dash; };
+      var status;
+      if (!loaded) status = dash;
+      else if (!v) status = '<span class="cl-muted">Not in current inventory</span>' + (r.hist.length ? ' · ALREADY PRINTED' : '');
+      else status = escHtml(v.status || '—') + (r.hist.length ? ' · ALREADY PRINTED' : '');
+      var statusTd = r.hist.length
+        ? '<td class="cl-dup-status" title="' + escHtml(r.title) + '">' + status + '</td>'
+        : '<td>' + status + '</td>';
+      html += '<tr>' +
+        '<td class="cl-vin">' + escHtml(r.vin) + '</td>' +
+        '<td class="mono">' + cell(v && v.stock) + '</td>' +
+        '<td>' + cell(v && v.year) + '</td>' +
+        '<td>' + cell(v && v.make) + '</td>' +
+        '<td>' + cell(v && v.model) + '</td>' +
+        '<td>' + (v && v.type ? rvTypePill(v.type) : dash) + '</td>' +
+        statusTd +
+        '<td class="cl-orders">' + (r.orders ? escHtml(r.orders) : dash) + '</td>' +
+        (showDealer ? '<td>' + cell(v && v.dealer) + '</td>' : '') +
+        '<td>' + (v && v.url && v.url !== '*'
+          ? '<a href="' + escHtml(v.url) + '" target="_blank" rel="noopener">Vehicle URL</a>' : dash) + '</td>' +
+      '</tr>';
+    });
+    body.innerHTML = html;
+  }
+
+  function clCopy(text, btn, label) {
+    var buf = document.getElementById('clCopyBuf');
+    buf.value = text;
+    buf.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (_e) {}
+    btn.textContent = ok ? '✓ Copied' : 'Copy failed';
+    setTimeout(function() { btn.textContent = label; }, 1600);
+  }
+
+  function clCopyVins() {
+    if (!clState.groups) return;
+    var vins = (clState.groups[clState.sec] || []).map(function(id) { return clRowFor(id).vin; });
+    clCopy(vins.join('\n'), this, 'Copy VINs');
+  }
+
+  // Tab-separated with a header row — pastes straight into Sheets / an email table.
+  function clCopyTable() {
+    if (!clState.groups) return;
+    var showDealer = clShowDealerCol();
+    var lines = [['VIN', 'Stock', 'Year', 'Make', 'Model', 'Type', 'Status', 'Prior orders']
+      .concat(showDealer ? ['Dealer'] : []).join('\t')];
+    (clState.groups[clState.sec] || []).forEach(function(id) {
+      var r = clRowFor(id), v = r.v || {};
+      lines.push([r.vin, v.stock, v.year, v.make, v.model, v.type,
+        r.v ? v.status : 'Not in current inventory', r.orders]
+        .concat(showDealer ? [v.dealer] : [])
+        .map(function(x) { return String(x == null ? '' : x).replace(/[\t\r\n]+/g, ' '); })
+        .join('\t'));
+    });
+    clCopy(lines.join('\n'), this, 'Copy as table');
+  }
+
+  function clSetStatus(msg, type) {
+    var el = document.getElementById('clStatus');
+    el.textContent = msg; el.className = type || 'empty';
+  }
+</script>
