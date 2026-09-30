@@ -43,7 +43,11 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   First live run (Sep 29): sign-in, queue and CAO work against EXP; fixed the
   desk treating a failed run as success — `runDealer` returns `null` on failure
   and records the reason in the run progress record, so `order.ts` now reads
-  that reason before clearing it and shows it in the status line.
+  that reason before clearing it and shows it in the status line. **Live proof
+  (Sep 30):** a full order ran from localhost through the Execution API against
+  EXP + the DEV sheets. Setup lessons recorded in the spike note: the linked
+  Cloud project must also have the Google Drive API enabled (advanced Drive
+  service), and an editor tab opened before a push overwrites HEAD on deploy.
 
 ### Changed
 - **REBUILD — Order Desk client (branch `exp/ui-playground`, EXPERIMENTAL env,

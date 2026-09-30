@@ -146,15 +146,25 @@ guards scope drift both ways. Option B's code is in git history
 | 1 | Manifest + env gate + promote gate | superseded: manifest = `executionApi` + `oauthScopes` (harness `manifest scopes` suite) |
 | 2 | Router + token check + function map + identity | superseded: not needed with the Execution API; `deskWhoAmI()` only |
 | 3 | `desk/` shell: sign-in, `api.ts`, tokens/CSS, queue rail | done offline (GIS token client + `scripts.run` client) |
-| 4 | Order flow: dealer → CAO → run → test finalize → folder link | done offline (`desk/src/order.ts`; headless smoke walk against a mocked Execution API passes) |
-| 5 | Pages workflow + live proof against DEV + write-up | workflow in place; **live proof + write-up pending** the checklist below |
+| 4 | Order flow: dealer → CAO → run → test finalize → folder link | **live 2026-09-29/30** from localhost against EXP + DEV sheets: sign-in, queue, CAO pre-fill, run to completion (BMW of West St. Louis, 21 VINs). Also verified offline by the mocked smoke walk |
+| 5 | Pages workflow + live proof against DEV + write-up | workflow in place; localhost proof done; **Pages publish, negatives and write-up pending** (steps 8–10) |
 
 ## Live proof — Nick's checklist (in order)
 
+Done through step 7 on 2026-09-29/30. Two things that bit: the client id
+must be copied from the Credentials page (the address-bar copy carried a
+`?project=…` suffix → "OAuth client was not found"); and an Apps Script
+editor tab opened before a push saves its stale copy over HEAD when you use
+the Deploy dialog — reload the tab first. The Sheets-based desk on EXP shares
+the project link, so it needs the same two APIs enabled.
+
 1. **Cloud project.** console.cloud.google.com → project picker → New
    project, e.g. `silverfox-desk`. Note the **project number** (Dashboard).
-2. **Enable the API.** In that project: APIs & Services → Library → search
-   "Apps Script API" → Enable.
+2. **Enable two APIs.** In that project: APIs & Services → Library → enable
+   **Apps Script API** and **Google Drive API**. Drive is needed because the
+   script declares the advanced Drive service; Google's default hidden
+   project enabled it automatically, a standard project does not (first live
+   run failed with "Permission denied while enabling APIs: drive").
 3. **Consent screen.** APIs & Services → OAuth consent screen → User type
    **Internal** → app name "SilverFox desk", your email → Save (no scopes
    need listing for an internal app).
