@@ -327,6 +327,7 @@
           <div class="nav-item" id="nav-view-vin-inbox" onclick="navTo('view-vin-inbox')">VIN inbox <span class="nav-count" id="navInboxCount"></span></div>
           <div class="nav-item" id="nav-view-vinlog" onclick="navTo('view-vinlog')">VIN logs</div>
           <div class="nav-item" id="nav-view-stack-cleanup" onclick="navTo('view-stack-cleanup')">Stack cleanup</div>
+          <div class="nav-item" id="nav-view-compare" onclick="navTo('view-compare')">Compare lists</div>
           <div class="nav-item" id="nav-view-end-of-month" onclick="navTo('view-end-of-month')">Month end</div>
           <div class="nav-item" id="nav-view-utilities" onclick="navTo('view-utilities')">Utilities</div>
         </div>
@@ -348,6 +349,7 @@
           <?!= include_('ViewVinLog') ?>
           <?!= include_('ViewVinInbox') ?>
           <?!= include_('ViewStackCleanup') ?>
+          <?!= include_('ViewCompare') ?>
           <?!= include_('ViewEndOfMonth') ?>
           <?!= include_('ViewRules') ?>
           <?!= include_('ViewNorm') ?>
@@ -396,6 +398,7 @@
       'view-vinlog': 'VIN logs',
       'view-vin-inbox': 'VIN inbox',
       'view-stack-cleanup': 'Stack cleanup',
+      'view-compare': 'Compare lists',
       'view-end-of-month': 'Month end',
       'view-rules':  'Dealer rules',
       'view-norm':   'Normalization',

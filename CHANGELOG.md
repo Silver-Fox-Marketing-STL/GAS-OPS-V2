@@ -11,6 +11,13 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Changed
+- **Order Desk caught up to `main` (Oct 1, 2026).** `exp/ui-playground` merges
+  `main` through the 1.1 release. **Compare Lists** is hosted in the Order Desk
+  shell (rail task "Compare lists", sentence-case header title; the view itself
+  is unchanged from `main`), and the **prior-order hover** on ALREADY PRINTED
+  rows is carried into the rebuilt match table alongside the serial-emphasis
+  VIN cell (`rvVinCell_`). The external desk frontend (`spike/desk-api`) is
+  sidelined; EXPERIMENTAL serves this branch again.
 - **REBUILD — Order Desk client (branch `exp/ui-playground`, EXPERIMENTAL env,
   Sep 25, 2026).** Ground-up client rebuild on the fixed Code.gs server, per
   `docs/rebuild-order-desk-design.md`. The order is the unit of work: one work
@@ -65,21 +72,6 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
     log open; the rail folds printed dealers behind "N printed today"; Home
     drops the Dealer focus column (the inspector carries it) and folds
     all-time stats; more vertical space throughout.
-
-### Added
-- **EXPERIMENTAL environment — Prod / Dev / Experimental** (Sep 25, 2026). A
-  second Apps Script project bound to DEV_SF_SYSTEM_MASTER, registered in
-  `ENV_IDS` as `name: 'exp'` (same DEV sheet/folder ids, same Pipedrive fake),
-  with its own versioned `/exec` URL so a branch experiment (first user:
-  `exp/ui-playground`) can be clicked through without stomping DEV's HEAD.
-  New `scripts/push-exp.ps1` (gates: not main, committed tree, target is real /
-  not PROD / registered) pushes via `clasp -P .clasp.exp.json` and bumps the
-  deployment as `exp <branch> <sha>`. New committed `.clasp.exp.json` (in
-  `.claspignore`). The SPA / modal badge now prints the environment name
-  (`(DEV)` / `(EXP)`) instead of a hardcoded `(DEV)`. Runbook:
-  `docs/dev-environment.md` "EXPERIMENTAL".
-
-### Changed
 - **EXPERIMENT — "job ticket" UI direction (branch `exp/ui-playground`, Sep 25, 2026).**
   First pass at a distinctive visual identity, built with the `frontend-design`
   skill and verified through the full-app screenshot harness. Concept: the app
@@ -107,17 +99,64 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   Not touched yet: the other 14 views' per-view eyebrows/emoji buttons, the six
   non-default themes (they inherit the type + radius change untested), and
   Classic.html's font link.
+- **Docs-only housekeeping after the October 1, 2026 project audit** (branch
+  `chore/cleanup-2026-10`; no Apps Script source touched). Release `[1.1]` cut
+  below. Removed the stale `HANDOFF.md` (July crew-handbooks handoff, long merged),
+  `docs/ponytail-audit.md` (June cut-list), `docs/targeting_rules_migration.md`
+  (one-time June migration — archived in the brain) and the shipped
+  scanner-batch-note superpowers spec/plan. `.gitignore`'s Obsidian `2026-*.md`
+  rule is now root-anchored (`/2026-*.md`) — unanchored it had silently ignored
+  seven real spec/plan docs under `docs/superpowers/`. Bridge doc header dates,
+  the dead V3 doc reference and the verified-gone `VINLogMigration.gs` /
+  `FolderSetup.gs` / `test-write-access.txt` housekeeping lines fixed; Development
+  Plan's June branch snapshot replaced with the current deploy model + a pointer
+  to the brain backlog; `CLAUDE.md` line count refreshed.
 
-### Changed
-- **`--logo-fill` token replaces the dark-logo selector allowlist** (Sep 25, 2026).
-  `.app-brand .logo` (App.html) now paints its mask with `var(--logo-fill)`
-  (default `#4a4a4d` on `:root` in SharedUtils); `dark`, `midnight`, `encarta`,
-  `gruvbox-rail` and `luna` override it to `#d2d2d6` inside their own palette
-  blocks. A new dark theme carries its logo color with its other tokens — no
-  App.html edit, no cross-file allowlist to forget. Salvaged from the unmerged
-  `theme-acid` branch (Jul 9, 2026); the rest of that branch was obsolete.
+## [1.1] — 2026-09-30
+
+Everything promoted to PROD between 1.0 (2026-06-25) and the 2026-09-30 promote
+(`main` = `bd27806`, PROD deployment @102) — roughly fifteen promotes cut as one
+release. Entries are reverse-chronological within each heading; older entries
+keep the per-feature titled headings they were written with.
 
 ### Added
+- **Compare Lists view** (Sep 30, 2026). New sidebar screen (`ViewCompare.html`)
+  with two modes. **Compare two lists:** paste List A and List B (VINs and/or
+  stock #s; newline/comma/tab/space separated, case-insensitive, deduped). Every
+  entry is looked up FIRST (`getCompareListData`; a stock # resolves to its
+  vehicle's VIN), then the lists split on the resolved VIN into **A only / In
+  both / B only** — a VIN in one list matches its stock # in the other (rows
+  note "(entered S100)"). **Look up list:** paste stock #s (VINs work too) →
+  **Found / Not found** with each vehicle's VIN and data; Copy VINs feeds Run
+  Order. Rows show year/make/model/stock/type/status/URL from current inventory
+  and prior orders from the VIN log — "ALREADY PRINTED" status with the same
+  prior-orders hover as Run Order, plus a Prior orders column. Sold vehicles
+  show "Not in current inventory" but keep their order history. A dealer (or All
+  dealers) is required.
+  Dealer picker includes **All dealers (slower)** — reads all of SCRAPERDATA and
+  every VIN-log tab and adds a Dealer column. **Copy VINs** and **Copy as table**
+  (tab-separated, pastes into Sheets) act on the active tab. VIN-log parsing is
+  now shared via `appendVinLogHistory_`; new pure `resolveCompareIds_`; both
+  covered by a new `compare lists` harness suite.
+- **Prior-order hover on ALREADY PRINTED rows** (Sep 30, 2026). In the Run Order
+  Inventory match table, hovering the Status cell of an "ALREADY PRINTED" row
+  (dotted underline, help cursor) lists every prior order the VIN or its stock #
+  was logged under, newest first, with dates — the billing sheet's "Prior
+  Order #s", visible before the run. `getLoggedIdentifiers` now reads VIN-log
+  cols A–D and also returns `history` (identifier → `[{order, date}]`; date =
+  order_date, falling back to committed_at); `identifiers` is unchanged and the
+  read still fails safe to empty. Native `title` tooltip, no new JS widget.
+- **EXPERIMENTAL environment — Prod / Dev / Experimental** (Sep 25, 2026). A
+  second Apps Script project bound to DEV_SF_SYSTEM_MASTER, registered in
+  `ENV_IDS` as `name: 'exp'` (same DEV sheet/folder ids, same Pipedrive fake),
+  with its own versioned `/exec` URL so a branch experiment (first user:
+  `exp/ui-playground`) can be clicked through without stomping DEV's HEAD.
+  New `scripts/push-exp.ps1` (gates: not main, committed tree, target is real /
+  not PROD / registered) pushes via `clasp -P .clasp.exp.json` and bumps the
+  deployment as `exp <branch> <sha>`. New committed `.clasp.exp.json` (in
+  `.claspignore`). The SPA / modal badge now prints the environment name
+  (`(DEV)` / `(EXP)`) instead of a hardcoded `(DEV)`. Runbook:
+  `docs/dev-environment.md` "EXPERIMENTAL".
 - **`csv_uppercase` dealer flag — force every CSV data cell to UPPERCASE**
   (Sep 24, 2026). New optional boolean in `filtering_rules` (DEALERS col W),
   parsed by `getDealerFilterRules_` as `csvUppercase` (strict `=== true`,
@@ -133,6 +172,13 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   Three harness tests cover the fold, the QR skip, and the strict parse.
 
 ### Changed
+- **`--logo-fill` token replaces the dark-logo selector allowlist** (Sep 25, 2026).
+  `.app-brand .logo` (App.html) now paints its mask with `var(--logo-fill)`
+  (default `#4a4a4d` on `:root` in SharedUtils); `dark`, `midnight`, `encarta`,
+  `gruvbox-rail` and `luna` override it to `#d2d2d6` inside their own palette
+  blocks. A new dark theme carries its logo color with its other tokens — no
+  App.html edit, no cross-file allowlist to forget. Salvaged from the unmerged
+  `theme-acid` branch (Jul 9, 2026); the rest of that branch was obsolete.
 - **Dark-family themes: table headers are a surface tint instead of an
   inverted near-white bar** (Sep 23, 2026 screenshot audit). The shared
   `.table-u th` recipe now reads two new tokens, `--th-bg` / `--th-fg`. The
