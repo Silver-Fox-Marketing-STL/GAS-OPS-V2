@@ -10,6 +10,27 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## [Unreleased]
 
+### Changed
+- **Docs-only housekeeping after the October 1, 2026 project audit** (branch
+  `chore/cleanup-2026-10`; no Apps Script source touched). Release `[1.1]` cut
+  below. Removed the stale `HANDOFF.md` (July crew-handbooks handoff, long merged),
+  `docs/ponytail-audit.md` (June cut-list), `docs/targeting_rules_migration.md`
+  (one-time June migration — archived in the brain) and the shipped
+  scanner-batch-note superpowers spec/plan. `.gitignore`'s Obsidian `2026-*.md`
+  rule is now root-anchored (`/2026-*.md`) — unanchored it had silently ignored
+  seven real spec/plan docs under `docs/superpowers/`. Bridge doc header dates,
+  the dead V3 doc reference and the verified-gone `VINLogMigration.gs` /
+  `FolderSetup.gs` / `test-write-access.txt` housekeeping lines fixed; Development
+  Plan's June branch snapshot replaced with the current deploy model + a pointer
+  to the brain backlog; `CLAUDE.md` line count refreshed.
+
+## [1.1] — 2026-09-30
+
+Everything promoted to PROD between 1.0 (2026-06-25) and the 2026-09-30 promote
+(`main` = `bd27806`, PROD deployment @102) — roughly fifteen promotes cut as one
+release. Entries are reverse-chronological within each heading; older entries
+keep the per-feature titled headings they were written with.
+
 ### Added
 - **Compare Lists view** (Sep 30, 2026). New sidebar screen (`ViewCompare.html`)
   with two modes. **Compare two lists:** paste List A and List B (VINs and/or
@@ -48,17 +69,6 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   `.claspignore`). The SPA / modal badge now prints the environment name
   (`(DEV)` / `(EXP)`) instead of a hardcoded `(DEV)`. Runbook:
   `docs/dev-environment.md` "EXPERIMENTAL".
-
-### Changed
-- **`--logo-fill` token replaces the dark-logo selector allowlist** (Sep 25, 2026).
-  `.app-brand .logo` (App.html) now paints its mask with `var(--logo-fill)`
-  (default `#4a4a4d` on `:root` in SharedUtils); `dark`, `midnight`, `encarta`,
-  `gruvbox-rail` and `luna` override it to `#d2d2d6` inside their own palette
-  blocks. A new dark theme carries its logo color with its other tokens — no
-  App.html edit, no cross-file allowlist to forget. Salvaged from the unmerged
-  `theme-acid` branch (Jul 9, 2026); the rest of that branch was obsolete.
-
-### Added
 - **`csv_uppercase` dealer flag — force every CSV data cell to UPPERCASE**
   (Sep 24, 2026). New optional boolean in `filtering_rules` (DEALERS col W),
   parsed by `getDealerFilterRules_` as `csvUppercase` (strict `=== true`,
@@ -74,6 +84,13 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   Three harness tests cover the fold, the QR skip, and the strict parse.
 
 ### Changed
+- **`--logo-fill` token replaces the dark-logo selector allowlist** (Sep 25, 2026).
+  `.app-brand .logo` (App.html) now paints its mask with `var(--logo-fill)`
+  (default `#4a4a4d` on `:root` in SharedUtils); `dark`, `midnight`, `encarta`,
+  `gruvbox-rail` and `luna` override it to `#d2d2d6` inside their own palette
+  blocks. A new dark theme carries its logo color with its other tokens — no
+  App.html edit, no cross-file allowlist to forget. Salvaged from the unmerged
+  `theme-acid` branch (Jul 9, 2026); the rest of that branch was obsolete.
 - **Dark-family themes: table headers are a surface tint instead of an
   inverted near-white bar** (Sep 23, 2026 screenshot audit). The shared
   `.table-u th` recipe now reads two new tokens, `--th-bg` / `--th-fg`. The

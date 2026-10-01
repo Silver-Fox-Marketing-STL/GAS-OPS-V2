@@ -72,7 +72,7 @@ exact schemas/mechanism/history — NOT in context).
 
 ## Repo / environment
 
-- Repo: `Silver-Fox-Marketing-STL/GAS-OPS-V2`. `Code.gs` (~9,400 lines; Section 31
+- Repo: `Silver-Fox-Marketing-STL/GAS-OPS-V2`. `Code.gs` (~9,900 lines; Section 31
   = Pipedrive). Local checkout path varies per machine (this PC:
   `C:\Users\Nick_Workstation\Documents\SilverFox-V2`).
 - clasp script ID: `1E5aTcofzWzJZssOikaf6lFytS92vRHmj-k1NDV0C_Xu7NoJk7VUEjtNO`.
