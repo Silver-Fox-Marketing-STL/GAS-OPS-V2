@@ -14,11 +14,13 @@ node_modules/
 # Visual brainstorming companion session files (local only)
 .superpowers/
 
-# Obsidian vault artifacts — personal notes, not project files (local only)
+# Obsidian vault artifacts — personal notes, not project files (local only).
+# The dated-note rule is ROOT-ONLY on purpose: an unanchored `2026-*.md` silently
+# swallowed seven real spec/plan docs under docs/superpowers/ in July 2026.
 .obsidian/
 *.canvas
 *.base
-2026-*.md
+/2026-*.md
 
 # dev-environment credentials (gas-fakes OAuth etc.) — never commit
 .env*

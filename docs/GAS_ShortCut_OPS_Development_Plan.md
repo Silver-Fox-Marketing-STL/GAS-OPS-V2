@@ -1,6 +1,16 @@
 # SilverFox Marketing — GAS ShortCut OPS Development Plan
-### GAS ShortCut OPS 1.0 | Last Updated: June 25, 2026
+### GAS ShortCut OPS 1.1 | Last Updated: October 1, 2026
 
+> **Revision note (October 1, 2026):** Housekeeping pass only — the June branch
+> snapshot below was replaced with a pointer to the live backlog, stale counts and
+> done items were corrected. **This document is the roadmap; it is not the backlog.**
+> Current to-do, open decisions and parked branches live in the brain:
+> `01-Projects/gas-ops-v2/open-issues.md` (and the per-session `docs/handoff-*.md`
+> on the branch they describe). The deploy model described in the June notes is
+> superseded: deploys are DEV (`clasp push`) → merge to `main` → `scripts/promote.ps1`
+> (see `docs/dev-environment.md`); rollback = redeploy a prior version in the prod
+> script's Manage Deployments, never `clasp push`.
+>
 > **Revision note (June 24, 2026):** The **Pipedrive integration (v2.12) was merged to `main` and deployed** — the whole arc (global deal-field rules in copy/conditional/constant modes + per-dealer overrides, org-scoped products, gross line items, idempotent create/link, method-first finalize, billing-PDF attach, install-cost + Design variation, and the **product-map-as-sole-per-type-config** consolidation that retired `type_rules` from the run). It activates per dealer once its live config is filled in. **Lot Sherpa theming** + the **Dealer Rules "Discard Changes"** button remain branch-only (not yet `clasp push`ed).
 >
 > **Earlier revision note (June 23, 2026):** Brought current after a dense two weeks of V2 work. Newly reflected here: the **SilverFox App** single-modal SPA (the five modals are now `View*.html` fragments in `App.html`), the **Targeting Rules engine** (replaced the flat `conditions` array, June 17), **Data Sources v2 + append-only schema growth**, **billing split** (MBCC/Sprinter resolved) and **source split** (Frank Leta dual-site), **post-run finalization** (deferred deal IDs + abandonable runs), and a backend **performance sweep**. Deploy status is tracked by `clasp push`, not by branch — a feature can be merged to `main` and still be undeployed.
@@ -154,8 +164,13 @@ V2 is the active bridge and near-term production system. The goal is full reliab
 - [x] **Pipedrive integration (v2.12, deployed June 24, 2026)** — Code.gs Section 31 (+ `feature/pipedrive-finalize-flow`/`-install-cost`/`-followups`/`-billing-pdf`/`feature/product-driven-schema`), merged to `main`. Push a finalized run as a deal with per-type product line items; global deal-field rules (copy/conditional/constant) + per-dealer `field_overrides`; org-scoped products; gross line items; idempotent create/link; method-first finalize; billing-PDF attach; install-cost + Design variation; the **product map is now the sole per-type output config** (retired `type_rules` from the run). Remaining = the per-dealer live-config rollout (ScriptProperties secrets + `PIPEDRIVE_SETTINGS` rules + `PIPEDRIVE` rows) + end-to-end validation.
 
 #### Built — deploy pending
-- [ ] **Lot Sherpa theming** (branch `styling-updates`) — `clasp push` + in-app visual QA; the two import-health fixes on this branch can ship independently first
-- [ ] **Dealer Rules "Discard Changes"** button (branch `feature/dealer-rules-discard`)
+- [x] ~~**Lot Sherpa theming** (branch `styling-updates`)~~ — landed in the July 2026 theme-system work (branch gone)
+- [x] ~~**Dealer Rules "Discard Changes"** button (branch `feature/dealer-rules-discard`)~~ — landed (branch gone)
+
+*(As of October 1, 2026 nothing is "built, deploy pending" on the main app: PROD =
+`main`. The one live gap is the **Lot Scanner** — its PROD is at the September 11
+promote while `main` carries the September 22–23 photo-loss/Safe-to-close fixes;
+run `scripts/promote-lot-scan.ps1`.)*
 
 #### Remaining V2 Tasks
 **Core reliability (the current bug-hunt):**
@@ -175,9 +190,9 @@ V2 is the active bridge and near-term production system. The goal is full reliab
 - [ ] **Auffenberg Hybrid config** — `type_override: "used"` on the manual stream; wire through the modal + CSV builder
 
 **Housekeeping:**
-- [ ] Delete `VINLogMigration.gs` and `FolderSetup.gs` from Apps Script
+- [x] Delete `VINLogMigration.gs` and `FolderSetup.gs` from Apps Script — verified absent from every live project (October 1, 2026)
 - [ ] Fix `#ERROR!` cells in README tabs; update `_CONFIG_CACHE` header row
-- [ ] `git rm test-write-access.txt` and push
+- [x] `git rm test-write-access.txt` and push — done
 - [ ] Fix stale "Scraper #N/A" notes on the active Jefferson City dealers; consider consolidating `SCP_NEW` (now identical to `SCP`)
 - [x] Align the V2 doc status field to "near production" — done (Bridge doc)
 - [x] Resolve the `scraper_location_name` audit — done June 18 (BMW J6 was the only real drift; Serra/CDJR confirmed not drift)
@@ -193,7 +208,7 @@ Shrink the places bugs can hide. These harden V2 without changing behavior and a
 - [ ] **`IFERROR`-wrap ORDERMATCH formulas.** *(Precedent: DASHBOARD formulas are IFERROR-wrapped; the `PRICE_TAGLINE` formula is too.)* Wrap the QUERY spill + downstream ARRAYFORMULAs so one unmatched VIN yields blank/`*` rather than an `#N/A` cascading into BILLING `#VALUE!`. The structural fix for the BILLING error.
 - [ ] **Make `FIELD_TO_COL` self-describing.** Read the ORDERMATCH header row at runtime (cached, with the constant as fallback), so adding a field code stops needing a `Code.gs` edit and a template column shift can't silently break output.
 - [ ] **Resumable runs for the 6-minute ceiling.** Checkpoint large orders to ScriptProperties and continue via a time-driven trigger.
-- [ ] **Lightweight regression harness.** A `runQATest()` that runs a frozen scraper sample + a known multi-rule dealer through the full pipeline and diffs the CSV against a stored expected output; run before every `clasp push`. *(Partial precedent: the Pipedrive + install-cost work added focused backend unit tests — 15/15 and 11/11 — but there's no full-pipeline harness yet.)*
+- [ ] **Lightweight regression harness.** A `runQATest()` that runs a frozen scraper sample + a known multi-rule dealer through the full pipeline and diffs the CSV against a stored expected output. *(Partly done: `test/run-tests.js` — 141 Node tests over the pure engine functions, a `promote.ps1` gate since July 2026 — covers filtering/targeting, schema parsing, compare lists, manifest scopes, etc. What's still missing is the in-Apps-Script full-pipeline run against a frozen sample.)*
 - [ ] **Scheduled config audit.** Run `auditConfigPlaceholders()` on a daily trigger so a malformed `filtering_rules`/`type_rules` is caught before an order.
 - [x] **Extend the per-run cache** — done: `getMasterSS_()` / `getVinLogsSS_()` mirror `getConfigSS_()`; all scattered `openById(MASTER/VIN_LOGS)` sites routed through them (`getActiveSpreadsheet()` sites intentionally untouched).
 - [x] **Replace fixed post-formula sleeps** — done: `waitForRecalc_` (250ms early-exit polls) replaced the fixed ORDERMATCH/LINKBUILDER sleeps.
@@ -354,12 +369,10 @@ These (June 2026 review) motivate rebuilding V3 from V2 rather than extending Fl
 
 Update at the start of each phase and on any significant architectural decision. Keep current: phase completion status; V2 production/deploy status; technology decisions; open questions; new dealer requirements; Appendix A as divergences are found/resolved.
 
-### Branch & Merge Strategy (as of June 24, 2026)
+### Branch & Merge Strategy (as of October 1, 2026)
 
-- **`main` is the single deployed/integration branch.** Deploy flow: edit locally → commit/push to GitHub → `clasp push`. Rollback = `git checkout <last good commit>` + `clasp push`. **A git merge to `main` ≠ a deploy** — deploying is the separate `clasp push`.
-- **What's on `main` and deployed:** everything through v2.11 (Data Sources + Targeting Rules, tag `stable-post-targeting-rules`), plus the App SPA, the performance sweep, `source_split` (Frank Leta), and — **as of June 24 (v2.12)** — the full **Pipedrive integration** (`pipedrive-integration` + its stacked sub-branches `feature/pipedrive-finalize-flow`, `feature/pipedrive-install-cost`, `feature/pipedrive-followups`, `feature/pipedrive-billing-pdf`, and `feature/product-driven-schema`).
-- **Live, undeployed branches (built, no `clasp push` yet):**
-  - `styling-updates` — Lot Sherpa theming (+ two ready-to-push import-health fixes).
-  - `feature/dealer-rules-discard` — the Discard Changes button.
-- **Merge-conflict caution — `Code.gs` is one ~3,400-line file**, so any two branches that both touch it conflict on merge. (This was acute during the stacked Pipedrive sub-branches, now landed.) Prefer short-lived branches off the right base, land them in order, and avoid parallel long-lived branches that both edit `Code.gs`. (Doc-only branches like the one this plan is being edited on don't have that problem — these two planning docs are dormant on `main`, so they merge cleanly.)
-- The merged `feature/health-monitoring` branch still exists but is fully integrated.
+- **`main` is the single deployed/integration branch.** Flow: short-lived `feat/*` / `fix/*` branch → test on DEV (`clasp push` targets DEV via `.clasp.json`; Claude pushes + bumps the DEV deployment) → merge to `main` → Nick runs `scripts/promote.ps1` (gates: on main / clean / synced / harness green / typed `PROMOTE`; pushes PROD + bumps the versioned `/exec`). **A merge to `main` ≠ a deploy** — the promote is the deploy. Rollback = redeploy a prior version in the prod script's Manage Deployments. A third **EXPERIMENTAL** script (`scripts/push-exp.ps1`, any non-main branch) gives a long-running UI experiment its own URL without touching DEV. Full runbook: `docs/dev-environment.md`.
+- **Merged branches are deleted** after the promote (local + origin); the feature's record is its CHANGELOG entry + Bridge changelog row.
+- **Parked, unmerged branches on origin** (each awaits a decision, tracked in the brain `open-issues`): `exp/ui-playground` (Order Desk rebuild, phase 1 on EXP), `spike/desk-api` (desk spike, parked September 30 — tag `parked-desk-spike-2026-09-30`), `feat/url-liveness` (on hold September 9), `feature/vdp-batch-pilot` (dormant since July 7).
+- **Merge-conflict caution — `Code.gs` is one ~9,900-line file**, so two branches that both touch it conflict on merge. Prefer short-lived branches, land them in order, avoid parallel long-lived branches that both edit `Code.gs`.
+- `stable-*` tags from June/July 2026 are historical markers only.
