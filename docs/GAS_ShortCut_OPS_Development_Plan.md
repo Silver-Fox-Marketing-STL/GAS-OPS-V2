@@ -167,10 +167,10 @@ V2 is the active bridge and near-term production system. The goal is full reliab
 - [x] ~~**Lot Sherpa theming** (branch `styling-updates`)~~ — landed in the July 2026 theme-system work (branch gone)
 - [x] ~~**Dealer Rules "Discard Changes"** button (branch `feature/dealer-rules-discard`)~~ — landed (branch gone)
 
-*(As of October 1, 2026 nothing is "built, deploy pending" on the main app: PROD =
-`main`. The one live gap is the **Lot Scanner** — its PROD is at the September 11
-promote while `main` carries the September 22–23 photo-loss/Safe-to-close fixes;
-run `scripts/promote-lot-scan.ps1`.)*
+*(As of October 1, 2026 nothing is "built, deploy pending": PROD = `main` for the
+main app, and the **Lot Scanner** was promoted the same day (`/exec` @25, `promote
+lot-scan e447d8a`) — the September 22–23 photo-loss / Safe-to-close fixes are live
+for crews.)*
 
 #### Remaining V2 Tasks
 **Core reliability (the current bug-hunt):**
