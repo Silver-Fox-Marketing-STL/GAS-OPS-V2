@@ -135,6 +135,18 @@
       pick($('scDealerSelect'), F.D);
       await sleep(200);
     },
+    'compare': async function () {
+      await nav('view-compare'); await sleep(150);
+      pick($('clDealerSelect'), F.D);
+      var vins = Object.keys(F.INV);
+      // A by VIN, B partly by stock # — "In both" must match across the two forms
+      $('clListA').value = vins.slice(0, 7).join('\n');
+      $('clListB').value = [F.INV[vins[1]].stock, F.INV[vins[4]].stock].concat(vins.slice(5, 10)).concat(['1HGCV1F34LA000000']).join('\n');
+      $('clListA').dispatchEvent(new Event('input'));
+      $('clListB').dispatchEvent(new Event('input'));
+      $('clRunBtn').click();
+      await sleep(300);
+    },
     // Dealer inspector — not a routed view; it fills the shell's #inspector
     // column beside whatever order is open (increment 5).
     'order-inspector': async function () {

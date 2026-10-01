@@ -116,7 +116,31 @@
       return { vinData: INV, featuresTypes: { CPO: true }, editCodes: { New: [{ code: 'MODELTRIM', max: 22 }] }, editSeeds: seeds,
                filtered: { '1GCUYDED5MZ778899': 'status', 'JTDKARFU8L3990011': 'no URL' } };
     },
-    getLoggedIdentifiers: function (key) { return { identifiers: key === D ? ['2T1BURHE0JC034567', 'P9950'] : [] }; },
+    getLoggedIdentifiers: function (key) {
+      return key === D
+        ? { identifiers: ['2T1BURHE0JC034567', 'P9950'],
+            history: { '2T1BURHE0JC034567': [{ order: '44811', date: '2026-09-19' }, { order: '44760', date: '2026-09-12' }],
+                       'P9950': [{ order: '44760', date: '2026-09-12' }] } }
+        : { identifiers: [], history: {} };
+    },
+    // Compare Lists — same resolution rule as resolveCompareIds_ (VIN first, then
+    // stock); ids with nothing found are absent from both maps.
+    getCompareListData: function (key, ids) {
+      var vehicles = {}, history = {};
+      var logged = { '2T1BURHE0JC034567': [{ dealer: '', order: '44811', date: '2026-09-19' }, { dealer: '', order: '44760', date: '2026-09-12' }],
+                     '1FMCU9GD4LUA44556': [{ dealer: '', order: '44760', date: '2026-09-12' }] };
+      (ids || []).forEach(function (raw) {
+        var id = String(raw).toUpperCase();
+        var vin = INV[id] ? id : Object.keys(INV).filter(function (v) { return INV[v].stock.toUpperCase() === id; })[0];
+        if (!vin) return;
+        var d = INV[vin];
+        vehicles[id] = { vin: vin, stock: d.stock, type: d.type, year: d.year, make: d.make, model: d.model, status: d.status, url: d.url, dealer: '' };
+        if (logged[vin]) history[id] = logged[vin];
+      });
+      var names = {};
+      DEALERS.forEach(function (x) { names[x.key] = x.name; });
+      return { vehicles: vehicles, history: history, dealerNames: names };
+    },
     getLatestOrderId: function (key) { return { latestOrderId: key === D ? '44872' : '44860', pendingCount: key === D ? 1 : 0 }; },
     getMyRunDrafts: { ok: true, drafts: [
       { dealerKey: 'PAPPAS_TOYOTA', dealerName: 'Pappas Toyota', vinCount: 6, featCount: 0, updatedAt: NOW - 25 * 60000,
