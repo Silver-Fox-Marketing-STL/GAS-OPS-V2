@@ -11,6 +11,66 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Changed
+- **Pipedrive integration moved off the out-of-support API v1 endpoints** (branch
+  `feat/pipedrive-api-v2`, October 9, 2026). Pipedrive's changelog post
+  "Deprecated API v1 endpoints become out of support" (effective **August 1, 2026**,
+  no further migration period guaranteed) covers every v1 deals / organizations /
+  persons / products / pipelines / stages / search endpoint. This system used
+  fourteen of them. All now hit `/api/v2`:
+  - **Fetch layer.** `pdFetch_` defaults to the **v2** base; `version:'v1'` is passed
+    explicitly only for the endpoints that have no v2 twin and are NOT on the
+    deprecation list — `/dealFields`, `/productFields`, `/organizationFields`
+    (`pdListAllV1_`), `/users`, `/users/me`, and `/files` (billing CSV attach).
+    New helpers `pdListByIdsV2_` (batched `?ids=` lookups, 100 per call) and
+    `pdRelId_` (a relation id from either API shape).
+  - **Deal push.** `POST /deals` (create), `GET /deals/{id}` (link check +
+    if_empty read), **`PATCH /deals/{id}`** (was PUT), `GET/POST /deals/{id}/products`,
+    **`PATCH /deals/{id}/products/{attachmentId}`** (was PUT). Custom deal fields
+    now travel **under `custom_fields`** in v2 value shapes — `pdSetDealField_`
+    writes monetary as `{value, currency}` (the v1 `<key>_currency` companion is
+    gone), enum as the option id, **set as an array of ids** (a single stored id
+    is widened); `pdDealPatchBody_` files 40-char hash keys under `custom_fields`
+    and leaves standard keys top-level; `pdFlattenDealFields_` merges a v2 deal's
+    `custom_fields` into one flat map for the if_empty read and returns **null when
+    the object is missing** so the fail-safe (unreadable → never clobber) still
+    holds. Copy rules read v2 org values (set = array → mapped per element via
+    `option_map`, unmapped ids dropped).
+  - **Catalog / orgs.** `pdListProducts_` is v2 for both branches (the unscoped
+    branch was v1; `is_linkable` is now the only inactive flag). `/organizations`
+    list and `/organizations/search` are v2 (same `items[].item` shape).
+  - **End of Month.** `eomListDeals_` → v2 `/deals` with a **server-side
+    `pipeline_id` filter** (full billing) and **no `status`** for the stage scope
+    (v2 has no `all_not_deleted`; omitting status means exactly that); the
+    Duplicates field is requested explicitly via `custom_fields=`
+    (`eomDealsListPath_`). Deal products come from v2 (`pdEomFetchProductsForDeals_`),
+    which **no longer embeds the catalog `product`** (`include_product_data` is
+    gone) and returns relation fields as **plain ids** — so a new
+    `eomBuildContext_` resolves, once per report in batched reads, org + person
+    names (v2 `?ids=`), owner names (v1 `/users`), product code/description/tax
+    (v2 `/products?ids=`) and variation names (only for products that appear with a
+    variation); `eomBuildRows_(deal, products, ctx)` consumes it and still tolerates
+    the old v1 shapes (archived re-generation safety net). `product_last_edited`
+    reads `update_time` (v2) with a `last_edit` fallback; deal/product timestamps
+    are now RFC 3339 (the renderer's `substring(0,10)` date still works). Stage list
+    + pipeline/stage name lookups are v2. Both the live pull and the generator share
+    `eomFetchProductsAndContext_`.
+  - **Home HUD.** `getEomOrgCountsCached_` reads the plain v2 `org_id` (cache key
+    bumped to `eom_org_counts_v2` so a cached v1-shaped map is never read) — this
+    also closes the open "eomOrders org_id shape" live check.
+  - **DEV fake (`PdFake.gs`).** Fixtures are v2-shaped: plain relation ids,
+    `custom_fields` object (PATCH merges it), RFC 3339 times, `?ids=` filters on
+    `/organizations` `/persons` `/products`, a v1 `/users` route, deal-product rows
+    without an embedded `product` (name snapshot + `update_time`).
+  - **Standalone `eom-viewer/`** (separate Apps Script project — needs its own
+    `clasp push` from inside `eom-viewer/` + a new deployment version): mirrored
+    migration — `cvListAllV2_` / `cvListByIdsV2_` / `cvBuildContext_`, v2 deals
+    list + stage echo + deal products, `cvBuildRows_(deal, products, ctx)`.
+  - **Harness.** New suite `pipedrive api v2` (10 tests) pins the v2 write shapes,
+    the if_empty read of a v2 deal, the deals-list paths, the EOM row builder with
+    a context (v2 and legacy shapes), and the fake's v2 fixtures.
+  - **Not verifiable in DEV** (the fake never hits the API): a live PROD push
+    (New Deal + Existing) and one EOM "Current" pull are the acceptance test —
+    see the Bridge doc's "API v2 migration" note for the exact checklist.
 - **Docs-only housekeeping after the October 1, 2026 project audit** (branch
   `chore/cleanup-2026-10`; no Apps Script source touched). Release `[1.1]` cut
   below. Removed the stale `HANDOFF.md` (July crew-handbooks handoff, long merged),

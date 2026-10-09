@@ -6621,6 +6621,7 @@ function setupPipedriveSecrets(token, domain, pipelineId, stageId, currency) {
   if (!token)  return { ok: false, message: 'API token is required.' };
   if (!domain) return { ok: false, message: 'Company domain is required (e.g. "acme" from acme.pipedrive.com).' };
 
+  // /users/me is v1-only (no v2 twin; not on the Aug 2026 out-of-support list).
   var url = 'https://' + domain + '.pipedrive.com/api/v1/users/me?api_token=' + encodeURIComponent(token);
   var resp;
   try { resp = UrlFetchApp.fetch(url, { method: 'get', muteHttpExceptions: true }); }
@@ -6658,17 +6659,23 @@ function getPipedriveStatus() {
 
 /**
  * Core Pipedrive request. Returns {ok,status,data,error,additional,raw}.
- * @param {string} method  'get'|'post'|'put'|'delete'
+ * @param {string} method  'get'|'post'|'patch'|'put'|'delete'
  * @param {string} path    e.g. '/deals' or '/organizations/5?custom_fields=ab'
  * @param {Object} payload optional JSON body
- * @param {Object} opts    optional { version:'v2' }
+ * @param {Object} opts    optional { version:'v1' } — the base is **v2 by default**
+ *                         (Oct 2026 migration: every v1 deals/organizations/products/
+ *                         pipelines/stages/search endpoint went out of support
+ *                         2026-08-01). Pass version:'v1' ONLY for the endpoints that
+ *                         have no v2 twin and are NOT on the deprecation list:
+ *                         /dealFields /productFields /organizationFields, /users,
+ *                         /files. v1 updates are PUT; v2 updates are PATCH.
  */
 function pdFetch_(method, path, payload, opts) {
   if (ENV.name !== 'prod') return pdFakeFetch_(method, path, payload, opts);   // DEV: in-process fake, zero API traffic (PdFake.gs)
   var s = pdGetSecrets_();
   if (!s) return { ok: false, status: 0, data: null, error: 'Pipedrive is not configured.' };
   opts = opts || {};
-  var base = (opts.version === 'v2') ? s.baseV2 : s.baseV1;
+  var base = (opts.version === 'v1') ? s.baseV1 : s.baseV2;
   var sep  = (path.indexOf('?') === -1) ? '?' : '&';
   var url  = base + path + sep + 'api_token=' + encodeURIComponent(s.token);
 
@@ -6705,12 +6712,18 @@ function pdFetch_(method, path, payload, opts) {
   return { ok: false, status: 429, data: null, error: 'Pipedrive rate limit — try again shortly.' };
 }
 
-/** GET a v1 collection, following pagination. Returns the concatenated array. */
+/**
+ * GET a v1 collection, following start/limit pagination. Returns the concatenated
+ * array. v1 is now ONLY for the field-definition lists (/dealFields,
+ * /productFields, /organizationFields) and /users — none of which have a v2 twin
+ * or appear on the Aug 2026 deprecation list. Every entity list goes through
+ * pdListAllV2_.
+ */
 function pdListAllV1_(path) {
   var out = [], start = 0, limit = 500, guard = 0;
   while (guard++ < 40) {
     var sep = (path.indexOf('?') === -1) ? '?' : '&';
-    var r = pdFetch_('get', path + sep + 'start=' + start + '&limit=' + limit);
+    var r = pdFetch_('get', path + sep + 'start=' + start + '&limit=' + limit, null, { version: 'v1' });
     if (!r.ok) break;
     if (r.data && r.data.length) out = out.concat(r.data);
     var pg = r.additional && r.additional.pagination;
@@ -6725,13 +6738,40 @@ function pdListAllV2_(path) {
   var out = [], cursor = '', guard = 0;
   do {
     var sep = (path.indexOf('?') === -1) ? '?' : '&';
-    var r = pdFetch_('get', path + sep + 'limit=500' + (cursor ? '&cursor=' + encodeURIComponent(cursor) : ''),
-                     null, { version: 'v2' });
+    var r = pdFetch_('get', path + sep + 'limit=500' + (cursor ? '&cursor=' + encodeURIComponent(cursor) : ''));
     if (!r.ok) break;
     if (r.data && r.data.length) out = out.concat(r.data);
     cursor = (r.additional && r.additional.next_cursor) ? r.additional.next_cursor : '';
   } while (cursor && guard++ < 40);
   return out;
+}
+
+/**
+ * GET v2 entities BY ID in batches (`?ids=` takes up to 100 per call). Returns
+ * {id: entity}. Best-effort: a failed batch just leaves its ids unresolved.
+ * Used by the EOM report to resolve the names v2 no longer embeds on a deal.
+ */
+function pdListByIdsV2_(path, ids, extraQuery) {
+  var out = {}, uniq = {}, list = [];
+  (ids || []).forEach(function(id) {
+    var n = Number(id);
+    if (!n || isNaN(n) || uniq[n]) return;
+    uniq[n] = true; list.push(n);
+  });
+  for (var i = 0; i < list.length; i += 100) {
+    var batch = list.slice(i, i + 100);
+    var sep = (path.indexOf('?') === -1) ? '?' : '&';
+    var items = pdListAllV2_(path + sep + 'ids=' + batch.join(',') + (extraQuery ? '&' + extraQuery : ''));
+    items.forEach(function(it) { if (it && it.id !== undefined) out[String(it.id)] = it; });
+  }
+  return out;
+}
+
+/** A relation id from either API shape: v2 plain id, or v1 `{value}`/`{id}` object. 0 if none. */
+function pdRelId_(v) {
+  if (v && typeof v === 'object') v = (v.value !== undefined) ? v.value : v.id;
+  var n = Number(v);
+  return (v === undefined || v === null || v === '' || isNaN(n)) ? 0 : n;
 }
 
 // ── Read endpoints (config UI) ─────────────────────────────────────────────
@@ -6740,23 +6780,19 @@ function pdListProducts_() {
   // Scope key = the product's Organization-type custom field ("Customer"), either
   // explicitly chosen or AUTO-DETECTED. When set, surface each product's linked
   // org id (customerOrgId) so the per-dealer picker can scope to that dealer's org.
+  // Always v2 (v1 /products went out of support Aug 2026). With a scope field,
+  // `?custom_fields=<key>` returns the value under custom_fields[<key>]; for an
+  // Organization field that value is the org id.
   var orgFieldKey = getEffectiveProductOrgField_();
-  if (!orgFieldKey) {
-    return pdListAllV1_('/products').map(function(p) {
-      return { id: p.id, name: p.name, code: p.code || '', prices: p.prices || [],
-               tax: Number(p.tax) || 0,
-               inactive: (p.selectable === false || p.active_flag === false) };
-    });
-  }
-  // Fetch via v2 with custom_fields — v2 reliably returns the custom-field value
-  // (under custom_fields[<key>]); for an Organization field that value is the org id.
-  return pdListAllV2_('/products?custom_fields=' + encodeURIComponent(orgFieldKey)).map(function(p) {
+  var path = '/products' + (orgFieldKey ? '?custom_fields=' + encodeURIComponent(orgFieldKey) : '');
+  return pdListAllV2_(path).map(function(p) {
     var out = { id: p.id, name: p.name, code: p.code || '', prices: p.prices || [],
                 tax: Number(p.tax) || 0,
                 inactive: (p.is_linkable === false) };  // v2: not linkable to deals = deactivated
-    var cf = p.custom_fields || {};
-    var cid = pdExtractOrgId_(cf[orgFieldKey]);
-    if (cid) out.customerOrgId = cid;
+    if (orgFieldKey) {
+      var cid = pdExtractOrgId_((p.custom_fields || {})[orgFieldKey]);
+      if (cid) out.customerOrgId = cid;
+    }
     return out;
   });
 }
@@ -6770,6 +6806,10 @@ function pdExtractOrgId_(raw) {
   var v = (typeof raw === 'object') ? (raw.value !== undefined ? raw.value : raw.id) : raw;
   return (v === undefined || v === null || v === '') ? '' : String(v);
 }
+
+// Field-DEFINITION lists stay on v1: /productFields, /dealFields and
+// /organizationFields have no v2 equivalent and are NOT on the Aug 2026
+// out-of-support list (pdListAllV1_ pins version:'v1').
 
 /** Product custom-field definitions, for the "product → org" field picker. */
 function pdListProductFields_() {
@@ -6790,7 +6830,8 @@ function pdListOrganizationFields_() {
   });
 }
 
-/** Client-callable org search for the config picker. Returns [{id,name}]. */
+/** Client-callable org search for the config picker. Returns [{id,name}].
+ *  v2 GET /organizations/search — same `data.items[].item.{id,name}` shape as v1. */
 function searchPipedriveOrganizations(term) {
   term = String(term || '').trim();
   if (term.length < 2) return [];
@@ -6804,7 +6845,7 @@ function pdGetOrgWithCustomFields_(orgId, fieldKeys) {
   if (!orgId) return null;
   var path = '/organizations/' + orgId;
   if (fieldKeys && fieldKeys.length) path += '?custom_fields=' + fieldKeys.join(',');
-  var r = pdFetch_('get', path, null, { version: 'v2' });
+  var r = pdFetch_('get', path);
   if (!r.ok || !r.data) return null;
   return { id: r.data.id, name: r.data.name, custom_fields: r.data.custom_fields || {} };
 }
@@ -6977,9 +7018,9 @@ function savePipedriveDealerConfig(dealerKey, rows) {
 
 // ── Bulk dealer → organization linking (one-time setup helper) ─────────────
 
-/** All Pipedrive organizations (id + name), for name-matching against dealers. */
+/** All Pipedrive organizations (id + name), for name-matching against dealers. v2 list. */
 function pdListAllOrganizations_() {
-  return pdListAllV1_('/organizations').map(function(o) { return { id: o.id, name: o.name }; });
+  return pdListAllV2_('/organizations').map(function(o) { return { id: o.id, name: o.name }; });
 }
 
 /** Normalizes a name for fuzzy matching: lowercase, strip punctuation + filler words. */
@@ -7556,7 +7597,7 @@ function pdListProductVariations_(productId) {
   do {
     var path = '/products/' + productId + '/variations?limit=500' +
                (cursor ? '&cursor=' + encodeURIComponent(cursor) : '');
-    var r = pdFetch_('get', path, null, { version: 'v2' });
+    var r = pdFetch_('get', path);
     if (!r.ok) break;
     if (r.data && r.data.length) out = out.concat(r.data);
     cursor = (r.additional && r.additional.next_cursor) ? r.additional.next_cursor : '';
@@ -7668,27 +7709,69 @@ function mergeLineItems_(items) {
 }
 
 // ── Deal push (P2) — create/link, attach products, set fields ───────────────
+// All deal endpoints are v2 (Oct 2026 migration; v1 deals went out of support
+// 2026-08-01). v2 shape rules that matter here: relation fields (org_id,
+// person_id, owner_id) are plain ids; custom fields live under
+// `custom_fields` on read AND write (pdDealPatchBody_); updates are PATCH.
 
+/** POST /api/v2/deals — {title, org_id, pipeline_id, stage_id, currency}. Returns {ok, dealId}. */
 function pdCreateDeal_(params) {
   var r = pdFetch_('post', '/deals', params);
   if (!r.ok || !r.data || !r.data.id) return { ok: false, error: r.error || 'Deal creation failed.' };
   return { ok: true, dealId: r.data.id };
 }
 
+/** GET /api/v2/deals/{id} — custom fields arrive under deal.custom_fields. */
 function pdGetDeal_(dealId) {
   var r = pdFetch_('get', '/deals/' + dealId);
   if (!r.ok || !r.data) return { ok: false, error: r.error || ('Deal ' + dealId + ' not found.') };
   return { ok: true, deal: r.data };
 }
 
-function pdUpdateDeal_(dealId, fields) {
-  var r = pdFetch_('put', '/deals/' + dealId, fields);
+/**
+ * A linked deal's current field values as ONE flat map (standard keys + the
+ * 40-char custom keys), so if_empty rules read `fields[rule.deal_field]`
+ * regardless of where v2 files the field. Returns null when the deal has no
+ * readable `custom_fields` object — the callers treat null as "unreadable →
+ * never clobber" (the if_empty fail-safe), which is the right direction when
+ * the API shape is not what we expect.
+ */
+function pdFlattenDealFields_(deal) {
+  if (!deal || typeof deal !== 'object') return null;
+  if (!deal.custom_fields || typeof deal.custom_fields !== 'object') return null;
+  var flat = {};
+  Object.keys(deal).forEach(function(k) { if (k !== 'custom_fields') flat[k] = deal[k]; });
+  Object.keys(deal.custom_fields).forEach(function(k) { flat[k] = deal.custom_fields[k]; });
+  return flat;
+}
+
+/**
+ * Splits a flat {field: value} map into the v2 PATCH body: 40-char hash keys go
+ * under `custom_fields`, anything else (title, value, stage_id…) stays top-level.
+ * Values must already be v2-shaped (pdSetDealField_): monetary {value,currency},
+ * enum = option id, set = [option ids], text/date = string.
+ */
+function pdDealPatchBody_(fieldMap) {
+  var body = {}, custom = {}, n = 0;
+  Object.keys(fieldMap || {}).forEach(function(k) {
+    if (/^[0-9a-f]{40}$/i.test(k)) { custom[k] = fieldMap[k]; n++; }
+    else body[k] = fieldMap[k];
+  });
+  if (n) body.custom_fields = custom;
+  return body;
+}
+
+/** PATCH /api/v2/deals/{id}. `body` is a ready v2 body (see pdDealPatchBody_). */
+function pdUpdateDeal_(dealId, body) {
+  var r = pdFetch_('patch', '/deals/' + dealId, body);
   if (!r.ok) return { ok: false, error: r.error || 'Deal update failed.' };
   return { ok: true };
 }
 
+/** GET /api/v2/deals/{id}/products — rows carry `id` (attachment), product_id,
+ *  product_variation_id, item_price, quantity, tax, name. One page covers any deal. */
 function pdListDealProducts_(dealId) {
-  var r = pdFetch_('get', '/deals/' + dealId + '/products');
+  var r = pdFetch_('get', '/deals/' + dealId + '/products?limit=500');
   if (!r.ok || !r.data) return [];
   return r.data;
 }
@@ -7722,9 +7805,12 @@ function pdAttachProducts_(dealId, lineItems) {
 // ── Install cost: an extra Install line item + the Design no-charge variation ──
 // Generic, config-driven (PIPEDRIVE_SETTINGS `install_cost_config`); inert until set.
 
-/** Updates one existing deal line item. PUT /deals/{id}/products/{attachmentId}. */
+/** Updates one existing deal line item. PATCH /api/v2/deals/{id}/products/{attachmentId}
+ *  (`product_variation_id` is nullable in v2 — null clears the variation; undefined keys are dropped). */
 function pdUpdateDealProduct_(dealId, attachmentId, body) {
-  var r = pdFetch_('put', '/deals/' + dealId + '/products/' + attachmentId, body);
+  var clean = {};
+  Object.keys(body || {}).forEach(function(k) { if (body[k] !== undefined) clean[k] = body[k]; });
+  var r = pdFetch_('patch', '/deals/' + dealId + '/products/' + attachmentId, clean);
   if (!r.ok) return { ok: false, error: r.error || 'Line-item update failed.' };
   return { ok: true };
 }
@@ -7908,20 +7994,34 @@ function pdOptionId_(v) {
   return isNaN(n) ? v : n;
 }
 
+// Writes v2 value shapes (Oct 2026 migration — v1 wrote a flat `<key>` +
+// `<key>_currency` pair): monetary → {value, currency}; enum → option id;
+// set → [option ids] (a UI-stored single id or "1,2" string is widened to an
+// array); text/date/number → as-is.
 function pdSetDealField_(out, dealField, type, value, currency) {
   if (!dealField || value === undefined || value === null || value === '') return;
   if (type === 'monetary') {
+    var amt, cur;
     if (typeof value === 'object') {
       if (value.value === undefined || value.value === null || value.value === '') return;
-      out[dealField] = pdOptionId_(value.value);
-      out[dealField + '_currency'] = value.currency || currency || 'USD';
+      amt = pdOptionId_(value.value); cur = value.currency || currency || 'USD';
     } else {
-      out[dealField] = pdOptionId_(value);
-      out[dealField + '_currency'] = currency || 'USD';
+      amt = pdOptionId_(value); cur = currency || 'USD';
     }
+    out[dealField] = { value: amt, currency: cur };
+  } else if (type === 'set') {
+    var list = Array.isArray(value) ? value
+             : (typeof value === 'string' && value.indexOf(',') !== -1) ? value.split(',') : [value];
+    var ids = [];
+    list.forEach(function(v) {
+      if (v && typeof v === 'object') v = (v.id !== undefined) ? v.id : v.value;
+      if (v === undefined || v === null || String(v).trim() === '') return;
+      ids.push(pdOptionId_(String(v).trim()));
+    });
+    if (ids.length) out[dealField] = ids;
   } else {
     var v = (typeof value === 'object' && value.id !== undefined) ? value.id : value;
-    if (type === 'enum' || type === 'set') v = pdOptionId_(v);   // option ids must be integers
+    if (type === 'enum') v = pdOptionId_(v);   // option ids must be integers
     out[dealField] = v;
   }
 }
@@ -7947,9 +8047,10 @@ function pdCollectOrgKeys_(rules) {
 /**
  * Resolves the effective deal-field map for one push: global rules with
  * per-(dealer,group) overrides applied, evaluated against the org's fields.
- * Returns a flat {dealFieldKey: value} map (v1 top-level shape, incl. monetary
- * `_currency`). Pure given its inputs — the caller passes the global rules and
- * the override object so it stays unit-testable.
+ * Returns a flat {dealFieldKey: value} map with v2-shaped values (monetary
+ * {value,currency}, enum id, set [ids]) — pdDealPatchBody_ files the 40-char keys
+ * under custom_fields for the PATCH. Pure given its inputs — the caller passes the
+ * global rules and the override object so it stays unit-testable.
  *
  * @param {string} orgId
  * @param {Array}  globalRules  getPipedriveGlobalRules_()
@@ -8032,20 +8133,26 @@ function pdResolveDealFields_(orgId, globalRules, overrides, currency, isNewDeal
       pdSetDealField_(out, rule.deal_field, rule.type, picked, currency);
     } else {   // copy (default)
       if (!rule.org_field) return;
+      // v2 org custom-field value shapes: enum = option id, set = [option ids],
+      // monetary = {value, currency}, text/date = string, address = {value,…}.
+      // Older {id}/{value} object forms are still tolerated.
       var raw = cf[rule.org_field];
       if (raw === undefined || raw === null || raw === '') return;
-      var id = (raw && raw.id !== undefined) ? raw.id : raw;
-      if ((rule.type === 'enum' || rule.type === 'set') && rule.option_map) {
-        var mapped = rule.option_map[String(id)];
-        if (mapped !== undefined) out[rule.deal_field] = pdOptionId_(mapped);   // option id → integer
-      } else if (rule.type === 'enum' || rule.type === 'set') {
-        out[rule.deal_field] = pdOptionId_(id);                                  // option id → integer
+      if (rule.type === 'enum' || rule.type === 'set') {
+        var ids = Array.isArray(raw) ? raw.slice()
+                : [ (raw && typeof raw === 'object') ? ((raw.id !== undefined) ? raw.id : raw.value) : raw ];
+        if (rule.option_map) {                       // org option id → deal option id; unmapped ids drop
+          ids = ids.map(function(id) { var m = rule.option_map[String(id)]; return (m === undefined) ? null : m; })
+                   .filter(function(m) { return m !== null && m !== undefined && m !== ''; });
+        }
+        if (!ids.length) return;
+        pdSetDealField_(out, rule.deal_field, rule.type, (rule.type === 'set') ? ids : ids[0], currency);
       } else if (rule.type === 'monetary') {
-        out[rule.deal_field] = pdOptionId_((raw && raw.value !== undefined) ? raw.value : raw);
-        out[rule.deal_field + '_currency'] = (raw && raw.currency) ? raw.currency : (currency || 'USD');
+        pdSetDealField_(out, rule.deal_field, 'monetary', raw, currency);   // {value,currency} or a bare amount
       } else {
-        out[rule.deal_field] = (raw && raw.value !== undefined) ? raw.value
-                              : ((raw && raw.id !== undefined) ? raw.id : raw);   // text/varchar: leave as-is
+        var v = (raw && typeof raw === 'object') ? ((raw.value !== undefined) ? raw.value : raw.id) : raw;
+        if (v === undefined || v === null || v === '') return;
+        out[rule.deal_field] = v;                                            // text/varchar/date: leave as-is
       }
     }
   });
@@ -8305,24 +8412,25 @@ function pdApplyDealContents_(dealId, lineItems, pdCfg, currency, state, persist
     state.productsDone = true;
     persist(state);
   }
-  // v1 deals API takes custom fields as TOP-LEVEL keys (40-char hashes), not nested
-  // under a custom_fields object (v2). pdResolveDealFields_ returns a flat {key:value}
-  // map (incl. the `<key>_currency` companion for monetary fields) — pass it directly.
+  // pdResolveDealFields_ returns a flat {fieldKey: v2-shaped value} map;
+  // pdDealPatchBody_ files the 40-char custom keys under `custom_fields` for the
+  // v2 PATCH (v1 took them top-level with a `<key>_currency` companion — gone).
   var fieldsSet = 0;
   if (!state.fieldsDone) {
     var rules = getPipedriveGlobalRules_();
     // For a LINK (existing deal) with a constant if_empty rule, read the deal's current
     // fields once so an already-set value (e.g. a required Proof) is never overwritten.
-    // New deals are treated as empty (no read). Fetch failure → null → if_empty rules skip.
+    // New deals are treated as empty (no read). Fetch failure OR an unexpected shape
+    // (no custom_fields object) → null → if_empty rules skip, never clobber.
     var existingDealFields = null;
     if (!isNewDeal && pdHasIfEmptyConstant_(rules, pdCfg.fieldOverrides)) {
       var dg = pdGetDeal_(dealId);
-      existingDealFields = dg.ok ? dg.deal : null;
+      existingDealFields = dg.ok ? pdFlattenDealFields_(dg.deal) : null;
     }
     var custom = pdResolveDealFields_(pdCfg.orgId, rules, pdCfg.fieldOverrides, currency, !!isNewDeal, existingDealFields);
     var ckeys = Object.keys(custom);
     if (ckeys.length) {
-      var upd = pdUpdateDeal_(dealId, custom);
+      var upd = pdUpdateDeal_(dealId, pdDealPatchBody_(custom));
       if (!upd.ok) {
         return { ok: false, stage: 'fields', dealId: dealId, retryable: true,
                  message: 'Deal ' + dealId + ' built, but setting deal fields failed: ' + upd.error + ' — retry to finish.' };
@@ -8571,10 +8679,11 @@ function csvExportFileName_(outputDocName, tabName) {
   return outputDocName + ' - ' + tabName + '.csv';
 }
 
-/** True if a file with this exact name is already attached to the deal. Best-effort (false on error). */
+/** True if a file with this exact name is already attached to the deal. Best-effort (false on error).
+ *  /files is v1-only (no v2 twin; not on the Aug 2026 out-of-support list). */
 function pdDealHasBillingFile_(dealId, filename) {
   try {
-    var res = pdFetch_('get', '/files?deal_id=' + encodeURIComponent(dealId));
+    var res = pdFetch_('get', '/files?deal_id=' + encodeURIComponent(dealId), null, { version: 'v1' });
     if (!res.ok || !res.data || !res.data.length) return false;
     for (var i = 0; i < res.data.length; i++) {
       var n = String(res.data[i].name || res.data[i].clean_name || '');
@@ -9195,28 +9304,38 @@ function eomGetReportsFolder_() {
 
 // ── Pipedrive reads (reuse Section 31) ──────────────────────────────────────
 
-/** Stages of a pipeline, sorted by order — powers the run-screen stage picker. */
+/** Stages of a pipeline, sorted by order — powers the run-screen stage picker. v2 list. */
 function pdEomListStages_(pipelineId) {
-  var r = pdFetch_('get', '/stages?pipeline_id=' + encodeURIComponent(pipelineId));
-  if (!r.ok || !r.data) return [];
-  return r.data.map(function (s) { return { id: s.id, name: s.name, order_nr: s.order_nr || 0 }; })
+  return pdListAllV2_('/stages?pipeline_id=' + encodeURIComponent(pipelineId))
+    .map(function (s) { return { id: s.id, name: s.name, order_nr: s.order_nr || 0 }; })
     .sort(function (a, b) { return a.order_nr - b.order_nr; });
 }
 
-/** Deals for a scope. 'full_billing' = all open deals in the configured pipeline;
- * otherwise all not-deleted deals in the given stage (defaults to the EOM stage). */
-function eomListDeals_(scope, stageId) {
-  if (scope === 'full_billing') {
-    var pid = eomGetPipelineId_();
-    return pdListAllV1_('/deals?status=open').filter(function (d) { return d.pipeline_id === pid; });
-  }
+/**
+ * The v2 /deals list path for a scope. 'full_billing' = open deals in the configured
+ * pipeline (server-side `pipeline_id` filter — v1 filtered client-side); otherwise
+ * every not-deleted deal in the stage — v2 has no `all_not_deleted`; OMITTING
+ * `status` means exactly that. `dupKey` (the Duplicates custom field) is requested
+ * explicitly via `custom_fields=` so the rows carry it under deal.custom_fields.
+ */
+function eomDealsListPath_(scope, stageId, dupKey) {
+  var cf = dupKey ? '&custom_fields=' + encodeURIComponent(dupKey) : '';
+  if (scope === 'full_billing') return '/deals?status=open&pipeline_id=' + eomGetPipelineId_() + cf;
   var sid = parseInt(stageId, 10);
   if (isNaN(sid)) sid = eomGetDefaultStageId_();
-  return pdListAllV1_('/deals?stage_id=' + sid + '&status=all_not_deleted');
+  return '/deals?stage_id=' + sid + cf;
+}
+
+/** Deals for a scope (v2 shape: org_id/person_id/owner_id are plain ids, custom
+ * fields under custom_fields, RFC 3339 times). */
+function eomListDeals_(scope, stageId) {
+  return pdListAllV2_(eomDealsListPath_(scope, stageId, eomDuplicatesFieldKey_()));
 }
 
 /** Products for many deals in ONE parallel batch. Returns {dealId:[dealProduct,…]}.
- * Never throws — a failed deal yields an empty product list. */
+ * v2 rows carry name/price/qty/tax/variation id but NO embedded `product`
+ * (v1's include_product_data is gone) — eomBuildContext_ resolves the catalog
+ * side. Never throws — a failed deal yields an empty product list. */
 function pdEomFetchProductsForDeals_(dealIds) {
   if (ENV.name !== 'prod') return pdFakeEomProducts_(dealIds);   // DEV: in-process fake, zero API traffic (PdFake.gs)
   var out = {};
@@ -9224,7 +9343,7 @@ function pdEomFetchProductsForDeals_(dealIds) {
   if (!s) { dealIds.forEach(function (id) { out[id] = []; }); return out; }
   var requests = dealIds.map(function (id) {
     return {
-      url: s.baseV1 + '/deals/' + id + '/products?include_product_data=1&api_token=' + encodeURIComponent(s.token),
+      url: s.baseV2 + '/deals/' + id + '/products?limit=500&api_token=' + encodeURIComponent(s.token),
       muteHttpExceptions: true
     };
   });
@@ -9289,7 +9408,13 @@ function eomCleanHtml_(raw) {
 }
 
 function eomIsObj_(x) { return x !== null && typeof x === 'object'; }
-function eomResolveName_(obj) { return eomIsObj_(obj) ? (obj.name || '') : ''; }
+/** A relation's display name from either API shape: v1 `{name,value}` object, or a
+ *  v2 plain id looked up in `names` ({id: name}). '' when unknown. */
+function eomRelName_(rel, names) {
+  if (eomIsObj_(rel) && rel.name) return rel.name;
+  var id = pdRelId_(rel);
+  return (id && names && names[String(id)]) ? names[String(id)] : '';
+}
 function eomVariationName_(product, variationId) {
   if (!variationId || !product) return '';
   var vars = product.product_variations || [];
@@ -9297,20 +9422,74 @@ function eomVariationName_(product, variationId) {
   return '';
 }
 
+/**
+ * Everything eomBuildRows_ needs that a v2 deal / deal-product no longer embeds,
+ * resolved in a handful of batched reads (never per-row):
+ *   orgNames / personNames  — v2 `/organizations?ids=` and `/persons?ids=` (100 per call)
+ *   userNames               — v1 `/users` (deal owners; users have no v2 endpoint)
+ *   catalog                 — v2 `/products?ids=` → {id: {code, description, tax}}
+ *   variations              — v2 `/products/{id}/variations`, only for products that
+ *                             actually appear with a variation on some line → {id: name}
+ *   dupKey                  — the Duplicates deal-field key
+ * Every lookup is best-effort: a failed read leaves names blank, never throws.
+ */
+function eomBuildContext_(deals, productsByDeal) {
+  var ctx = { dupKey: eomDuplicatesFieldKey_(), orgNames: {}, personNames: {}, userNames: {}, catalog: {}, variations: {} };
+  var orgIds = [], personIds = [], productIds = {}, variedProducts = {};
+  (deals || []).forEach(function (d) {
+    orgIds.push(pdRelId_(d.org_id));
+    personIds.push(pdRelId_(d.person_id));
+  });
+  Object.keys(productsByDeal || {}).forEach(function (dealId) {
+    (productsByDeal[dealId] || []).forEach(function (dp) {
+      if (dp.product_id) productIds[String(dp.product_id)] = true;
+      if (dp.product_id && dp.product_variation_id) variedProducts[String(dp.product_id)] = true;
+    });
+  });
+  try {
+    var orgs = pdListByIdsV2_('/organizations', orgIds);
+    Object.keys(orgs).forEach(function (id) { ctx.orgNames[id] = orgs[id].name || ''; });
+  } catch (e) {}
+  try {
+    var persons = pdListByIdsV2_('/persons', personIds);
+    Object.keys(persons).forEach(function (id) { ctx.personNames[id] = persons[id].name || ''; });
+  } catch (e) {}
+  try {
+    pdListAllV1_('/users').forEach(function (u) { if (u && u.id) ctx.userNames[String(u.id)] = u.name || ''; });
+  } catch (e) {}
+  try {
+    var prods = pdListByIdsV2_('/products', Object.keys(productIds));
+    Object.keys(prods).forEach(function (id) {
+      var p = prods[id];
+      ctx.catalog[id] = { code: p.code || '', description: p.description || '', tax: (p.tax != null ? p.tax : '') };
+    });
+  } catch (e) {}
+  Object.keys(variedProducts).forEach(function (pid) {
+    try {
+      pdListProductVariations_(pid).forEach(function (v) { ctx.variations[String(v.id)] = v.name || ''; });
+    } catch (e) {}
+  });
+  return ctx;
+}
+
 /** One deal (+ its products) → flat rows in EOM_COLUMNS order. A deal with no
- * products still emits one row so it isn't lost (ports RowBuilder.build). */
-function eomBuildRows_(deal, products) {
-  var dupKey = eomDuplicatesFieldKey_();
-  var dupVal = dupKey ? deal[dupKey] : '';
+ * products still emits one row so it isn't lost (ports RowBuilder.build).
+ * `ctx` = eomBuildContext_() — the names/catalog v2 no longer embeds. Tolerates
+ * both API shapes (v1 `{name,value}` relations + embedded `product`; v2 ids). */
+function eomBuildRows_(deal, products, ctx) {
+  ctx = ctx || { dupKey: '', orgNames: {}, personNames: {}, userNames: {}, catalog: {}, variations: {} };
+  var dupKey = ctx.dupKey || '';
+  var cfd = deal.custom_fields || {};
+  var dupVal = dupKey ? (cfd[dupKey] !== undefined ? cfd[dupKey] : deal[dupKey]) : '';
   if (dupVal == null) dupVal = '';
   var base = {
     processed_at: new Date().toISOString(),
     deal_id: deal.id,
     deal_title: deal.title || '',
     deal_created_at: deal.add_time || '',
-    org_name: eomResolveName_(deal.org_id),
-    person_name: eomResolveName_(deal.person_id),
-    deal_owner: eomResolveName_(deal.user_id),
+    org_name: eomRelName_(deal.org_id, ctx.orgNames),
+    person_name: eomRelName_(deal.person_id, ctx.personNames),
+    deal_owner: eomRelName_(deal.owner_id !== undefined ? deal.owner_id : deal.user_id, ctx.userNames),
     deal_value: deal.value != null ? deal.value : '',
     currency: deal.currency || '',
     pipeline: eomPipelineName_(deal.pipeline_id),
@@ -9322,7 +9501,9 @@ function eomBuildRows_(deal, products) {
   }
   var rows = [];
   products.forEach(function (dp) {
-    var catalog = dp.product || {};
+    var catalog = ctx.catalog[String(dp.product_id)] || dp.product || {};
+    var varName = (dp.product_variation_id && ctx.variations[String(dp.product_variation_id)])
+                  || eomVariationName_(dp.product || null, dp.product_variation_id) || '';
     var pr = Object.assign({}, base, {
       product_id: dp.product_id,
       product_code: catalog.code || '',
@@ -9330,7 +9511,7 @@ function eomBuildRows_(deal, products) {
       product_description: eomCleanHtml_(catalog.description || ''),
       product_tax_percent: catalog.tax != null ? catalog.tax : '',
       deal_tax_percent: dp.tax != null ? dp.tax : '',
-      variation: eomVariationName_(catalog, dp.product_variation_id),
+      variation: varName,
       quantity: dp.quantity != null ? dp.quantity : '',
       item_price: dp.item_price != null ? dp.item_price : '',
       discount: dp.discount != null ? dp.discount : '',
@@ -9339,11 +9520,28 @@ function eomBuildRows_(deal, products) {
       billing_start_date: dp.billing_start_date || '',
       product_notes: eomCleanHtml_(dp.comments || ''),
       product_added_at: dp.add_time || '',
-      product_last_edited: dp.last_edit || ''
+      product_last_edited: dp.update_time || dp.last_edit || ''
     });
     rows.push(EOM_COLUMNS.map(function (c) { return pr[c] != null ? pr[c] : ''; }));
   });
   return rows;
+}
+
+/**
+ * Fetches every deal's products in parallel batches of 100 (progress-reporting
+ * optional), then builds the shared context ONCE. Returns {productsByDeal, ctx}.
+ * Shared by the live pull and the report generator so both stay in sync.
+ */
+function eomFetchProductsAndContext_(deals, onBatch) {
+  var productsByDeal = {}, CHUNK = 100;
+  for (var i = 0; i < deals.length; i += CHUNK) {
+    var batch = deals.slice(i, i + CHUNK);
+    if (onBatch) onBatch(Math.min(i + CHUNK, deals.length), deals.length, i);
+    var got = pdEomFetchProductsForDeals_(batch.map(function (d) { return d.id; }));
+    Object.keys(got).forEach(function (k) { productsByDeal[k] = got[k]; });
+    if (i + CHUNK < deals.length) Utilities.sleep(800);
+  }
+  return { productsByDeal: productsByDeal, ctx: eomBuildContext_(deals, productsByDeal) };
 }
 
 // ── Report writing (ports SheetWriter + BillingDashboard) ───────────────────
@@ -10069,13 +10267,9 @@ function getEomCurrentReport() {
     if (!getPipedriveStatus().configured) return { ok: false, error: 'Pipedrive is not connected.' };
     var stageId = eomGetDefaultStageId_();
     var deals = eomListDeals_('stage', stageId);
-    var rows = [], CHUNK = 100;
-    for (var i = 0; i < deals.length; i += CHUNK) {
-      var batch = deals.slice(i, i + CHUNK);
-      var productsByDeal = pdEomFetchProductsForDeals_(batch.map(function (d) { return d.id; }));
-      batch.forEach(function (deal) { rows = rows.concat(eomBuildRows_(deal, productsByDeal[deal.id] || [])); });
-      if (i + CHUNK < deals.length) Utilities.sleep(800);
-    }
+    var fetched = eomFetchProductsAndContext_(deals);
+    var rows = [];
+    deals.forEach(function (deal) { rows = rows.concat(eomBuildRows_(deal, fetched.productsByDeal[deal.id] || [], fetched.ctx)); });
     var group = eomGroupForReport_(rows);
     var meta = {
       current: true, stageId: String(stageId), stageName: eomStageName_(stageId),
@@ -10138,14 +10332,12 @@ function generateEomReport(scope, stageId, runId, monthLabel, splitContacts) {
       return { ok: false, error: none };
     }
 
-    var allRows = [], CHUNK = 100;
-    for (var i = 0; i < deals.length; i += CHUNK) {
-      var batch = deals.slice(i, i + CHUNK);
-      eomSetProgress_(runId, { message: 'Fetching products ' + Math.min(i + CHUNK, deals.length) + ' / ' + deals.length + '…', percent: 5 + Math.round(45 * (i / deals.length)), done: false, error: null });
-      var productsByDeal = pdEomFetchProductsForDeals_(batch.map(function (d) { return d.id; }));
-      batch.forEach(function (deal) { allRows = allRows.concat(eomBuildRows_(deal, productsByDeal[deal.id] || [])); });
-      if (i + CHUNK < deals.length) Utilities.sleep(800);
-    }
+    var fetched = eomFetchProductsAndContext_(deals, function (done, total, i) {
+      eomSetProgress_(runId, { message: 'Fetching products ' + done + ' / ' + total + '…', percent: 5 + Math.round(40 * (i / total)), done: false, error: null });
+    });
+    eomSetProgress_(runId, { message: 'Resolving names + catalog…', percent: 50, done: false, error: null });
+    var allRows = [];
+    deals.forEach(function (deal) { allRows = allRows.concat(eomBuildRows_(deal, fetched.productsByDeal[deal.id] || [], fetched.ctx)); });
 
     eomSetProgress_(runId, { message: 'Building spreadsheet…', percent: 60, done: false, error: null });
     var result = eomWriteReport_(allRows, scope, monthLabel, runId, stageId, splitContacts);
@@ -10276,27 +10468,27 @@ function getHomeHud() {
 
 /**
  * {orgId → deal count} for the default EOM stage, cached 10 min in the script
- * cache (key 'eom_org_counts_v1'). GET requests only. Returns null on ANY
- * failure or when Pipedrive isn't configured — an EOM/Pipedrive problem can
- * never break getDealerSummary (pdFetch_ philosophy).
+ * cache (key 'eom_org_counts_v2' — bumped with the v2 list so no v1-shaped
+ * cache is ever read). GET requests only. Returns null on ANY failure or when
+ * Pipedrive isn't configured — an EOM/Pipedrive problem can never break
+ * getDealerSummary (pdFetch_ philosophy).
  */
 function getEomOrgCountsCached_() {
   try {
     if (!getPipedriveStatus().configured) return null;
     var cache = CacheService.getScriptCache();
-    var hit = cache.get('eom_org_counts_v1');
+    var hit = cache.get('eom_org_counts_v2');
     if (hit) return JSON.parse(hit);
 
     // Same stage resolution as getEomCurrentReport: configured default EOM stage.
     var deals = eomListDeals_('stage', eomGetDefaultStageId_());
     var counts = {};
     deals.forEach(function(d) {
-      var o = d.org_id;   // v1 list shape: object {name, value, …} (or a bare id)
-      var id = Number(o && typeof o === 'object' ? o.value : o);
+      var id = pdRelId_(d.org_id);   // v2: plain id (pdRelId_ also tolerates the old {name,value})
       if (!id) return;
       counts[id] = (counts[id] || 0) + 1;
     });
-    try { cache.put('eom_org_counts_v1', JSON.stringify(counts), 600); } catch (e) {}
+    try { cache.put('eom_org_counts_v2', JSON.stringify(counts), 600); } catch (e) {}
     return counts;
   } catch (e) {
     return null;

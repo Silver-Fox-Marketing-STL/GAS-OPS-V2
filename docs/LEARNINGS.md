@@ -539,14 +539,43 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   leave `text`/`varchar` fields as strings, or a numeric-looking text value (a stock number, a
   phone) gets mangled. The tell: `org_id` was already `Number()`-coerced at deal creation, so the
   deal created while everything keyed on string ids silently failed.
-- **Pipedrive v1 deal custom fields are TOP-LEVEL hash keys, not a
-  `custom_fields` object.** The `{custom_fields: {...}}` wrapper is a **v2**
-  convention; the v1 `/deals` create/update API takes each custom field as a
-  top-level key (the 40-char field hash), and a **monetary** field needs both
-  `<key>` (the amount) and `<key>_currency`. Passing the v2 nested shape to a v1
-  endpoint silently **no-ops** the fields — the call succeeds, the values just
-  don't land. (`pdResolveDealFields_` returns a flat `{key:value}` map, incl. the
-  `_currency` companion, precisely so it can be passed straight to `pdUpdateDeal_`.)
+- **Deal custom fields: the wire shape is an API-VERSION property — know which one
+  you're on, because the wrong one silently no-ops.** On **v1** `/deals`, custom
+  fields were top-level 40-char hash keys with a `<key>_currency` companion for
+  monetary; sending the nested shape there did nothing (call succeeds, values
+  don't land). On **v2** (where every deal call lives since Oct 2026) it is the
+  reverse: custom fields go under **`custom_fields`** with v2 value shapes —
+  monetary **`{value, currency}`**, enum = option id, set = **`[option ids]`**,
+  text/date = string — and standard fields (`title`, `stage_id`…) stay top-level.
+  `pdSetDealField_` writes the v2 values and `pdDealPatchBody_` splits the map by
+  key shape (`/^[0-9a-f]{40}$/` → `custom_fields`). Read side mirrors it: a v2
+  deal's custom values are under `deal.custom_fields`, which `pdFlattenDealFields_`
+  merges flat for the if_empty check — and returns **null when that object is
+  missing**, so an unexpected shape takes the "unreadable → skip" branch rather
+  than the "empty → set" one.
+- **When a vendor marks an API version out of support, audit by ENDPOINT, not by
+  "do we use v1" — and migrate the response SHAPES, not just the base URL.**
+  Pipedrive's Aug 1, 2026 notice ("Deprecated API v1 endpoints become out of
+  support", no further migration period guaranteed) listed every v1 deals /
+  organizations / persons / products / pipelines / stages / search endpoint but
+  NOT the field-definition lists, `/users`, or `/files` — so the right move was a
+  per-call-site table (fourteen hits here), flipping `pdFetch_`'s default base to
+  v2 and pinning `version:'v1'` on the few survivors, rather than a blanket
+  replace. The URL swap was the easy part; the real work was the **v1→v2 shape
+  deltas** each caller silently depended on: relation fields became **plain ids**
+  (v1's `{name, value}` objects — the Home HUD's `org_id.value` read, the EOM
+  report's `org_id.name`), **`include_product_data=1` is gone** so a deal product
+  no longer embeds its catalog `product` (code/description/tax/variations), the
+  `status=all_not_deleted` list filter doesn't exist (**omit `status`** means
+  exactly that), `PUT` became `PATCH`, `last_edit` became `update_time`, and
+  timestamps became RFC 3339. Where v2 stopped embedding something, the fix was
+  **one batched read per report** (`?ids=` takes 100 at a time — `pdListByIdsV2_`
+  / `eomBuildContext_`), never a per-row GET; and the builders were left
+  **tolerant of both shapes** (`pdRelId_`, `eomRelName_`, `dp.product ||`) so an
+  archived payload or a half-migrated sibling still renders. Pin every shape rule
+  in the offline harness (suite `pipedrive api v2`) — the DEV fake proves the code
+  path, not the API, so the first PROD push + EOM pull after promote are the
+  acceptance test.
 - **Pipedrive does NOT auto-copy a product's catalog tax onto a deal line — only
   the UI does. The API push must send `tax` + `tax_method` explicitly.** A product
   in the catalog carries a `tax` percentage ("Tax %"), and adding it to a deal *in
@@ -669,7 +698,8 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   and inline-custom-fields traps: **don't guess a v2 response shape from v1 or the
   migration guide — confirm the field against live data.**
 - **Pipedrive has NO line-item update until you `PUT /deals/{id}/products/{attachmentId}`
-  with the deal-product ATTACHMENT id — which is distinct from `product_id`.** Attaching
+  (v1; **`PATCH` on v2** since Oct 2026) with the deal-product ATTACHMENT id — which is
+  distinct from `product_id`.** Attaching
   a product (`POST /deals/{id}/products`) returns a *deal-product attachment* row whose
   own `id` identifies that line on that deal; editing the line (price, quantity,
   variation) is a `PUT` against `/deals/{id}/products/{that-attachment-id}`, NOT against

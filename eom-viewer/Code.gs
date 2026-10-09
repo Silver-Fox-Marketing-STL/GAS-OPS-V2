@@ -137,10 +137,12 @@ function cvSecrets_() {
   var domain = (p.getProperty('PD_COMPANY_DOMAIN') || '').trim()
     .replace(/^https?:\/\//, '').replace(/\.pipedrive\.com.*$/, '').replace(/\/.*$/, '');
   if (!token || !domain) return null;
-  return { token: token, domain: domain, baseV1: 'https://' + domain + '.pipedrive.com/api/v1' };
+  return { token: token, domain: domain,
+           baseV1: 'https://' + domain + '.pipedrive.com/api/v1',    // field-definition lists + /users only
+           baseV2: 'https://' + domain + '.pipedrive.com/api/v2' };  // deals / products / stages (v1 out of support Aug 2026)
 }
 
-/** GET a v1 url -> parsed body, or null on any error (never throws). */
+/** GET a url -> parsed body, or null on any error (never throws). */
 function cvGetJson_(url) {
   try {
     var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
@@ -149,7 +151,8 @@ function cvGetJson_(url) {
   } catch (e) { return null; }
 }
 
-/** GET a v1 collection, following start/limit pagination (mirrors pdListAllV1_). */
+/** GET a v1 collection, following start/limit pagination (mirrors pdListAllV1_).
+ *  v1 is only for /dealFields and /users — neither has a v2 twin. */
 function cvListAllV1_(s, path) {
   var out = [], start = 0, guard = 0;
   while (guard++ < 40) {
@@ -164,13 +167,49 @@ function cvListAllV1_(s, path) {
   return out;
 }
 
+/** GET a v2 collection, following cursor pagination (mirrors pdListAllV2_). */
+function cvListAllV2_(s, path) {
+  var out = [], cursor = '', guard = 0;
+  do {
+    var sep = (path.indexOf('?') === -1) ? '?' : '&';
+    var body = cvGetJson_(s.baseV2 + path + sep + 'limit=500' + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '')
+                          + '&api_token=' + encodeURIComponent(s.token));
+    if (!body || !body.data) break;
+    out = out.concat(body.data);
+    cursor = (body.additional_data && body.additional_data.next_cursor) ? body.additional_data.next_cursor : '';
+  } while (cursor && guard++ < 40);
+  return out;
+}
+
+/** GET v2 entities by id in batches of 100 (`?ids=`) → {id: entity} (mirrors pdListByIdsV2_). */
+function cvListByIdsV2_(s, path, ids) {
+  var out = {}, uniq = {}, list = [];
+  (ids || []).forEach(function (id) { var n = Number(id); if (n && !isNaN(n) && !uniq[n]) { uniq[n] = true; list.push(n); } });
+  for (var i = 0; i < list.length; i += 100) {
+    var sep = (path.indexOf('?') === -1) ? '?' : '&';
+    cvListAllV2_(s, path + sep + 'ids=' + list.slice(i, i + 100).join(',')).forEach(function (it) {
+      if (it && it.id !== undefined) out[String(it.id)] = it;
+    });
+  }
+  return out;
+}
+
+/** Relation id from either API shape (v2 plain id, v1 {value}/{id}); 0 if none (mirrors pdRelId_). */
+function pdRelId_(v) {
+  if (v && typeof v === 'object') v = (v.value !== undefined) ? v.value : v.id;
+  var n = Number(v);
+  return (v === undefined || v === null || v === '' || isNaN(n)) ? 0 : n;
+}
+
 /** Products for many deals in ONE parallel batch (mirrors pdEomFetchProductsForDeals_).
- *  Never throws — a failed deal yields an empty product list. */
+ *  v2 rows carry name/price/qty/tax/variation id but no embedded `product` —
+ *  cvBuildContext_ resolves the catalog side. Never throws — a failed deal yields
+ *  an empty product list. */
 function cvFetchProductsForDeals_(s, dealIds) {
   var out = {};
   var requests = dealIds.map(function (id) {
     return {
-      url: s.baseV1 + '/deals/' + id + '/products?include_product_data=1&api_token=' + encodeURIComponent(s.token),
+      url: s.baseV2 + '/deals/' + id + '/products?limit=500&api_token=' + encodeURIComponent(s.token),
       muteHttpExceptions: true
     };
   });
@@ -188,11 +227,51 @@ function cvFetchProductsForDeals_(s, dealIds) {
   return out;
 }
 
-/** The 40-char key of the "Duplicates" custom deal field ('' if none). */
+/** The 40-char key of the "Duplicates" custom deal field ('' if none). v1 /dealFields (no v2 twin). */
 function cvDuplicatesFieldKey_(s) {
   var key = '';
   cvListAllV1_(s, '/dealFields').forEach(function (f) { if (f.name === 'Duplicates' && f.key) key = f.key; });
   return key;
+}
+
+/** Variations of one product (v2, cursor-paginated) → [{id, name}] (mirrors pdListProductVariations_). */
+function cvListProductVariations_(s, productId) {
+  if (!productId) return [];
+  return cvListAllV2_(s, '/products/' + productId + '/variations').map(function (v) { return { id: v.id, name: v.name || '' }; });
+}
+
+/**
+ * Everything cvBuildRows_ needs that a v2 deal / deal-product no longer embeds
+ * (mirrors eomBuildContext_): org/person names via v2 `?ids=` batches, owner
+ * names via v1 /users, catalog code/description/tax via v2 /products?ids=, and
+ * variation names only for products that appear with a variation. Best-effort.
+ */
+function cvBuildContext_(s, deals, productsByDeal, dupKey) {
+  var ctx = { dupKey: dupKey || '', orgNames: {}, personNames: {}, userNames: {}, catalog: {}, variations: {} };
+  var orgIds = [], personIds = [], productIds = {}, variedProducts = {};
+  (deals || []).forEach(function (d) { orgIds.push(pdRelId_(d.org_id)); personIds.push(pdRelId_(d.person_id)); });
+  Object.keys(productsByDeal || {}).forEach(function (dealId) {
+    (productsByDeal[dealId] || []).forEach(function (dp) {
+      if (dp.product_id) productIds[String(dp.product_id)] = true;
+      if (dp.product_id && dp.product_variation_id) variedProducts[String(dp.product_id)] = true;
+    });
+  });
+  try { var orgs = cvListByIdsV2_(s, '/organizations', orgIds);
+        Object.keys(orgs).forEach(function (id) { ctx.orgNames[id] = orgs[id].name || ''; }); } catch (e) {}
+  try { var persons = cvListByIdsV2_(s, '/persons', personIds);
+        Object.keys(persons).forEach(function (id) { ctx.personNames[id] = persons[id].name || ''; }); } catch (e) {}
+  try { cvListAllV1_(s, '/users').forEach(function (u) { if (u && u.id) ctx.userNames[String(u.id)] = u.name || ''; }); } catch (e) {}
+  try {
+    var prods = cvListByIdsV2_(s, '/products', Object.keys(productIds));
+    Object.keys(prods).forEach(function (id) {
+      var p = prods[id];
+      ctx.catalog[id] = { code: p.code || '', description: p.description || '', tax: (p.tax != null ? p.tax : '') };
+    });
+  } catch (e) {}
+  Object.keys(variedProducts).forEach(function (pid) {
+    try { cvListProductVariations_(s, pid).forEach(function (v) { ctx.variations[String(v.id)] = v.name || ''; }); } catch (e) {}
+  });
+  return ctx;
 }
 
 // ── Verbatim copies of the main app's row/group pipeline (Section 33) ──
@@ -224,7 +303,13 @@ function eomCleanHtml_(raw) {
 }
 
 function eomIsObj_(x) { return x !== null && typeof x === 'object'; }
-function eomResolveName_(obj) { return eomIsObj_(obj) ? (obj.name || '') : ''; }
+/** A relation's display name from either API shape: v1 `{name,value}` object, or a
+ *  v2 plain id looked up in `names` ({id: name}). '' when unknown. */
+function eomRelName_(rel, names) {
+  if (eomIsObj_(rel) && rel.name) return rel.name;
+  var id = pdRelId_(rel);
+  return (id && names && names[String(id)]) ? names[String(id)] : '';
+}
 function eomVariationName_(product, variationId) {
   if (!variationId || !product) return '';
   var vars = product.product_variations || [];
@@ -233,20 +318,24 @@ function eomVariationName_(product, variationId) {
 }
 
 /** One deal (+ its products) → flat rows in EOM_COLUMNS order. Copy of the main
- *  app's eomBuildRows_ with two viewer-local deviations: dupKey is a parameter
- *  (no per-execution cache), and pipeline/stage names are '' — the renderer
- *  never reads them and blanking them saves two API calls per pull. */
-function cvBuildRows_(deal, products, dupKey) {
-  var dupVal = dupKey ? deal[dupKey] : '';
+ *  app's eomBuildRows_ with one viewer-local deviation: pipeline/stage names are
+ *  '' — the renderer never reads them and blanking them saves two API calls per
+ *  pull. `ctx` = cvBuildContext_() — the names/catalog a v2 deal no longer embeds
+ *  (tolerates both API shapes). */
+function cvBuildRows_(deal, products, ctx) {
+  ctx = ctx || { dupKey: '', orgNames: {}, personNames: {}, userNames: {}, catalog: {}, variations: {} };
+  var dupKey = ctx.dupKey || '';
+  var cfd = deal.custom_fields || {};
+  var dupVal = dupKey ? (cfd[dupKey] !== undefined ? cfd[dupKey] : deal[dupKey]) : '';
   if (dupVal == null) dupVal = '';
   var base = {
     processed_at: new Date().toISOString(),
     deal_id: deal.id,
     deal_title: deal.title || '',
     deal_created_at: deal.add_time || '',
-    org_name: eomResolveName_(deal.org_id),
-    person_name: eomResolveName_(deal.person_id),
-    deal_owner: eomResolveName_(deal.user_id),
+    org_name: eomRelName_(deal.org_id, ctx.orgNames),
+    person_name: eomRelName_(deal.person_id, ctx.personNames),
+    deal_owner: eomRelName_(deal.owner_id !== undefined ? deal.owner_id : deal.user_id, ctx.userNames),
     deal_value: deal.value != null ? deal.value : '',
     currency: deal.currency || '',
     pipeline: '',
@@ -258,7 +347,9 @@ function cvBuildRows_(deal, products, dupKey) {
   }
   var rows = [];
   products.forEach(function (dp) {
-    var catalog = dp.product || {};
+    var catalog = ctx.catalog[String(dp.product_id)] || dp.product || {};
+    var varName = (dp.product_variation_id && ctx.variations[String(dp.product_variation_id)])
+                  || eomVariationName_(dp.product || null, dp.product_variation_id) || '';
     var pr = Object.assign({}, base, {
       product_id: dp.product_id,
       product_code: catalog.code || '',
@@ -266,7 +357,7 @@ function cvBuildRows_(deal, products, dupKey) {
       product_description: eomCleanHtml_(catalog.description || ''),
       product_tax_percent: catalog.tax != null ? catalog.tax : '',
       deal_tax_percent: dp.tax != null ? dp.tax : '',
-      variation: eomVariationName_(catalog, dp.product_variation_id),
+      variation: varName,
       quantity: dp.quantity != null ? dp.quantity : '',
       item_price: dp.item_price != null ? dp.item_price : '',
       discount: dp.discount != null ? dp.discount : '',
@@ -275,7 +366,7 @@ function cvBuildRows_(deal, products, dupKey) {
       billing_start_date: dp.billing_start_date || '',
       product_notes: eomCleanHtml_(dp.comments || ''),
       product_added_at: dp.add_time || '',
-      product_last_edited: dp.last_edit || ''
+      product_last_edited: dp.update_time || dp.last_edit || ''
     });
     rows.push(EOM_COLUMNS.map(function (c) { return pr[c] != null ? pr[c] : ''; }));
   });
@@ -379,19 +470,23 @@ function getCurrentReport() {
     if (!me || me.success === false || !me.data) {
       return { ok: false, error: 'Pipedrive rejected the viewer credentials — re-check PD_API_TOKEN and PD_COMPANY_DOMAIN in the viewer project’s Script Properties.' };
     }
-    var deals = cvListAllV1_(s, '/deals?stage_id=' + CURRENT_STAGE_ID + '&status=all_not_deleted');
+    // v2 deals list: no `status` = every not-deleted deal in the stage (v1's
+    // all_not_deleted); the Duplicates field is requested explicitly via custom_fields=.
+    var dupKey = cvDuplicatesFieldKey_(s);
+    var deals = cvListAllV2_(s, '/deals?stage_id=' + CURRENT_STAGE_ID + (dupKey ? '&custom_fields=' + encodeURIComponent(dupKey) : ''));
     // Stage name echo: if CURRENT_STAGE_ID ever stops being "EOM Merge", the UI
     // says which stage it actually pulled instead of lying about EOM Merge.
-    var st = cvGetJson_(s.baseV1 + '/stages/' + CURRENT_STAGE_ID + '?api_token=' + encodeURIComponent(s.token));
+    var st = cvGetJson_(s.baseV2 + '/stages/' + CURRENT_STAGE_ID + '?api_token=' + encodeURIComponent(s.token));
     var stageName = (st && st.data && st.data.name) ? st.data.name : '';
-    var dupKey = deals.length ? cvDuplicatesFieldKey_(s) : '';
-    var rows = [], CHUNK = 100;
+    var productsByDeal = {}, CHUNK = 100;
     for (var i = 0; i < deals.length; i += CHUNK) {
-      var batch = deals.slice(i, i + CHUNK);
-      var productsByDeal = cvFetchProductsForDeals_(s, batch.map(function (d) { return d.id; }));
-      batch.forEach(function (deal) { rows = rows.concat(cvBuildRows_(deal, productsByDeal[deal.id] || [], dupKey)); });
+      var got = cvFetchProductsForDeals_(s, deals.slice(i, i + CHUNK).map(function (d) { return d.id; }));
+      Object.keys(got).forEach(function (k) { productsByDeal[k] = got[k]; });
       if (i + CHUNK < deals.length) Utilities.sleep(800);
     }
+    var ctx = cvBuildContext_(s, deals, productsByDeal, dupKey);
+    var rows = [];
+    deals.forEach(function (deal) { rows = rows.concat(cvBuildRows_(deal, productsByDeal[deal.id] || [], ctx)); });
     var group = eomGroupForReport_(rows);
     var meta = {
       current: true, stageId: String(CURRENT_STAGE_ID), stageName: stageName,
