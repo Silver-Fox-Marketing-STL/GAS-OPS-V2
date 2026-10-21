@@ -11,6 +11,27 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Added
+- **Commission tracker — PROTOTYPE** (2026-10-21, `feat/commission-tracker`, DEV viewer
+  twin only; nothing exists in Pipedrive yet). New "Commissions" section in the standalone
+  `eom-viewer/`: every line item in the **Billed** stage whose product's "Commission
+  Eligibility" single-select is exactly *Eligible* (blank / unknown / missing field /
+  product not in catalog → excluded, fail-safe; lost deals and disabled lines excluded),
+  shown as one sortable, filterable table per **deal owner** (columns Deal ID, Deal Name,
+  Product Name, Customer = deal org, Product Code, Category, Qty, Price, Rate,
+  Commission). Price = line total pre-tax; rate defaults to 5%, or 2.5% when the deal
+  carries the "Discounted" label; per-line manual rates save as drafts (ScriptProperties).
+  **Finalize** locks the report under a `YYYY-MM` key into a new append-only, long-format
+  `COMMISSIONS` ledger tab in the viewer's index sheet (one row per deal-product
+  attachment id; `@`-formatted); a paid line is excluded forever after, so each report =
+  "whatever is unpaid in Billed". Finalize re-pulls server-side and refuses if anything
+  differs from what was on screen. New files `eom-viewer/Commission.gs` (engine +
+  four public endpoints — the viewer's first writers, gated by an empty-for-now
+  `COMMISSION_EDITORS`), `eom-viewer/CommissionView.html`, and
+  `eom-viewer/CommissionFake.gs` — viewer-only fixtures layered IN FRONT OF the shared
+  `PdFake.gs` byte-copy (unchanged), each line carrying its expected outcome. PROD stays
+  off until `COMMISSION_STAGE_ID` is set. Harness: new suite "eom-viewer commission
+  tracker" (answer-key inclusion/exclusion, rates/amounts, draft → stale guard → finalize
+  → ledger, fail-safes, PROD-off) → 161/161.
 - **`scripts/promote-eom-viewer.ps1`** (2026-10-21) — guarded, Nick-run PROD deploy for the
   standalone viewer, modeled on `promote-lot-scan.ps1` plus the Node harness gate (the
   harness now guards the viewer directly). Gates: main / clean tree / synced with

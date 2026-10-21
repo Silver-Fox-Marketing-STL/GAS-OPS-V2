@@ -1414,7 +1414,9 @@ var VIEWER_DIR = path.join(ROOT, 'eom-viewer');
 var VIEWER_DEV_ID  = '1IlGUPGyJpPeF9YnuvcKMGVbD8qQRIPHR6YurtBe5PrL3s7k138ff-P_f';
 var VIEWER_PROD_ID = '14AbPr3pM9Grg3gu2dFMWvQOAIksI-x-zGysygzy8PXCmcBRObKvVQgW2';
 var viewerSource = fs.readFileSync(path.join(VIEWER_DIR, 'Code.gs'), 'utf8');
-function loadViewer_(scriptId, fetchStub) {
+var viewerCommissionSource = fs.readFileSync(path.join(VIEWER_DIR, 'Commission.gs'), 'utf8');
+var viewerCommissionFakeSource = fs.readFileSync(path.join(VIEWER_DIR, 'CommissionFake.gs'), 'utf8');
+function loadViewer_(scriptId, fetchStub, extra) {
   var vm = require('vm');
   var noNet = function (what) { return function () { throw new Error('UrlFetchApp.' + what + ' called — the fake path must make zero network calls'); }; };
   var ctx = {
@@ -1427,8 +1429,11 @@ function loadViewer_(scriptId, fetchStub) {
     UrlFetchApp: fetchStub || { fetch: noNet('fetch'), fetchAll: noNet('fetchAll') },
     SpreadsheetApp: { openById: function () { throw new Error('no sheets in the harness'); } }
   };
+  if (extra) Object.keys(extra).forEach(function (k) { ctx[k] = extra[k]; });
   vm.createContext(ctx);
   vm.runInContext(pdFakeSource, ctx);   // the viewer's PdFake.gs is a byte-copy (guarded below)
+  vm.runInContext(viewerCommissionFakeSource, ctx);
+  vm.runInContext(viewerCommissionSource, ctx);
   vm.runInContext(viewerSource, ctx);
   return ctx;
 }
@@ -1492,6 +1497,135 @@ t('PROD: secrets still required; the fetch layer goes to UrlFetchApp, never the 
   var body = v.cvGetJson_('https://x.pipedrive.com/api/v2/stages/44?api_token=t');
   assert.strictEqual(body.data.id, 1);
   assert.strictEqual(calls.length, 1);
+});
+
+// ============================================================================
+// Suite: eom-viewer commission tracker (prototype) — the CommissionFake fixtures
+// carry an answer key (`expect` per line); every line must land where it says.
+// ============================================================================
+suite('eom-viewer commission tracker');
+/** In-memory spreadsheet: REPORTS first (openIndex_ falls back to sheet 0), tabs created on insert. */
+function cmMemSS_() {
+  var order = [], byName = {};
+  function mk(name, rows) {
+    var data = rows || [];
+    var sh = {
+      _data: data, getName: function () { return name; },
+      getDataRange: function () { return { getValues: function () { return data.map(function (r) { return r.slice(); }); } }; },
+      getLastRow: function () { return data.length; },
+      getRange: function (r, c, nr, nc) { return {
+        setNumberFormat: function (f) { sh._fmt = f; return this; },
+        setValues: function (vals) { vals.forEach(function (row, i) { data[r - 1 + i] = row.slice(0, nc); }); return this; } }; }
+    };
+    order.push(sh); byName[name] = sh; return sh;
+  }
+  mk('REPORTS', [['month_key']]);
+  return { getSheetByName: function (n) { return byName[n] || null; }, insertSheet: function (n) { return mk(n); },
+           getSheets: function () { return order.slice(); } };
+}
+function cmLoadDev_() {
+  var ss = cmMemSS_(), props = propStore_();
+  var v = loadViewer_(VIEWER_DEV_ID, null, {
+    SpreadsheetApp: { openById: function () { return ss; } },
+    PropertiesService: { getScriptProperties: function () { return props; } },
+    LockService: { getScriptLock: function () { return { tryLock: function () { return true; }, releaseLock: function () {} }; } }
+  });
+  v._ss = ss; return v;
+}
+function cmReport_(v) { var r = v.getCommissionReport(); assert.strictEqual(r.ok, true, r.error); return JSON.parse(r.json); }
+function cmSeen_(rep) { return rep.lines.map(function (l) { return [l.lineId, l.rate, l.price]; }); }
+
+t('answer key: every fixture line is included / excluded exactly as its `expect` says', function () {
+  var v = cmLoadDev_(), rep = cmReport_(v);
+  var inc = {}, exc = {};
+  rep.lines.forEach(function (l) { inc[l.lineId] = true; });
+  rep.excluded.forEach(function (x) { exc[x.lineId] = x.reason; });
+  var keys = v.cmFakeExpectations_();
+  assert.ok(keys.length >= 12);
+  keys.forEach(function (k) {
+    if (k.expect === 'include') assert.ok(inc[k.lineId] && !exc[k.lineId], 'line ' + k.lineId + ' should be INCLUDED');
+    else if (k.expect === 'not_in_stage') assert.ok(!inc[k.lineId] && !exc[k.lineId], 'line ' + k.lineId + ' (wrong stage) must never be pulled');
+    else { assert.ok(!inc[k.lineId], 'line ' + k.lineId + ' must NOT be included'); assert.strictEqual(exc[k.lineId], k.expect, 'line ' + k.lineId + ' reason'); }
+  });
+  assert.strictEqual(rep.lines.length, keys.filter(function (k) { return k.expect === 'include'; }).length);
+  assert.ok(!rep.lines.some(function (l) { return l.dealId === 910007; }));   // EOM Merge deal absent
+  assert.deepStrictEqual(rep.warnings, []);
+  assert.strictEqual(rep.meta.stageName, 'FAKE Billed');
+});
+t('rates, amounts, owners, customer, category: default 5%, Discounted label 2.5%, line total pre-tax', function () {
+  var rep = cmReport_(cmLoadDev_()), by = {};
+  rep.lines.forEach(function (l) { by[l.lineId] = l; });
+  var want = { 81001: [610, 5, 30.5], 81004: [300, 2.5, 7.5], 81005: [274.5, 2.5, 6.86], 81006: [1220, 5, 61], 81008: [1200, 5, 60], 81009: [120, 5, 6] };
+  Object.keys(want).forEach(function (id) {
+    assert.deepStrictEqual([by[id].price, by[id].rate, by[id].commission], want[id], 'line ' + id);
+  });
+  assert.strictEqual(by[81004].rateSource, 'discounted');
+  assert.strictEqual(by[81008].rateSource, 'default');                  // "Rush" label is not "Discounted"
+  assert.strictEqual(by[81001].ownerName, 'FAKE Rep Alpha');
+  assert.strictEqual(by[81006].ownerName, 'FAKE Rep Bravo');
+  assert.ok(!rep.lines.some(function (l) { return l.ownerName === 'FAKE Rep Charlie'; }));   // only ineligible / lost lines
+  assert.strictEqual(by[81001].customer, 'FAKE Gateway Motors');
+  assert.strictEqual(by[81001].category, 'Shortcuts');
+  assert.strictEqual(by[81009].category, '');                           // no category → blank, still paid
+  assert.strictEqual(by[81008].productCode, 'CM-WW');                   // deactivated product still resolves + pays
+});
+t('draft rate → stale guard → finalize writes the @-formatted ledger; paid lines never reappear', function () {
+  var v = cmLoadDev_();
+  assert.strictEqual(v.saveCommissionRate(81001, 10).ok, true);
+  assert.strictEqual(v.saveCommissionRate(81001, 101).ok, false);       // out of range refused
+  var rep = cmReport_(v), l = rep.lines.filter(function (x) { return x.lineId === 81001; })[0];
+  assert.deepStrictEqual([l.rate, l.rateSource, l.commission], [10, 'manual', 61]);
+  var stale = cmSeen_(rep); stale[0][1] = 5;
+  var r0 = v.finalizeCommissionReport('2026-10', stale);
+  assert.strictEqual(r0.ok, false); assert.strictEqual(r0.stale, true);
+  assert.strictEqual(v.finalizeCommissionReport('Oct', cmSeen_(rep)).ok, false);   // bad month key
+  var r1 = v.finalizeCommissionReport('2026-10', cmSeen_(rep));
+  assert.strictEqual(r1.ok, true, r1.error);
+  assert.strictEqual(r1.lineCount, rep.lines.length);
+  var sh = v._ss.getSheetByName('COMMISSIONS');
+  assert.strictEqual(sh._fmt, '@');
+  assert.deepStrictEqual(sh._data[0], v.COMMISSION_HEADERS);
+  assert.strictEqual(sh._data.length, rep.lines.length + 1);
+  assert.ok(sh._data.slice(1).every(function (row) { return row.every(function (c) { return typeof c === 'string'; }); }));
+  var after = cmReport_(v);
+  assert.strictEqual(after.lines.length, 0);
+  assert.strictEqual(after.excluded.filter(function (x) { return x.reason === 'already_paid'; }).length, rep.lines.length);
+  assert.strictEqual(v.finalizeCommissionReport('2026-10', []).ok, false);          // a key finalizes once
+  assert.strictEqual(v.saveCommissionRate(81001, 5).ok, false);                    // paid line locked
+  assert.strictEqual(v.cmDraftGet_()['81001'], undefined);                         // draft cleared on finalize
+  var fin = JSON.parse(v.getFinalizedCommissionReport('2026-10').json);
+  assert.strictEqual(fin.meta.finalized, true);
+  assert.strictEqual(fin.lines.filter(function (x) { return x.lineId === 81001; })[0].commission, 61);
+  var boot = v.getViewerBootstrap();
+  assert.strictEqual(boot.commissions.enabled, true);
+  assert.strictEqual(boot.commissions.reports[0].reportKey, '2026-10');
+});
+t('fail-safe: no Commission Eligibility field / no Discounted label → nothing paid, warnings raised', function () {
+  var v = cmLoadDev_();
+  var deals = [{ id: 1, stage_id: 46, status: 'open', owner_id: 711, org_id: 521, label_ids: [51] }];
+  var lines = { 1: [{ id: 5, product_id: 9101, name: 'X', quantity: 1, sum: 100 }] };
+  var ctx = { orgNames: {}, userNames: {}, catalog: { 9101: { id: 9101, custom_fields: {} } } };
+  var none = v.cmEvaluate_(deals, lines, ctx, { eligKey: '', eligYes: '', eligNo: '', categories: {}, discountIds: {} }, {}, {});
+  assert.strictEqual(none.lines.length, 0);
+  assert.strictEqual(none.excluded[0].reason, 'eligibility_not_set');
+  var unknownProduct = v.cmEvaluate_(deals, { 1: [{ id: 6, product_id: 4242, quantity: 1, sum: 5 }] }, ctx,
+    { eligKey: 'k', eligYes: '41', eligNo: '42', categories: {}, discountIds: {} }, {}, {});
+  assert.strictEqual(unknownProduct.excluded[0].reasonText, 'Commission Eligibility not set (product not in catalog)');
+  var disabled = v.cmEvaluate_(deals, { 1: [{ id: 7, product_id: 9101, quantity: 1, sum: 5, is_enabled: false }] },
+    { orgNames: {}, userNames: {}, catalog: { 9101: { id: 9101, custom_fields: { k: 41 } } } },
+    { eligKey: 'k', eligYes: '41', eligNo: '42', categories: {}, discountIds: {} }, {}, {});
+  assert.strictEqual(disabled.excluded[0].reason, 'line_disabled');
+  var w = v.cmFieldDefs_({ baseV1: 'https://fake-dev.pipedrive.com/api/v1', token: 'FAKE' });
+  assert.strictEqual(w.eligKey, v.CM_FAKE_ELIG_FIELD_KEY); assert.strictEqual(w.warnings.length, 0);   // vm-realm array: compare length
+});
+t('PROD: commission section off until COMMISSION_STAGE_ID is set; EOM Current on DEV unchanged', function () {
+  var prod = loadViewer_(VIEWER_PROD_ID, { fetch: function () { throw new Error('no net'); }, fetchAll: function () { return []; } });
+  assert.strictEqual(prod.cmEnabled_(), false);
+  assert.strictEqual(prod.getCommissionReport().ok, false);
+  assert.strictEqual(prod.finalizeCommissionReport('2026-10', []).ok, false);
+  var dev = cmLoadDev_(), cur = JSON.parse(dev.getCurrentReport().json);
+  assert.strictEqual(cur.meta.dealCount, 3);                            // shared fake's stage-44 deals, untouched
+  assert.ok(cur.json === undefined && JSON.stringify(cur).indexOf('CM-') === -1);   // no commission fixtures leak into EOM
 });
 
 // ── Report ───────────────────────────────────────────────────────────────────

@@ -1,0 +1,343 @@
+<!-- Commission tracker view (cm* prefix) — PROTOTYPE. Included by Viewer.html.
+     Server: Commission.gs. One table per account manager (deal owner); sort by
+     clicking a header, filter from the panel (numeric columns accept >100, <50,
+     100-200). Rate edits save as drafts; Finalize locks the report into the
+     COMMISSIONS ledger (immutable). Event delegation + integer indices only —
+     never a dynamic string in an inline handler. -->
+<style>
+  .cm-warn { background: var(--warning-weak); color: var(--warning-strong); border: 1px solid var(--warning); border-radius: var(--radius-sm); padding: 8px 10px; margin: 0 0 12px; font-size: 12px; }
+  .cm-note { background: var(--info-weak); color: var(--text); border-radius: var(--radius-sm); padding: 8px 10px; margin: 0 0 12px; font-size: 12px; }
+  .cm-summary { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+  .cm-chip { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 10px; font-size: 12px; color: var(--text-2); }
+  .cm-chip b { color: var(--text); font-size: 14px; display: block; }
+  .cm-filters { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; margin: 0 0 14px; }
+  .cm-filters label { display: flex; flex-direction: column; gap: 3px; font-size: 11px; font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; }
+  .cm-filters input, .cm-filters select { font: inherit; font-size: 12px; text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--text); background: var(--bg); border: 1px solid var(--border-2); border-radius: var(--radius-sm); padding: 4px 6px; min-width: 0; }
+  .cm-filters input:focus, .cm-filters select:focus { outline: none; box-shadow: var(--focus-ring); }
+  .cm-filter-actions { display: flex; align-items: flex-end; }
+  .cm-btn { border: 1px solid var(--border-2); background: var(--surface); color: var(--text); border-radius: var(--radius-sm); font: inherit; font-size: 12px; font-weight: 600; padding: 4px 10px; cursor: pointer; }
+  .cm-btn:hover { background: var(--accent-weak); }
+  .cm-btn:disabled { opacity: .5; cursor: default; }
+  .cm-btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  .cm-btn-primary:hover { background: var(--accent-hover); }
+  .cm-owner { margin: 18px 0 6px; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .cm-owner h3 { margin: 0; font-size: 15px; font-weight: 800; }
+  .cm-owner span { font-size: 12px; color: var(--text-3); }
+  .cm-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+  .cm-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .cm-table th { background: var(--surface-2); color: var(--text-2); text-align: left; font-weight: 700; padding: 6px 8px; white-space: nowrap; border-bottom: 1px solid var(--border); }
+  .cm-table th[data-sort] { cursor: pointer; user-select: none; }
+  .cm-table th[data-sort]:hover { color: var(--text); }
+  .cm-table td { padding: 5px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .cm-table tbody tr:hover td { background: var(--accent-weak); }
+  .cm-table tfoot td { font-weight: 800; background: var(--surface); border-bottom: none; }
+  .cm-table .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .cm-table a { color: var(--accent); text-decoration: none; font-weight: 600; }
+  .cm-arrow { font-size: 9px; color: var(--accent); margin-left: 3px; }
+  .cm-rate { display: flex; align-items: center; justify-content: flex-end; gap: 4px; white-space: nowrap; }
+  .cm-rate select, .cm-rate input { font: inherit; font-size: 12px; color: var(--text); background: var(--bg); border: 1px solid var(--border-2); border-radius: var(--radius-sm); padding: 2px 4px; }
+  .cm-rate input { width: 58px; }
+  .cm-pill { display: inline-block; font-size: 10px; font-weight: 700; border-radius: 999px; padding: 1px 7px; }
+  .cm-pill-disc { background: var(--info-weak); color: var(--info); }
+  .cm-pill-man { background: var(--warning-weak); color: var(--warning-strong); }
+  .cm-reset { border: none; background: none; color: var(--text-3); cursor: pointer; font-size: 13px; padding: 0 2px; }
+  .cm-reset:hover { color: var(--accent); }
+  .cm-final { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; margin: 18px 0 0; font-size: 12px; }
+  .cm-final input { font: inherit; font-size: 12px; color: var(--text); background: var(--bg); border: 1px solid var(--border-2); border-radius: var(--radius-sm); padding: 3px 6px; }
+  .cm-excl { margin-top: 18px; }
+  .cm-reason { color: var(--danger); font-weight: 600; }
+</style>
+<script>
+  var cmState = null;     // {lines, excluded, warnings, meta} of the open/finalized report
+  var cmView = { sortKey: 'dealId', sortDir: 1, filters: {}, owner: '', showExcluded: false };
+  var cmPending = 0;      // rate saves in flight (Finalize waits for them)
+  var vwCmReports = [];   // finalized reports for the sidebar
+  var CM_COLS = [
+    { k: 'dealId',      label: 'Deal ID',      num: true, filter: true },
+    { k: 'dealTitle',   label: 'Deal Name',    filter: true },
+    { k: 'productName', label: 'Product Name', filter: true },
+    { k: 'customer',    label: 'Customer',     filter: true },
+    { k: 'productCode', label: 'Product Code', filter: true },
+    { k: 'category',    label: 'Category',     filter: true },
+    { k: 'qty',         label: 'Qty',          num: true },
+    { k: 'price',       label: 'Price',        num: true, money: true, filter: true },
+    { k: 'rate',        label: 'Rate',         num: true },
+    { k: 'commission',  label: 'Commission',   num: true, money: true }
+  ];
+
+  function cmMoney(n) { return '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  function cmPct(n) { return (Math.round((Number(n) || 0) * 1000) / 1000) + '%'; }
+  function cmRound2(n) { return Math.round((Number(n) || 0) * 100 + 1e-7) / 100; }   // mirrors cmRound2_
+  function cmThisMonth() { var d = new Date(); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2); }
+
+  // ── Sidebar ──
+  function cmSidebarHtml(c) {
+    vwCmReports = (c && c.reports) || [];
+    var h = '<div class="vw-sec">Commissions</div>'
+      + '<button type="button" class="vw-item" id="vwCmOpenItem" onclick="cmOpenDraft()">'
+      + '<span class="vw-item-month">Open report</span><span class="vw-item-sub">unpaid eligible lines in Billed</span></button>';
+    vwCmReports.forEach(function (r, i) {
+      h += '<button type="button" class="vw-item" data-cm-final="' + i + '" onclick="cmOpenFinal(' + i + ')">'
+        + '<span class="vw-item-month">' + escHtml(r.reportKey) + ' — finalized</span>'
+        + '<span class="vw-item-sub">' + escHtml(String(r.lineCount)) + ' lines · ' + escHtml(cmMoney(r.total)) + '</span></button>';
+    });
+    return h;
+  }
+  function cmRefreshSidebar(then) {
+    google.script.run.withSuccessHandler(function (res) {
+      var box = vwEl('vwCmSec');
+      if (box && res && res.ok && res.commissions) box.innerHTML = cmSidebarHtml(res.commissions);
+      if (then) then();
+    }).getViewerBootstrap();
+  }
+  function cmMarkActive(el) {
+    vwMarkActive(null);
+    if (el) el.classList.add('active');
+  }
+
+  // ── Open ──
+  function cmOpenDraft() {
+    cmMarkActive(vwEl('vwCmOpenItem'));
+    vwPayload = null;
+    var main = vwEl('vwMain');
+    main.innerHTML = '<p class="vw-hint">Pulling the Billed stage from Pipedrive…</p>';
+    google.script.run
+      .withSuccessHandler(function (res) { cmLoad(res, main); })
+      .withFailureHandler(function (e) { main.innerHTML = '<p class="vw-err">' + escHtml((e && e.message) || String(e)) + '</p>'; })
+      .getCommissionReport();
+  }
+  function cmOpenFinal(i) {
+    var r = vwCmReports[i]; if (!r) return;
+    cmMarkActive(document.querySelector('[data-cm-final="' + i + '"]'));
+    vwPayload = null;
+    var main = vwEl('vwMain');
+    main.innerHTML = '<p class="vw-hint">Loading ' + escHtml(r.reportKey) + '…</p>';
+    google.script.run
+      .withSuccessHandler(function (res) { cmLoad(res, main); })
+      .withFailureHandler(function (e) { main.innerHTML = '<p class="vw-err">' + escHtml((e && e.message) || String(e)) + '</p>'; })
+      .getFinalizedCommissionReport(r.reportKey);
+  }
+
+  function cmLoad(res, main) {
+    if (!res || !res.ok) { main.innerHTML = '<p class="vw-err">' + escHtml((res && res.error) || 'Could not load.') + '</p>'; return; }
+    try { cmState = JSON.parse(res.json); } catch (e) { cmState = null; main.innerHTML = '<p class="vw-err">Commission data could not be read.</p>'; return; }
+    cmView.filters = {}; cmView.owner = ''; cmPending = 0;
+    var m = cmState.meta || {}, fin = !!m.finalized;
+    var h = '<div class="vw-title">' + (fin ? 'Commissions — ' + escHtml(m.reportKey) + ' (finalized)' : 'Commissions — open report') + '</div>'
+      + '<div class="vw-toolbar"><div class="vw-pubinfo">'
+      + (fin ? 'Finalized ' + escHtml(m.finalizedAt || '') + (m.finalizedBy ? ' by ' + escHtml(m.finalizedBy) : '') + ' · read-only'
+             : 'Live from Pipedrive (' + escHtml(m.stageName || 'Billed') + ') · pulled ' + escHtml(m.generatedAt || '')
+               + '<button type="button" class="vw-refresh" onclick="cmOpenDraft()">&#8635; Refresh</button>')
+      + '</div></div>';
+    (cmState.warnings || []).forEach(function (w) { h += '<div class="cm-warn">' + escHtml(w) + '</div>'; });
+    if (!fin) h += '<div class="cm-note">Every eligible line in Billed that no finalized report has paid yet. Default '
+      + escHtml(cmPct(m.defaultRate)) + '; deals labelled Discounted default to ' + escHtml(cmPct(m.discountedRate))
+      + '. Rate changes save as a draft until the report is finalized.</div>';
+    h += '<div id="cmSummary" class="cm-summary"></div>' + cmFiltersHtml() + '<div id="cmTables"></div>';
+    if (!fin && m.canEdit) h += '<div class="cm-final" id="cmFinalBar">Finalize as month <input type="month" id="cmFinalKey" value="' + cmThisMonth() + '">'
+      + '<button type="button" class="cm-btn cm-btn-primary" id="cmFinalBtn" onclick="cmFinalize()">Finalize report…</button>'
+      + '<span class="vw-hint">Locks <b>all</b> lines (filters don’t apply). Finalized reports can’t be changed.</span></div>';
+    if (!fin) h += '<div class="cm-excl"><label class="vw-check"><input type="checkbox" id="cmShowExcl" onchange="cmToggleExcluded()"> Show excluded lines ('
+      + (cmState.excluded || []).length + ')</label><div id="cmExcluded"></div></div>';
+    main.innerHTML = h;
+    var root = vwEl('cmTables');
+    root.addEventListener('click', cmOnClick);
+    root.addEventListener('change', cmOnChange);
+    cmRenderTables();
+  }
+
+  // ── Filters / sort ──
+  function cmFiltersHtml() {
+    var lines = cmState.lines || [], owners = {};
+    lines.forEach(function (l) { owners[l.ownerName] = true; });
+    var h = '<div class="cm-filters"><label>Account manager<select id="cmOwner" onchange="cmView.owner=this.value;cmRenderTables()"><option value="">All</option>';
+    Object.keys(owners).sort().forEach(function (o) { h += '<option value="' + escHtml(o) + '">' + escHtml(o) + '</option>'; });
+    h += '</select></label>';
+    CM_COLS.forEach(function (c, ci) {
+      if (!c.filter) return;
+      var vals = {};
+      if (!c.num) lines.forEach(function (l) { if (l[c.k]) vals[l[c.k]] = true; });
+      h += '<label>' + escHtml(c.label) + '<input type="search" data-ci="' + ci + '" oninput="cmOnFilter(this)"'
+        + (c.num ? ' placeholder="e.g. >100 or 50-200"' : ' list="cmDl' + ci + '"') + '></label>';
+      if (!c.num) h += '<datalist id="cmDl' + ci + '">' + Object.keys(vals).sort().map(function (v) { return '<option value="' + escHtml(v) + '">'; }).join('') + '</datalist>';
+    });
+    return h + '<div class="cm-filter-actions"><button type="button" class="cm-btn" onclick="cmClearFilters()">Clear filters</button></div></div>';
+  }
+  function cmOnFilter(input) { cmView.filters[CM_COLS[Number(input.getAttribute('data-ci'))].k] = input.value; cmRenderTables(); }
+  function cmClearFilters() {
+    cmView.filters = {}; cmView.owner = '';
+    var inputs = document.querySelectorAll('.cm-filters input'); for (var i = 0; i < inputs.length; i++) inputs[i].value = '';
+    var o = vwEl('cmOwner'); if (o) o.value = '';
+    cmRenderTables();
+  }
+  /** Text columns: case-insensitive contains. Numeric: >N, >=N, <N, <=N, =N, A-B, else contains. */
+  function cmMatch(line, col, q) {
+    q = String(q || '').trim(); if (!q) return true;
+    var v = line[col.k];
+    if (col.num) {
+      var n = Number(v), clean = q.replace(/[$,\s]/g, ''), m;
+      if ((m = clean.match(/^(>=|<=|>|<|=)(-?\d*\.?\d+)$/))) {
+        var x = Number(m[2]);
+        return m[1] === '>' ? n > x : m[1] === '<' ? n < x : m[1] === '>=' ? n >= x : m[1] === '<=' ? n <= x : n === x;
+      }
+      if ((m = clean.match(/^(\d*\.?\d+)-(\d*\.?\d+)$/))) return n >= Number(m[1]) && n <= Number(m[2]);
+      return String(col.money ? n.toFixed(2) : v).indexOf(clean) !== -1;
+    }
+    return String(v == null ? '' : v).toLowerCase().indexOf(q.toLowerCase()) !== -1;
+  }
+  function cmVisible() {
+    var out = [];
+    (cmState.lines || []).forEach(function (l, i) {
+      if (cmView.owner && l.ownerName !== cmView.owner) return;
+      for (var c = 0; c < CM_COLS.length; c++) if (!cmMatch(l, CM_COLS[c], cmView.filters[CM_COLS[c].k])) return;
+      out.push(i);
+    });
+    var k = cmView.sortKey, dir = cmView.sortDir, num = CM_COLS.some(function (c) { return c.k === k && c.num; });
+    var L = cmState.lines;
+    out.sort(function (a, b) {
+      var x = L[a][k], y = L[b][k], r;
+      r = num ? (Number(x) - Number(y)) : String(x || '').localeCompare(String(y || ''), undefined, { sensitivity: 'base', numeric: true });
+      return (r * dir) || (L[a].dealId - L[b].dealId) || (L[a].lineId - L[b].lineId);
+    });
+    return out;
+  }
+
+  // ── Render ──
+  function cmRateCell(l, i, editable) {
+    var badge = l.rateSource === 'discounted' ? ' <span class="cm-pill cm-pill-disc">Discounted</span>'
+              : l.rateSource === 'manual' ? ' <span class="cm-pill cm-pill-man">Manual</span>' : '';
+    if (!editable) return '<div class="cm-rate">' + escHtml(cmPct(l.rate)) + badge + '</div>';
+    var presets = (cmState.meta.presets || []), isPreset = presets.indexOf(Number(l.rate)) !== -1;
+    var h = '<div class="cm-rate">' + badge;
+    if (l._custom || !isPreset) {
+      h += '<input type="number" min="0" max="100" step="0.25" data-act="rateNum" data-i="' + i + '" value="' + escHtml(String(l.rate)) + '" aria-label="Custom rate %">%';
+    } else {
+      h += '<select data-act="rate" data-i="' + i + '" aria-label="Commission rate">'
+        + presets.map(function (p) { return '<option value="' + p + '"' + (Number(l.rate) === p ? ' selected' : '') + '>' + escHtml(cmPct(p)) + '</option>'; }).join('')
+        + '<option value="custom">Custom…</option></select>';
+    }
+    if (l.rateSource === 'manual') h += '<button type="button" class="cm-reset" data-act="reset" data-i="' + i + '" title="Back to the default (' + escHtml(cmPct(l.defaultRate)) + ')">&#8634;</button>';
+    return h + '</div>';
+  }
+  function cmRenderTables() {
+    if (!cmState) return;
+    var m = cmState.meta || {}, editable = !m.finalized && !!m.canEdit, L = cmState.lines || [];
+    var vis = cmVisible(), groups = {}, order = [];
+    vis.forEach(function (i) { var o = L[i].ownerName; if (!groups[o]) { groups[o] = []; order.push(o); } groups[o].push(i); });
+    order.sort();
+    var tot = { lines: 0, price: 0, comm: 0 }, all = { price: 0, comm: 0 };
+    L.forEach(function (l) { all.price += l.price; all.comm += l.commission; });
+    var h = '';
+    if (!L.length) h = '<p class="vw-hint">' + (m.finalized ? 'This report has no lines.' : 'No unpaid commission-eligible lines are in the Billed stage right now.') + '</p>';
+    else if (!vis.length) h = '<p class="vw-hint">No lines match the filters.</p>';
+    order.forEach(function (o) {
+      var gp = 0, gc = 0;
+      groups[o].forEach(function (i) { gp += L[i].price; gc += L[i].commission; });
+      tot.lines += groups[o].length; tot.price += gp; tot.comm += gc;
+      h += '<div class="cm-owner"><h3>' + escHtml(o) + '</h3><span>' + groups[o].length + ' line' + (groups[o].length === 1 ? '' : 's')
+        + ' · ' + escHtml(cmMoney(gp)) + ' billed · <b>' + escHtml(cmMoney(gc)) + '</b> commission</span></div>'
+        + '<div class="cm-scroll"><table class="cm-table"><thead><tr>';
+      CM_COLS.forEach(function (c) {
+        var arrow = cmView.sortKey === c.k ? '<span class="cm-arrow">' + (cmView.sortDir > 0 ? '&#9650;' : '&#9660;') + '</span>' : '';
+        h += '<th data-sort="' + c.k + '"' + (c.num ? ' class="num"' : '') + '>' + escHtml(c.label) + arrow + '</th>';
+      });
+      h += '</tr></thead><tbody>';
+      groups[o].forEach(function (i) {
+        var l = L[i];
+        h += '<tr><td>' + (m.dealBaseUrl ? '<a href="' + escHtml(m.dealBaseUrl + l.dealId) + '" target="_blank" rel="noopener">' + escHtml(String(l.dealId)) + '</a>' : escHtml(String(l.dealId))) + '</td>'
+          + '<td>' + escHtml(l.dealTitle) + '</td><td>' + escHtml(l.productName) + '</td><td>' + escHtml(l.customer) + '</td>'
+          + '<td>' + escHtml(l.productCode) + '</td><td>' + escHtml(l.category) + '</td>'
+          + '<td class="num">' + escHtml(String(l.qty)) + '</td><td class="num">' + escHtml(cmMoney(l.price)) + '</td>'
+          + '<td class="num">' + cmRateCell(l, i, editable) + '</td><td class="num">' + escHtml(cmMoney(l.commission)) + '</td></tr>';
+      });
+      h += '</tbody><tfoot><tr><td colspan="7">Subtotal</td><td class="num">' + escHtml(cmMoney(gp)) + '</td><td></td><td class="num">' + escHtml(cmMoney(gc)) + '</td></tr></tfoot></table></div>';
+    });
+    vwEl('cmTables').innerHTML = h;
+    var filtered = vis.length !== L.length;
+    vwEl('cmSummary').innerHTML =
+        '<div class="cm-chip">Lines<b>' + (filtered ? tot.lines + ' of ' : '') + L.length + '</b></div>'
+      + '<div class="cm-chip">Account managers<b>' + order.length + '</b></div>'
+      + '<div class="cm-chip">Billed (pre-tax)<b>' + escHtml(cmMoney(filtered ? tot.price : all.price)) + '</b></div>'
+      + '<div class="cm-chip">Commission' + (filtered ? ' (filtered)' : '') + '<b>' + escHtml(cmMoney(filtered ? tot.comm : all.comm)) + '</b></div>';
+    var fb = vwEl('cmFinalBtn'); if (fb) fb.disabled = !L.length || cmPending > 0;
+  }
+  function cmToggleExcluded() {
+    var box = vwEl('cmExcluded'), on = vwEl('cmShowExcl').checked, X = cmState.excluded || [];
+    if (!on) { box.innerHTML = ''; return; }
+    if (!X.length) { box.innerHTML = '<p class="vw-hint">Nothing was excluded.</p>'; return; }
+    var h = '<div class="cm-scroll" style="margin-top:8px"><table class="cm-table"><thead><tr><th>Deal ID</th><th>Deal Name</th><th>Account manager</th><th>Product Name</th><th>Product Code</th><th class="num">Price</th><th>Why excluded</th></tr></thead><tbody>';
+    X.forEach(function (x) {
+      h += '<tr><td>' + escHtml(String(x.dealId)) + '</td><td>' + escHtml(x.dealTitle) + '</td><td>' + escHtml(x.ownerName) + '</td><td>' + escHtml(x.productName)
+        + '</td><td>' + escHtml(x.productCode) + '</td><td class="num">' + escHtml(cmMoney(x.price)) + '</td><td class="cm-reason">' + escHtml(x.reasonText) + '</td></tr>';
+    });
+    box.innerHTML = h + '</tbody></table></div>';
+  }
+
+  // ── Interaction (delegated on #cmTables) ──
+  function cmOnClick(e) {
+    var th = e.target.closest && e.target.closest('th[data-sort]');
+    if (th) {
+      var k = th.getAttribute('data-sort');
+      if (cmView.sortKey === k) cmView.sortDir = -cmView.sortDir; else { cmView.sortKey = k; cmView.sortDir = 1; }
+      cmRenderTables(); return;
+    }
+    var btn = e.target.closest && e.target.closest('[data-act="reset"]');
+    if (btn) cmSetRate(Number(btn.getAttribute('data-i')), null);
+  }
+  function cmOnChange(e) {
+    var el = e.target, act = el.getAttribute('data-act'), i = Number(el.getAttribute('data-i'));
+    if (act === 'rate') {
+      if (el.value === 'custom') { cmState.lines[i]._custom = true; cmRenderTables(); var n = document.querySelector('[data-act="rateNum"][data-i="' + i + '"]'); if (n) n.focus(); return; }
+      cmSetRate(i, Number(el.value));
+    } else if (act === 'rateNum') {
+      var v = Number(el.value);
+      if (el.value === '' || isNaN(v) || v < 0 || v > 100) { alert('Rate must be a number from 0 to 100.'); cmRenderTables(); return; }
+      cmSetRate(i, v);
+    }
+  }
+  /** Optimistic local update, then the draft save; reverts on failure. rate null = back to default. */
+  function cmSetRate(i, rate) {
+    var l = cmState.lines[i]; if (!l) return;
+    var prev = { rate: l.rate, rateSource: l.rateSource, commission: l.commission, _custom: l._custom };
+    if (rate === null) { l.rate = l.defaultRate; l.rateSource = l.discounted ? 'discounted' : 'default'; l._custom = false; }
+    else { l.rate = rate; l.rateSource = 'manual'; }
+    l.commission = cmRound2(l.price * l.rate / 100);
+    cmPending++; cmRenderTables();
+    google.script.run
+      .withSuccessHandler(function (res) {
+        cmPending--;
+        if (!res || !res.ok) { Object.keys(prev).forEach(function (k) { l[k] = prev[k]; }); alert((res && res.error) || 'Could not save the rate.'); }
+        cmRenderTables();
+      })
+      .withFailureHandler(function (err) {
+        cmPending--; Object.keys(prev).forEach(function (k) { l[k] = prev[k]; });
+        alert((err && err.message) || String(err)); cmRenderTables();
+      })
+      .saveCommissionRate(l.lineId, rate);
+  }
+
+  function cmFinalize() {
+    var key = (vwEl('cmFinalKey').value || '').trim(), L = cmState.lines || [];
+    if (!/^\d{4}-\d{2}$/.test(key)) { alert('Pick the month this report is for.'); return; }
+    if (cmPending) { alert('A rate change is still saving — try again in a moment.'); return; }
+    var total = 0; L.forEach(function (l) { total += l.commission; });
+    if (!confirm('Finalize ' + L.length + ' lines (' + cmMoney(total) + ' commission) as ' + key + '?\n\nThis locks the report permanently and these lines can never be paid again.')) return;
+    var btn = vwEl('cmFinalBtn'); btn.disabled = true; btn.textContent = 'Finalizing…';
+    var seen = L.map(function (l) { return [l.lineId, l.rate, l.price]; });
+    google.script.run
+      .withSuccessHandler(function (res) {
+        if (!res || !res.ok) {
+          btn.disabled = false; btn.textContent = 'Finalize report…';
+          alert((res && res.error) || 'Finalize failed.');
+          if (res && res.stale) cmOpenDraft();
+          return;
+        }
+        cmRefreshSidebar(function () {
+          var idx = -1; vwCmReports.forEach(function (r, i) { if (r.reportKey === res.reportKey) idx = i; });
+          if (idx >= 0) cmOpenFinal(idx); else cmOpenDraft();
+        });
+      })
+      .withFailureHandler(function (err) { btn.disabled = false; btn.textContent = 'Finalize report…'; alert((err && err.message) || String(err)); })
+      .finalizeCommissionReport(key, seen);
+  }
+</script>

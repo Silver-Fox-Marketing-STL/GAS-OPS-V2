@@ -12,8 +12,12 @@
  *  - Deployed executeAs USER_DEPLOYING (runs as the OWNER) + access DOMAIN. So
  *    the owner's Drive/Sheets auth reads the data; any signed-in domain user can
  *    open it — and can invoke ANY public (non-underscore) function here with the
- *    owner's authority. Therefore the public surface is EXACTLY FOUR functions:
- *    doGet, getViewerBootstrap, getReportJson, getCurrentReport. Everything else
+ *    owner's authority. Therefore the public surface is EXACTLY these functions:
+ *    doGet, getViewerBootstrap, getReportJson, getCurrentReport — plus the
+ *    commission tracker's four in Commission.gs (getCommissionReport,
+ *    saveCommissionRate, finalizeCommissionReport, getFinalizedCommissionReport:
+ *    the FIRST endpoints here that WRITE — the COMMISSIONS ledger tab + draft
+ *    rates — gated by COMMISSION_EDITORS). Everything else
  *    is `_`-suffixed. The archive endpoints expose PUBLISHED rows only and NEVER
  *    return file ids or Drive/spreadsheet URLs (those are owner-only artifacts).
  *    getCurrentReport is a READ-ONLY Pipedrive pull (GETs only) of the EOM Merge
@@ -100,8 +104,9 @@ function openIndex_() {
 function getViewerBootstrap() {
   if (!viewerAllowed_()) return { ok: false, error: 'Not authorized.' };
   var current = !!cvSecrets_();
+  var commissions = cmBootstrap_();   // Commission.gs — {enabled, reports}
   var sh = openIndex_();
-  if (!sh) return { ok: true, reports: [], current: current };
+  if (!sh) return { ok: true, reports: [], current: current, commissions: commissions };
   var data = sh.getDataRange().getValues(), out = [];
   for (var i = 1; i < data.length; i++) {
     var r = data[i];
@@ -113,7 +118,7 @@ function getViewerBootstrap() {
     });
   }
   out.sort(function (a, b) { return a.monthKey < b.monthKey ? 1 : a.monthKey > b.monthKey ? -1 : 0; });
-  return { ok: true, reports: out, current: current };
+  return { ok: true, reports: out, current: current, commissions: commissions };
 }
 
 /** The PUBLISHED snapshot for a month (matched by month_key or month_label), as a
@@ -174,7 +179,7 @@ function cvSecrets_() {
 
 /** GET a url -> parsed body, or null on any error (never throws). */
 function cvGetJson_(url) {
-  if (ENV.name !== 'prod') return cvFakeJson_(url);   // DEV: in-process fake, zero API traffic (PdFake.gs)
+  if (ENV.name !== 'prod') return cvFakeJson_(url);   // DEV: in-process fake, zero API traffic (PdFake.gs + CommissionFake.gs)
   try {
     var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
     if (resp.getResponseCode() !== 200) return null;
@@ -191,7 +196,7 @@ function cvFakeJson_(url) {
   var m = String(url || '').match(/\/api\/(v1|v2)(\/[^#]*)$/);
   if (!m) return null;
   var path = m[2].replace(/([?&])api_token=[^&]*&?/, '$1').replace(/[?&]$/, '');
-  var r = pdFakeFetch_('get', path, null, { version: m[1] });
+  var r = cmFakeFetch_('get', path, null, { version: m[1] });   // commission fixtures first, then the shared fake
   if (!r || !r.ok) return null;
   return { success: true, data: r.data, additional_data: r.additional || {} };
 }
@@ -251,7 +256,7 @@ function pdRelId_(v) {
  *  cvBuildContext_ resolves the catalog side. Never throws — a failed deal yields
  *  an empty product list. */
 function cvFetchProductsForDeals_(s, dealIds) {
-  if (ENV.name !== 'prod') return pdFakeEomProducts_(dealIds);   // DEV: in-process fake (PdFake.gs) — mirrors pdEomFetchProductsForDeals_
+  if (ENV.name !== 'prod') return cmFakeDealProducts_(dealIds);   // DEV: commission fixtures, else the shared fake's pdFakeEomProducts_
   var out = {};
   var requests = dealIds.map(function (id) {
     return {

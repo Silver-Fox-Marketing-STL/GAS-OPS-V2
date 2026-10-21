@@ -177,6 +177,8 @@
   <!-- Shared report renderer (BYTE-COPY of the main app's EomReportRenderer.html;
        brings both its CSS and eomrRenderReport). Keep the two files identical. -->
   <?!= include_('EomReportRenderer') ?>
+  <!-- Commission tracker (prototype) — cm* view; server side in Commission.gs. -->
+  <?!= include_('CommissionView') ?>
   <style>
     body { margin: 0; font-family: var(--font-body, Arial, Helvetica, sans-serif); background: var(--bg); color: var(--text); }
     .vw-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; background: var(--surface-2); color: var(--text); border-bottom: 1px solid var(--border); padding: 12px 20px; }
@@ -402,9 +404,12 @@
         html += '<div class="vw-sec">Current</div>'
           + '<button type="button" class="vw-item" id="vwCurItem" onclick="vwOpenCurrent()">'
           + '<span class="vw-item-month">EOM Merge — live</span>'
-          + '<span class="vw-item-sub">the stage as it is right now</span></button>'
-          + '<div class="vw-sec">Published</div>';
+          + '<span class="vw-item-sub">the stage as it is right now</span></button>';
       }
+      // Commission tracker (CommissionView.html) — its own container so a finalize
+      // can refresh just this section without re-opening a month.
+      if (res.commissions && res.commissions.enabled) html += '<div id="vwCmSec">' + cmSidebarHtml(res.commissions) + '</div>';
+      if (res.current || (res.commissions && res.commissions.enabled)) html += '<div class="vw-sec">Published</div>';
       if (!vwReports.length) {
         vwEl('vwList').innerHTML = html + '<p class="vw-hint">No published reports yet.</p>';
         vwEl('vwMain').innerHTML = '<p class="vw-hint">Nothing published yet — check back once a report has been finalized.</p>';
@@ -421,7 +426,10 @@
     }
 
     // Marks one sidebar item active: a month index, 'current', or null (none).
+    // Commission items are cleared here too; cmMarkActive sets its own.
     function vwMarkActive(which) {
+      var cms = document.querySelectorAll('#vwCmSec .vw-item');
+      for (var c = 0; c < cms.length; c++) cms[c].classList.remove('active');
       var cur = vwEl('vwCurItem');
       if (cur) cur.classList.toggle('active', which === 'current');
       var items = document.querySelectorAll('#vwMonths .vw-item');
