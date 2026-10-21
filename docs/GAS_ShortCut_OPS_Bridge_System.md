@@ -1672,11 +1672,11 @@ so what the invoice team sees changes only on a deliberate re-finalize.
   the viewer's own `ENV_IDS` (PROD → `SF_EOM_REPORTS`, DEV "DEV_SF EOM Report Viewer"
   → `DEV_SF_EOM_REPORTS_INDEX`; unregistered id throws). `eom-viewer/.clasp.json` is
   the DEV twin (default push), `eom-viewer/.clasp.prod.json` the PROD viewer
-  (Nick-only, swapped in by hand; `eom-viewer/.claspignore` keeps it out of pushes).
-  `clasp push` from inside `eom-viewer/`, then bump the environment's existing
-  versioned deployment (DEV: "Dev EOM Viewer Deploy"; PROD: the invoice team's
-  pinned `/exec`) via *edit deployment → new version* to keep the URL (never "New
-  deployment"). Off prod the viewer runs the **same in-process Pipedrive fake** as
+  (reached ONLY via **`scripts/promote-eom-viewer.ps1`**, Nick-run, promote.ps1
+  gates; `eom-viewer/.claspignore` keeps it out of pushes). DEV: `clasp push` from
+  inside `eom-viewer/`, then bump "Dev EOM Viewer Deploy"; PROD: the promote
+  script pushes and bumps the invoice team's pinned `/exec` deployment (same id =
+  same URL; never "New deployment"). Off prod the viewer runs the **same in-process Pipedrive fake** as
   the main app (`eom-viewer/PdFake.gs`, a harness-guarded byte-copy of the root
   file): `cvSecrets_` returns a fake settings object (no token in any dev project),
   `cvGetJson_` → `cvFakeJson_` → `pdFakeFetch_`, deal products →

@@ -11,6 +11,13 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Added
+- **`scripts/promote-eom-viewer.ps1`** (2026-10-21) — guarded, Nick-run PROD deploy for the
+  standalone viewer, modeled on `promote-lot-scan.ps1` plus the Node harness gate (the
+  harness now guards the viewer directly). Gates: main / clean tree / synced with
+  origin / green harness / typed `PROMOTE`. Swaps `eom-viewer/.clasp.prod.json` in,
+  `clasp push -f`, bumps the invoice team's existing `/exec` deployment to a new version
+  (same URL), and delete-then-restores `.clasp.json` to the DEV twin. The ONLY path to
+  the prod viewer; `clasp push` from inside `eom-viewer/` always targets DEV.
 - **`eom-viewer/` DEV twin** (2026-10-21). A second standalone Apps Script project,
   "DEV_SF EOM Report Viewer", so the viewer can be pushed and exercised without touching
   the invoice team's production `/exec`. `eom-viewer/.clasp.json` now targets the DEV

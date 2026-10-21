@@ -168,9 +168,12 @@ DEV's HEAD, which stays the test bed for the next promote.
 - **eom-viewer/** mirrors the same model (dev twin minted 2026-10-21):
   `eom-viewer/.clasp.json` → DEV viewer scriptId (default `clasp push` from
   inside `eom-viewer/` is safe), `eom-viewer/.clasp.prod.json` → PROD viewer,
-  Nick-only (no promote script yet — swap the file in by hand, push, bump the
-  existing prod deployment's version, swap back; verify with `git hash-object`
-  vs `HEAD:` — a same-size copy can fool `git status`). `eom-viewer/.claspignore`
+  reached ONLY via **`scripts/promote-eom-viewer.ps1`** (Nick-run; same gates as
+  `promote.ps1`: main / clean / synced / green harness / typed PROMOTE; swaps the
+  prod target in, pushes, bumps the invoice team's existing `/exec` deployment
+  `AKfycby7zl3kavPEXArOp0lnSiEnW450R_jQThspSkhIUvUEDl4GaZ46DSNkYSVzMyXtoPitIQ`,
+  and delete-then-restores `.clasp.json` — the same-size-copy stat-cache trap).
+  `eom-viewer/.claspignore`
   keeps `.clasp.prod.json` out of pushes. The viewer's `ENV_IDS` resolver
   (eom-viewer/Code.gs, same scriptId-keyed idiom) routes dev to
   DEV_SF_EOM_REPORTS_INDEX and prod to SF_EOM_REPORTS; an unregistered scriptId
