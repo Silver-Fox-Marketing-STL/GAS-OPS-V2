@@ -12,14 +12,18 @@
 // environment off the scriptId, so a prod execution can never take the fake
 // branch).
 //
-// Fixture shapes mirror LIVE-CONFIRMED responses (see brain
-// 03-Resources/pipedrive/integration-notes.md and docs/LEARNINGS.md):
+// Fixture shapes mirror the Pipedrive API **v2** responses the code consumes
+// since the Oct 2026 migration (see brain 03-Resources/pipedrive/integration-notes.md
+// and docs/LEARNINGS.md):
 //   - envelope matches pdFetch_'s {ok, status, data, additional, raw} and
 //     NEVER throws (unmatched paths log + return ok/null, mirroring the
 //     never-throw contract);
-//   - v1 relation fields (org_id/person_id/user_id) are {name, value} objects;
-//   - v2 products carry is_linkable + custom_fields; variations are v2-only,
-//     per product; deal custom fields are TOP-LEVEL 40-char keys.
+//   - v2 deals: relation fields (org_id/person_id/owner_id) are PLAIN ids,
+//     custom fields live under `custom_fields`, times are RFC 3339;
+//   - v2 deal products carry name/price/qty/tax but NO embedded `product`
+//     (eomBuildContext_ resolves code/description/tax via /products?ids=);
+//   - v2 products carry is_linkable + custom_fields; variations are per product;
+//   - the only v1 routes left are the field-definition lists, /users, /files.
 // Only the fields real callers consume are provided — this is not a full API.
 //
 // Fake deal ids: incrementing ScriptProperties counter seeded at 900000 so a
@@ -61,6 +65,8 @@ var PD_FAKE_ORGS = [
   { id: 501, name: 'FAKE Sandbox Motors' },
   { id: 502, name: 'FAKE Dev Auto Group' }
 ];
+var PD_FAKE_PERSONS = [{ id: 601, name: 'FAKE Pat Example' }];
+var PD_FAKE_USERS   = [{ id: 701, name: 'FAKE Dev User', email: 'dev@example.com' }];
 
 // ── Per-execution state ─────────────────────────────────────────────────────
 // Deals created / line items attached DURING one execution read back correctly
@@ -88,7 +94,7 @@ function pdFakeOk_(data, additional) {
            additional: additional || null, raw: null };
 }
 
-/** A canned deal. v1 relation fields are {name,value} objects (live-confirmed shape). */
+/** A canned deal in the v2 shape: plain relation ids, custom_fields object, RFC 3339 times. */
 function pdFakeDeal_(id, extra) {
   var d = {
     id: Number(id),
@@ -96,14 +102,38 @@ function pdFakeDeal_(id, extra) {
     status: 'open',
     value: 610, currency: 'USD',
     pipeline_id: pdFakeEomPipelineId_(), stage_id: 44,
-    add_time: '2026-07-01 09:00:00',
-    org_id:    { name: PD_FAKE_ORGS[0].name, value: PD_FAKE_ORGS[0].id },
-    person_id: { name: 'FAKE Pat Example',   value: 601 },
-    user_id:   { name: 'FAKE Dev User',      value: 701 }
+    add_time: '2026-07-01T09:00:00Z',
+    org_id:    PD_FAKE_ORGS[0].id,
+    person_id: PD_FAKE_PERSONS[0].id,
+    owner_id:  PD_FAKE_USERS[0].id,
+    custom_fields: {}
   };
-  d[PD_FAKE_DUP_FIELD_KEY] = 1;   // "Duplicates" custom field (top-level 40-char key, v1)
-  if (extra) for (var k in extra) if (Object.prototype.hasOwnProperty.call(extra, k)) d[k] = extra[k];
+  d.custom_fields[PD_FAKE_DUP_FIELD_KEY] = 1;   // "Duplicates" custom field (v2: under custom_fields)
+  if (extra) for (var k in extra) if (Object.prototype.hasOwnProperty.call(extra, k)) {
+    if (k === 'custom_fields' && extra[k] && typeof extra[k] === 'object') {
+      for (var ck in extra[k]) if (Object.prototype.hasOwnProperty.call(extra[k], ck)) d.custom_fields[ck] = extra[k][ck];
+    } else d[k] = extra[k];
+  }
   return d;
+}
+
+/** Applies a v2 PATCH/POST payload onto a fake deal: custom_fields merge, the rest overwrite. */
+function pdFakeApplyDealPayload_(deal, payload) {
+  for (var k in (payload || {})) if (Object.prototype.hasOwnProperty.call(payload, k)) {
+    if (k === 'custom_fields' && payload[k] && typeof payload[k] === 'object') {
+      deal.custom_fields = deal.custom_fields || {};
+      for (var ck in payload[k]) if (Object.prototype.hasOwnProperty.call(payload[k], ck)) deal.custom_fields[ck] = payload[k][ck];
+    } else deal[k] = payload[k];
+  }
+  return deal;
+}
+
+/** Keeps only the entities whose id is in a `?ids=` list (no list → everything). */
+function pdFakeFilterIds_(list, idsCsv) {
+  if (!idsCsv) return list;
+  var want = {};
+  String(idsCsv).split(',').forEach(function (s) { if (s.trim()) want[String(Number(s.trim()))] = true; });
+  return list.filter(function (x) { return want[String(x.id)]; });
 }
 
 /** EOM billing pipeline id — the configured one so eomListDeals_ filter matches. */
@@ -144,7 +174,8 @@ function pdFakeCatalogProducts_(isV2) {
     }
   } catch (e) { /* fail-safe: canned catalog only */ }
   return out.map(function (p) {
-    var shaped = { id: p.id, name: p.name, code: p.code, tax: p.tax, prices: p.prices };
+    var shaped = { id: p.id, name: p.name, code: p.code, tax: p.tax, prices: p.prices,
+                   description: 'Fake dev catalog product ' + p.code };
     if (isV2) { shaped.is_linkable = p.inactive !== true; shaped.custom_fields = {}; }
     else      { shaped.selectable = p.inactive !== true; shaped.active_flag = p.inactive !== true; }
     return shaped;
@@ -176,7 +207,7 @@ function pdFakeFetch_(method, path, payload, opts) {
   });
   var m, s = pdFakeState_();
 
-  // ── Deals ──
+  // ── Deals (v2) ──
   if (method === 'post' && p === '/deals') {
     var newId = pdFakeNextDealId_();
     var deal = pdFakeDeal_(newId, payload || {});
@@ -190,6 +221,7 @@ function pdFakeFetch_(method, path, payload, opts) {
     for (var i = 0; i < lines.length; i++) {
       if (String(lines[i].id) === String(m[2])) {
         for (var k in (payload || {})) if (Object.prototype.hasOwnProperty.call(payload, k)) lines[i][k] = payload[k];
+        lines[i].update_time = '2026-07-01T09:10:00Z';
         return pdFakeOk_(lines[i]);
       }
     }
@@ -198,9 +230,14 @@ function pdFakeFetch_(method, path, payload, opts) {
   m = p.match(/^\/deals\/([^\/]+)\/products$/);
   if (m) {
     if (method === 'post') {
-      var attach = { id: s.nextAttach++, deal_id: Number(m[1]) };
+      var attach = { id: s.nextAttach++, deal_id: Number(m[1]), product_variation_id: null, comments: '',
+                     add_time: '2026-07-01T09:00:00Z', update_time: '2026-07-01T09:00:00Z' };
       for (var k2 in (payload || {})) if (Object.prototype.hasOwnProperty.call(payload, k2)) attach[k2] = payload[k2];
       attach.sum = (Number(attach.item_price) || 0) * (Number(attach.quantity) || 0);
+      if (!attach.name) {                       // v2 lines carry the product name snapshot
+        var cat = pdFakeCatalogProducts_(true).filter(function (c) { return String(c.id) === String(attach.product_id); })[0];
+        attach.name = cat ? cat.name : ('FAKE Product #' + attach.product_id);
+      }
       pdFakeDealProductsOf_(m[1]).push(attach);
       return pdFakeOk_(attach);
     }
@@ -211,25 +248,24 @@ function pdFakeFetch_(method, path, payload, opts) {
     var key = String(m[1]);
     if (method === 'put' || method === 'patch') {
       var cur = s.deals[key] || pdFakeDeal_(m[1]);
-      for (var k3 in (payload || {})) if (Object.prototype.hasOwnProperty.call(payload, k3)) cur[k3] = payload[k3];
-      s.deals[key] = cur;
+      s.deals[key] = pdFakeApplyDealPayload_(cur, payload);
       return pdFakeOk_(cur);
     }
     return pdFakeOk_(s.deals[key] || pdFakeDeal_(m[1]));
   }
   if (method === 'get' && p === '/deals') {
-    // EOM lists: ?status=open (full billing, filtered by pipeline_id) or
-    // ?stage_id=N&status=all_not_deleted. Canned deals adopt the requested stage.
+    // EOM lists (v2): ?status=open&pipeline_id=N (full billing) or ?stage_id=N (every
+    // not-deleted deal in the stage). Canned deals adopt the requested stage.
     var stage = parseInt(qs.stage_id, 10); if (isNaN(stage)) stage = 44;
     return pdFakeOk_([
       pdFakeDeal_(900101, { title: 'FAKE Deal — Sandbox Motors',   stage_id: stage }),
       pdFakeDeal_(900102, { title: 'FAKE Deal — Dev Auto Group',   stage_id: stage,
-                            org_id: { name: PD_FAKE_ORGS[1].name, value: PD_FAKE_ORGS[1].id }, value: 305 }),
+                            org_id: PD_FAKE_ORGS[1].id, value: 305 }),
       pdFakeDeal_(900103, { title: 'FAKE Deal — Sandbox Motors 2', stage_id: stage, value: 122 })
     ]);
   }
 
-  // ── Organizations ──
+  // ── Organizations / persons / users ──
   if (method === 'get' && p === '/organizations/search') {
     return pdFakeOk_({ items: PD_FAKE_ORGS.map(function (o) { return { item: { id: o.id, name: o.name } }; }) });
   }
@@ -240,9 +276,9 @@ function pdFakeFetch_(method, path, payload, opts) {
     return pdFakeOk_({ id: Number(m[1]) || m[1], name: 'FAKE Org #' + m[1], custom_fields: {} });
   }
   if (method === 'get' && p === '/organizations') {
-    // v2 list with ?custom_fields= (print schedule): attach each org's day set.
+    // v2 list: ?ids= (EOM name resolution) and/or ?custom_fields= (print schedule → day sets).
     var withCf = String(qs.custom_fields || '').indexOf(PD_FAKE_SCHED_FIELD_KEY) !== -1;
-    return pdFakeOk_(PD_FAKE_ORGS.map(function (o) {
+    return pdFakeOk_(pdFakeFilterIds_(PD_FAKE_ORGS, qs.ids).map(function (o) {
       var org = { id: o.id, name: o.name };
       if (withCf) {
         org.custom_fields = {};
@@ -250,6 +286,12 @@ function pdFakeFetch_(method, path, payload, opts) {
       }
       return org;
     }));
+  }
+  if (method === 'get' && p === '/persons') {
+    return pdFakeOk_(pdFakeFilterIds_(PD_FAKE_PERSONS, qs.ids).map(function (x) { return { id: x.id, name: x.name }; }));
+  }
+  if (method === 'get' && p === '/users') {   // v1 — deal owners (users have no v2 endpoint)
+    return pdFakeOk_(PD_FAKE_USERS.map(function (u) { return { id: u.id, name: u.name, email: u.email }; }));
   }
 
   // ── Products / fields ──
@@ -262,7 +304,9 @@ function pdFakeFetch_(method, path, payload, opts) {
     ]);
   }
   if (method === 'get' && p === '/products') {
-    return pdFakeOk_(pdFakeCatalogProducts_(!!(opts && opts.version === 'v2')));
+    // v2 by default (pdFetch_'s default base); only an explicit version:'v1' gets the legacy flags.
+    var isV1 = !!(opts && opts.version === 'v1');
+    return pdFakeOk_(pdFakeFilterIds_(pdFakeCatalogProducts_(!isV1), qs.ids));
   }
   if (method === 'get' && p === '/productFields') {
     return pdFakeOk_([{ key: PD_FAKE_ORG_FIELD_KEY, name: 'Customer', field_type: 'org' }]);
@@ -314,29 +358,30 @@ function pdFakeFetch_(method, path, payload, opts) {
 }
 
 /**
- * Fake pdEomFetchProductsForDeals_: {dealId: [dealProduct, ...]} with exactly
- * the fields eomBuildRows_ reads (incl. the embedded `product` catalog object
- * from include_product_data=1). Line items attached this execution are included.
+ * Fake pdEomFetchProductsForDeals_: {dealId: [dealProduct, ...]} in the v2
+ * deal-product shape (name/price/qty/tax/variation id, update_time, NO embedded
+ * `product` — eomBuildContext_ resolves code/description/tax through the fake
+ * /products?ids= route and the variation name through /products/{id}/variations).
+ * Line items attached this execution are included.
  */
 function pdFakeEomProducts_(dealIds) {
   var out = {};
   (dealIds || []).forEach(function (id, i) {
     var qty = 10 + i;
     out[id] = pdFakeDealProductsOf_(id).slice().concat([{
-      id: 80001 + i, product_id: 9001, name: 'FAKE Shortcut Pack',
-      item_price: 61, quantity: qty, sum: 61 * qty, tax: 9.679, discount: 0,
-      billing_frequency: null, billing_start_date: null,
-      comments: 'FAKE line item', add_time: '2026-07-01 09:00:00', last_edit: '',
-      product_variation_id: null,
-      product: { id: 9001, code: 'FAKE-SC', description: 'Fake dev catalog product',
-                 tax: 9.679, product_variations: [{ id: 9001001, name: 'FAKE Standard' }] }
+      id: 80001 + i, deal_id: Number(id), product_id: 9001, name: 'FAKE Shortcut Pack',
+      item_price: 61, quantity: qty, sum: 61 * qty, tax: 9.679, tax_method: 'exclusive', discount: 0,
+      discount_type: 'percentage', currency: 'USD', is_enabled: true,
+      billing_frequency: 'one-time', billing_frequency_cycles: null, billing_start_date: null,
+      comments: 'FAKE line item', add_time: '2026-07-01T09:00:00Z', update_time: '2026-07-01T09:00:00Z',
+      product_variation_id: 9001001
     }, {
-      id: 80501 + i, product_id: 9002, name: 'FAKE Design',
-      item_price: 85, quantity: 1, sum: 85, tax: 0, discount: 0,
-      billing_frequency: null, billing_start_date: null,
-      comments: '', add_time: '2026-07-01 09:05:00', last_edit: '',
-      product_variation_id: null,
-      product: { id: 9002, code: 'FAKE-DS', description: '', tax: 0, product_variations: [] }
+      id: 80501 + i, deal_id: Number(id), product_id: 9002, name: 'FAKE Design',
+      item_price: 85, quantity: 1, sum: 85, tax: 0, tax_method: 'exclusive', discount: 0,
+      discount_type: 'percentage', currency: 'USD', is_enabled: true,
+      billing_frequency: 'one-time', billing_frequency_cycles: null, billing_start_date: null,
+      comments: '', add_time: '2026-07-01T09:05:00Z', update_time: '2026-07-01T09:05:00Z',
+      product_variation_id: null
     }]);
   });
   return out;

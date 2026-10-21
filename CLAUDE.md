@@ -180,6 +180,10 @@ previously-hit failure — don't relax without reading the matching Bridge secti
   `refreshDashboard_`) are non-fatal try/catch — keep it that way.
 
 **Pipedrive** (v2.12; activates per dealer once live config is filled in)
+- **API v2 is the default base** (Oct 2026 — v1 deals/orgs/persons/products/
+  pipelines/stages/search went out of support 2026-08-01). `pdFetch_` only takes
+  `version:'v1'` for the endpoints with no v2 twin: `/dealFields` `/productFields`
+  `/organizationFields` `/users` `/users/me` `/files`. Never add a v1 entity call.
 - Persist every mapping by stable id/key (product/variation/org ids, 40-char field
   keys, enum option ids, numeric deal ids); names are display-only (rename-safe).
   Secrets (`PD_API_TOKEN` etc.) live in ScriptProperties only — never repo/sheet.
@@ -254,12 +258,18 @@ when working with `*.html`).
 **Pipedrive API**
 - Coerce numeric ids to `Number` on writes — BY TYPE, never blanket (string ids
   create the deal fine, then product-attach/field-set silently fail).
-- v1 deal custom fields are TOP-LEVEL 40-char hash keys (+ `<key>_currency` for
-  monetary) — the `{custom_fields:{…}}` wrapper is v2-only and silently no-ops.
+- v2 deal custom fields live under `custom_fields` on read AND write, in v2 value
+  shapes: monetary `{value,currency}`, enum = option id, set = `[ids]`
+  (`pdSetDealField_` + `pdDealPatchBody_`). The flat top-level `<key>` +
+  `<key>_currency` form was v1 — sending it to v2 silently no-ops.
+- v2 relation fields (`org_id`/`person_id`/`owner_id`) are PLAIN ids and a deal
+  product has NO embedded `product` — names/catalog come from batched `?ids=`
+  reads (`eomBuildContext_`), never per-row GETs. `pdRelId_` tolerates both shapes.
 - Never guess a v2 shape from v1 or the docs — confirm live: v2 omits `success`;
-  deactivated = `is_linkable:false` (not `is_deleted`); variations are v2-only,
-  fetched per product; v1 GET under-reports line tax (verify via deal total or v2).
-- Line-item update = `PUT` with the deal-product ATTACHMENT id, not `product_id`.
+  deactivated = `is_linkable:false` (not `is_deleted`); variations are fetched per
+  product; v1 GET under-reported line tax (v2 reports it correctly).
+- Line-item update = `PATCH` with the deal-product ATTACHMENT id, not `product_id`
+  (v2 updates are PATCH everywhere; PUT was v1).
 - Values a third-party automation owns: poll for the row, then set ONLY-IF-EMPTY;
   when the current value can't be read, skip — never overwrite.
 

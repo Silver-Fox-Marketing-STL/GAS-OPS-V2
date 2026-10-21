@@ -1220,6 +1220,190 @@ t('resolve: sold vehicle keeps its history with no vehicle data', function () {
   assert.strictEqual(res.history.SOLDVIN[0].order, '9');
 });
 
+// ============================================================================
+// Suite: pipedrive api v2 — the Oct 2026 migration off the out-of-support v1
+// endpoints. Pins the v2 WRITE shapes (monetary {value,currency}, enum id,
+// set [ids], custom keys filed under custom_fields, standard keys top-level),
+// the if_empty read of a v2 deal (custom_fields flattened; missing object =
+// unreadable = never clobber), the v2 deals-list path (no all_not_deleted;
+// server-side pipeline filter), and the EOM row builder resolving the names /
+// catalog that a v2 deal no longer embeds.
+// ============================================================================
+suite('pipedrive api v2');
+var CF_PROOF = 'a'.repeat(40), CF_AMT = 'b'.repeat(40), CF_DAYS = 'c'.repeat(40), CF_TXT = 'd'.repeat(40);
+
+t('pdSetDealField_: monetary → {value,currency}; enum → integer id; set → [ids] (string / csv / array)', function () {
+  var out = {};
+  pdSetDealField_(out, CF_AMT, 'monetary', '1250.5', 'USD');     // the UI strips $/, before storing (psCoerceValue_)
+  assert.deepStrictEqual(out[CF_AMT], { value: 1250.5, currency: 'USD' });
+  assert.strictEqual(out[CF_AMT + '_currency'], undefined);          // the v1 companion key is gone
+  pdSetDealField_(out, CF_AMT, 'monetary', { value: '99', currency: 'EUR' }, 'USD');
+  assert.deepStrictEqual(out[CF_AMT], { value: 99, currency: 'EUR' });
+  pdSetDealField_(out, CF_PROOF, 'enum', '12', 'USD');
+  assert.strictEqual(out[CF_PROOF], 12);
+  pdSetDealField_(out, CF_DAYS, 'set', '31', 'USD');
+  assert.deepStrictEqual(out[CF_DAYS], [31]);
+  pdSetDealField_(out, CF_DAYS, 'set', '31, 34', 'USD');
+  assert.deepStrictEqual(out[CF_DAYS], [31, 34]);
+  pdSetDealField_(out, CF_DAYS, 'set', [{ id: 35 }, 36], 'USD');
+  assert.deepStrictEqual(out[CF_DAYS], [35, 36]);
+  pdSetDealField_(out, CF_TXT, 'text', '00123', 'USD');
+  assert.strictEqual(out[CF_TXT], '00123');                           // text is never coerced
+});
+t('pdDealPatchBody_: 40-char keys under custom_fields, standard keys top-level', function () {
+  var body = pdDealPatchBody_({ title: 'T', value: 5 });
+  assert.deepStrictEqual(body, { title: 'T', value: 5 });
+  assert.strictEqual(body.custom_fields, undefined);
+  var m = {}; m[CF_PROOF] = 12; m[CF_AMT] = { value: 1, currency: 'USD' }; m.title = 'X';
+  body = pdDealPatchBody_(m);
+  assert.strictEqual(body.title, 'X');
+  assert.strictEqual(body[CF_PROOF], undefined);
+  assert.strictEqual(body.custom_fields[CF_PROOF], 12);
+  assert.deepStrictEqual(body.custom_fields[CF_AMT], { value: 1, currency: 'USD' });
+});
+t('pdFlattenDealFields_: v2 custom_fields merge flat; no custom_fields object = unreadable (null)', function () {
+  var d = { id: 1, title: 'T', custom_fields: {} }; d.custom_fields[CF_PROOF] = 12;
+  var flat = pdFlattenDealFields_(d);
+  assert.strictEqual(flat[CF_PROOF], 12);
+  assert.strictEqual(flat.title, 'T');
+  assert.strictEqual(flat.custom_fields, undefined);
+  assert.strictEqual(pdFlattenDealFields_({ id: 1, title: 'T' }), null);
+  assert.strictEqual(pdFlattenDealFields_(null), null);
+});
+t('pdFieldEmpty_: v2 shapes — {value:null} monetary, [] set, 0/id set are judged correctly', function () {
+  assert.strictEqual(pdFieldEmpty_({ value: null, currency: 'USD' }), true);
+  assert.strictEqual(pdFieldEmpty_({ value: 5, currency: 'USD' }), false);
+  assert.strictEqual(pdFieldEmpty_([]), true);
+  assert.strictEqual(pdFieldEmpty_([31]), false);
+  assert.strictEqual(pdFieldEmpty_(12), false);
+  assert.strictEqual(pdFieldEmpty_(null), true);
+});
+function withOrgStub_(org, fn) {
+  var saved = globalThis.pdGetOrgWithCustomFields_;
+  globalThis.pdGetOrgWithCustomFields_ = function () { return org; };
+  try { fn(); } finally { globalThis.pdGetOrgWithCustomFields_ = saved; }
+}
+t('pdResolveDealFields_: copy rules read v2 org values (enum id, set array, monetary object) and emit v2 deal values', function () {
+  var cf = {}; cf[CF_PROOF] = 21; cf[CF_DAYS] = [31, 34, 99]; cf[CF_AMT] = { value: 250, currency: 'USD' }; cf[CF_TXT] = 'note';
+  var rules = [
+    { id: 'r1', deal_field: CF_PROOF, type: 'enum', mode: 'copy', org_field: CF_PROOF, option_map: { '21': '12' } },
+    { id: 'r2', deal_field: CF_DAYS,  type: 'set',  mode: 'copy', org_field: CF_DAYS,  option_map: { '31': '1', '34': '2' } },
+    { id: 'r3', deal_field: CF_AMT,   type: 'monetary', mode: 'copy', org_field: CF_AMT },
+    { id: 'r4', deal_field: CF_TXT,   type: 'text', mode: 'copy', org_field: CF_TXT }
+  ];
+  withOrgStub_({ id: 1, custom_fields: cf }, function () {
+    var out = pdResolveDealFields_(1, rules, {}, 'USD', true, null);
+    assert.strictEqual(out[CF_PROOF], 12);                             // mapped org option → deal option id
+    assert.deepStrictEqual(out[CF_DAYS], [1, 2]);                      // set: mapped per element, unmapped 99 dropped
+    assert.deepStrictEqual(out[CF_AMT], { value: 250, currency: 'USD' });
+    assert.strictEqual(out[CF_TXT], 'note');
+    assert.strictEqual(Object.keys(out).some(function (k) { return /_currency$/.test(k); }), false);
+  });
+});
+t('pdResolveDealFields_: constant if_empty on a LINK reads the flattened v2 deal; set value → [id]; unreadable → skip', function () {
+  var rules = [{ id: 'c1', deal_field: CF_PROOF, type: 'enum', mode: 'constant', value: '12', if_empty: true },
+               { id: 'c2', deal_field: CF_DAYS,  type: 'set',  mode: 'constant', value: '31' }];
+  var existingSet = {}; existingSet[CF_PROOF] = 11;
+  var out = pdResolveDealFields_(1, rules, {}, 'USD', false, existingSet);
+  assert.strictEqual(out[CF_PROOF], undefined);                        // already set → left alone
+  assert.deepStrictEqual(out[CF_DAYS], [31]);
+  out = pdResolveDealFields_(1, rules, {}, 'USD', false, {});          // readable + empty → set
+  assert.strictEqual(out[CF_PROOF], 12);
+  out = pdResolveDealFields_(1, rules, {}, 'USD', false, null);        // unreadable → never clobber
+  assert.strictEqual(out[CF_PROOF], undefined);
+  out = pdResolveDealFields_(1, rules, {}, 'USD', true, null);         // new deal = empty → set
+  assert.strictEqual(out[CF_PROOF], 12);
+});
+t('pdRelId_: v2 plain id, v1 {name,value}, {id}, junk', function () {
+  assert.strictEqual(pdRelId_(501), 501);
+  assert.strictEqual(pdRelId_('501'), 501);
+  assert.strictEqual(pdRelId_({ name: 'X', value: 502 }), 502);
+  assert.strictEqual(pdRelId_({ id: 503 }), 503);
+  assert.strictEqual(pdRelId_(null), 0);
+  assert.strictEqual(pdRelId_({}), 0);
+  assert.strictEqual(pdRelId_('abc'), 0);
+});
+t('eomDealsListPath_: v2 list paths — pipeline filtered server-side, no all_not_deleted, Duplicates via custom_fields', function () {
+  var savedP = globalThis.eomGetPipelineId_, savedS = globalThis.eomGetDefaultStageId_;
+  globalThis.eomGetPipelineId_ = function () { return 4; };
+  globalThis.eomGetDefaultStageId_ = function () { return 44; };
+  try {
+    assert.strictEqual(eomDealsListPath_('full_billing', null, CF_TXT), '/deals?status=open&pipeline_id=4&custom_fields=' + CF_TXT);
+    assert.strictEqual(eomDealsListPath_('stage', '45', ''), '/deals?stage_id=45');
+    assert.strictEqual(eomDealsListPath_('stage', 'x', ''), '/deals?stage_id=44');
+    assert.strictEqual(eomDealsListPath_('stage', 45, '').indexOf('all_not_deleted'), -1);
+  } finally { globalThis.eomGetPipelineId_ = savedP; globalThis.eomGetDefaultStageId_ = savedS; }
+});
+t('eomBuildRows_: v2 deal + v2 lines → names/catalog from ctx, dup from custom_fields, update_time, RFC3339 kept', function () {
+  var savedPn = globalThis.eomPipelineName_, savedSn = globalThis.eomStageName_;
+  globalThis.eomPipelineName_ = function () { return 'Billing'; };
+  globalThis.eomStageName_ = function () { return 'EOM Merge'; };
+  try {
+    var deal = { id: 900101, title: 'Deal A', add_time: '2026-07-01T09:00:00Z', org_id: 501, person_id: 601, owner_id: 701,
+                 value: 610, currency: 'USD', pipeline_id: 4, stage_id: 44, custom_fields: {} };
+    deal.custom_fields[CF_TXT] = 2;
+    var lines = [{ id: 1, product_id: 9001, name: 'Shortcut Pack', item_price: 61, quantity: 10, sum: 610, tax: 9.679,
+                   product_variation_id: 9001001, comments: '<p>hi</p>', add_time: '2026-07-01T09:00:00Z', update_time: '2026-07-02T10:00:00Z' }];
+    var ctx = { dupKey: CF_TXT, orgNames: { '501': 'Sandbox Motors' }, personNames: { '601': 'Pat' }, userNames: { '701': 'Dev User' },
+                catalog: { '9001': { code: 'SC', description: 'desc', tax: 9.679 } }, variations: { '9001001': 'Standard' } };
+    var C = eomColIndex_();
+    var rows = eomBuildRows_(deal, lines, ctx);
+    assert.strictEqual(rows.length, 1);
+    var r = rows[0];
+    assert.strictEqual(r[C.org_name], 'Sandbox Motors');
+    assert.strictEqual(r[C.person_name], 'Pat');
+    assert.strictEqual(r[C.deal_owner], 'Dev User');
+    assert.strictEqual(r[C.duplicates], 2);
+    assert.strictEqual(r[C.deal_created_at], '2026-07-01T09:00:00Z');
+    assert.strictEqual(r[C.product_code], 'SC');
+    assert.strictEqual(r[C.product_description], 'desc');
+    assert.strictEqual(r[C.product_tax_percent], 9.679);
+    assert.strictEqual(r[C.variation], 'Standard');
+    assert.strictEqual(r[C.product_notes], 'hi');
+    assert.strictEqual(r[C.product_last_edited], '2026-07-02T10:00:00Z');
+    // Legacy v1 shape still renders (archived report.json re-generation safety net).
+    var v1deal = { id: 1, title: 'Old', org_id: { name: 'Old Org', value: 9 }, person_id: null, user_id: { name: 'Owner', value: 2 } };
+    v1deal[CF_TXT] = 1;
+    var v1line = { id: 2, product_id: 5, name: 'P', product_variation_id: 7, last_edit: '2026-01-01 00:00:00',
+                   product: { code: 'OLD', description: '', tax: 0, product_variations: [{ id: 7, name: 'V7' }] } };
+    var old = eomBuildRows_(v1deal, [v1line], { dupKey: CF_TXT, orgNames: {}, personNames: {}, userNames: {}, catalog: {}, variations: {} })[0];
+    assert.strictEqual(old[C.org_name], 'Old Org');
+    assert.strictEqual(old[C.deal_owner], 'Owner');
+    assert.strictEqual(old[C.duplicates], 1);
+    assert.strictEqual(old[C.product_code], 'OLD');
+    assert.strictEqual(old[C.variation], 'V7');
+    assert.strictEqual(old[C.product_last_edited], '2026-01-01 00:00:00');
+    // No products → one row so the deal isn't lost.
+    assert.strictEqual(eomBuildRows_(deal, [], ctx).length, 1);
+  } finally { globalThis.eomPipelineName_ = savedPn; globalThis.eomStageName_ = savedSn; }
+});
+t('pdFakeFetch_: v2-shaped fixtures — plain relation ids, custom_fields, ?ids= filters, PATCH merges custom_fields', function () {
+  if (typeof pdFakeFetch_ !== 'function') return;
+  var saved = globalThis.eomGetPipelineId_; globalThis.eomGetPipelineId_ = function () { return 4; };
+  try {
+    var d = pdFakeFetch_('get', '/deals/900555').data;
+    assert.strictEqual(typeof d.org_id, 'number');
+    assert.strictEqual(typeof d.owner_id, 'number');
+    assert.strictEqual(d.user_id, undefined);
+    assert.strictEqual(typeof d.custom_fields, 'object');
+    assert.ok(/T.*Z$/.test(d.add_time));
+    var patch = { custom_fields: {} }; patch.custom_fields[CF_PROOF] = 12;
+    var after = pdFakeFetch_('patch', '/deals/900555', patch).data;
+    assert.strictEqual(after.custom_fields[CF_PROOF], 12);
+    assert.strictEqual(after.custom_fields[PD_FAKE_DUP_FIELD_KEY], 1);  // merge, not replace
+    var orgs = pdFakeFetch_('get', '/organizations?ids=502&limit=500').data;
+    assert.deepStrictEqual(orgs.map(function (o) { return o.id; }), [502]);
+    var users = pdFakeFetch_('get', '/users?start=0&limit=500', null, { version: 'v1' }).data;
+    assert.strictEqual(users[0].id, 701);
+    var line = pdFakeFetch_('post', '/deals/900555/products', { product_id: 9001, item_price: 61, quantity: 2, tax: 9.679, tax_method: 'exclusive' }).data;
+    assert.strictEqual(line.name, 'FAKE Shortcut Pack');
+    assert.strictEqual(line.sum, 122);
+    var eom = pdFakeEomProducts_([900555])[900555];
+    assert.strictEqual(eom[0].product, undefined);                      // v2: no embedded product
+    assert.ok(eom.some(function (l) { return l.update_time; }));
+  } finally { globalThis.eomGetPipelineId_ = saved; }
+});
+
 // ── Report ───────────────────────────────────────────────────────────────────
 function report_() {
   var totalPass = 0, totalFail = 0;
