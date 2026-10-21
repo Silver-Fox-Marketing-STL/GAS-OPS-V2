@@ -21,8 +21,8 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   **PROD viewer promoted the same day → deployment @15 (`promote eom-viewer 1ddc69a`)**;
   Nick confirmed the live Current (EOM Merge) pull renders correctly — the first live
   API v2 reads of the migration (deals by stage, deal products, orgs/persons/users,
-  products, variations, stages) are verified against real Pipedrive. The main app's
-  PROD promote (deal push side) is still pending.
+  products, variations, stages) are verified against real Pipedrive. The main app was
+  promoted the same day (`/exec` @103 = `promote e8eb8f7`).
 - **`eom-viewer/` DEV twin** (2026-10-21). A second standalone Apps Script project,
   "DEV_SF EOM Report Viewer", so the viewer can be pushed and exercised without touching
   the invoice team's production `/exec`. `eom-viewer/.clasp.json` now targets the DEV
@@ -45,7 +45,9 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ### Changed
 - **Pipedrive integration moved off the out-of-support API v1 endpoints** (branch
-  `feat/pipedrive-api-v2`, October 9, 2026). Pipedrive's changelog post
+  `feat/pipedrive-api-v2`, October 9, 2026; merged to `main` `4b1cd35` and **promoted to
+  PROD October 21, 2026 — `/exec` @103 = `promote e8eb8f7`**; live acceptance checklist
+  items 1, 2 and 4 pending Nick's first real pushes). Pipedrive's changelog post
   "Deprecated API v1 endpoints become out of support" (effective **August 1, 2026**,
   no further migration period guaranteed) covers every v1 deals / organizations /
   persons / products / pipelines / stages / search endpoint. This system used
