@@ -22,9 +22,12 @@
  *  - EOM_VIEWER_ALLOWED (below) optionally narrows access to specific emails.
  *
  * SETUP / DEPLOY RUNBOOK:
- *  1. script.google.com → New project. Copy its Script ID into eom-viewer/.clasp.json.
- *  2. Paste the SF_EOM_REPORTS id (logged by setupEomReportsIndex) into INDEX_SHEET_ID.
- *  3. From INSIDE eom-viewer/:  clasp push
+ *  1. Two Apps Script projects exist: PROD (eom-viewer/.clasp.prod.json) and the
+ *     DEV twin "DEV_SF EOM Report Viewer" (eom-viewer/.clasp.json — the default).
+ *     Each scriptId is registered in ENV_IDS below with its SF_EOM_REPORTS index id.
+ *  2. A new environment = new project + new ENV_IDS entry (never edit an id in place).
+ *  3. From INSIDE eom-viewer/:  clasp push   → DEV. PROD = swap .clasp.prod.json in
+ *     by hand (Nick-only), push, then bump the existing deployment's version.
  *  4. Deploy → New deployment → Web app: Execute as = Me, Who has access = <domain>.
  *     Authorize (Drive read + Sheets). Share the /exec URL (NOT the /dev URL —
  *     /dev runs as the accessor and needs editor access).
@@ -39,9 +42,22 @@
  * identical (a checksum drift check guards this in the repo's Node self-checks).
  */
 
-// ── Connection: data by ID only (paste the SF_EOM_REPORTS id here) ──
-// Hardcoded prod IDs — this subproject has no dev twin yet; main Code.gs uses an ENV_IDS scriptId map (see Section 1 there).
-var INDEX_SHEET_ID = '1p28o2IbGFrHOqKVs_DUpAtyzM6LFYyAKUpsBB7NwFxg';       // <-- paste the id logged by setupEomReportsIndex()
+// ── Connection: data by ID only — resolved from THIS script's id (same idiom as
+// main Code.gs Section 1 ENV_IDS / lot-scan). The scriptId IS the environment:
+// the PROD viewer reads the prod SF_EOM_REPORTS index, the DEV twin reads
+// DEV_SF_EOM_REPORTS_INDEX, and an unregistered id (a stray Drive copy) throws
+// at load rather than running against guessed prod ids. Minted 2026-10-21
+// (docs/dev-environment.md).
+var ENV_IDS = {
+  '14AbPr3pM9Grg3gu2dFMWvQOAIksI-x-zGysygzy8PXCmcBRObKvVQgW2': { // PROD viewer (eom-viewer/.clasp.prod.json)
+    name: 'prod', INDEX_SHEET_ID: '1p28o2IbGFrHOqKVs_DUpAtyzM6LFYyAKUpsBB7NwFxg' }, // SF_EOM_REPORTS (logged by setupEomReportsIndex())
+  '1IlGUPGyJpPeF9YnuvcKMGVbD8qQRIPHR6YurtBe5PrL3s7k138ff-P_f': { // DEV_SF EOM Report Viewer (eom-viewer/.clasp.json)
+    name: 'dev',  INDEX_SHEET_ID: '18EQEMCS6Z6ux767ETyeVsFFjsYxrmHMw_m00sQEaoDU' }  // DEV_SF_EOM_REPORTS_INDEX
+};
+var ENV = ENV_IDS[ScriptApp.getScriptId()];
+if (!ENV) throw new Error('Unknown scriptId ' + ScriptApp.getScriptId() +
+  ' — add it to ENV_IDS in eom-viewer/Code.gs. Refusing to run against guessed (prod) IDs.');
+var INDEX_SHEET_ID = ENV.INDEX_SHEET_ID;
 var INDEX_TAB = 'REPORTS';
 // 0-based column map — MUST match the main app's EOMIDX.
 var IDX = { MONTH_KEY: 0, MONTH_LABEL: 1, SCOPE: 2, STAGE_ID: 3, GENERATED_AT: 4,
@@ -56,7 +72,7 @@ var CURRENT_STAGE_ID = 44;
 function include_(name) { return HtmlService.createHtmlOutputFromFile(name).getContent(); }
 function doGet(e) {
   return HtmlService.createTemplateFromFile('Viewer').evaluate()
-    .setTitle('Silver Fox — EOM Reports')
+    .setTitle('Silver Fox — EOM Reports' + (ENV.name === 'prod' ? '' : ' (' + ENV.name.toUpperCase() + ')'))
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 

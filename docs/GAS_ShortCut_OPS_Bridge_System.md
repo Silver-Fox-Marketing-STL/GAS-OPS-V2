@@ -1668,9 +1668,17 @@ so what the invoice team sees changes only on a deliberate re-finalize.
   (`eomViewerTheme`, pre-paint head script) — deliberately NOT
   `saveThemePreference`, so the 3-function public surface is untouched. Each month
   view has its own **Split by contact** toggle.
-  **Deploy:** paste Script ID into `eom-viewer/.clasp.json`, `clasp push` from inside
-  `eom-viewer/`, Deploy → web app (Execute as **Me**, access **domain**); update via
-  *edit deployment → new version* to keep the URL (never "New deployment").
+  **Deploy (since 2026-10-21 — DEV twin):** two projects, resolved by scriptId through
+  the viewer's own `ENV_IDS` (PROD → `SF_EOM_REPORTS`, DEV "DEV_SF EOM Report Viewer"
+  → `DEV_SF_EOM_REPORTS_INDEX`; unregistered id throws). `eom-viewer/.clasp.json` is
+  the DEV twin (default push), `eom-viewer/.clasp.prod.json` the PROD viewer
+  (Nick-only, swapped in by hand; `eom-viewer/.claspignore` keeps it out of pushes).
+  `clasp push` from inside `eom-viewer/`, then bump the environment's existing
+  versioned deployment (DEV: "Dev EOM Viewer Deploy"; PROD: the invoice team's
+  pinned `/exec`) via *edit deployment → new version* to keep the URL (never "New
+  deployment"). The DEV twin has no Pipedrive fake — its Current section hits the
+  live API read-only once the twin's Script properties carry the token. Ids:
+  `docs/dev-environment.md`.
   **`clasp push` alone NEVER updates the served `/exec` app** — a new version must
   be deployed to the existing deployment id (`clasp version` + `clasp deploy -i
   <deployment id> -V <n>`); and a push from the repo ROOT silently does nothing to

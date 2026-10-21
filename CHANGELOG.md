@@ -10,6 +10,18 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ## [Unreleased]
 
+### Added
+- **`eom-viewer/` DEV twin** (2026-10-21). A second standalone Apps Script project,
+  "DEV_SF EOM Report Viewer", so the viewer can be pushed and exercised without touching
+  the invoice team's production `/exec`. `eom-viewer/.clasp.json` now targets the DEV
+  twin (default push); the PROD viewer moved to `eom-viewer/.clasp.prod.json` (Nick-only,
+  excluded from pushes by a new `eom-viewer/.claspignore`). `eom-viewer/Code.gs` gained
+  the same scriptId-keyed `ENV_IDS` resolver as the main app and lot-scan: PROD reads
+  `SF_EOM_REPORTS`, DEV reads `DEV_SF_EOM_REPORTS_INDEX`, an unregistered scriptId throws
+  at load; the page title carries a " (DEV)" suffix off prod. First DEV deployment
+  "Dev EOM Viewer Deploy" @1 = the API v2 migration below. Ids + runbook:
+  `docs/dev-environment.md`.
+
 ### Changed
 - **Pipedrive integration moved off the out-of-support API v1 endpoints** (branch
   `feat/pipedrive-api-v2`, October 9, 2026). Pipedrive's changelog post

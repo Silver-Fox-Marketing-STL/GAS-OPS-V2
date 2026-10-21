@@ -21,6 +21,7 @@ prefixed `DEV_`. Minted 2026-07-10 by Drive-copying the prod originals.
 | DEV_LOT_PHOTOS folder (My Drive, Nick-only) | `10HB0u_IVHC6ah2OOgXraBzDbKnKUbxCF` | `1Gmw3fQ6tiPLL76tE374646huuYIVHxHf` ("SF Lot Submissions", Shared Drive) |
 | DEV lot-scan Apps Script project, named **"DEV_SF Lot Scanner"** (standalone; minted 2026-07-13) | `1SrMalU5GszZERqAk5xmISUCwGTgqjZwuPMtybJ4nsPrDY15PBPbc25Vu` | `1ww7VJnkeFdpQj8-m06r4RRKxPFikgpNGVMwEgU9BWOgL0DWaJP-jmZJ7` |
 | DEV_SF_EOM_REPORTS_INDEX | `18EQEMCS6Z6ux767ETyeVsFFjsYxrmHMw_m00sQEaoDU` | `1p28o2IbGFrHOqKVs_DUpAtyzM6LFYyAKUpsBB7NwFxg` |
+| DEV eom-viewer Apps Script project, named **"DEV_SF EOM Report Viewer"** (standalone; minted 2026-10-21) | `1IlGUPGyJpPeF9YnuvcKMGVbD8qQRIPHR6YurtBe5PrL3s7k138ff-P_f` | `14AbPr3pM9Grg3gu2dFMWvQOAIksI-x-zGysygzy8PXCmcBRObKvVQgW2` |
 | DEV_QR folder (all dealers) | `1c_BIBBmJL5HYJWIsMTzmHXNo5RvDUdQ1` | per-dealer folders (DEALERS col D) |
 | DEV_OUTPUT folder (all dealers) | `1h5FS0FDkY91bjKx2nTRMuCVflMYa77P2` | per-dealer folders (DEALERS col E) + `1iRDDlqgQPn9R67AEIUJcF8JmyiOyn8DI` |
 | DEV_EOM_REPORTS folder (inside DEV_OUTPUT) | `1EVSMdF1b7s__uAnTpCkET0tCHroOb1uV` | `1gM69qlwuUQYKCSYiwo6eXy9U3F83DQ19` (via PIPEDRIVE_SETTINGS `eom_reports_folder_id`) |
@@ -164,5 +165,21 @@ DEV's HEAD, which stays the test bed for the next promote.
   prod `/exec` = pinned versioned deployment
   (`AKfycbwOv4waW5OrV6tLllV2HxVqLsO6fMdP6hfGbYvuDu8IpGyRb5r2bmCNVkTB0mvcpOFvCQ`),
   bumped by the promote script.
-- eom-viewer/ has **no dev twin yet** — its `.clasp.json` still points at prod.
-  Rare changes; review gate + Nick-only pushes until a twin exists.
+- **eom-viewer/** mirrors the same model (dev twin minted 2026-10-21):
+  `eom-viewer/.clasp.json` → DEV viewer scriptId (default `clasp push` from
+  inside `eom-viewer/` is safe), `eom-viewer/.clasp.prod.json` → PROD viewer,
+  Nick-only (no promote script yet — swap the file in by hand, push, bump the
+  existing prod deployment's version, swap back; verify with `git hash-object`
+  vs `HEAD:` — a same-size copy can fool `git status`). `eom-viewer/.claspignore`
+  keeps `.clasp.prod.json` out of pushes. The viewer's `ENV_IDS` resolver
+  (eom-viewer/Code.gs, same scriptId-keyed idiom) routes dev to
+  DEV_SF_EOM_REPORTS_INDEX and prod to SF_EOM_REPORTS; an unregistered scriptId
+  throws; the page title gets a " (DEV)" suffix off prod. The DEV viewer has
+  **no Pipedrive fake** — its "Current" section does read-only GETs against the
+  live API once `PD_API_TOKEN` + `PD_COMPANY_DOMAIN` are set in the twin's own
+  Script properties (that is the point: it proves the v2 EOM reads before the
+  prod viewer changes). Dev web app = versioned deployment **"Dev EOM Viewer
+  Deploy"** (id `AKfycbwG0YCDAHHND0eawDbudMPkyxDrBWqsHpSI-ELefh3_w27UZN2Bg5jEeLlmJzMsQIXp`,
+  bump it after every push: `clasp deploy --deploymentId <id> --description
+  "Dev EOM Viewer Deploy"`); prod `/exec` = the viewer's existing pinned
+  deployment (@14 as of 2026-10-21).
