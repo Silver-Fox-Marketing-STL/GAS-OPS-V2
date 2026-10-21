@@ -18,8 +18,17 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   excluded from pushes by a new `eom-viewer/.claspignore`). `eom-viewer/Code.gs` gained
   the same scriptId-keyed `ENV_IDS` resolver as the main app and lot-scan: PROD reads
   `SF_EOM_REPORTS`, DEV reads `DEV_SF_EOM_REPORTS_INDEX`, an unregistered scriptId throws
-  at load; the page title carries a " (DEV)" suffix off prod. First DEV deployment
-  "Dev EOM Viewer Deploy" @1 = the API v2 migration below. Ids + runbook:
+  at load; the page title carries a " (DEV)" suffix off prod. Off prod the viewer runs
+  the **same in-process Pipedrive fake as the main app**: `eom-viewer/PdFake.gs` is a
+  byte-copy of the root `PdFake.gs` (harness-guarded together with
+  `EomReportRenderer.html`), `cvSecrets_` returns a fake settings object (no
+  `PD_API_TOKEN` in any dev project), `cvGetJson_` routes to `cvFakeJson_` →
+  `pdFakeFetch_`, deal products to `pdFakeEomProducts_`, and the credential probe is
+  skipped — the Current section renders the canned FAKE deals with zero API traffic.
+  New harness suite `standalone eom-viewer` (byte-copies, ENV resolver, the fake path
+  under a throwing `UrlFetchApp` stub, prod passthrough) — the viewer runs in its own
+  vm context because its helper names collide with `Code.gs`. DEV deployment "Dev EOM
+  Viewer Deploy" @1 = the API v2 migration below, @2 = the fake. Ids + runbook:
   `docs/dev-environment.md`.
 
 ### Changed

@@ -174,11 +174,14 @@ DEV's HEAD, which stays the test bed for the next promote.
   keeps `.clasp.prod.json` out of pushes. The viewer's `ENV_IDS` resolver
   (eom-viewer/Code.gs, same scriptId-keyed idiom) routes dev to
   DEV_SF_EOM_REPORTS_INDEX and prod to SF_EOM_REPORTS; an unregistered scriptId
-  throws; the page title gets a " (DEV)" suffix off prod. The DEV viewer has
-  **no Pipedrive fake** — its "Current" section does read-only GETs against the
-  live API once `PD_API_TOKEN` + `PD_COMPANY_DOMAIN` are set in the twin's own
-  Script properties (that is the point: it proves the v2 EOM reads before the
-  prod viewer changes). Dev web app = versioned deployment **"Dev EOM Viewer
+  throws; the page title gets a " (DEV)" suffix off prod. The DEV viewer runs
+  the **same in-process Pipedrive fake as the main app**: `eom-viewer/PdFake.gs`
+  is a byte-copy of the root `PdFake.gs` (harness-guarded with
+  `EomReportRenderer.html`); off prod `cvSecrets_` returns a fake settings
+  object (no Script properties, no token in any dev project), `cvGetJson_` →
+  `cvFakeJson_` → `pdFakeFetch_`, deal products → `pdFakeEomProducts_`, and the
+  credential probe is skipped — the Current section renders the canned FAKE
+  deals with zero API traffic. Dev web app = versioned deployment **"Dev EOM Viewer
   Deploy"** (id `AKfycbwG0YCDAHHND0eawDbudMPkyxDrBWqsHpSI-ELefh3_w27UZN2Bg5jEeLlmJzMsQIXp`,
   bump it after every push: `clasp deploy --deploymentId <id> --description
   "Dev EOM Viewer Deploy"`); prod `/exec` = the viewer's existing pinned

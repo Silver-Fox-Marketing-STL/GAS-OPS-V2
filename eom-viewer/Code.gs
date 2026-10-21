@@ -33,10 +33,14 @@
  *     /dev runs as the accessor and needs editor access).
  *  5. Bookmark the /exec URL. Code updates: Deploy -> Manage deployments -> Edit
  *     -> New version (keeps the same URL). NEVER "New deployment" (new URL).
- *  6. CURRENT-REPORT PULL (optional): Project Settings → Script properties → add
- *     PD_API_TOKEN + PD_COMPANY_DOMAIN (same values as the main app's). The
- *     "Current" sidebar section only appears once both are set. First use of
- *     UrlFetchApp adds the external-request scope → re-authorize on next deploy.
+ *  6. CURRENT-REPORT PULL (optional, PROD only): Project Settings → Script
+ *     properties → add PD_API_TOKEN + PD_COMPANY_DOMAIN (same values as the main
+ *     app's). The "Current" sidebar section only appears once both are set.
+ *     First use of UrlFetchApp adds the external-request scope → re-authorize
+ *     on next deploy. OFF PROD (the DEV twin) no secrets are ever set: the
+ *     in-process Pipedrive fake (PdFake.gs — a BYTE-COPY of the main app's,
+ *     harness-guarded) serves the Current section with zero API traffic, the
+ *     same way the main app's DEV script works.
  *
  * EomReportRenderer.html is a BYTE-COPY of the main app's file — keep them
  * identical (a checksum drift check guards this in the repo's Node self-checks).
@@ -141,13 +145,23 @@ function getReportJson(monthRef) {
 // Section 33 (eomCleanHtml_ / eomBuildRows_ / eomGroupForReport_ / EOM_COLUMNS)
 // so the output shape stays identical to report.json — keep them in sync with
 // Code.gs when those change. The fetch layer (cv*) is viewer-local: a plain
-// UrlFetchApp GET with the token from THIS project's Script Properties.
+// UrlFetchApp GET with the token from THIS project's Script Properties — on
+// PROD. Off prod (ENV.name !== 'prod') three branch points route to the
+// in-process fake instead (PdFake.gs byte-copy; mirrors the main app's
+// pdFetch_ -> pdFakeFetch_ / pdEomFetchProductsForDeals_ -> pdFakeEomProducts_):
+// cvSecrets_ (fake settings, no properties), cvGetJson_ -> cvFakeJson_, and
+// cvFetchProductsForDeals_ -> pdFakeEomProducts_. Zero network, no credentials.
 // ════════════════════════════════════════════════════════════════════════════
 
 /** Pipedrive credentials from THIS project's Script Properties (never the repo).
  *  Null until PD_API_TOKEN + PD_COMPANY_DOMAIN are set — the Current section
  *  stays hidden in the viewer until then. */
 function cvSecrets_() {
+  // DEV / any non-prod scriptId: the in-process fake stands in for the API — no
+  // secrets, no network. `fake:true` routes cvGetJson_ / cvFetchProductsForDeals_
+  // and skips the credential probe; the urls still build so callers are unchanged.
+  if (ENV.name !== 'prod') return { token: 'FAKE', domain: 'fake-dev', fake: true,
+    baseV1: 'https://fake-dev.pipedrive.com/api/v1', baseV2: 'https://fake-dev.pipedrive.com/api/v2' };
   var p = PropertiesService.getScriptProperties();
   var token = (p.getProperty('PD_API_TOKEN') || '').trim();
   var domain = (p.getProperty('PD_COMPANY_DOMAIN') || '').trim()
@@ -160,11 +174,26 @@ function cvSecrets_() {
 
 /** GET a url -> parsed body, or null on any error (never throws). */
 function cvGetJson_(url) {
+  if (ENV.name !== 'prod') return cvFakeJson_(url);   // DEV: in-process fake, zero API traffic (PdFake.gs)
   try {
     var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
     if (resp.getResponseCode() !== 200) return null;
     return JSON.parse(resp.getContentText());
   } catch (e) { return null; }
+}
+
+/** DEV only: a full v1/v2 url → the fake pdFetch_ route (PdFake.gs), reshaped to
+ *  the parsed-body form cvGetJson_ callers read ({data, additional_data}). GET
+ *  only — the viewer never writes. The api_token param is stripped; the version
+ *  segment is honored (v1 /users, /dealFields keep their legacy shapes). An
+ *  unmatched route comes back as data:null, exactly like the fake. */
+function cvFakeJson_(url) {
+  var m = String(url || '').match(/\/api\/(v1|v2)(\/[^#]*)$/);
+  if (!m) return null;
+  var path = m[2].replace(/([?&])api_token=[^&]*&?/, '$1').replace(/[?&]$/, '');
+  var r = pdFakeFetch_('get', path, null, { version: m[1] });
+  if (!r || !r.ok) return null;
+  return { success: true, data: r.data, additional_data: r.additional || {} };
 }
 
 /** GET a v1 collection, following start/limit pagination (mirrors pdListAllV1_).
@@ -222,6 +251,7 @@ function pdRelId_(v) {
  *  cvBuildContext_ resolves the catalog side. Never throws — a failed deal yields
  *  an empty product list. */
 function cvFetchProductsForDeals_(s, dealIds) {
+  if (ENV.name !== 'prod') return pdFakeEomProducts_(dealIds);   // DEV: in-process fake (PdFake.gs) — mirrors pdEomFetchProductsForDeals_
   var out = {};
   var requests = dealIds.map(function (id) {
     return {
@@ -477,7 +507,8 @@ function getCurrentReport() {
     // re-authorized after UrlFetchApp was added) surfaces as its own error
     // instead of masquerading as rejected credentials.
     var me = null;
-    try {
+    if (s.fake) me = cvFakeJson_(s.baseV1 + '/users/me');   // DEV: nothing to probe — the fake answers
+    else try {
       var probe = UrlFetchApp.fetch(s.baseV1 + '/users/me?api_token=' + encodeURIComponent(s.token), { muteHttpExceptions: true });
       me = (probe.getResponseCode() === 200) ? JSON.parse(probe.getContentText()) : null;
     } catch (e) {

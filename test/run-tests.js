@@ -1404,6 +1404,96 @@ t('pdFakeFetch_: v2-shaped fixtures — plain relation ids, custom_fields, ?ids=
   } finally { globalThis.eomGetPipelineId_ = saved; }
 });
 
+// ============================================================================
+// Suite: standalone eom-viewer — byte-copies, ENV resolver, DEV Pipedrive fake.
+// The viewer runs in its OWN vm context: its helper names (pdRelId_,
+// eomGroupForReport_, ...) collide with Code.gs in the global scope.
+// ============================================================================
+suite('standalone eom-viewer');
+var VIEWER_DIR = path.join(ROOT, 'eom-viewer');
+var VIEWER_DEV_ID  = '1IlGUPGyJpPeF9YnuvcKMGVbD8qQRIPHR6YurtBe5PrL3s7k138ff-P_f';
+var VIEWER_PROD_ID = '14AbPr3pM9Grg3gu2dFMWvQOAIksI-x-zGysygzy8PXCmcBRObKvVQgW2';
+var viewerSource = fs.readFileSync(path.join(VIEWER_DIR, 'Code.gs'), 'utf8');
+function loadViewer_(scriptId, fetchStub) {
+  var vm = require('vm');
+  var noNet = function (what) { return function () { throw new Error('UrlFetchApp.' + what + ' called — the fake path must make zero network calls'); }; };
+  var ctx = {
+    ScriptApp: { getScriptId: function () { return scriptId; } },
+    Logger: { log: function () {} },
+    PropertiesService: { getScriptProperties: function () { return propStore_(); } },
+    Session: { getActiveUser: function () { return { getEmail: function () { return 'dev@example.com'; } }; },
+               getScriptTimeZone: function () { return 'America/Chicago'; } },
+    Utilities: { sleep: function () {}, formatDate: function (d) { return d.toISOString(); } },
+    UrlFetchApp: fetchStub || { fetch: noNet('fetch'), fetchAll: noNet('fetchAll') },
+    SpreadsheetApp: { openById: function () { throw new Error('no sheets in the harness'); } }
+  };
+  vm.createContext(ctx);
+  vm.runInContext(pdFakeSource, ctx);   // the viewer's PdFake.gs is a byte-copy (guarded below)
+  vm.runInContext(viewerSource, ctx);
+  return ctx;
+}
+t('PdFake.gs and EomReportRenderer.html are byte-identical copies of the main app files', function () {
+  ['PdFake.gs', 'EomReportRenderer.html'].forEach(function (f) {
+    assert.ok(fs.readFileSync(path.join(ROOT, f)).equals(fs.readFileSync(path.join(VIEWER_DIR, f))),
+              'eom-viewer/' + f + ' drifted from the root copy — re-copy it');
+  });
+});
+t('ENV resolver: unregistered scriptId throws at load; DEV / PROD resolve their own index sheet', function () {
+  assert.throws(function () { loadViewer_('STRAY_DRIVE_COPY_SCRIPT_ID'); }, /Unknown scriptId/);
+  var dev = loadViewer_(VIEWER_DEV_ID), prod = loadViewer_(VIEWER_PROD_ID);
+  assert.strictEqual(dev.ENV.name, 'dev');
+  assert.strictEqual(dev.INDEX_SHEET_ID, '18EQEMCS6Z6ux767ETyeVsFFjsYxrmHMw_m00sQEaoDU');
+  assert.strictEqual(prod.ENV.name, 'prod');
+  assert.strictEqual(prod.INDEX_SHEET_ID, '1p28o2IbGFrHOqKVs_DUpAtyzM6LFYyAKUpsBB7NwFxg');
+});
+t('cvFakeJson_: a full v1/v2 url maps onto the fake route — token stripped, version honored', function () {
+  var v = loadViewer_(VIEWER_DEV_ID);
+  var st = v.cvFakeJson_('https://fake-dev.pipedrive.com/api/v2/stages?limit=500&api_token=FAKE');
+  assert.strictEqual(st.data[0].name, 'FAKE EOM Merge');
+  var users = v.cvFakeJson_('https://fake-dev.pipedrive.com/api/v1/users?start=0&limit=500&api_token=FAKE');
+  assert.strictEqual(users.data[0].id, 701);
+  var v1p = v.cvFakeJson_('https://fake-dev.pipedrive.com/api/v1/products?start=0&limit=500&api_token=FAKE');
+  assert.strictEqual(v1p.data[0].selectable, true);          // v1 flag shape ⇒ version segment honored
+  var v2p = v.cvFakeJson_('https://fake-dev.pipedrive.com/api/v2/products?ids=9001&limit=500&api_token=FAKE');
+  assert.strictEqual(v2p.data.length, 1);
+  assert.strictEqual(v2p.data[0].is_linkable, true);
+  assert.strictEqual(v.cvFakeJson_('https://example.com/nope'), null);             // not an API url → null
+});
+t('DEV: Current pull is enabled without secrets and fully served by the fake — zero network calls', function () {
+  var v = loadViewer_(VIEWER_DEV_ID);
+  var s = v.cvSecrets_();
+  assert.ok(s && s.fake === true && s.token === 'FAKE');
+  assert.strictEqual(v.getViewerBootstrap().current, true);
+  var res = v.getCurrentReport();
+  assert.strictEqual(res.ok, true, res.error);
+  var rep = JSON.parse(res.json);
+  assert.strictEqual(rep.meta.current, true);
+  assert.strictEqual(rep.meta.dealCount, 3);                 // the fake's canned stage-44 deals
+  assert.strictEqual(rep.meta.stageName, 'FAKE Stage 44');
+  assert.ok(rep.group.length >= 1);
+  rep.group.forEach(function (g) { assert.ok(/^FAKE /.test(g.org), 'org resolved via fake /organizations?ids=: ' + g.org); });
+  var text = res.json;
+  assert.ok(text.indexOf('FAKE Dev Auto Group') !== -1);     // org name resolved (deal 900102 → org 502)
+  assert.ok(text.indexOf('FAKE-SC') !== -1);                 // catalog code via fake /products?ids=
+  assert.ok(text.indexOf('FAKE Standard') !== -1);           // variation name via fake /products/9001/variations
+});
+t('PROD: secrets still required; the fetch layer goes to UrlFetchApp, never the fake', function () {
+  var calls = [];
+  var stub = {
+    fetch: function (url) { calls.push(url); return { getResponseCode: function () { return 200; }, getContentText: function () { return '{"data":{"id":1}}'; } }; },
+    fetchAll: function () { return []; }
+  };
+  var v = loadViewer_(VIEWER_PROD_ID, stub);
+  assert.strictEqual(v.cvSecrets_(), null);
+  assert.strictEqual(v.getViewerBootstrap().current, false);
+  var res = v.getCurrentReport();
+  assert.strictEqual(res.ok, false);
+  assert.strictEqual(res.error, 'The current-report pull is not configured.');
+  var body = v.cvGetJson_('https://x.pipedrive.com/api/v2/stages/44?api_token=t');
+  assert.strictEqual(body.data.id, 1);
+  assert.strictEqual(calls.length, 1);
+});
+
 // ── Report ───────────────────────────────────────────────────────────────────
 function report_() {
   var totalPass = 0, totalFail = 0;

@@ -1676,8 +1676,11 @@ so what the invoice team sees changes only on a deliberate re-finalize.
   `clasp push` from inside `eom-viewer/`, then bump the environment's existing
   versioned deployment (DEV: "Dev EOM Viewer Deploy"; PROD: the invoice team's
   pinned `/exec`) via *edit deployment → new version* to keep the URL (never "New
-  deployment"). The DEV twin has no Pipedrive fake — its Current section hits the
-  live API read-only once the twin's Script properties carry the token. Ids:
+  deployment"). Off prod the viewer runs the **same in-process Pipedrive fake** as
+  the main app (`eom-viewer/PdFake.gs`, a harness-guarded byte-copy of the root
+  file): `cvSecrets_` returns a fake settings object (no token in any dev project),
+  `cvGetJson_` → `cvFakeJson_` → `pdFakeFetch_`, deal products →
+  `pdFakeEomProducts_`, probe skipped — zero API traffic. Ids:
   `docs/dev-environment.md`.
   **`clasp push` alone NEVER updates the served `/exec` app** — a new version must
   be deployed to the existing deployment id (`clasp version` + `clasp deploy -i
