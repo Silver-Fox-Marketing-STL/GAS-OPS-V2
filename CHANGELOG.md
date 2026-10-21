@@ -18,6 +18,11 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   `clasp push -f`, bumps the invoice team's existing `/exec` deployment to a new version
   (same URL), and delete-then-restores `.clasp.json` to the DEV twin. The ONLY path to
   the prod viewer; `clasp push` from inside `eom-viewer/` always targets DEV.
+  **PROD viewer promoted the same day → deployment @15 (`promote eom-viewer 1ddc69a`)**;
+  Nick confirmed the live Current (EOM Merge) pull renders correctly — the first live
+  API v2 reads of the migration (deals by stage, deal products, orgs/persons/users,
+  products, variations, stages) are verified against real Pipedrive. The main app's
+  PROD promote (deal push side) is still pending.
 - **`eom-viewer/` DEV twin** (2026-10-21). A second standalone Apps Script project,
   "DEV_SF EOM Report Viewer", so the viewer can be pushed and exercised without touching
   the invoice team's production `/exec`. `eom-viewer/.clasp.json` now targets the DEV

@@ -188,4 +188,5 @@ DEV's HEAD, which stays the test bed for the next promote.
   Deploy"** (id `AKfycbwG0YCDAHHND0eawDbudMPkyxDrBWqsHpSI-ELefh3_w27UZN2Bg5jEeLlmJzMsQIXp`,
   bump it after every push: `clasp deploy --deploymentId <id> --description
   "Dev EOM Viewer Deploy"`); prod `/exec` = the viewer's existing pinned
-  deployment (@14 as of 2026-10-21).
+  deployment (**@15 = `promote eom-viewer 1ddc69a`, 2026-10-21** — the first promote
+  through the script; @14 was the pre-v2 viewer).
