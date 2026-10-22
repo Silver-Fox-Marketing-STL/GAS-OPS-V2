@@ -1270,6 +1270,20 @@ t('pdFlattenDealFields_: v2 custom_fields merge flat; no custom_fields object = 
   assert.strictEqual(pdFlattenDealFields_({ id: 1, title: 'T' }), null);
   assert.strictEqual(pdFlattenDealFields_(null), null);
 });
+t('pdDealPatchBody_: v1 Owner key user_id → v2 owner_id; relation ids coerced to Number', function () {
+  var m = { user_id: '12345', stage_id: '7', title: 'T' }; m[CF_PROOF] = 12;
+  var body = pdDealPatchBody_(m);
+  assert.strictEqual(body.user_id, undefined);         // v2 rejects it outright
+  assert.strictEqual(body.owner_id, 12345);
+  assert.strictEqual(body.stage_id, 7);
+  assert.strictEqual(body.title, 'T');
+  assert.strictEqual(body.custom_fields[CF_PROOF], 12);
+});
+t('pdFlattenDealFields_: v2 owner_id aliased to the v1 rule key user_id (if_empty reads it)', function () {
+  var flat = pdFlattenDealFields_({ id: 1, owner_id: 99, custom_fields: {} });
+  assert.strictEqual(flat.user_id, 99);
+  assert.strictEqual(pdFieldEmpty_(flat.user_id), false);
+});
 t('pdFieldEmpty_: v2 shapes — {value:null} monetary, [] set, 0/id set are judged correctly', function () {
   assert.strictEqual(pdFieldEmpty_({ value: null, currency: 'USD' }), true);
   assert.strictEqual(pdFieldEmpty_({ value: 5, currency: 'USD' }), false);
