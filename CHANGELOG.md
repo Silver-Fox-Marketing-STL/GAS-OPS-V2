@@ -140,6 +140,21 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   Plan's June branch snapshot replaced with the current deploy model + a pointer
   to the brain backlog; `CLAUDE.md` line count refreshed.
 
+### Fixed
+- **Pipedrive push: "setting deal fields failed: Parameter 'user_id' is not allowed"**
+  (2026-10-22, first PROD order after the API v2 promote, deal 5326). The deal-field
+  picker reads the v1-only `/dealFields`, so a rule targeting the Owner system field
+  stores the v1 key `user_id`; `pdDealPatchBody_` passed it top-level into the v2
+  `PATCH /deals/{id}`, which renamed it `owner_id` and rejects the old name. The patch
+  body now renames v1 system keys to v2 (`user_id` → `owner_id`) and coerces relation
+  ids (`owner_id`/`person_id`/`org_id`/`stage_id`/`pipeline_id`) to `Number`;
+  `pdFlattenDealFields_` aliases `owner_id` back to `user_id` so an `if_empty` Owner rule
+  on a linked deal reads the real value instead of "empty". Saved rules are unchanged.
+  The failed push is resumable — its state is `productsDone`, so a retry only re-sends
+  the fields. **Promoted to PROD the same day — `/exec` @104 = `promote 6758147`**
+  (all 24 files verified byte-identical to `main` by clasp pull; root `.clasp.json`
+  confirmed restored to DEV); Nick re-ran the deal 5326 push and it completed.
+
 ## [1.1] — 2026-09-30
 
 Everything promoted to PROD between 1.0 (2026-06-25) and the 2026-09-30 promote

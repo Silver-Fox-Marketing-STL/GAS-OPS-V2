@@ -268,6 +268,10 @@ when working with `*.html`).
 - Never guess a v2 shape from v1 or the docs — confirm live: v2 omits `success`;
   deactivated = `is_linkable:false` (not `is_deleted`); variations are fetched per
   product; v1 GET under-reported line tax (v2 reports it correctly).
+- v1-only field-definition lists (`/dealFields` etc.) store SYSTEM fields under v1 keys —
+  `pdDealPatchBody_` renames them for v2 (`user_id` → `owner_id`) and
+  `pdFlattenDealFields_` aliases back; any new v2 write of a rule-chosen key goes
+  through that map (only confirmed renames in it). `PdFake` can't catch a bad key.
 - Line-item update = `PATCH` with the deal-product ATTACHMENT id, not `product_id`
   (v2 updates are PATCH everywhere; PUT was v1).
 - Values a third-party automation owns: poll for the row, then set ONLY-IF-EMPTY;

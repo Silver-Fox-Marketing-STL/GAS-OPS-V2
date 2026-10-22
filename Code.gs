@@ -7742,20 +7742,34 @@ function pdFlattenDealFields_(deal) {
   var flat = {};
   Object.keys(deal).forEach(function(k) { if (k !== 'custom_fields') flat[k] = deal[k]; });
   Object.keys(deal.custom_fields).forEach(function(k) { flat[k] = deal.custom_fields[k]; });
+  // Rules keep the v1 /dealFields key for a system field — alias it back so an
+  // if_empty rule on Owner reads the v2 value instead of seeing "empty".
+  Object.keys(PD_DEAL_V1_TO_V2_KEY).forEach(function(v1) {
+    var v2 = PD_DEAL_V1_TO_V2_KEY[v1];
+    if (flat[v1] === undefined && deal[v2] !== undefined) flat[v1] = deal[v2];
+  });
   return flat;
 }
 
+// /dealFields is v1-only (no v2 twin), so a rule targeting a SYSTEM deal field
+// stores its v1 key. v2 renamed Owner and rejects the old name ("Parameter
+// 'user_id' is not allowed for this request"). Relation ids must be integers.
+var PD_DEAL_V1_TO_V2_KEY = { user_id: 'owner_id' };
+var PD_DEAL_V2_ID_KEYS   = { owner_id: true, person_id: true, org_id: true, stage_id: true, pipeline_id: true };
+
 /**
  * Splits a flat {field: value} map into the v2 PATCH body: 40-char hash keys go
- * under `custom_fields`, anything else (title, value, stage_id…) stays top-level.
- * Values must already be v2-shaped (pdSetDealField_): monetary {value,currency},
- * enum = option id, set = [option ids], text/date = string.
+ * under `custom_fields`, anything else (title, value, stage_id…) stays top-level,
+ * with v1 system keys renamed to v2 (user_id → owner_id) and relation ids coerced
+ * to Number. Values must already be v2-shaped (pdSetDealField_): monetary
+ * {value,currency}, enum = option id, set = [option ids], text/date = string.
  */
 function pdDealPatchBody_(fieldMap) {
   var body = {}, custom = {}, n = 0;
   Object.keys(fieldMap || {}).forEach(function(k) {
-    if (/^[0-9a-f]{40}$/i.test(k)) { custom[k] = fieldMap[k]; n++; }
-    else body[k] = fieldMap[k];
+    if (/^[0-9a-f]{40}$/i.test(k)) { custom[k] = fieldMap[k]; n++; return; }
+    var key = PD_DEAL_V1_TO_V2_KEY[k] || k;
+    body[key] = PD_DEAL_V2_ID_KEYS[key] ? pdOptionId_(fieldMap[k]) : fieldMap[k];
   });
   if (n) body.custom_fields = custom;
   return body;

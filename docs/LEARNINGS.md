@@ -721,6 +721,18 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   it) rather than failing the run or blocking forever. Same family as the constant-rule
   `if_empty` policy and the org-engine fail-safe: when another system may own the value,
   read-then-set-if-empty, never blind-write.
+- **A v1-only field-DEFINITION list leaks v1 key names for SYSTEM fields into stored
+  config — translate them at the v2 write choke point.** `/dealFields` has no v2 twin,
+  so the deal-field rule picker saves Owner as its v1 key `user_id`. Custom fields
+  (40-char hashes) are the same in both versions, which hid the problem: the first PROD
+  order after the v2 promote failed with "Parameter 'user_id' is not allowed for this
+  request" (Oct 22, 2026, deal 5326) — v2 renamed it `owner_id`. Fix pattern: rename
+  in ONE place on write (`pdDealPatchBody_` + `PD_DEAL_V1_TO_V2_KEY`), alias back on
+  read (`pdFlattenDealFields_`, or an if_empty rule sees "empty" and clobbers), coerce
+  relation ids to `Number` (the picker types a `user` field as text), and leave saved
+  config alone. Map only renames you've confirmed live — `pipeline`/`label` are still
+  unmapped. The DEV `PdFake` accepts any body, so it can't catch a rejected key; a
+  harness test on the outgoing body is the cheap guard.
 
 ## Google Sheets behavior
 
