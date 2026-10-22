@@ -32,6 +32,22 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   off until `COMMISSION_STAGE_ID` is set. Harness: new suite "eom-viewer commission
   tracker" (answer-key inclusion/exclusion, rates/amounts, draft → stale guard → finalize
   → ledger, fail-safes, PROD-off) → 161/161.
+- **Commission tracker — volume testing** (2026-10-22, same branch, DEV only). A seeded,
+  deterministic production-scale world in `CommissionFake.gs` (busy month = 400 deals ×
+  ~6 lines per Nick; tiers 400 / 2,000 / 8,000 deals) with the same edge cases at
+  realistic rates and an integer-cents answer key per line; the fake `/deals` route now
+  cursor-paginates at 500 like v2, and a `month` knob simulates month end (deals leave
+  Billed, 5% linger). DEV-only test panel in the Commissions view (volume, simulated
+  API-failure %, next month, seed N months of ledger history, bulk manual rates, reset)
+  plus a timing readout (server phases, round-trip, render, payload, PROD API-call count);
+  every `cmDev*` endpoint refuses on PROD. **Fixes:** finalize grows the ledger grid
+  before writing (`cmLedgerAppend_` — a busy month overruns a new tab's 1,000 rows) and
+  trims the tab to its 18 columns; the pull now fails LOUD — a failed deal-products
+  request, catalog/org/user batch or truncated deal list marks it `incomplete` (warning
+  banner) and finalize refuses (the viewer's `cv*` fetch helpers take optional
+  `failed`/`info` collectors; EOM Current unchanged). Harness: new suite "eom-viewer
+  commission volume" (answer key at all three tiers, pagination, finalize past the grid,
+  month end, failure injection, 24-month ledger, 9 KB draft cap) → 170/170.
 - **`scripts/promote-eom-viewer.ps1`** (2026-10-21) — guarded, Nick-run PROD deploy for the
   standalone viewer, modeled on `promote-lot-scan.ps1` plus the Node harness gate (the
   harness now guards the viewer directly). Gates: main / clean tree / synced with

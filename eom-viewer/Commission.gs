@@ -38,6 +38,14 @@
  *  - Set COMMISSION_STAGE_ID to the real Billed stage id (0 = section hidden on prod).
  *  - Confirm three v2 shapes with a read-only probe Nick runs: deal `label_ids`,
  *    product `category` (option id vs label), product `custom_fields` on /products?ids=.
+ *  - Volume findings (2026-10-22, CommissionFake volume tiers — open):
+ *    · Drafts live in ONE 9 KB ScriptProperty → ~614 manual rates max, and drafts for
+ *      lines that leave Billed unfinalized are never pruned (slow leak toward the cap).
+ *    · A busy month = ~404 PROD API calls, ~400 of them deal-products requests fired
+ *      100-at-a-time via fetchAll — likely to trip Pipedrive's burst limit (429s). The
+ *      pull now refuses to finalize when that happens, but nothing retries yet; time a
+ *      read-only probe against PROD before relying on it.
+ *    · Month end without finalizing silently drops that month's unpaid lines (gap #8).
  */
 
 var COMMISSION_STAGE_ID = 0;              // PROD Billed stage id — TODO (0 = not configured)
@@ -184,8 +192,27 @@ function cmLedgerSheet_(create) {
   if (!sh && create) {
     sh = ss.insertSheet(COMMISSION_TAB);
     sh.getRange(1, 1, 1, COMMISSION_HEADERS.length).setValues([COMMISSION_HEADERS]);
+    // Only the ledger's columns: the 10M-cell spreadsheet cap counts empty grid cells too.
+    if (sh.getMaxColumns() > COMMISSION_HEADERS.length) sh.deleteColumns(COMMISSION_HEADERS.length + 1, sh.getMaxColumns() - COMMISSION_HEADERS.length);
   }
   return sh;
+}
+/**
+ * Append ledger rows below the last one. Grows the grid first: a range past
+ * getMaxRows() is rejected (a new tab has 1,000 rows; one busy month is ~2,400).
+ * '@' BEFORE setValues: Sheets would parse "2026-10" / the timestamp into Dates.
+ */
+function cmLedgerAppend_(rows) {
+  if (!rows.length) return;
+  var sh = cmLedgerSheet_(true), CHUNK = 5000;
+  var start = sh.getLastRow() + 1, need = start + rows.length - 1;
+  if (need > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), need - sh.getMaxRows());
+  for (var i = 0; i < rows.length; i += CHUNK) {
+    var part = rows.slice(i, i + CHUNK).map(function (r) { return r.map(function (v) { return String(v); }); });
+    var rng = sh.getRange(start + i, 1, part.length, COMMISSION_HEADERS.length);
+    rng.setNumberFormat('@');
+    rng.setValues(part);
+  }
 }
 /** Every ledger row as objects keyed by COMMISSION_HEADERS (values stringified for the client boundary). */
 function cmLedgerRows_() {
@@ -224,30 +251,59 @@ function cmWithLock_(fn) {
   try { return fn(); } finally { lock.releaseLock(); }
 }
 
-/** Live pull: Billed-stage deals + their lines + names/catalog, evaluated against the ledger + drafts. */
+/**
+ * Live pull: Billed-stage deals + their lines + names/catalog, evaluated against
+ * the ledger + drafts. Fails LOUD: any request that didn't come back (a 429 /
+ * 5xx on a deal's line items, a failed catalog / org / user batch, a truncated
+ * deal list) marks the pull `incomplete` — the lines still render, with a
+ * warning, but finalize refuses it (a missing line would otherwise go unpaid,
+ * then leave Billed at month end). meta.diag = where the time went.
+ */
 function cmPull_() {
+  var t0 = Date.now(), tick = t0, ms = {};
+  var lap = function (k) { var n = Date.now(); ms[k] = n - tick; tick = n; };
+  CV_API_CALLS = 0;
   var s = cvSecrets_(), stageId = cmStageId_();
-  var defs = cmFieldDefs_(s);
-  var deals = cvListAllV2_(s, '/deals?stage_id=' + stageId)
+  var defs = cmFieldDefs_(s); lap('fieldDefs');
+  var dealNet = {}, ctxNet = {}, failed = [];
+  var deals = cvListAllV2_(s, '/deals?stage_id=' + stageId, dealNet)
     .filter(function (d) { return Number(d.stage_id) === Number(stageId); });   // guard: never trust the filter alone
-  var productsByDeal = {}, CHUNK = 100;
+  lap('deals');
+  var productsByDeal = {}, CHUNK = 100, chunks = 0;
   for (var i = 0; i < deals.length; i += CHUNK) {
-    var got = cvFetchProductsForDeals_(s, deals.slice(i, i + CHUNK).map(function (d) { return d.id; }));
+    var got = cvFetchProductsForDeals_(s, deals.slice(i, i + CHUNK).map(function (d) { return d.id; }), failed);
     Object.keys(got).forEach(function (k) { productsByDeal[k] = got[k]; });
+    chunks++;
     if (i + CHUNK < deals.length) Utilities.sleep(800);
   }
+  lap('lineItems');
   var ctx = { orgNames: {}, userNames: {}, catalog: {} }, productIds = [];
   Object.keys(productsByDeal).forEach(function (k) { (productsByDeal[k] || []).forEach(function (dp) { productIds.push(dp.product_id); }); });
-  try { var orgs = cvListByIdsV2_(s, '/organizations', deals.map(function (d) { return pdRelId_(d.org_id); }));
-        Object.keys(orgs).forEach(function (id) { ctx.orgNames[id] = orgs[id].name || ''; }); } catch (e) {}
-  try { cvListAllV1_(s, '/users').forEach(function (u) { if (u && u.id) ctx.userNames[String(u.id)] = u.name || ''; }); } catch (e) {}
-  try { ctx.catalog = cvListByIdsV2_(s, '/products', productIds); } catch (e) {}
-  var ledger = cmLedgerRows_();
-  var ev = cmEvaluate_(deals, productsByDeal, ctx, defs, cmPaidIndex_(ledger), cmDraftGet_());
+  try { var orgs = cvListByIdsV2_(s, '/organizations', deals.map(function (d) { return pdRelId_(d.org_id); }), ctxNet);
+        Object.keys(orgs).forEach(function (id) { ctx.orgNames[id] = orgs[id].name || ''; }); } catch (e) { ctxNet.incomplete = true; }
+  try { cvListAllV1_(s, '/users', ctxNet).forEach(function (u) { if (u && u.id) ctx.userNames[String(u.id)] = u.name || ''; }); } catch (e) { ctxNet.incomplete = true; }
+  try { ctx.catalog = cvListByIdsV2_(s, '/products', productIds, ctxNet); } catch (e) { ctxNet.incomplete = true; }
+  lap('context');
+  var ledger = cmLedgerRows_(); lap('ledgerRead');
+  var paid = cmPaidIndex_(ledger), drafts = cmDraftGet_();
+  var ev = cmEvaluate_(deals, productsByDeal, ctx, defs, paid, drafts); lap('evaluate');
   var st = cvGetJson_(s.baseV2 + '/stages/' + stageId + '?api_token=' + encodeURIComponent(s.token));
+  var warnings = defs.warnings.slice(), incomplete = !!(dealNet.incomplete || ctxNet.incomplete || failed.length);
+  if (incomplete) warnings.unshift('INCOMPLETE PULL — Pipedrive did not return everything ('
+    + (failed.length ? failed.length + ' deal' + (failed.length === 1 ? '' : 's') + '’ line items failed to load' : '')
+    + (dealNet.incomplete ? (failed.length ? '; ' : '') + 'the Billed deal list was cut short' : '')
+    + (ctxNet.incomplete ? ((failed.length || dealNet.incomplete) ? '; ' : '') + 'a product / customer / owner lookup failed' : '')
+    + '). Lines from those deals are missing below. Refresh before finalizing — Finalize is blocked until a pull comes back complete.');
+  ms.total = Date.now() - t0;
+  var diag = { ms: ms, apiCalls: CV_API_CALLS, dealPages: dealNet.pages || 0, lineItemBatches: chunks,
+               pauseSec: Math.max(0, chunks - 1) * 8 / 10, failedDeals: failed.length, ledgerRows: ledger.length,
+               paidLines: Object.keys(paid).length, draftCount: Object.keys(drafts).length,
+               lineCount: ev.lines.length, excludedCount: ev.excluded.length };
   return {
-    lines: ev.lines, excluded: ev.excluded, warnings: defs.warnings,
+    lines: ev.lines, excluded: ev.excluded, warnings: warnings,
     meta: { stageId: String(stageId), stageName: (st && st.data && st.data.name) || '', dealCount: deals.length,
+            incomplete: incomplete, failedDealIds: failed.slice(0, 50), diag: diag,
+            dev: ENV.name !== 'prod' ? cmDevState_() : null,
             generatedAt: Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'America/Chicago', 'yyyy-MM-dd HH:mm:ss'),
             dealBaseUrl: 'https://' + s.domain + '.pipedrive.com/deal/', canEdit: cmCanEdit_(),
             presets: COMMISSION_RATE_PRESETS.slice(), defaultRate: COMMISSION_DEFAULT_RATE,
@@ -261,7 +317,7 @@ function cmPull_() {
 function getCommissionReport() {
   if (!viewerAllowed_()) return { ok: false, error: 'Not authorized.' };
   if (!cmEnabled_()) return { ok: false, error: 'The commission tracker is not configured.' };
-  try { return { ok: true, json: JSON.stringify(cmPull_()) }; }
+  try { var t0 = Date.now(), json = JSON.stringify(cmPull_()); return { ok: true, json: json, payloadBytes: json.length, serverMs: Date.now() - t0 }; }
   catch (e) { return { ok: false, error: 'Commission pull failed: ' + e.message }; }
 }
 
@@ -273,13 +329,14 @@ function saveCommissionRate(lineId, rate) {
   var reset = (rate === null || rate === '' || rate === undefined);
   var r = reset ? null : cmValidRate_(rate);
   if (!reset && r === null) return { ok: false, error: 'Rate must be a number from 0 to 100.' };
+  var t0 = Date.now();
   return cmWithLock_(function () {
     var paid = cmPaidIndex_(cmLedgerRows_());
     if (paid[String(id)]) return { ok: false, error: 'That line was already finalized in ' + paid[String(id)] + '.' };
     var d = cmDraftGet_();
     if (reset) delete d[String(id)]; else d[String(id)] = r;
     cmDraftPut_(d);
-    return { ok: true };
+    return { ok: true, serverMs: Date.now() - t0 };
   });
 }
 
@@ -298,7 +355,8 @@ function finalizeCommissionReport(reportKey, seen) {
     try {
       var ledger = cmLedgerRows_();
       if (ledger.some(function (r) { return String(r.report_key) === key; })) return { ok: false, error: key + ' is already finalized — finalized reports cannot be changed.' };
-      var live = cmPull_();
+      var t0 = Date.now(), live = cmPull_();
+      if (live.meta.incomplete) return { ok: false, stale: true, error: 'Pipedrive did not return everything on this pull, so finalizing now could leave lines unpaid. Refresh and try again.' };
       if (!live.lines.length) return { ok: false, error: 'Nothing to finalize — no unpaid eligible lines.' };
       var want = {}; (seen || []).forEach(function (x) { if (x) want[String(Number(x[0]))] = x; });
       var stale = Object.keys(want).length !== live.lines.length || live.lines.some(function (l) {
@@ -311,14 +369,10 @@ function finalizeCommissionReport(reportKey, seen) {
         return [key, at, by, l.ownerId, l.ownerName, l.dealId, l.dealTitle, l.lineId, l.productId, l.productName,
                 l.productCode, l.category, l.customer, l.qty, l.price, l.rate, l.rateSource, l.commission];
       });
-      var sh = cmLedgerSheet_(true);
-      // '@' BEFORE setValues: Sheets would parse "2026-10" / the timestamp into Dates. The only write, last.
-      var rng = sh.getRange(sh.getLastRow() + 1, 1, rows.length, COMMISSION_HEADERS.length);
-      rng.setNumberFormat('@');
-      rng.setValues(rows.map(function (r) { return r.map(function (v) { return String(v); }); }));
+      cmLedgerAppend_(rows);   // the only sheet write, last
       var d = cmDraftGet_(); live.lines.forEach(function (l) { delete d[String(l.lineId)]; }); cmDraftPut_(d);
       var total = 0; live.lines.forEach(function (l) { total += l.commission; });
-      return { ok: true, reportKey: key, lineCount: rows.length, total: cmRound2_(total) };
+      return { ok: true, reportKey: key, lineCount: rows.length, total: cmRound2_(total), serverMs: Date.now() - t0 };
     } catch (e) { return { ok: false, error: 'Finalize failed: ' + e.message }; }
   });
 }

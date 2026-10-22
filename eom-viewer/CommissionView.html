@@ -46,12 +46,23 @@
   .cm-final input { font: inherit; font-size: 12px; color: var(--text); background: var(--bg); border: 1px solid var(--border-2); border-radius: var(--radius-sm); padding: 3px 6px; }
   .cm-excl { margin-top: 18px; }
   .cm-reason { color: var(--danger); font-weight: 600; }
+  .cm-dev { border: 1px dashed var(--warning); background: var(--surface); border-radius: var(--radius); padding: 10px 12px; margin: 0 0 14px; font-size: 12px; }
+  .cm-dev-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+  .cm-dev-row + .cm-dev-row { margin-top: 8px; }
+  .cm-dev-tag { font-size: 10px; font-weight: 800; letter-spacing: .06em; color: var(--warning-strong); background: var(--warning-weak); border-radius: 999px; padding: 2px 8px; }
+  .cm-dev label { display: inline-flex; align-items: center; gap: 5px; color: var(--text-2); }
+  .cm-dev select, .cm-dev input { font: inherit; font-size: 12px; color: var(--text); background: var(--bg); border: 1px solid var(--border-2); border-radius: var(--radius-sm); padding: 2px 4px; }
+  .cm-dev input { width: 64px; }
+  .cm-dev-msg { color: var(--text-2); font-weight: 600; }
+  .cm-diag { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); color: var(--text-2); font-size: 11px; line-height: 1.6; font-variant-numeric: tabular-nums; }
+  .cm-diag b { color: var(--text); }
 </style>
 <script>
   var cmState = null;     // {lines, excluded, warnings, meta} of the open/finalized report
   var cmView = { sortKey: 'dealId', sortDir: 1, filters: {}, owner: '', showExcluded: false };
   var cmPending = 0;      // rate saves in flight (Finalize waits for them)
   var vwCmReports = [];   // finalized reports for the sidebar
+  var cmPerf = { t0: 0, roundTrip: 0, render: 0, payload: 0, server: 0, lastSave: null, lastFinal: null };   // DEV readout
   var CM_COLS = [
     { k: 'dealId',      label: 'Deal ID',      num: true, filter: true },
     { k: 'dealTitle',   label: 'Deal Name',    filter: true },
@@ -101,8 +112,13 @@
     vwPayload = null;
     var main = vwEl('vwMain');
     main.innerHTML = '<p class="vw-hint">Pulling the Billed stage from Pipedrive…</p>';
+    cmPerf.t0 = Date.now();
     google.script.run
-      .withSuccessHandler(function (res) { cmLoad(res, main); })
+      .withSuccessHandler(function (res) {
+        cmPerf.roundTrip = Date.now() - cmPerf.t0;
+        cmPerf.payload = (res && res.payloadBytes) || 0; cmPerf.server = (res && res.serverMs) || 0;
+        cmLoad(res, main);
+      })
       .withFailureHandler(function (e) { main.innerHTML = '<p class="vw-err">' + escHtml((e && e.message) || String(e)) + '</p>'; })
       .getCommissionReport();
   }
@@ -129,6 +145,7 @@
              : 'Live from Pipedrive (' + escHtml(m.stageName || 'Billed') + ') · pulled ' + escHtml(m.generatedAt || '')
                + '<button type="button" class="vw-refresh" onclick="cmOpenDraft()">&#8635; Refresh</button>')
       + '</div></div>';
+    if (!fin && m.dev) h += cmDevPanelHtml(m.dev);
     (cmState.warnings || []).forEach(function (w) { h += '<div class="cm-warn">' + escHtml(w) + '</div>'; });
     if (!fin) h += '<div class="cm-note">Every eligible line in Billed that no finalized report has paid yet. Default '
       + escHtml(cmPct(m.defaultRate)) + '; deals labelled Discounted default to ' + escHtml(cmPct(m.discountedRate))
@@ -144,6 +161,7 @@
     root.addEventListener('click', cmOnClick);
     root.addEventListener('change', cmOnChange);
     cmRenderTables();
+    if (cmDevNote) { cmDevMsg(cmDevNote); cmDevNote = ''; }
   }
 
   // ── Filters / sort ──
@@ -221,6 +239,7 @@
   }
   function cmRenderTables() {
     if (!cmState) return;
+    var tR = (window.performance && performance.now) ? performance.now() : Date.now();
     var m = cmState.meta || {}, editable = !m.finalized && !!m.canEdit, L = cmState.lines || [];
     var vis = cmVisible(), groups = {}, order = [];
     vis.forEach(function (i) { var o = L[i].ownerName; if (!groups[o]) { groups[o] = []; order.push(o); } groups[o].push(i); });
@@ -259,7 +278,9 @@
       + '<div class="cm-chip">Account managers<b>' + order.length + '</b></div>'
       + '<div class="cm-chip">Billed (pre-tax)<b>' + escHtml(cmMoney(filtered ? tot.price : all.price)) + '</b></div>'
       + '<div class="cm-chip">Commission' + (filtered ? ' (filtered)' : '') + '<b>' + escHtml(cmMoney(filtered ? tot.comm : all.comm)) + '</b></div>';
-    var fb = vwEl('cmFinalBtn'); if (fb) fb.disabled = !L.length || cmPending > 0;
+    var fb = vwEl('cmFinalBtn'); if (fb) { fb.disabled = !L.length || cmPending > 0 || !!m.incomplete; fb.title = m.incomplete ? 'Blocked: this pull is incomplete — refresh first.' : ''; }
+    cmPerf.render = Math.round(((window.performance && performance.now) ? performance.now() : Date.now()) - tR);
+    cmDiagPaint();
   }
   function cmToggleExcluded() {
     var box = vwEl('cmExcluded'), on = vwEl('cmShowExcl').checked, X = cmState.excluded || [];
@@ -306,6 +327,7 @@
     google.script.run
       .withSuccessHandler(function (res) {
         cmPending--;
+        cmPerf.lastSave = res && res.serverMs;
         if (!res || !res.ok) { Object.keys(prev).forEach(function (k) { l[k] = prev[k]; }); alert((res && res.error) || 'Could not save the rate.'); }
         cmRenderTables();
       })
@@ -324,8 +346,10 @@
     if (!confirm('Finalize ' + L.length + ' lines (' + cmMoney(total) + ' commission) as ' + key + '?\n\nThis locks the report permanently and these lines can never be paid again.')) return;
     var btn = vwEl('cmFinalBtn'); btn.disabled = true; btn.textContent = 'Finalizing…';
     var seen = L.map(function (l) { return [l.lineId, l.rate, l.price]; });
+    var tF = Date.now();
     google.script.run
       .withSuccessHandler(function (res) {
+        cmPerf.lastFinal = { server: res && res.serverMs, roundTrip: Date.now() - tF, lines: res && res.lineCount };
         if (!res || !res.ok) {
           btn.disabled = false; btn.textContent = 'Finalize report…';
           alert((res && res.error) || 'Finalize failed.');
@@ -339,5 +363,81 @@
       })
       .withFailureHandler(function (err) { btn.disabled = false; btn.textContent = 'Finalize report…'; alert((err && err.message) || String(err)); })
       .finalizeCommissionReport(key, seen);
+  }
+
+  // ── DEV test panel (server sends meta.dev only off PROD; every cmDev* endpoint also refuses on PROD) ──
+  var CM_DEV_FAILS = [0, 1, 5, 20];
+  var cmDevNote = '';
+  function cmDevPanelHtml(d) {
+    var c = d.cfg || {};
+    var h = '<div class="cm-dev"><div class="cm-dev-row"><span class="cm-dev-tag">DEV TEST DATA</span>'
+      + '<label>Volume <select id="cmDevVol" onchange="cmDevSet()">'
+      + (d.volumes || []).map(function (v) { return '<option value="' + escHtml(v.key) + '"' + (v.key === c.volume ? ' selected' : '') + '>' + escHtml(v.label) + '</option>'; }).join('')
+      + '</select></label><label>Simulated API failures <select id="cmDevFail" onchange="cmDevSet()">'
+      + CM_DEV_FAILS.map(function (p) { return '<option value="' + p + '"' + (p === Number(c.failPct) ? ' selected' : '') + '>' + p + '% of deals</option>'; }).join('')
+      + '</select></label>'
+      + (c.volume !== 'fixtures' ? '<span>Month <b>#' + escHtml(String(c.month || 0)) + '</b></span><button type="button" class="cm-btn" onclick="cmDevNext()" title="Month end: this month’s deals leave Billed (5% linger), a new month arrives">Next month →</button>' : '')
+      + '</div><div class="cm-dev-row">'
+      + '<label>Seed ledger history <input type="number" id="cmDevSeedN" min="1" max="36" value="12"> months</label>'
+      + '<button type="button" class="cm-btn" onclick="cmDevSeed()">Seed</button>'
+      + '<label>Manual rates on first <input type="number" id="cmDevBulkN" min="1" value="600"> lines</label>'
+      + '<button type="button" class="cm-btn" onclick="cmDevBulk()">Apply</button>'
+      + '<button type="button" class="cm-btn" onclick="cmDevResetAll()">Reset ledger + drafts</button>'
+      + '<span class="cm-dev-msg" id="cmDevMsg"></span></div><div class="cm-diag" id="cmDiag"></div></div>';
+    return h;
+  }
+  function cmFmtMs(n) { n = Number(n) || 0; return n >= 1000 ? (n / 1000).toFixed(2) + ' s' : n + ' ms'; }
+  function cmFmtBytes(n) { n = Number(n) || 0; return n >= 1048576 ? (n / 1048576).toFixed(2) + ' MB' : Math.round(n / 1024) + ' KB'; }
+  function cmDiagPaint() {
+    var box = vwEl('cmDiag'); if (!box || !cmState || !cmState.meta) return;
+    var g = cmState.meta.diag || {}, ms = g.ms || {}, d = cmState.meta.dev || {};
+    var h = '<div>Server <b>' + escHtml(cmFmtMs(cmPerf.server)) + '</b> (field defs ' + cmFmtMs(ms.fieldDefs) + ' · deal list ' + cmFmtMs(ms.deals)
+      + ' · line items ' + cmFmtMs(ms.lineItems) + ' · names/catalog ' + cmFmtMs(ms.context) + ' · ledger read ' + cmFmtMs(ms.ledgerRead)
+      + ' · rules ' + cmFmtMs(ms.evaluate) + ') · browser round-trip <b>' + escHtml(cmFmtMs(cmPerf.roundTrip)) + '</b> · table render <b>'
+      + escHtml(cmFmtMs(cmPerf.render)) + '</b> · payload <b>' + escHtml(cmFmtBytes(cmPerf.payload)) + '</b></div>'
+      + '<div>' + escHtml(String(cmState.meta.dealCount || 0)) + ' deals · ' + escHtml(String(g.lineCount || 0)) + ' eligible lines · '
+      + escHtml(String(g.excludedCount || 0)) + ' excluded · On PROD this pull = <b>' + escHtml(String(g.apiCalls || 0)) + ' API calls</b> ('
+      + escHtml(String(g.dealPages || 0)) + ' deal-list pages, ' + escHtml(String(g.lineItemBatches || 0)) + ' line-item batches of ≤100 in parallel, '
+      + escHtml(String(g.pauseSec || 0)) + ' s of built-in pauses) + network time the fake can’t measure'
+      + (g.failedDeals ? ' · <b>' + escHtml(String(g.failedDeals)) + ' deals failed</b>' : '') + '</div>'
+      + '<div>Ledger ' + escHtml(String(d.ledgerRows || 0)) + ' rows (grid ' + escHtml(String(d.ledgerMaxRows || 0)) + ') · paid lines indexed '
+      + escHtml(String(g.paidLines || 0)) + ' · draft rates ' + escHtml(String(d.draftCount || 0)) + ' (' + escHtml(cmFmtBytes(d.draftBytes)) + ' of the 9 KB property cap)'
+      + (cmPerf.lastSave != null ? ' · last rate save ' + escHtml(cmFmtMs(cmPerf.lastSave)) : '')
+      + (cmPerf.lastFinal ? ' · last finalize ' + escHtml(cmFmtMs(cmPerf.lastFinal.server)) + ' server / ' + escHtml(cmFmtMs(cmPerf.lastFinal.roundTrip)) + ' total' : '')
+      + '</div>';
+    box.innerHTML = h;
+  }
+  function cmDevMsg(t) { var el = vwEl('cmDevMsg'); if (el) el.textContent = t || ''; }
+  /** Run a cmDev* endpoint, show its result, then re-pull the open report. */
+  function cmDevRun(fn, args, busy, done) {
+    cmDevMsg(busy);
+    var t = Date.now(), r = google.script.run
+      .withSuccessHandler(function (res) {
+        if (!res || !res.ok) { cmDevMsg(''); alert((res && res.error) || 'Failed.'); return; }
+        cmDevNote = done ? done(res, Date.now() - t) : '';   // painted by cmLoad once the re-pull lands
+        cmRefreshSidebar(function () { cmOpenDraft(); });
+      })
+      .withFailureHandler(function (e) { cmDevMsg(''); alert((e && e.message) || String(e)); });
+    r[fn].apply(r, args);
+  }
+  function cmDevSet() {
+    cmDevRun('cmDevSetConfig', [vwEl('cmDevVol').value, Number(vwEl('cmDevFail').value)], 'Switching test data…');
+  }
+  function cmDevNext() { cmDevRun('cmDevNextMonth', [], 'Advancing a month…'); }
+  function cmDevSeed() {
+    var n = Number(vwEl('cmDevSeedN').value) || 12;
+    cmDevRun('cmDevSeedLedger', [n], 'Seeding ' + n + ' months of ledger history…', function (res, ms) {
+      return 'Seeded ' + res.rows + ' rows in ' + cmFmtMs(res.ms) + ' (server).';
+    });
+  }
+  function cmDevBulk() {
+    var n = Number(vwEl('cmDevBulkN').value) || 600;
+    cmDevRun('cmDevBulkRates', [n], 'Writing ' + n + ' manual rates…', function (res) {
+      return 'Stored ' + res.total + ' draft rates (' + cmFmtBytes(res.bytes) + ').';
+    });
+  }
+  function cmDevResetAll() {
+    if (!confirm('Delete the DEV COMMISSIONS ledger tab and all draft rates, and go back to month #0?')) return;
+    cmDevRun('cmDevReset', [], 'Resetting…');
   }
 </script>

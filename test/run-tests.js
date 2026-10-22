@@ -1527,7 +1527,14 @@ function cmMemSS_() {
       _data: data, getName: function () { return name; },
       getDataRange: function () { return { getValues: function () { return data.map(function (r) { return r.slice(); }); } }; },
       getLastRow: function () { return data.length; },
-      getRange: function (r, c, nr, nc) { return {
+      // Grid like Sheets: a new tab is 1,000 × 26 and a range past the grid THROWS.
+      _maxRows: 1000, _maxCols: 26,
+      getMaxRows: function () { return sh._maxRows; }, getMaxColumns: function () { return sh._maxCols; },
+      insertRowsAfter: function (after, n) { sh._maxRows += n; return sh; },
+      deleteColumns: function (from, n) { sh._maxCols -= n; return sh; },
+      getRange: function (r, c, nr, nc) {
+        if (r + (nr || 1) - 1 > sh._maxRows || c + (nc || 1) - 1 > sh._maxCols) throw new Error('The coordinates of the range are outside the dimensions of the sheet.');
+        return {
         setNumberFormat: function (f) { sh._fmt = f; return this; },
         setValues: function (vals) { vals.forEach(function (row, i) { data[r - 1 + i] = row.slice(0, nc); }); return this; } }; }
     };
@@ -1535,6 +1542,7 @@ function cmMemSS_() {
   }
   mk('REPORTS', [['month_key']]);
   return { getSheetByName: function (n) { return byName[n] || null; }, insertSheet: function (n) { return mk(n); },
+           deleteSheet: function (sh) { order = order.filter(function (x) { return x !== sh; }); delete byName[sh.getName()]; },
            getSheets: function () { return order.slice(); } };
 }
 function cmLoadDev_() {
@@ -1640,6 +1648,139 @@ t('PROD: commission section off until COMMISSION_STAGE_ID is set; EOM Current on
   var dev = cmLoadDev_(), cur = JSON.parse(dev.getCurrentReport().json);
   assert.strictEqual(cur.meta.dealCount, 3);                            // shared fake's stage-44 deals, untouched
   assert.ok(cur.json === undefined && JSON.stringify(cur).indexOf('CM-') === -1);   // no commission fixtures leak into EOM
+});
+
+// ============================================================================
+// Suite: eom-viewer commission VOLUME — the seeded production-scale world in
+// CommissionFake.gs (busy month = 400 deals × ~6 lines; 5× and overload tiers).
+// Same answer-key discipline as the fixtures (every line, every cent), plus
+// pagination, failure injection, month-end turnover, ledger growth and the
+// draft-store cap. Timings are printed for the record, never asserted tightly.
+// ============================================================================
+suite('eom-viewer commission volume');
+function cmLoadVol_(volume, cfg) {
+  var v = cmLoadDev_();
+  v.cmFakeCfgPut_(JSON.parse(JSON.stringify(Object.assign({ volume: volume, failPct: 0, month: 0 }, cfg || {}))));
+  return v;
+}
+/** Asserts the open report against cmFakeExpectations_ (paidIds: lines a finalize already paid). */
+function cmCheckKey_(v, rep, paidIds) {
+  var inc = {}, exc = {}, bad = [], wantCents = 0, gotCents = 0, nInc = 0, keys = v.cmFakeExpectations_();
+  rep.lines.forEach(function (l) { inc[l.lineId] = l; gotCents += Math.round(l.commission * 100); });
+  rep.excluded.forEach(function (x) { exc[x.lineId] = x.reason; });
+  keys.forEach(function (k) {
+    var want = (paidIds && paidIds[k.lineId] && k.expect === 'include') ? 'already_paid' : k.expect;
+    var got = inc[k.lineId] ? 'include' : (exc[k.lineId] || 'absent');
+    if (want === 'include') {
+      nInc++; wantCents += k.commissionCents;
+      if (got !== 'include') bad.push(k.lineId + ' want include got ' + got);
+      else if (Math.round(inc[k.lineId].commission * 100) !== k.commissionCents) bad.push(k.lineId + ' commission ' + inc[k.lineId].commission + ' != ' + (k.commissionCents / 100));
+      else if (inc[k.lineId].ownerId !== k.ownerId) bad.push(k.lineId + ' owner ' + inc[k.lineId].ownerId + ' != ' + k.ownerId);
+    } else if (want === 'not_in_stage') { if (got !== 'absent') bad.push(k.lineId + ' wrong-stage line was pulled'); }
+    else if (got !== want) bad.push(k.lineId + ' want ' + want + ' got ' + got);
+  });
+  assert.strictEqual(bad.length, 0, bad.length + ' answer-key mismatches, first: ' + bad.slice(0, 5).join('; '));
+  assert.strictEqual(rep.lines.length, nInc);
+  assert.strictEqual(gotCents, wantCents);
+  return { lines: nInc, keys: keys.length, cents: wantCents };
+}
+function cmTimed_(fn) { var t0 = Date.now(), out = fn(); out._ms = Date.now() - t0; return out; }
+function cmNote_(s) { console.log('    · ' + s); }
+function cmMb_(n) { return (n / 1048576).toFixed(2) + ' MB'; }
+function cmVolTier_(tier) {
+  var v = cmLoadVol_(tier), billed = v.cmFakeWorld_().billed.length;
+  var res = cmTimed_(function () { return v.getCommissionReport(); });
+  assert.strictEqual(res.ok, true, res.error);
+  var rep = JSON.parse(res.json), k = cmCheckKey_(v, rep), g = rep.meta.diag;
+  assert.strictEqual(rep.meta.incomplete, false);
+  assert.strictEqual(rep.meta.dealCount, billed);
+  assert.strictEqual(g.dealPages, Math.ceil(billed / 500));            // cursor pagination actually walked
+  assert.strictEqual(g.lineItemBatches, Math.ceil(billed / 100));
+  cmNote_(tier + ': ' + billed + ' deals · ' + k.keys + ' lines → ' + k.lines + ' eligible ($' + (k.cents / 100).toFixed(2)
+    + ') · ' + g.dealPages + ' deal pages · ' + g.apiCalls + ' API calls on PROD · ' + g.pauseSec + ' s built-in pauses · pull '
+    + res._ms + ' ms (rules ' + g.ms.evaluate + ' ms) · payload ' + cmMb_(res.payloadBytes));
+  return { v: v, rep: rep };
+}
+t('busy month (400 deals): every line lands per the answer key, totals match to the cent', function () { cmVolTier_('month'); });
+t('5× (2,000 deals): answer key holds; the deal list paginates (500 per page)', function () { cmVolTier_('x5'); });
+t('overload (8,000 deals): answer key holds; payload size on record', function () { cmVolTier_('overload'); });
+t('finalize at volume: a ~2,400-line month grows the 1,000-row grid; month end; nothing is ever paid twice', function () {
+  var v = cmLoadVol_('month'), rep = cmReport_(v);
+  assert.ok(rep.lines.length > 1000, 'busy month should exceed one fresh grid: ' + rep.lines.length);
+  var r1 = cmTimed_(function () { return v.finalizeCommissionReport('2026-10', cmSeen_(rep)); });
+  assert.strictEqual(r1.ok, true, r1.error);
+  var sh = v._ss.getSheetByName('COMMISSIONS');
+  assert.strictEqual(sh._data.length - 1, rep.lines.length);
+  assert.strictEqual(sh._maxCols, v.COMMISSION_HEADERS.length);       // grid trimmed to the ledger's columns
+  var paid = {}; sh._data.slice(1).forEach(function (row) { paid[Number(row[7])] = true; });
+  assert.strictEqual(cmReport_(v).lines.length, 0);
+  assert.strictEqual(v.cmDevNextMonth().ok, true);                     // month end: 95% leave Billed, 5% linger
+  var rep2 = cmReport_(v), k2 = cmCheckKey_(v, rep2, paid);
+  var lingering = rep2.excluded.filter(function (x) { return x.reason === 'already_paid'; }).length;
+  assert.ok(lingering > 0, 'carried-over deals should show as already paid');
+  assert.strictEqual(v.finalizeCommissionReport('2026-11', cmSeen_(rep2)).ok, true);
+  assert.strictEqual(sh._data.length - 1, rep.lines.length + k2.lines);
+  cmNote_('finalize ' + rep.lines.length + ' lines: ' + r1._ms + ' ms · next month ' + k2.lines + ' new lines, ' + lingering + ' lingering already-paid');
+});
+t('GAP #8 on record: a month that is never finalized leaves Billed unpaid with no warning', function () {
+  var v = cmLoadVol_('month'), before = cmReport_(v).lines;
+  v.cmDevNextMonth();
+  var seen = {}, rep = cmReport_(v);
+  rep.lines.concat(rep.excluded).forEach(function (l) { seen[l.lineId] = true; });
+  var gone = before.filter(function (l) { return !seen[l.lineId]; }), cents = 0;
+  gone.forEach(function (l) { cents += Math.round(l.commission * 100); });
+  assert.ok(gone.length > 0 && gone.length < before.length);
+  assert.ok(!rep.warnings.some(function (w) { return /unpaid|left Billed/i.test(w); }));   // today: silent
+  cmNote_('FINDING: month end without finalizing — ' + gone.length + ' of ' + before.length + ' unpaid eligible lines ($'
+    + (cents / 100).toFixed(2) + ' commission) vanished from the report, no warning');
+});
+t('simulated 5% API failures: pull flagged incomplete + warned; finalize refused; nothing written', function () {
+  var v = cmLoadVol_('month', { failPct: 5 }), rep = cmReport_(v);
+  assert.strictEqual(rep.meta.incomplete, true);
+  assert.ok(rep.meta.diag.failedDeals > 0);
+  assert.ok(/^INCOMPLETE PULL/.test(rep.warnings[0]), rep.warnings[0]);
+  var failed = {}; rep.meta.failedDealIds.forEach(function (id) { failed[id] = true; });
+  assert.ok(!rep.lines.some(function (l) { return failed[l.dealId]; }));
+  var r = v.finalizeCommissionReport('2026-10', cmSeen_(rep));
+  assert.strictEqual(r.ok, false); assert.strictEqual(r.stale, true);
+  assert.strictEqual(v._ss.getSheetByName('COMMISSIONS'), null);      // refused BEFORE any write
+  v.cmDevSetConfig(null, 0);
+  var ok = cmReport_(v);
+  assert.strictEqual(ok.meta.incomplete, false);
+  assert.ok(ok.lines.length > rep.lines.length);
+  cmNote_('5% failures: ' + rep.meta.diag.failedDeals + ' deals failed, ' + (ok.lines.length - rep.lines.length) + ' eligible lines would have gone missing');
+});
+t('ledger growth: 24 months of history (57,600 rows) — paid index, report list, open report all still right', function () {
+  var v = cmLoadVol_('month');
+  var s = cmTimed_(function () { return v.cmDevSeedLedger(24); });
+  assert.strictEqual(s.ok, true, s.error); assert.strictEqual(s.rows, 57600);
+  var rep = cmReport_(v);
+  assert.strictEqual(rep.meta.diag.ledgerRows, 57600);
+  cmCheckKey_(v, rep);                                                 // seeded ids never collide with live lines
+  var boot = v.getViewerBootstrap();
+  assert.strictEqual(boot.commissions.reports.length, 24);
+  assert.strictEqual(boot.commissions.reports[0].lineCount, 2400);
+  cmNote_('seed 57,600 rows: ' + s._ms + ' ms in-memory · ledger read inside the pull ' + rep.meta.diag.ms.ledgerRead + ' ms (Node, not Sheets — measure on DEV)');
+});
+t('draft store: the 9 KB ScriptProperty cap — capacity on record, overflow fails LOUD', function () {
+  var v = cmLoadVol_('month'), inner = propStore_();
+  v.PropertiesService = { getScriptProperties: function () { return {
+    getProperty: inner.getProperty, deleteProperty: inner.deleteProperty, getProperties: inner.getProperties,
+    setProperty: function (k, val) { if (String(val).length > 9216) throw new Error('Argument too large: value'); return inner.setProperty(k, val); } }; } };
+  v.cmFakeCfgPut_({ volume: 'month', failPct: 0, month: 0 });
+  var lo = 1, hi = 2400;                                               // largest bulk that still fits
+  while (lo < hi) { var mid = Math.ceil((lo + hi) / 2); inner.deleteProperty(v.CM_DRAFT_PROP); if (v.cmDevBulkRates(mid).ok) lo = mid; else hi = mid - 1; }
+  inner.deleteProperty(v.CM_DRAFT_PROP);
+  var over = v.cmDevBulkRates(lo + 1);
+  assert.strictEqual(over.ok, false);
+  assert.ok(/Argument too large/.test(over.error), over.error);
+  cmNote_('FINDING: draft store holds ' + lo + ' manual rates, then every further rate save errors');
+});
+t('PROD: every DEV test control refuses', function () {
+  var prod = loadViewer_(VIEWER_PROD_ID, { fetch: function () { throw new Error('no net'); }, fetchAll: function () { return []; } });
+  ['cmDevSetConfig', 'cmDevNextMonth', 'cmDevReset', 'cmDevSeedLedger', 'cmDevBulkRates'].forEach(function (fn) {
+    assert.strictEqual(prod[fn]('month', 0).ok, false, fn + ' must refuse on PROD');
+  });
 });
 
 // ── Report ───────────────────────────────────────────────────────────────────

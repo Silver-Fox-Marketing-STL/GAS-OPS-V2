@@ -178,7 +178,9 @@ function cvSecrets_() {
 }
 
 /** GET a url -> parsed body, or null on any error (never throws). */
+var CV_API_CALLS = 0;   // per-execution request counter (diagnostics; counts fake calls too = what PROD would make)
 function cvGetJson_(url) {
+  CV_API_CALLS++;
   if (ENV.name !== 'prod') return cvFakeJson_(url);   // DEV: in-process fake, zero API traffic (PdFake.gs + CommissionFake.gs)
   try {
     var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
@@ -203,11 +205,12 @@ function cvFakeJson_(url) {
 
 /** GET a v1 collection, following start/limit pagination (mirrors pdListAllV1_).
  *  v1 is only for /dealFields and /users — neither has a v2 twin. */
-function cvListAllV1_(s, path) {
+function cvListAllV1_(s, path, info) {
   var out = [], start = 0, guard = 0;
   while (guard++ < 40) {
     var sep = (path.indexOf('?') === -1) ? '?' : '&';
     var body = cvGetJson_(s.baseV1 + path + sep + 'start=' + start + '&limit=500&api_token=' + encodeURIComponent(s.token));
+    if (info) { info.pages = (info.pages || 0) + 1; if (!body) info.incomplete = true; }
     if (!body || !body.data) break;
     out = out.concat(body.data);
     var pg = body.additional_data && body.additional_data.pagination;
@@ -218,26 +221,28 @@ function cvListAllV1_(s, path) {
 }
 
 /** GET a v2 collection, following cursor pagination (mirrors pdListAllV2_). */
-function cvListAllV2_(s, path) {
+function cvListAllV2_(s, path, info) {
   var out = [], cursor = '', guard = 0;
   do {
     var sep = (path.indexOf('?') === -1) ? '?' : '&';
     var body = cvGetJson_(s.baseV2 + path + sep + 'limit=500' + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '')
                           + '&api_token=' + encodeURIComponent(s.token));
+    if (info) { info.pages = (info.pages || 0) + 1; if (!body) info.incomplete = true; }
     if (!body || !body.data) break;
     out = out.concat(body.data);
     cursor = (body.additional_data && body.additional_data.next_cursor) ? body.additional_data.next_cursor : '';
   } while (cursor && guard++ < 40);
+  if (info && cursor) info.incomplete = true;   // page guard hit with more to read = truncated, never silently
   return out;
 }
 
 /** GET v2 entities by id in batches of 100 (`?ids=`) → {id: entity} (mirrors pdListByIdsV2_). */
-function cvListByIdsV2_(s, path, ids) {
+function cvListByIdsV2_(s, path, ids, info) {
   var out = {}, uniq = {}, list = [];
   (ids || []).forEach(function (id) { var n = Number(id); if (n && !isNaN(n) && !uniq[n]) { uniq[n] = true; list.push(n); } });
   for (var i = 0; i < list.length; i += 100) {
     var sep = (path.indexOf('?') === -1) ? '?' : '&';
-    cvListAllV2_(s, path + sep + 'ids=' + list.slice(i, i + 100).join(',')).forEach(function (it) {
+    cvListAllV2_(s, path + sep + 'ids=' + list.slice(i, i + 100).join(','), info).forEach(function (it) {
       if (it && it.id !== undefined) out[String(it.id)] = it;
     });
   }
@@ -255,8 +260,9 @@ function pdRelId_(v) {
  *  v2 rows carry name/price/qty/tax/variation id but no embedded `product` —
  *  cvBuildContext_ resolves the catalog side. Never throws — a failed deal yields
  *  an empty product list. */
-function cvFetchProductsForDeals_(s, dealIds) {
-  if (ENV.name !== 'prod') return cmFakeDealProducts_(dealIds);   // DEV: commission fixtures, else the shared fake's pdFakeEomProducts_
+function cvFetchProductsForDeals_(s, dealIds, failed) {
+  CV_API_CALLS += dealIds.length;
+  if (ENV.name !== 'prod') return cmFakeDealProducts_(dealIds, failed);   // DEV: commission world, else the shared fake's pdFakeEomProducts_
   var out = {};
   var requests = dealIds.map(function (id) {
     return {
@@ -266,14 +272,14 @@ function cvFetchProductsForDeals_(s, dealIds) {
   });
   var responses;
   try { responses = UrlFetchApp.fetchAll(requests); }
-  catch (e) { dealIds.forEach(function (id) { out[id] = []; }); return out; }
+  catch (e) { dealIds.forEach(function (id) { out[id] = []; if (failed) failed.push(id); }); return out; }
   responses.forEach(function (resp, i) {
     var id = dealIds[i];
     try {
-      if (resp.getResponseCode() !== 200) { out[id] = []; return; }
+      if (resp.getResponseCode() !== 200) { out[id] = []; if (failed) failed.push(id); return; }
       var body = JSON.parse(resp.getContentText());
       out[id] = body.data || [];
-    } catch (e) { out[id] = []; }
+    } catch (e) { out[id] = []; if (failed) failed.push(id); }
   });
   return out;
 }
