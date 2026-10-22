@@ -5,7 +5,7 @@ Config-driven Google Apps Script that produces vehicle window banner graphics
 (Shortcuts / Shortcut Packs) for automotive dealers: imports scraper inventory,
 matches ordered VINs, generates QR codes, and builds CSVs for Adobe Illustrator
 variable-data printing. One universal script + one universal template replaces
-the legacy V1 system's ~42 per-dealer functions. 43 configured dealers, 29 active.
+the legacy V1 system's ~42 per-dealer functions. 49 configured dealers, 35 active (live DEALERS tab, 2026-10-22).
 
 Nick is the primary developer and is using this project to learn Git/programming —
 explain reasoning and use beginner-friendly guidance, but stay efficient.
@@ -92,7 +92,7 @@ exact schemas/mechanism/history — NOT in context).
 |---|---|
 | SF_SYSTEM_MASTER (script bound; SCRAPERDATA, ORDERS, RUN_LOG, IMPORT_STATS, ORDER_STATS, DASHBOARD) | `1G_wrlXVmcUDJ37xr3bDwDHUGUy9ULIbNufq_Xk9xVes` |
 | SF_DEALER_CONFIG (DEALERS, NORM_MAPS, CSV_SCHEMAS, USER_PROFILES, FIELD_CODES, PIPEDRIVE, PIPEDRIVE_SETTINGS) | `1csQdjcNey_mgcVqY99GOJ2PNCGRTyoZTbaUyJ3IZkJ8` |
-| SF_UNIVERSAL_TEMPLATE (copied per order; ORDERMATCH cols A–Y) | `14Nk1FL-dfffIoWh9o8Q_EFCNlMXN3jUnlzzZ750QVTc` |
+| SF_UNIVERSAL_TEMPLATE (copied per order; ORDERMATCH cols A–Z) | `14Nk1FL-dfffIoWh9o8Q_EFCNlMXN3jUnlzzZ750QVTc` |
 | SF_VIN_LOGS (one tab per dealer_key; `ORDER_ID | VIN | committed_at | order_date`; order_date blank on legacy-system rows) | `12Xf6dyZXWXp4JwbytGo6lRUShwuGeN0yS3zhbco4-Lk` |
 
 ## Invariants — do not break
@@ -294,11 +294,14 @@ when working with `*.html`).
 
 ## Backlog & to-do
 
-Not tracked here. The active to-do, housekeeping, hardening backlog, and working
-agreements live in the brain (fresher and richer):
-`~/Documents/claude-brain/01-Projects/gas-ops-v2/open-issues.md` — pull via
-`/brain-find` or the brain skill. Deferred designs (Trim Cleanup, Order Types,
-Capacity Plan) are specced in the Bridge doc.
+Not tracked here. These live in the brain (fresher and richer), under
+`~/Documents/claude-brain/01-Projects/gas-ops-v2/`:
+- `open-issues.md`: the active to-do and housekeeping.
+- `debt-register.md`: deliberate shortcuts and the hardening backlog.
+- `standards.md`, `## Working agreements`: the working agreements.
+
+Pull them via `/brain-find` or the brain skill. Deferred designs (Trim Cleanup,
+Order Types, Capacity Plan) are specced in the Bridge doc.
 
 ## Reference docs
 
@@ -311,8 +314,8 @@ Read on demand (NOT auto-loaded):
   changelog; **canonical source of truth** for any exact invariant, schema, column
   index, or feature history. (De-auto-loaded to save ~56k tokens/session.)
 - Brain vault (`~/Documents/claude-brain/01-Projects/gas-ops-v2/`): `project-brief`,
-  `architecture` (schema quick-ref), `open-issues` (backlog), `ui-patterns`
-  (SPA/theme detail); plus `03-Resources/pipedrive/integration-notes`. Pull via the
+  `architecture` (schema quick-ref), `open-issues` (backlog), `debt-register`,
+  `standards` (rules + working agreements), `ui-patterns` (SPA/theme detail); plus `03-Resources/pipedrive/integration-notes`. Pull via the
   brain skill / `/brain-find`.
 - `GAS_ShortCut_OPS_Development_Plan.md` — roadmap incl. V3 direction.
 
