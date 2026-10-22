@@ -130,7 +130,9 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   `pdFlattenDealFields_` aliases `owner_id` back to `user_id` so an `if_empty` Owner rule
   on a linked deal reads the real value instead of "empty". Saved rules are unchanged.
   The failed push is resumable — its state is `productsDone`, so a retry only re-sends
-  the fields.
+  the fields. **Promoted to PROD the same day — `/exec` @104 = `promote 6758147`**
+  (all 24 files verified byte-identical to `main` by clasp pull; root `.clasp.json`
+  confirmed restored to DEV); Nick re-ran the deal 5326 push and it completed.
 
 ## [1.1] — 2026-09-30
 
