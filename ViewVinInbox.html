@@ -54,7 +54,17 @@
   #view-vin-inbox .vi-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: var(--space-2); }
   #view-vin-inbox .vi-card { display: flex; gap: var(--space-2); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: var(--space-2); }
   #view-vin-inbox .vi-card.miss { border-color: var(--warning); }
-  #view-vin-inbox .vi-thumb { width: 72px; height: 72px; flex-shrink: 0; border-radius: var(--radius-sm); object-fit: cover; background: var(--surface-3); border: 1px solid var(--border); }
+  #view-vin-inbox .vi-card { flex-wrap: wrap; }
+  /* Thumbnail = a button: camera placeholder underneath, server-fetched image laid over it. */
+  #view-vin-inbox .vi-thumb { position: relative; width: 72px; height: 72px; flex-shrink: 0; padding: 0; overflow: hidden; cursor: pointer; border-radius: var(--radius-sm); background: var(--surface-3); border: 1px solid var(--border); color: var(--text-3); font-size: 24px; }
+  #view-vin-inbox .vi-thumb:hover { border-color: var(--text-3); }
+  #view-vin-inbox .vi-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  #view-vin-inbox .vi-thumb img[hidden] { display: none; }
+  #view-vin-inbox .vi-card.vi-open { grid-column: 1 / -1; }
+  #view-vin-inbox .vi-card.vi-open .vi-actions { max-width: 480px; }
+  #view-vin-inbox .vi-photo { flex-basis: 100%; display: flex; flex-direction: column; align-items: center; gap: var(--space-2); padding-top: var(--space-2); }
+  #view-vin-inbox .vi-photo[hidden] { display: none; }
+  #view-vin-inbox .vi-photo img { max-width: 100%; max-height: 70vh; object-fit: contain; border-radius: var(--radius-sm); }
   #view-vin-inbox .vi-info { flex: 1; min-width: 0; }
   #view-vin-inbox .vi-tags { display: flex; gap: var(--space-2); margin: var(--space-1) 0; flex-wrap: wrap; }
   #view-vin-inbox .vi-veh { font-size: var(--fs-sm); color: var(--text-2); }
@@ -96,6 +106,12 @@
     if (!body) return;
     viVinMaps = {};          // refetch inventory each visit — same freshness as the submission list
     viPendingChecks = {};
+    viOpenPhotos = {};
+    if (!body.dataset.thumbHook) {
+      body.dataset.thumbHook = '1';
+      // <details> 'toggle' doesn't bubble — capture it. Opening a batch loads its thumbnails.
+      body.addEventListener('toggle', function (e) { if (e.target.open) viFillThumbs(); }, true);
+    }
     body.innerHTML = '<p class="u-hint">Loading&hellip;</p>';
     google.script.run
       .withSuccessHandler(viRender)
@@ -231,6 +247,8 @@
     body.innerHTML = html;
     viLoadMaps();
     viSelCountUpdate();   // re-render clears checkmarks — sync the count
+    Object.keys(viOpenPhotos).forEach(viShowPhoto_);   // reopen photo panels (gone rows drop out)
+    viFillThumbs();   // viRefresh re-opens batches after this — its toggle events fill those
   }
 
   // One getDealerVinData call per distinct dealer in the inbox (typically 1–2);
@@ -272,10 +290,11 @@
 
   function viCard(s) {
     // photoFileId / id are system-generated (no quotes) → safe in handlers.
+    // The camera placeholder is always clickable; viFillThumbs drops the server-fetched
+    // thumbnail over it when it lands (never a drive.google.com URL — see getVinPhotoThumbs).
     var thumb = s.photoFileId
-      ? '<a href="' + escHtml(s.photoUrl) + '" target="_blank" rel="noopener"><img class="vi-thumb" alt="VIN photo" ' +
-        'src="https://drive.google.com/thumbnail?id=' + encodeURIComponent(s.photoFileId) + '&sz=w200" ' +
-        'onerror="this.style.display=\'none\'"></a>'
+      ? '<button type="button" class="vi-thumb" title="View photo" onclick="viTogglePhoto(\'' + s.id + '\')">' +
+        '<span aria-hidden="true">&#128247;</span><img alt="VIN photo" data-thumb="' + escHtml(s.photoFileId) + '" hidden></button>'
       : '';
     var queued = (s.ocrState === 'queued');
     var h = '';
@@ -291,8 +310,80 @@
       h += '<button type="button" class="btn-secondary" onclick="viDiscard(\'' + s.id + '\')">Discard</button>';
       h += '</div>';
     }
-    h += '</div></div>';
+    h += '</div>';
+    if (s.photoFileId) h += '<div class="vi-photo" id="viphoto_' + s.id + '" hidden></div>';
+    h += '</div>';
     return h;
+  }
+
+  // ── Photos ── thumbnails for OPEN batches only (collapsed ones cost no Drive calls),
+  // fetched server-side in small parallel chunks; only successes are cached, so a
+  // not-yet-generated Drive thumbnail self-heals on a later render.
+  var viThumbs = {};        // photoFileId → thumbnail dataUrl
+  var viThumbPending = {};  // photoFileId → 1 while a request is out
+  var viOpenPhotos = {};    // sid → full-size dataUrl ('' while loading) — survives re-renders
+  function viFillThumbs() {
+    var imgs = document.querySelectorAll('#viBody .vi-batch[open] img[data-thumb]');
+    var need = [];
+    for (var i = 0; i < imgs.length; i++) {
+      var id = imgs[i].getAttribute('data-thumb');
+      if (viThumbs[id]) { imgs[i].src = viThumbs[id]; imgs[i].hidden = false; }
+      else if (id && !viThumbPending[id]) { viThumbPending[id] = 1; need.push(id); }
+    }
+    if (!need.length) return;
+    var apply = function (chunk, res) {
+      chunk.forEach(function (id) { delete viThumbPending[id]; });
+      var got = (res && res.thumbs) || {};
+      for (var k in got) viThumbs[k] = got[k];
+      var all = document.querySelectorAll('#viBody img[data-thumb]');
+      for (var j = 0; j < all.length; j++) {
+        var d = viThumbs[all[j].getAttribute('data-thumb')];
+        if (d) { all[j].src = d; all[j].hidden = false; }
+      }
+    };
+    var size = Math.max(4, Math.ceil(need.length / 12));   // ≤12 parallel executions
+    for (var c = 0; c < need.length; c += size) {
+      (function (chunk) {
+        google.script.run
+          .withSuccessHandler(function (res) { apply(chunk, res); })
+          .withFailureHandler(function () { apply(chunk, null); })   // cosmetic — never toast
+          .getVinPhotoThumbs(chunk);
+      })(need.slice(c, c + size));
+    }
+  }
+
+  // Full-size photo in a panel under the card (card spans the row) — the VIN input
+  // stays usable beside it, unlike a modal. Click the thumbnail again to close.
+  function viTogglePhoto(sid) {
+    var box = document.getElementById('viphoto_' + sid);
+    if (!box) return;
+    if (!box.hidden) {
+      delete viOpenPhotos[sid];
+      box.hidden = true; box.innerHTML = '';
+      document.getElementById('vicard_' + sid).classList.remove('vi-open');
+      return;
+    }
+    viOpenPhotos[sid] = '';
+    viShowPhoto_(sid);
+  }
+  function viShowPhoto_(sid) {
+    var s = viFindSub_(sid), box = document.getElementById('viphoto_' + sid);
+    if (!s || !box) { delete viOpenPhotos[sid]; return; }
+    box.hidden = false;
+    document.getElementById('vicard_' + sid).classList.add('vi-open');
+    var drive = s.photoUrl ? '<a href="' + escHtml(s.photoUrl) + '" target="_blank" rel="noopener">Open in Drive</a>' : '';
+    if (viOpenPhotos[sid]) { box.innerHTML = '<img src="' + viOpenPhotos[sid] + '" alt="VIN photo">' + drive; return; }
+    box.innerHTML = '<span class="u-hint">Loading photo&hellip;</span> ' + drive;
+    google.script.run
+      .withSuccessHandler(function (res) {
+        if (!(sid in viOpenPhotos)) return;   // closed while loading
+        if (res && res.ok) { viOpenPhotos[sid] = res.dataUrl; viShowPhoto_(sid); }
+        else box.innerHTML = '<span class="u-hint">Could not load photo' + (res && res.error ? ': ' + escHtml(res.error) : '') + '.</span> ' + drive;
+      })
+      .withFailureHandler(function (e) {
+        if (sid in viOpenPhotos) box.innerHTML = '<span class="u-hint">Could not load photo: ' + escHtml((e && e.message) || String(e)) + '.</span> ' + drive;
+      })
+      .getVinPhotoDataUrl(s.photoFileId);
   }
 
   // Tags + vehicle line — shared by the initial render and every live re-check.

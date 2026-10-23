@@ -9076,6 +9076,58 @@ function getVinSubmissions(filter) {
 }
 
 /**
+ * Client-callable. VIN Inbox card thumbnails as { fileId: dataUrl } — bytes fetched
+ * SERVER-side, because a drive.google.com/thumbnail URL in an <img> rides on the
+ * browser's Google cookies and silently fails inside the HtmlService iframe
+ * (third-party context / multi-account). Ids without a generated Drive thumbnail are
+ * simply absent; the client retries them on its next render. Photos are immutable, so
+ * a 6h ScriptCache makes repeat loads fast. Twin of lot-scan getPhotoThumbs.
+ * @param {string[]} fileIds
+ * @returns {{ok:boolean, thumbs:Object, error?:string}}
+ */
+function getVinPhotoThumbs(fileIds) {
+  try {
+    var ids = (fileIds || []).map(String).filter(Boolean);
+    var out = {};
+    if (!ids.length) return { ok: true, thumbs: out };
+    var cache = CacheService.getScriptCache();
+    var hit = {};
+    try { hit = cache.getAll(ids.map(function (id) { return 'vith_' + id; })) || {}; } catch (e) {}
+    var toPut = {};
+    ids.forEach(function (id) {
+      var c = hit['vith_' + id];
+      if (c) { out[id] = c; return; }
+      try {
+        var t = DriveApp.getFileById(id).getThumbnail();
+        if (!t) return;
+        var d = 'data:' + (t.getContentType() || 'image/jpeg') + ';base64,' + Utilities.base64Encode(t.getBytes());
+        out[id] = d;
+        if (d.length < 95000) toPut['vith_' + id] = d;   // CacheService 100KB/value cap
+      } catch (e) {}   // cosmetic — one bad id never blocks the rest
+    });
+    if (Object.keys(toPut).length) { try { cache.putAll(toPut, 21600); } catch (e) {} }
+    return { ok: true, thumbs: out };
+  } catch (e) {
+    return { ok: false, thumbs: {}, error: String((e && e.message) || e) };
+  }
+}
+
+/**
+ * Client-callable. One full-size submission photo as a data URL (server-fetched, same
+ * reason as getVinPhotoThumbs) — the VIN Inbox's in-card "view photo" panel.
+ * @returns {{ok:boolean, dataUrl?:string, error?:string}}
+ */
+function getVinPhotoDataUrl(fileId) {
+  try {
+    if (!fileId) return { ok: false, error: 'no id' };
+    var blob = DriveApp.getFileById(String(fileId)).getBlob();
+    return { ok: true, dataUrl: 'data:' + (blob.getContentType() || 'image/jpeg') + ';base64,' + Utilities.base64Encode(blob.getBytes()) };
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) };
+  }
+}
+
+/**
  * Client-callable. Updates one submission's status (allow-listed) and, if a
  * corrected VIN is supplied, re-validates + re-matches it against the dealer's
  * inventory and rewrites the VIN/vehicle columns.

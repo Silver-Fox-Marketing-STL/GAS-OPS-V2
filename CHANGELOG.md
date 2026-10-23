@@ -120,6 +120,16 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   to the brain backlog; `CLAUDE.md` line count refreshed.
 
 ### Fixed
+- **VIN Inbox: photo thumbnails intermittently missing, with no way to open the photo**
+  (2026-10-23). Cards loaded `drive.google.com/thumbnail?id=…` straight into an `<img>`.
+  Inside the HtmlService iframe that request rides on the browser's Google cookies
+  (third-party context, multi-account sign-in), so it works or fails per browser/session
+  with no code change. On failure, `onerror` hid the image and left an empty link, so the
+  photo was unreachable. Thumbnails now come server-side (`getVinPhotoThumbs`, a twin of
+  lot-scan `getPhotoThumbs`: `DriveApp.getThumbnail()` + 6h ScriptCache, open batches only,
+  parallel chunks). The thumbnail is a button with an always-visible camera placeholder.
+  Clicking it opens the full photo in an in-card panel (`getVinPhotoDataUrl`) next to the
+  VIN input, with an "Open in Drive" link. The panel survives the 15s OCR refresh.
 - **Pipedrive push: "setting deal fields failed: Parameter 'user_id' is not allowed"**
   (2026-10-22, first PROD order after the API v2 promote, deal 5326). The deal-field
   picker reads the v1-only `/dealFields`, so a rule targeting the Owner system field

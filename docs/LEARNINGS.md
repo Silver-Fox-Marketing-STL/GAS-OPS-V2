@@ -338,7 +338,12 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   **server-side** and return a data URL (`getPhotoDataUrl` → `DriveApp.getFileById(id).getBlob()` →
   base64) to show a Drive photo reliably in-app. (A *just-captured* local image shows fine as a
   client-side object URL — iOS Safari can even render HEIC in an `<img>` — it's only the
-  already-on-Drive photo that needs the server fetch.)
+  already-on-Drive photo that needs the server fetch.) **It's intermittent, which makes it
+  look like it was fixed:** the main app's VIN Inbox shipped with a raw thumbnail `<img>`
+  that loaded at times and blanked out at others (recurring; Oct 2026 report) with no code change, because
+  whether it loads depends on the browser's Google cookies and signed-in accounts. Never
+  let an `onerror` hide the only click target. Keep a visible fallback (placeholder
+  button) so the photo stays reachable.
 - **Client-side barcode / Data-Matrix decode (ZXing) beats OCR when the label carries a code.** CDK
   windshield labels print a small VIN but also encode it in a 2D **Data Matrix** (or a 1D Code
   39/128). Decode **2D formats first then 1D**, and **validate every decode as a real 17-char VIN**
