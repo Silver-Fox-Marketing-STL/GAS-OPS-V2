@@ -120,6 +120,14 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   to the brain backlog; `CLAUDE.md` line count refreshed.
 
 ### Fixed
+- **Run errors only flashed on screen, then vanished** (2026-10-27). `runDealer`'s catch
+  trashed the failed run's artifacts and then `return null` — so `pasteVinsAndRun`
+  resolved normally and the Run view's SUCCESS handler fired: it stopped polling
+  (clearing the stored progress error) and painted "Complete! 100%". The error was
+  visible only if a 1.5s progress poll landed in the gap. The catch now rethrows after
+  cleanup, so the failure handler keeps "Error: …" in the header and a red progress bar,
+  and the Executions log records the run as Failed (it showed Completed). Cleanup order
+  unchanged; `pasteVinsAndRun` is the only caller. Found on a Honda of Frontenac run.
 - **VIN Inbox: photo thumbnails intermittently missing, with no way to open the photo**
   (2026-10-23). Cards loaded `drive.google.com/thumbnail?id=…` straight into an `<img>`.
   Inside the HtmlService iframe that request rides on the browser's Google cookies

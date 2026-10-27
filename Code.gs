@@ -1046,9 +1046,10 @@ function pasteVinsAndRun(dealerKey, vins, dealId, runId, bypassFilters, userKey,
  * @param {Object|null} editsMap       - {VIN(upper) → {code → text}} user-changed values for
  *                                        `edit`-flagged schema columns; overrides the
  *                                        formula-derived value at CSV-write time only.
- * @return {Object|null} {outputFolderUrl, pendingRuns, dealerName, producedVinCount} —
- *                       pendingRuns entries are finalized or abandoned in the modal;
- *                       nothing is logged until finalizeRun runs.
+ * @return {Object} {outputFolderUrl, pendingRuns, dealerName, producedVinCount} —
+ *                  pendingRuns entries are finalized or abandoned in the modal;
+ *                  nothing is logged until finalizeRun runs. On failure, trashes the
+ *                  run's artifacts and rethrows (the modal shows the error).
  */
 function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloadedConfig, splitDealId, presetVins, featuresMap, editsMap) {
   var startTime = new Date();
@@ -1363,7 +1364,10 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     } catch (cleanupErr) {
       Logger.log('runDealer: failed-run cleanup skipped (' + cleanupErr.message + ')');
     }
-    return null;
+    // Rethrow so the modal's failure handler shows the error persistently.
+    // Returning null here reached the SUCCESS handler, which overwrote the
+    // progress error with "Complete!" and cleared it — the error only flashed.
+    throw e;
   }
 }
 
