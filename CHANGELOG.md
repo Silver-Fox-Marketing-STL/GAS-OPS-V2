@@ -11,6 +11,28 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Added
+- **Run ledger, step 1 of 4: codec + store seam** (2026-11-12, `feat/run-ledger`). New
+  `RunLedger.gs` will become the one owner of RUN_LOG rows and SF_VIN_LOGS batches
+  (closes debt C20 once steps 2–3 land). This step adds only the foundation; no live path
+  calls it yet, so app behavior is unchanged.
+  - **Codec (pure):** `RL_COL` / `RL_WIDTH` (RUN_LOG A–W) and `VL_COL` / `VL_WIDTH` /
+    `VL_HEADERS` (VIN log A–E; E = new `run_ref`, written starting in step 2).
+    `rlDecodeRow_` / `rlEncodeRecord_` round-trip the exact `writeRunLog_` layout.
+    Status vocabulary `RL_STATUS` (blank W = pending), `rlIsTestDealId_` (exact `test`,
+    any case), `rlSplitGroup_`, `rlParseVinsCsv_`, run fingerprint
+    (`rlFingerprintMatches_`: dealer + run time + deal id), and `rlRunRef_` (run time,
+    `|<GROUP>` on billing-split halves).
+  - **Store seam:** `rlSheetStore_()` is the real adapter (RUN_LOG via
+    `getActiveSpreadsheet`, VIN logs via `getVinLogsSS_`, a 10 s `LockService` script lock,
+    `flush()` before release, cols A–B written as `@` text, the `run_ref` header added
+    lazily, rows deleted in contiguous blocks bottom-up). Every write refuses to run
+    outside `withLock`. `test/ledger-fake-store.js` is the strict in-memory adapter.
+  - **Harness:** loads `RunLedger.gs` and gains a UTC-only `Utilities.formatDate` stub.
+    New suites `run ledger codec` (13) and `run ledger store seam` (6, including an
+    interface-parity check between the real and fake adapters). 177/177.
+  - **`GLOSSARY.md`** (new: the domain terms) and
+    **`docs/adr/0001-run-identity-and-vin-log-batches.md`** (new: why runs are identified
+    by row + fingerprint and VIN-log batches are tagged by run).
 - **`scripts/promote-eom-viewer.ps1`** (2026-10-21) — guarded, Nick-run PROD deploy for the
   standalone viewer, modeled on `promote-lot-scan.ps1` plus the Node harness gate (the
   harness now guards the viewer directly). Gates: main / clean tree / synced with

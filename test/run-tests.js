@@ -23,6 +23,15 @@ var DEV_SCRIPT_ID = '1jbcjMNuopoO-WgzdG8me-7ZYscbi8xK8JuzmF9ajFPdioOrQlWOIWM5F';
 var currentScriptId = 'STRAY_DRIVE_COPY_SCRIPT_ID';
 globalThis.ScriptApp = { getScriptId: function () { return currentScriptId; } };
 globalThis.Logger = { log: function () {} };
+// Utilities.formatDate: only the 'yyyy-MM-dd HH:mm:ss' shape the run ledger uses.
+// Formats in UTC (the timezone argument is ignored) — tests build Dates with Date.UTC.
+globalThis.Utilities = {
+  formatDate: function (d) {
+    function p(n) { return (n < 10 ? '0' : '') + n; }
+    return d.getUTCFullYear() + '-' + p(d.getUTCMonth() + 1) + '-' + p(d.getUTCDate()) + ' ' +
+           p(d.getUTCHours()) + ':' + p(d.getUTCMinutes()) + ':' + p(d.getUTCSeconds());
+  }
+};
 
 function propStore_() {
   var m = {};
@@ -99,8 +108,13 @@ globalThis.SpreadsheetApp = {
 var codeSource = fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8');
 var pdFakePath = path.join(ROOT, 'PdFake.gs');
 var pdFakeSource = fs.existsSync(pdFakePath) ? fs.readFileSync(pdFakePath, 'utf8') : null;
+// RunLedger.gs has no load-time dependencies, so it loads before Code.gs (whose
+// ENV resolver throws on an unknown scriptId) and its globals always exist.
+var ledgerSource = fs.readFileSync(path.join(ROOT, 'RunLedger.gs'), 'utf8');
+var makeFakeLedgerStore = require('./ledger-fake-store.js').makeFakeLedgerStore;
 function loadAll() {
   if (pdFakeSource) (0, eval)(pdFakeSource);
+  (0, eval)(ledgerSource);
   (0, eval)(codeSource);
 }
 
@@ -1506,6 +1520,163 @@ t('PROD: secrets still required; the fetch layer goes to UrlFetchApp, never the 
   var body = v.cvGetJson_('https://x.pipedrive.com/api/v2/stages/44?api_token=t');
   assert.strictEqual(body.data.id, 1);
   assert.strictEqual(calls.length, 1);
+});
+
+// ============================================================================
+// Suite: run ledger codec — the one place that knows the RUN_LOG / VIN-log layout
+// ============================================================================
+suite('run ledger codec');
+// A row exactly as writeRunLog_ appends it (A–W), with a Date in A like getValues() returns.
+function runRow_(o) {
+  o = o || {};
+  return [
+    o.ts !== undefined ? o.ts : new Date(Date.UTC(2026, 5, 22, 9, 56, 33)),
+    o.dealer || 'COLUMBIA_HONDA', o.name || 'Columbia Honda',
+    o.deal !== undefined ? o.deal : 3941,
+    29, 29, 20, 9, 0, 0, 1, 0, 0, 0, 1, 29, '', o.doc || 'DOC_1', 42, '',
+    o.note || '', o.vins !== undefined ? o.vins : '1HGAA,1HGBB,1HGCC', o.status || ''
+  ];
+}
+t('decode: a writeRunLog_-shaped row reads back as a run record', function () {
+  var r = rlDecodeRow_(runRow_(), 7);
+  assert.strictEqual(r.rowIndex, 7);
+  assert.strictEqual(r.timestamp, '2026-06-22 09:56:33');
+  assert.strictEqual(r.dealerKey, 'COLUMBIA_HONDA');
+  assert.strictEqual(r.dealId, '3941');                       // numeric cell → text
+  assert.strictEqual(r.totalOrdered, 29);
+  assert.strictEqual(r.billing.totalNew, 20);
+  assert.strictEqual(r.billing.totalPO, 9);
+  assert.strictEqual(r.billing.totalDupes, 1);
+  assert.strictEqual(r.outputDocId, 'DOC_1');
+  assert.deepStrictEqual(r.producedVins, ['1HGAA', '1HGBB', '1HGCC']);
+  assert.strictEqual(r.status, 'pending');                    // blank W = pending
+  assert.strictEqual(r.isTest, false);
+  assert.strictEqual(r.isSplit, false);
+  assert.strictEqual(r.group, 'PRIMARY');
+});
+t('decode → encode round-trips the exact 23-cell layout writeRunLog_ writes', function () {
+  var row = runRow_({ ts: '2026-06-22 09:56:33', deal: '3941', status: 'committed', note: 'SPLIT:SPRINTER' });
+  assert.deepStrictEqual(rlEncodeRecord_(rlDecodeRow_(row, 2)), row);
+  assert.strictEqual(rlEncodeRecord_(rlDecodeRow_(row, 2)).length, RL_WIDTH);
+});
+t('encode: a pending record writes a blank status cell (blank W is what pending means)', function () {
+  var rec = rlDecodeRow_(runRow_({ ts: '2026-06-22 09:56:33' }), 2);
+  assert.strictEqual(rec.status, 'pending');
+  assert.strictEqual(rlEncodeRecord_(rec)[RL_COL.STATUS], '');
+});
+t('decode: status words pass through; legacy date-only timestamps read as midnight', function () {
+  assert.strictEqual(rlDecodeRow_(runRow_({ status: 'rolled_back' }), 2).status, 'rolled_back');
+  assert.strictEqual(rlDecodeRow_(runRow_({ ts: new Date(Date.UTC(2026, 4, 8)) }), 2).timestamp, '2026-05-08 00:00:00');
+});
+t('decode: a short row reads as blanks instead of throwing', function () {
+  var r = rlDecodeRow_(['2026-11-05 11:25:04', 'BMW_WEST_STL'], 3);
+  assert.strictEqual(r.dealerKey, 'BMW_WEST_STL');
+  assert.strictEqual(r.dealId, '');
+  assert.deepStrictEqual(r.producedVins, []);
+  assert.strictEqual(r.status, 'pending');
+});
+t('test runs: exact "test" in any case; "test2" and real deal ids are not tests', function () {
+  ['test', 'TEST', ' Test '].forEach(function (d) { assert.strictEqual(rlIsTestDealId_(d), true, d); });
+  ['test2', '', '4012', 4012, null].forEach(function (d) { assert.strictEqual(rlIsTestDealId_(d), false, String(d)); });
+  assert.strictEqual(rlDecodeRow_(runRow_({ deal: 'TEST' }), 2).isTest, true);
+});
+t('split note: SPLIT:<group> gives the upper-cased group; anything else is PRIMARY, not split', function () {
+  assert.strictEqual(rlSplitGroup_('SPLIT:sprinter'), 'SPRINTER');
+  assert.strictEqual(rlSplitGroup_('SPLIT:PRIMARY'), 'PRIMARY');
+  assert.strictEqual(rlSplitGroup_(''), 'PRIMARY');
+  assert.strictEqual(rlSplitGroup_('rerun for dealer'), 'PRIMARY');
+  assert.strictEqual(rlIsSplit_('SPLIT:PRIMARY'), true);
+  assert.strictEqual(rlIsSplit_('rerun for dealer'), false);
+});
+t('produced VINs CSV: trims, drops blanks, keeps order and case', function () {
+  assert.deepStrictEqual(rlParseVinsCsv_(' 1HGaa, 1HGBB ,,1HGCC '), ['1HGaa', '1HGBB', '1HGCC']);
+  assert.deepStrictEqual(rlParseVinsCsv_(''), []);
+  assert.deepStrictEqual(rlParseVinsCsv_(null), []);
+});
+t('fingerprint: a Date cell matches the formatted string a view hands back; numeric deal ids match text', function () {
+  var rec = rlDecodeRow_(runRow_(), 5);
+  var fp  = { dealerKey: 'COLUMBIA_HONDA', timestamp: '2026-06-22 09:56:33', dealId: 3941 };
+  assert.strictEqual(rlFingerprintMatches_(rec, fp), true);
+  assert.deepStrictEqual(rlFingerprint_(rec), { dealerKey: 'COLUMBIA_HONDA', timestamp: '2026-06-22 09:56:33', dealId: '3941' });
+});
+t('fingerprint: any one part different is a mismatch (stale row / wrong run)', function () {
+  var rec = rlDecodeRow_(runRow_(), 5);
+  var ok  = { dealerKey: 'COLUMBIA_HONDA', timestamp: '2026-06-22 09:56:33', dealId: '3941' };
+  assert.strictEqual(rlFingerprintMatches_(rec, Object.assign({}, ok, { dealerKey: 'PUNDMANN_FORD' })), false);
+  assert.strictEqual(rlFingerprintMatches_(rec, Object.assign({}, ok, { timestamp: '2026-06-22 01:37:31' })), false);
+  assert.strictEqual(rlFingerprintMatches_(rec, Object.assign({}, ok, { dealId: '3942' })), false);
+  assert.strictEqual(rlFingerprintMatches_(rec, null), false);
+});
+t('run_ref: the run time; split halves add their group so they never share a tag', function () {
+  var plain = rlDecodeRow_(runRow_(), 2);
+  var a = rlDecodeRow_(runRow_({ note: 'SPLIT:PRIMARY' }), 3);
+  var b = rlDecodeRow_(runRow_({ note: 'SPLIT:SPRINTER' }), 4);
+  assert.strictEqual(rlRunRef_(plain), '2026-06-22 09:56:33');
+  assert.strictEqual(rlRunRef_(a), '2026-06-22 09:56:33|PRIMARY');
+  assert.strictEqual(rlRunRef_(b), '2026-06-22 09:56:33|SPRINTER');
+  assert.notStrictEqual(rlRunRef_(a), rlRunRef_(b));
+});
+t('VIN-log rows: legacy 3/4-col rows read with a blank run_ref; encode forces ids to text', function () {
+  var legacy = rlDecodeVinLogRow_(['41556', '3FMCR9B69RRE99835', new Date(Date.UTC(2026, 5, 1, 17, 37, 46))], 2);
+  assert.strictEqual(legacy.committedAt, '2026-06-01 17:37:46');
+  assert.strictEqual(legacy.orderDate, '');
+  assert.strictEqual(legacy.runRef, '');
+  assert.deepStrictEqual(rlEncodeVinLogRow_({ orderId: 3664, vin: ' 1FMCU0GNXRUB21932 ', committedAt: 'c', orderDate: 'o', runRef: 'r' }),
+                         ['3664', '1FMCU0GNXRUB21932', 'c', 'o', 'r']);
+  assert.strictEqual(rlEncodeVinLogRow_({ orderId: 1, vin: 'V' }).length, VL_WIDTH);
+});
+t('contiguous blocks: highest first, runs merged, duplicates collapsed', function () {
+  assert.deepStrictEqual(rlContiguousBlocks_([7, 3, 4, 5, 9]), [{ start: 9, count: 1 }, { start: 7, count: 1 }, { start: 3, count: 3 }]);
+  assert.deepStrictEqual(rlContiguousBlocks_([4, 4, 5]), [{ start: 4, count: 2 }]);
+  assert.deepStrictEqual(rlContiguousBlocks_([]), []);
+});
+
+// ============================================================================
+// Suite: run ledger store seam — real adapter and in-memory fake stay in step
+// ============================================================================
+suite('run ledger store seam');
+function storeMethods_(s) { return Object.keys(s).filter(function (k) { return k.charAt(0) !== '_'; }).sort(); }
+t('the fake satisfies the same interface as rlSheetStore_ (no method missing on either side)', function () {
+  assert.deepStrictEqual(storeMethods_(makeFakeLedgerStore()), storeMethods_(rlSheetStore_()));
+});
+t('real adapter: every write refuses to run outside withLock (checked before any sheet is touched)', function () {
+  var real = rlSheetStore_();
+  assert.throws(function () { real.appendRun([]); }, /appendRun outside withLock/);
+  assert.throws(function () { real.setRunCell(2, RL_COL.STATUS, 'committed'); }, /setRunCell outside withLock/);
+  assert.throws(function () { real.appendVinLog('X', [[]]); }, /appendVinLog outside withLock/);
+  assert.throws(function () { real.deleteVinLogRows('X', [2]); }, /deleteVinLogRows outside withLock/);
+});
+t('fake: every write refuses to run outside withLock, like the real adapter', function () {
+  var s = makeFakeLedgerStore({ runLog: [runRow_()], vinLogs: { COLUMBIA_HONDA: [] } });
+  assert.throws(function () { s.appendRun(runRow_()); }, /outside withLock/);
+  assert.throws(function () { s.setRunCell(2, RL_COL.STATUS, 'committed'); }, /outside withLock/);
+  assert.throws(function () { s.appendVinLog('COLUMBIA_HONDA', [['1', 'V']]); }, /outside withLock/);
+  assert.throws(function () { s.deleteVinLogRows('COLUMBIA_HONDA', [2]); }, /outside withLock/);
+});
+t('fake: a busy lock fails with the message the user sees', function () {
+  var s = makeFakeLedgerStore({ lockBusy: true });
+  assert.throws(function () { s.withLock(function () {}); }, /Another change is in progress — try again\./);
+});
+t('fake: rows behave like sheet rows — 1-based with a header, padded copies, appends return the row', function () {
+  var s = makeFakeLedgerStore({ runLog: [runRow_()] });
+  assert.strictEqual(s.readRun(1), null);                       // header row is not data
+  assert.strictEqual(s.readRun(2).length, RL_WIDTH);
+  assert.strictEqual(s.readRun(3), null);
+  var at = s.withLock(function () { return s.appendRun(['2026-11-12 10:00:00', 'BMW_WEST_STL']); });
+  assert.strictEqual(at, 3);
+  assert.strictEqual(s.readRun(3).length, RL_WIDTH);
+  s.readRun(2)[RL_COL.STATUS] = 'tampered';                     // a copy — the "sheet" is untouched
+  assert.strictEqual(s.readRun(2)[RL_COL.STATUS], '');
+});
+t('fake: VIN-log appends store ids as text and add the run_ref header; deletes shift rows up', function () {
+  var s = makeFakeLedgerStore({ vinLogs: { PUNDMANN_FORD: [['3664', 'A', 'c1'], ['3664', 'B', 'c1'], ['3664', 'C', 'c2']] } });
+  assert.strictEqual(s._header('PUNDMANN_FORD')[4], '');
+  s.withLock(function () { s.appendVinLog('PUNDMANN_FORD', [[3664, 'D', 'c3', 'o3', 'ref3']]); });
+  assert.strictEqual(s._header('PUNDMANN_FORD')[4], 'run_ref');
+  assert.strictEqual(s.readVinLog('PUNDMANN_FORD')[3][0], '3664');
+  s.withLock(function () { s.deleteVinLogRows('PUNDMANN_FORD', [2, 4]); });   // A and C
+  assert.deepStrictEqual(s.readVinLog('PUNDMANN_FORD').map(function (r) { return r[1]; }), ['B', 'D']);
+  assert.throws(function () { s.withLock(function () { s.appendVinLog('NO_SUCH_TAB', [['1', 'V']]); }); }, /No VIN log tab found for: NO_SUCH_TAB/);
 });
 
 // ── Report ───────────────────────────────────────────────────────────────────
