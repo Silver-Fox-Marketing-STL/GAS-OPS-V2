@@ -4637,173 +4637,9 @@ function getRunsForDealer(dealerKey) {
   return runs;
 }
 
-function commitRunToVINLog(dealerKey, runRowIndex, dealId, producedVins, orderDate) {
-  if (!producedVins || producedVins.length === 0) {
-    throw new Error('No VINs to commit for this run.');
-  }
-
-  var logSS    = getVinLogsSS_();
-  var logSheet = logSS.getSheetByName(dealerKey);
-  if (!logSheet) throw new Error('No VIN log tab found for: ' + dealerKey);
-
-  var committedAt = Utilities.formatDate(new Date(), 'America/Chicago', 'yyyy-MM-dd HH:mm:ss');
-  // order_date (col D) = when the order happened (run timestamp), NOT when it
-  // was committed — an old run committed late must keep its old date.
-  var appendData  = producedVins.map(function(vin) {
-    return [dealId, vin, committedAt, orderDate || committedAt];
-  });
-
-  logSheet.getRange(logSheet.getLastRow() + 1, 1, appendData.length, 4).setValues(appendData);
-
-  SpreadsheetApp.getActiveSpreadsheet()
-    .getSheetByName('RUN_LOG')
-    .getRange(runRowIndex, 23)
-    .setValue('committed');
-
-  return { committed: producedVins.length };
-}
-
-function rollbackRunFromVINLog(dealerKey, runRowIndex, dealId, committedAt) {
-  var logSS    = getVinLogsSS_();
-  var logSheet = logSS.getSheetByName(dealerKey);
-  if (!logSheet) throw new Error('No VIN log tab found for: ' + dealerKey);
-
-  var lastRow = logSheet.getLastRow();
-  if (lastRow < 2) return { removed: 0 };
-
-  var data     = logSheet.getRange(2, 1, lastRow - 1, 3).getValues();
-  var toDelete = [];
-
-  for (var i = 0; i < data.length; i++) {
-    var rowDealId      = String(data[i][0]).trim();
-    var rowCommittedAt = String(data[i][2]).trim();
-    if (data[i][2] instanceof Date) {
-      rowCommittedAt = Utilities.formatDate(data[i][2], 'America/Chicago', 'yyyy-MM-dd HH:mm:ss');
-    }
-    if (rowDealId === String(dealId).trim() && rowCommittedAt === String(committedAt).trim()) {
-      toDelete.push(i + 2);
-    }
-  }
-
-  for (var d = toDelete.length - 1; d >= 0; d--) {
-    logSheet.deleteRow(toDelete[d]);
-  }
-
-  SpreadsheetApp.getActiveSpreadsheet()
-    .getSheetByName('RUN_LOG')
-    .getRange(runRowIndex, 23)
-    .setValue('rolled_back');
-
-  return { removed: toDelete.length };
-}
-
-function commitLatestRun(dealerKey, runRowIndex) {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('RUN_LOG');
-  var row   = sheet.getRange(runRowIndex, 1, 1, 23).getValues()[0];
-
-  var dealId          = String(row[3]).trim();
-  var runTimestamp    = row[0];                  // A: run_timestamp (Date or string)
-  var producedVinsCSV = String(row[21]).trim();  // V: produced_vins
-  var status          = String(row[22]).trim();  // W: vin_log_status
-
-  if (status === 'committed') throw new Error('This run has already been committed to the VIN log.');
-  if (dealId.toLowerCase() === 'test') throw new Error('Test runs are not committed to the VIN log (debugging only).');
-
-  var producedVins = producedVinsCSV
-    ? producedVinsCSV.split(',').map(function(v) { return v.trim(); }).filter(Boolean)
-    : [];
-
-  if (producedVins.length === 0) throw new Error('No produced VINs found for this run.');
-  if (!dealId)                   throw new Error('No Deal ID on this run log entry.');
-
-  return commitRunToVINLog(dealerKey, runRowIndex, dealId, producedVins, runTimestamp);
-}
-
-/**
- * Commits multiple RUN_LOG rows in one call — used by the post-run "Add to VIN
- * Log" button for billing-split runs, which write two rows (one per account).
- * Already-committed rows are skipped instead of throwing, so a retry after a
- * partial failure finishes the remaining row cleanly.
- *
- * @param {string} dealerKey
- * @param {Array}  rowIndexes - 1-based RUN_LOG row indexes
- * @return {Object} {committed: total VINs written, skippedCommitted: rows skipped}
- */
-function commitRunRows(dealerKey, rowIndexes) {
-  if (!Array.isArray(rowIndexes) || rowIndexes.length === 0) {
-    throw new Error('No run log rows to commit.');
-  }
-
-  var sheet            = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('RUN_LOG');
-  var committed        = 0;
-  var skippedCommitted = 0;
-  var skippedTest      = 0;
-
-  rowIndexes.forEach(function(rowIndex) {
-    var rowVals = sheet.getRange(rowIndex, 1, 1, 23).getValues()[0];
-    var status  = String(rowVals[22]).trim();    // W: vin_log_status
-    var dealId  = String(rowVals[3]).trim();      // D: order_id / deal id
-    if (status === 'committed') { skippedCommitted++; return; }
-    if (dealId.toLowerCase() === 'test') { skippedTest++; return; }   // tests never enter the dedup log
-    var result = commitLatestRun(dealerKey, rowIndex);
-    committed += result.committed;
-  });
-
-  return { committed: committed, skippedCommitted: skippedCommitted, skippedTest: skippedTest };
-}
-
-function getCommittedAt(dealerKey, dealId) {
-  var logSS    = getVinLogsSS_();
-  var logSheet = logSS.getSheetByName(dealerKey);
-  if (!logSheet) return null;
-
-  var lastRow = logSheet.getLastRow();
-  if (lastRow < 2) return null;
-
-  var data = logSheet.getRange(2, 1, lastRow - 1, 3).getValues();
-  for (var i = data.length - 1; i >= 0; i--) {
-    var rowDealId = String(data[i][0]).trim();
-    if (rowDealId === String(dealId).trim()) {
-      var ts = data[i][2];
-      if (ts instanceof Date) {
-        return Utilities.formatDate(ts, 'America/Chicago', 'yyyy-MM-dd HH:mm:ss');
-      }
-      return String(ts).trim() || null;
-    }
-  }
-  return null;
-}
-
-/**
- * Soft-delete a run from the VIN Log view: RUN_LOG col W = 'deleted'. The row
- * stays in place — a physical deleteRow would shift other users' cached
- * rowIndex values (Commit would stamp the wrong run), drop the numeric col-D
- * Pipedrive dup guard, and skew RUN_LOG-derived stats. Reversible by clearing
- * the cell. A committed run has its VIN-log rows removed first (rollback path).
- * Row identity is re-verified before any write in case the sheet moved.
- */
-function deleteRun(dealerKey, runRowIndex, dealId, timestamp) {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('RUN_LOG');
-  var row   = sheet.getRange(runRowIndex, 1, 1, 23).getValues()[0];
-  var rowTs = row[0] instanceof Date
-    ? Utilities.formatDate(row[0], 'America/Chicago', 'yyyy-MM-dd HH:mm:ss')
-    : String(row[0]).trim();
-  if (String(row[1]).trim() !== dealerKey || String(row[3]).trim() !== String(dealId).trim() ||
-      rowTs !== String(timestamp).trim()) {
-    throw new Error('RUN_LOG row no longer matches this run — reload and try again.');
-  }
-
-  var removed = 0;
-  if (String(row[22]).trim() === 'committed') {
-    var committedAt = getCommittedAt(dealerKey, dealId);
-    if (committedAt) {
-      removed = rollbackRunFromVINLog(dealerKey, runRowIndex, dealId, committedAt).removed;
-    }
-  }
-
-  sheet.getRange(runRowIndex, 23).setValue('deleted');
-  return { removed: removed };
-}
+// Commit / rollback / delete / manual entry live in RunLedger.gs (ledgerCommitRuns,
+// ledgerRollbackRun, ledgerDeleteRun, ledgerManualEntry) — the run ledger is the only
+// writer of RUN_LOG status and SF_VIN_LOGS batches. See docs/adr/0001.
 
 
 // ============================================================================
@@ -5244,51 +5080,6 @@ function getCompareListData(dealerKey, ids) {
   return res;
 }
 
-
-/**
- * Manually appends a list of VINs/stock numbers to a dealer's VIN log.
- * Used by the VINLogUpdater modal's manual entry panel.
- *
- * @param {string}   dealerKey
- * @param {string}   orderId
- * @param {string[]} vins
- * @returns {{ committed: number }}
- */
-function manualCommitToVINLog(dealerKey, orderId, vins) {
-  if (!dealerKey) throw new Error('No dealer key provided.');
-  if (!orderId || String(orderId).trim() === '') throw new Error('Order number is required.');
-  if (!vins || vins.length === 0) throw new Error('No VINs provided.');
-
-  var logSS  = getVinLogsSS_();
-  var sheet  = logSS.getSheetByName(dealerKey);
-  if (!sheet) throw new Error('No VIN log tab found for: ' + dealerKey);
-
-  var seen    = {};
-  var cleaned = [];
-  vins.forEach(function(v) {
-    var upper = String(v).trim().toUpperCase();
-    if (upper !== '' && !seen[upper]) {
-      seen[upper] = true;
-      cleaned.push(upper);
-    }
-  });
-
-  if (cleaned.length === 0) throw new Error('No valid VINs after deduplication.');
-
-  var committedAt = Utilities.formatDate(new Date(), 'America/Chicago', 'yyyy-MM-dd HH:mm:ss');
-  var appendData  = cleaned.map(function(vin) {
-    // Manual entries are typed in near order time — order_date = now.
-    return [String(orderId).trim(), vin, committedAt, committedAt];
-  });
-
-  var startRow = sheet.getLastRow() + 1;
-  sheet.getRange(startRow, 1, appendData.length, 4).setValues(appendData);
-
-  Logger.log('manualCommitToVINLog: wrote ' + cleaned.length + ' VINs to ' +
-             dealerKey + ' under order ' + orderId);
-
-  return { committed: cleaned.length };
-}
 
 // ============================================================================
 // SECTION 27: DEALER RULES EDITOR
@@ -11029,7 +10820,7 @@ function createDealer(payload) {
              vinTab.getLastRow() > 1 ? (vinTab.getLastRow() - 1) + ' logged rows kept' : '');
       } else {
         vinTab = vinSS.insertSheet(key);
-        vinTab.getRange(1, 1, 1, 4).setValues([['ORDER_ID', 'VIN', 'committed_at', 'order_date']]);
+        vinTab.getRange(1, 1, 1, VL_WIDTH).setValues([VL_HEADERS]);   // RunLedger.gs owns the VIN-log layout (A–E)
         vinTab.setFrozenRows(1);
         step('vin_log', 'VIN log tab', 'created', 'Tab "' + key + '"');
       }
@@ -11132,7 +10923,7 @@ function getDealerChecklist(dealerKey) {
   }
   item('orders_col', 'ORDERS column', ordersOk, true, ordersDetail, null);
 
-  // VIN log tab (blocking: commitRunToVINLog throws without it).
+  // VIN log tab (blocking: a run-ledger commit throws without it).
   var vinOk = false, vinDetail = '';
   try {
     vinOk = !!getVinLogsSS_().getSheetByName(key);

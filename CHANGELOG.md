@@ -11,6 +11,28 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Added
+- **Run ledger, step 2 of 4: guarded commit / rollback / delete / manual entry**
+  (2026-11-12, `feat/run-ledger`). These now live in `RunLedger.gs` and run inside one
+  script lock: `ledgerCommitRuns(refs)`, `ledgerRollbackRun(ref)`, `ledgerDeleteRun(ref)`
+  and `ledgerManualEntry(dealerKey, orderId, vins)`.
+  - **Views send only a run reference.** VIN Logs sends a fingerprint
+    `{rowIndex, dealerKey, timestamp, dealId}`. Run Order's Add to VIN Log sends
+    `{dealerKey, outputDocId, note}`. The server reads the VINs, deal id and order date
+    from the RUN_LOG row. A row that no longer matches its fingerprint is refused with
+    "reload and try again".
+  - **SF_VIN_LOGS col E `run_ref`** is written on every new batch: the run time, plus
+    `|<GROUP>` on split halves, or `manual` for manual entries. The header is added the
+    first time a tab is written; the Add Dealer wizard now creates new tabs with all 5
+    headers (`VL_HEADERS`).
+  - Double commit is a no-op. Committing the same run twice in one call commits it once.
+    A half-finished commit (batch written but status not) only finishes the status.
+  - **Removed** from `Code.gs` (no longer callable): `commitRunToVINLog`, `commitLatestRun`,
+    `commitRunRows`, `rollbackRunFromVINLog`, `getCommittedAt`, `deleteRun` and
+    `manualCommitToVINLog`. VIN Logs and Run Order switched to the ledger endpoints in the
+    same change. The harness checks that every `ledger*` call in those two views names an
+    existing function, and that none of the old names remain.
+  - Harness: new suite `run ledger operations` (26), run against the strict fake store.
+    Total 203/203. The screenshot harness mocks are renamed to the new endpoints.
 - **Run ledger, step 1 of 4: codec + store seam** (2026-11-12, `feat/run-ledger`). New
   `RunLedger.gs` will become the one owner of RUN_LOG rows and SF_VIN_LOGS batches
   (closes debt C20 once steps 2–3 land). This step adds only the foundation; no live path
@@ -142,6 +164,20 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   to the brain backlog; `CLAUDE.md` line count refreshed.
 
 ### Fixed
+- **Rollback could remove another run's VINs** (2026-11-12, run ledger step 2). The old
+  rollback looked up the *newest* `committed_at` for a deal id, so on a deal with two
+  committed runs, rolling back the older one deleted the newer run's batch and marked the
+  wrong row. On 2026-11-12, 7 live deals had 2+ committed runs. Rollback now matches the
+  batch by deal id + `run_ref`. An untagged (pre-change) batch is rolled back only when the
+  match is unambiguous: one untagged batch under the deal, and no other committed run on
+  it with an untagged batch. Otherwise it is refused with a "roll it back by hand" message.
+  A refused rollback also refuses Delete.
+- **VIN Logs Commit trusted the browser** (2026-11-12, run ledger step 2). The button sent
+  the row number, deal id, VIN list and date. The server wrote them with no lock, no
+  status check, no test check and no check that the row was still that run, so two clicks
+  committed twice. Rollback was likewise assembled client-side from two round trips. All of
+  this is now one locked, re-verifying server call. Manual entry also writes under the lock
+  and stores ids/VINs as `@` text.
 - **Run errors only flashed on screen, then vanished** (2026-10-27). `runDealer`'s catch
   trashed the failed run's artifacts and then `return null` — so `pasteVinsAndRun`
   resolved normally and the Run view's SUCCESS handler fired: it stopped polling

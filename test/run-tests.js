@@ -1679,6 +1679,218 @@ t('fake: VIN-log appends store ids as text and add the run_ref header; deletes s
   assert.throws(function () { s.withLock(function () { s.appendVinLog('NO_SUCH_TAB', [['1', 'V']]); }); }, /No VIN log tab found for: NO_SUCH_TAB/);
 });
 
+// ============================================================================
+// Suite: run ledger operations — commit / rollback / delete / manual entry
+// through the strict fake store (every write must happen inside the lock)
+// ============================================================================
+suite('run ledger operations');
+// Text timestamps keep fixtures readable; rlFormatTs_ treats them the same as Dates.
+var T1 = '2026-06-01 17:29:32', T2 = '2026-06-01 17:36:56';
+function pf_(o) { return runRow_(Object.assign({ dealer: 'PUNDMANN_FORD', name: 'Pundmann Ford', deal: '3664', vins: 'VA,VB' }, o)); }
+function fpRef_(store, row) {
+  var r = rlDecodeRow_(store.readRun(row), row);
+  return { rowIndex: row, dealerKey: r.dealerKey, timestamp: r.timestamp, dealId: r.dealId };
+}
+function vinCol_(store, key, col) { return store._vinLog(key).map(function (r) { return r[col]; }); }
+
+t('commit by fingerprint: writes a tagged batch dated at the run, then marks the run committed', function () {
+  var s = makeFakeLedgerStore({ runLog: [pf_({ ts: T1 })], vinLogs: { PUNDMANN_FORD: [] }, now: '2026-06-01 17:40:00' });
+  var res = ledgerCommitRunsWith_(s, [fpRef_(s, 2)]);
+  assert.deepStrictEqual(res, { committed: 2, skippedCommitted: 0, skippedTest: 0 });
+  assert.deepStrictEqual(s._vinLog('PUNDMANN_FORD'), [
+    ['3664', 'VA', '2026-06-01 17:40:00', T1, T1],
+    ['3664', 'VB', '2026-06-01 17:40:00', T1, T1]
+  ]);
+  assert.strictEqual(s._runLog()[0][RL_COL.STATUS], 'committed');
+  assert.strictEqual(s._header('PUNDMANN_FORD')[4], 'run_ref');
+  assert.strictEqual(s._stats().locks, 1);
+});
+t('double commit is a no-op: the second call skips, nothing new is written', function () {
+  var s = makeFakeLedgerStore({ runLog: [pf_({ ts: T1 })], vinLogs: { PUNDMANN_FORD: [] } });
+  ledgerCommitRunsWith_(s, [fpRef_(s, 2)]);
+  var again = ledgerCommitRunsWith_(s, [fpRef_(s, 2)]);
+  assert.deepStrictEqual(again, { committed: 0, skippedCommitted: 1, skippedTest: 0 });
+  assert.strictEqual(s._vinLog('PUNDMANN_FORD').length, 2);
+});
+t('the same run named twice in one call commits once', function () {
+  var s = makeFakeLedgerStore({ runLog: [pf_({ ts: T1 })], vinLogs: { PUNDMANN_FORD: [] } });
+  var res = ledgerCommitRunsWith_(s, [fpRef_(s, 2), fpRef_(s, 2)]);
+  assert.deepStrictEqual(res, { committed: 2, skippedCommitted: 1, skippedTest: 0 });
+  assert.strictEqual(s._vinLog('PUNDMANN_FORD').length, 2);
+});
+t('test runs are skipped, never logged, and keep their blank status', function () {
+  var s = makeFakeLedgerStore({ runLog: [pf_({ ts: T1, deal: 'TEST' })], vinLogs: { PUNDMANN_FORD: [] } });
+  assert.deepStrictEqual(ledgerCommitRunsWith_(s, [fpRef_(s, 2)]), { committed: 0, skippedCommitted: 0, skippedTest: 1 });
+  assert.strictEqual(s._vinLog('PUNDMANN_FORD').length, 0);
+  assert.strictEqual(s._runLog()[0][RL_COL.STATUS], '');
+});
+t('a stale fingerprint is refused before anything is written', function () {
+  var s = makeFakeLedgerStore({ runLog: [pf_({ ts: T1 })], vinLogs: { PUNDMANN_FORD: [] } });
+  var ref = fpRef_(s, 2); ref.timestamp = T2;
+  assert.throws(function () { ledgerCommitRunsWith_(s, [ref]); }, /no longer matches this run — reload/);
+  assert.throws(function () { ledgerCommitRunsWith_(s, [{ rowIndex: 9, dealerKey: 'PUNDMANN_FORD', timestamp: T1, dealId: '3664' }]); }, /no longer matches/);
+  assert.strictEqual(s._vinLog('PUNDMANN_FORD').length, 0);
+  assert.strictEqual(s._stats().writes, 0);
+});
+t('the VINs come from the run log row, not the caller (extra ref fields are ignored)', function () {
+  var s = makeFakeLedgerStore({ runLog: [pf_({ ts: T1 })], vinLogs: { PUNDMANN_FORD: [] } });
+  var ref = fpRef_(s, 2); ref.producedVins = ['EVIL1', 'EVIL2', 'EVIL3']; ref.orderDate = '1999-01-01';
+  ledgerCommitRunsWith_(s, [ref]);
+  assert.deepStrictEqual(vinCol_(s, 'PUNDMANN_FORD', 1), ['VA', 'VB']);
+  assert.deepStrictEqual(vinCol_(s, 'PUNDMANN_FORD', 3), [T1, T1]);
+});
+t('Run view: commit by output doc + group; split halves get distinct tags', function () {
+  var s = makeFakeLedgerStore({
+    runLog: [pf_({ ts: T1, deal: '501', doc: 'DOC_9', note: 'SPLIT:PRIMARY', vins: 'VA' }),
+             pf_({ ts: T1, deal: '502', doc: 'DOC_9', note: 'SPLIT:SPRINTER', vins: 'VS' })],
+    vinLogs: { PUNDMANN_FORD: [] }
+  });
+  var res = ledgerCommitRunsWith_(s, [{ dealerKey: 'PUNDMANN_FORD', outputDocId: 'DOC_9', note: 'SPLIT:PRIMARY' },
+                                     { dealerKey: 'PUNDMANN_FORD', outputDocId: 'DOC_9', note: 'SPLIT:SPRINTER' }]);
+  assert.strictEqual(res.committed, 2);
+  assert.deepStrictEqual(vinCol_(s, 'PUNDMANN_FORD', 4), [T1 + '|PRIMARY', T1 + '|SPRINTER']);
+});
+t('Run view: an output doc with two live rows (an old double finalize) is refused', function () {
+  var s = makeFakeLedgerStore({ runLog: [pf_({ ts: T1, doc: 'DOC_7' }), pf_({ ts: T2, doc: 'DOC_7' })], vinLogs: { PUNDMANN_FORD: [] } });
+  assert.throws(function () { ledgerCommitRunsWith_(s, [{ dealerKey: 'PUNDMANN_FORD', outputDocId: 'DOC_7', note: '' }]); },
+                /has 2 rows in the run log — commit it from the VIN Logs page/);
+  assert.throws(function () { ledgerCommitRunsWith_(s, [{ dealerKey: 'PUNDMANN_FORD', outputDocId: 'NOPE', note: '' }]); },
+                /not in the run log yet/);
+});
+t('a half-finished commit (batch written, status not) is finished without writing the batch again', function () {
+  var s = makeFakeLedgerStore({ runLog: [pf_({ ts: T1 })],
+    vinLogs: { PUNDMANN_FORD: [['3664', 'VA', 'c', T1, T1], ['3664', 'VB', 'c', T1, T1]] } });
+  assert.strictEqual(ledgerCommitRunsWith_(s, [fpRef_(s, 2)]).committed, 2);
+  assert.strictEqual(s._vinLog('PUNDMANN_FORD').length, 2);
+  assert.strictEqual(s._runLog()[0][RL_COL.STATUS], 'committed');
+});
+t('deleted runs, runs with no VINs and dealers with no VIN log tab cannot be committed', function () {
+  var s = makeFakeLedgerStore({ runLog: [pf_({ ts: T1, status: 'deleted' }), pf_({ ts: T2, vins: '' })], vinLogs: { PUNDMANN_FORD: [] } });
+  assert.throws(function () { ledgerCommitRunsWith_(s, [fpRef_(s, 2)]); }, /was deleted/);
+  assert.throws(function () { ledgerCommitRunsWith_(s, [fpRef_(s, 3)]); }, /No produced VINs/);
+  var t2 = makeFakeLedgerStore({ runLog: [pf_({ ts: T1 })] });
+  assert.throws(function () { ledgerCommitRunsWith_(t2, [fpRef_(t2, 2)]); }, /No VIN log tab found for: PUNDMANN_FORD/);
+});
+t('a rolled-back run can be committed again (a fresh tagged batch)', function () {
+  var s = makeFakeLedgerStore({ runLog: [pf_({ ts: T1, status: 'rolled_back' })], vinLogs: { PUNDMANN_FORD: [] } });
+  assert.strictEqual(ledgerCommitRunsWith_(s, [fpRef_(s, 2)]).committed, 2);
+});
+
+t('rollback, tagged: two committed reruns on one deal — rolling back the OLDER removes only its own batch', function () {
+  var s = makeFakeLedgerStore({ runLog: [pf_({ ts: T1 }), pf_({ ts: T2 })], vinLogs: { PUNDMANN_FORD: [] } });
+  s._setNow('2026-06-01 17:37:46'); ledgerCommitRunsWith_(s, [fpRef_(s, 2)]);
+  s._setNow('2026-09-08 17:21:49'); ledgerCommitRunsWith_(s, [fpRef_(s, 3)]);
+  assert.strictEqual(s._vinLog('PUNDMANN_FORD').length, 4);
+  assert.deepStrictEqual(rlRollbackRun_(s, fpRef_(s, 2)), { removed: 2 });
+  assert.deepStrictEqual(vinCol_(s, 'PUNDMANN_FORD', 4), [T2, T2]);          // the newer run's batch survives
+  assert.strictEqual(s._runLog()[0][RL_COL.STATUS], 'rolled_back');
+  assert.strictEqual(s._runLog()[1][RL_COL.STATUS], 'committed');
+});
+t('rollback, legacy + unambiguous: one untagged batch and one committed run → removed', function () {
+  var s = makeFakeLedgerStore({ runLog: [pf_({ ts: T1, status: 'committed' })],
+    vinLogs: { PUNDMANN_FORD: [['3664', 'VA', '2026-06-01 17:37:46'], ['9999', 'VX', 'x'], ['3664', 'VB', '2026-06-01 17:37:46']] } });
+  assert.deepStrictEqual(rlRollbackRun_(s, fpRef_(s, 2)), { removed: 2 });
+  assert.deepStrictEqual(vinCol_(s, 'PUNDMANN_FORD', 1), ['VX']);
+  assert.strictEqual(s._runLog()[0][RL_COL.STATUS], 'rolled_back');
+});
+t('rollback, legacy + ambiguous (the live Pundmann 3664 shape): refused, nothing removed, status kept', function () {
+  var s = makeFakeLedgerStore({ runLog: [pf_({ ts: T1, status: 'committed' }), pf_({ ts: T2, status: 'committed' })],
+    vinLogs: { PUNDMANN_FORD: [['3664', 'VA', '2026-06-01 17:37:46'], ['3664', 'VB', '2026-06-01 17:37:46'],
+                               ['3664', 'VA', '2026-09-08 17:21:49'], ['3664', 'VB', '2026-09-08 17:21:49']] } });
+  assert.throws(function () { rlRollbackRun_(s, fpRef_(s, 2)); }, /more than one batch .* Roll it back by hand/);
+  assert.strictEqual(s._vinLog('PUNDMANN_FORD').length, 4);
+  assert.strictEqual(s._runLog()[0][RL_COL.STATUS], 'committed');
+});
+t('rollback, legacy: two committed runs but one untagged batch is still ambiguous → refused', function () {
+  var s = makeFakeLedgerStore({ runLog: [pf_({ ts: T1, status: 'committed' }), pf_({ ts: T2, status: 'committed' })],
+    vinLogs: { PUNDMANN_FORD: [['3664', 'VA', 'c1'], ['3664', 'VB', 'c1']] } });
+  assert.throws(function () { rlRollbackRun_(s, fpRef_(s, 3)); }, /Roll it back by hand/);
+});
+t('rollback, legacy: an old untagged manual entry under the same order makes it ambiguous → refused', function () {
+  var s = makeFakeLedgerStore({ runLog: [pf_({ ts: T1, status: 'committed' })],
+    vinLogs: { PUNDMANN_FORD: [['3664', 'VA', 'c1'], ['3664', 'VB', 'c1'], ['3664', 'VM', 'c-manual']] } });
+  assert.throws(function () { rlRollbackRun_(s, fpRef_(s, 2)); }, /Roll it back by hand/);
+});
+t('rollback, legacy: a competitor whose batch IS tagged does not count against an old run', function () {
+  var s = makeFakeLedgerStore({ runLog: [pf_({ ts: T1, status: 'committed' }), pf_({ ts: T2 })],
+    vinLogs: { PUNDMANN_FORD: [['3664', 'VA', 'c1'], ['3664', 'VB', 'c1']] } });
+  ledgerCommitRunsWith_(s, [fpRef_(s, 3)]);                 // the rerun commits with a tag
+  assert.deepStrictEqual(rlRollbackRun_(s, fpRef_(s, 2)), { removed: 2 });
+  assert.deepStrictEqual(vinCol_(s, 'PUNDMANN_FORD', 4), [T2, T2]);
+});
+t('rollback refuses a run that is not committed; a committed run with no log rows just flips status', function () {
+  var s = makeFakeLedgerStore({ runLog: [pf_({ ts: T1 }), pf_({ ts: T2, status: 'committed' })], vinLogs: { PUNDMANN_FORD: [] } });
+  assert.throws(function () { rlRollbackRun_(s, fpRef_(s, 2)); }, /isn't committed/);
+  assert.deepStrictEqual(rlRollbackRun_(s, fpRef_(s, 3)), { removed: 0 });
+  assert.strictEqual(s._runLog()[1][RL_COL.STATUS], 'rolled_back');
+});
+
+t('delete: a committed run is rolled back first, then marked deleted (row stays in place)', function () {
+  var s = makeFakeLedgerStore({ runLog: [pf_({ ts: T1 })], vinLogs: { PUNDMANN_FORD: [] } });
+  ledgerCommitRunsWith_(s, [fpRef_(s, 2)]);
+  assert.deepStrictEqual(rlDeleteRun_(s, fpRef_(s, 2)), { removed: 2 });
+  assert.strictEqual(s._vinLog('PUNDMANN_FORD').length, 0);
+  assert.strictEqual(s._runLog().length, 1);
+  assert.strictEqual(s._runLog()[0][RL_COL.STATUS], 'deleted');
+});
+t('delete: a pending run is marked deleted with no VIN-log change; deleting twice is a no-op', function () {
+  var s = makeFakeLedgerStore({ runLog: [pf_({ ts: T1 })], vinLogs: { PUNDMANN_FORD: [['1', 'VZ', 'c']] } });
+  assert.deepStrictEqual(rlDeleteRun_(s, fpRef_(s, 2)), { removed: 0 });
+  assert.deepStrictEqual(rlDeleteRun_(s, fpRef_(s, 2)), { removed: 0 });
+  assert.strictEqual(s._vinLog('PUNDMANN_FORD').length, 1);
+  assert.strictEqual(s._runLog()[0][RL_COL.STATUS], 'deleted');
+});
+t('delete: an ambiguous committed legacy run is refused as a whole (stays committed)', function () {
+  var s = makeFakeLedgerStore({ runLog: [pf_({ ts: T1, status: 'committed' }), pf_({ ts: T2, status: 'committed' })],
+    vinLogs: { PUNDMANN_FORD: [['3664', 'VA', 'c1'], ['3664', 'VA', 'c2']] } });
+  assert.throws(function () { rlDeleteRun_(s, fpRef_(s, 2)); }, /Roll it back by hand/);
+  assert.strictEqual(s._runLog()[0][RL_COL.STATUS], 'committed');
+});
+
+t('manual entry: upper-cased, de-duplicated, tagged manual, dated now; legacy rollback ignores it', function () {
+  var s = makeFakeLedgerStore({ runLog: [pf_({ ts: T1, status: 'committed' })],
+    vinLogs: { PUNDMANN_FORD: [['3664', 'VA', 'c1'], ['3664', 'VB', 'c1']] }, now: '2026-11-12 09:00:00' });
+  assert.deepStrictEqual(rlManualEntry_(s, 'PUNDMANN_FORD', 3664, [' vm1 ', 'VM1', '', 'vm2']), { committed: 2 });
+  assert.deepStrictEqual(s._vinLog('PUNDMANN_FORD').slice(2), [
+    ['3664', 'VM1', '2026-11-12 09:00:00', '2026-11-12 09:00:00', 'manual'],
+    ['3664', 'VM2', '2026-11-12 09:00:00', '2026-11-12 09:00:00', 'manual']
+  ]);
+  assert.deepStrictEqual(rlRollbackRun_(s, fpRef_(s, 2)), { removed: 2 });   // the run's legacy batch only
+  assert.deepStrictEqual(vinCol_(s, 'PUNDMANN_FORD', 1), ['VM1', 'VM2']);
+});
+t('manual entry: needs a dealer, an order number, real VINs and an existing tab', function () {
+  var s = makeFakeLedgerStore({ vinLogs: { PUNDMANN_FORD: [] } });
+  assert.throws(function () { rlManualEntry_(s, '', '1', ['V']); }, /No dealer key/);
+  assert.throws(function () { rlManualEntry_(s, 'PUNDMANN_FORD', ' ', ['V']); }, /Order number is required/);
+  assert.throws(function () { rlManualEntry_(s, 'PUNDMANN_FORD', '1', ['', ' ']); }, /No valid VINs/);
+  assert.throws(function () { rlManualEntry_(s, 'NO_TAB', '1', ['V']); }, /No VIN log tab found for: NO_TAB/);
+});
+t('a busy lock stops every operation before anything is read or written', function () {
+  var s = makeFakeLedgerStore({ runLog: [pf_({ ts: T1 })], vinLogs: { PUNDMANN_FORD: [] }, lockBusy: true });
+  assert.throws(function () { ledgerCommitRunsWith_(s, [{ rowIndex: 2, dealerKey: 'PUNDMANN_FORD', timestamp: T1, dealId: '3664' }]); }, /Another change is in progress/);
+  assert.throws(function () { rlManualEntry_(s, 'PUNDMANN_FORD', '1', ['V']); }, /Another change is in progress/);
+  assert.strictEqual(s._stats().writes, 0);
+});
+t('the old trust-the-browser endpoints are gone (views can only reach the ledger)', function () {
+  ['commitRunToVINLog', 'rollbackRunFromVINLog', 'getCommittedAt', 'commitLatestRun', 'commitRunRows', 'deleteRun', 'manualCommitToVINLog']
+    .forEach(function (n) { assert.strictEqual(typeof globalThis[n], 'undefined', n + ' still defined'); });
+  ['ledgerCommitRuns', 'ledgerRollbackRun', 'ledgerDeleteRun', 'ledgerManualEntry']
+    .forEach(function (n) { assert.strictEqual(typeof globalThis[n], 'function', n + ' missing'); });
+});
+t('every view call into the ledger names a function that exists (google.script.run fails silently otherwise)', function () {
+  ['ViewRun.html', 'ViewVinLog.html'].forEach(function (f) {
+    var src = fs.readFileSync(path.join(ROOT, f), 'utf8');
+    (src.match(/\.(ledger[A-Za-z]+)\(/g) || []).forEach(function (m) {
+      var n = m.slice(1, -1);
+      assert.strictEqual(typeof globalThis[n], 'function', f + ' calls missing ' + n);
+    });
+    ['commitRunToVINLog', 'rollbackRunFromVINLog', 'getCommittedAt', 'commitRunRows', '.deleteRun(', 'manualCommitToVINLog']
+      .forEach(function (old) { assert.strictEqual(src.indexOf(old), -1, f + ' still calls ' + old); });
+  });
+});
+// The public endpoint is a one-liner over rlSheetStore_(); tests drive the same internal with the fake.
+function ledgerCommitRunsWith_(store, refs) { return rlCommitRuns_(store, refs); }
+
 // ── Report ───────────────────────────────────────────────────────────────────
 function report_() {
   var totalPass = 0, totalFail = 0;

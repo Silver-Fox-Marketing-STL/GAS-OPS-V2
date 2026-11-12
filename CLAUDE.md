@@ -93,7 +93,7 @@ exact schemas/mechanism/history — NOT in context).
 | SF_SYSTEM_MASTER (script bound; SCRAPERDATA, ORDERS, RUN_LOG, IMPORT_STATS, ORDER_STATS, DASHBOARD) | `1G_wrlXVmcUDJ37xr3bDwDHUGUy9ULIbNufq_Xk9xVes` |
 | SF_DEALER_CONFIG (DEALERS, NORM_MAPS, CSV_SCHEMAS, USER_PROFILES, FIELD_CODES, PIPEDRIVE, PIPEDRIVE_SETTINGS) | `1csQdjcNey_mgcVqY99GOJ2PNCGRTyoZTbaUyJ3IZkJ8` |
 | SF_UNIVERSAL_TEMPLATE (copied per order; ORDERMATCH cols A–Z) | `14Nk1FL-dfffIoWh9o8Q_EFCNlMXN3jUnlzzZ750QVTc` |
-| SF_VIN_LOGS (one tab per dealer_key; `ORDER_ID | VIN | committed_at | order_date`; order_date blank on legacy-system rows) | `12Xf6dyZXWXp4JwbytGo6lRUShwuGeN0yS3zhbco4-Lk` |
+| SF_VIN_LOGS (one tab per dealer_key; `ORDER_ID | VIN | committed_at | order_date | run_ref` (A–E); order_date blank on legacy-system rows, run_ref blank on batches before Nov 2026) | `12Xf6dyZXWXp4JwbytGo6lRUShwuGeN0yS3zhbco4-Lk` |
 
 ## Invariants — do not break
 
@@ -164,8 +164,14 @@ previously-hit failure — don't relax without reading the matching Bridge secti
 - VIN is the vehicle primary key. The legacy `use_stock_not_vin` flag is removed
   (DEALERS col F stays, dormant/append-only); ORDERMATCH always matches col A.
 - VIN logs are never written automatically — explicit commit/rollback via the VIN
-  Log Updater (key: deal ID + `committed_at`). Manually entered VINs are always
+  Logs view or the Run view's Add to VIN Log. Manually entered VINs are always
   produced (the log only flags dupes in billing). `test` runs are never committed.
+- **`RunLedger.gs` is the only writer of RUN_LOG status and SF_VIN_LOGS batches.**
+  Every write goes through its store (`rlSheetStore_`) inside `withLock`; views send a
+  run reference (fingerprint, or output doc + group), never VINs/dates. A batch is keyed
+  by deal ID + `run_ref` (col E: run time, `|<GROUP>` on split halves, `manual`); an
+  untagged legacy batch rolls back only when unambiguous. `RL_COL`/`VL_COL` are the
+  layout source — add no new raw RUN_LOG/VIN-log index literals. ADR-0001.
 
 **Scraper / config sheets**
 - `scraper_location_name` must exactly match the live feed (an exact-match miss =

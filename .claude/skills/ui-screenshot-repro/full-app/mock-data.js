@@ -172,9 +172,10 @@
 
     // ── VIN Logs ────────────────────────────────────────────────────────────
     getRunsForDealer: function (key) { return key ? RUNS.filter(function (r) { return r.dealerKey === key; }) : ALL_RUNS; },
-    commitRunToVINLog: { ok: true, message: 'Committed 11 VINs.' },
-    rollbackRunFromVINLog: { ok: true },
-    deleteRun: { ok: true },
+    ledgerCommitRuns: { committed: 11, skippedCommitted: 0, skippedTest: 0 },
+    ledgerRollbackRun: { removed: 11 },
+    ledgerDeleteRun: { removed: 0 },
+    ledgerManualEntry: { committed: 1 },
 
     // ── VIN Inbox ───────────────────────────────────────────────────────────
     getVinSubmissions: { ok: true, configured: true, submissions: SUBS },

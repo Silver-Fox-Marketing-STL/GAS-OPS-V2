@@ -22,9 +22,9 @@
 // does not depend on Code.gs being evaluated first (Apps Script's flat
 // namespace resolves cross-file names at call time).
 //
-// Build status (feat/run-ledger): step 1 = codec + store seam. Commit /
-// rollback / delete / manual entry (step 2) and finalize (step 3) move in next;
-// until then no live path calls into this file.
+// Build status (feat/run-ledger): steps 1–2 = codec, store seam, and the
+// guarded commit / rollback / delete / manual entry the views call. Finalize
+// (step 3) and the remaining RUN_LOG readers (step 4) move in next.
 // ============================================================================
 
 // ── RUN_LOG layout (0-based indices into a getValues() row) ────────────────
@@ -335,13 +335,20 @@ function rlSheetStore_() {
       var sh = vinTab_(dealerKey);
       if (!sh) return [];
       var last = sh.getLastRow();
-      return last < 2 ? [] : sh.getRange(2, 1, last - 1, VL_WIDTH).getValues();
+      if (last < 2) return [];
+      // A tab trimmed narrower than 5 columns can't be read at width 5 — read what exists, pad.
+      var w = Math.min(VL_WIDTH, sh.getMaxColumns());
+      return sh.getRange(2, 1, last - 1, w).getValues().map(function (r) {
+        while (r.length < VL_WIDTH) r.push('');
+        return r;
+      });
     },
     appendVinLog: function (dealerKey, rows) {
       requireLock_('appendVinLog');
       var sh = vinTab_(dealerKey);
       if (!sh) throw new Error('No VIN log tab found for: ' + dealerKey);
       if (!rows || !rows.length) return;
+      if (sh.getMaxColumns() < VL_WIDTH) sh.insertColumnsAfter(sh.getMaxColumns(), VL_WIDTH - sh.getMaxColumns());
       if (String(sh.getRange(1, VL_COL.RUN_REF + 1).getValue()).trim() === '') {
         sh.getRange(1, VL_COL.RUN_REF + 1).setValue(VL_HEADERS[VL_COL.RUN_REF]);
       }
@@ -383,3 +390,216 @@ function rlContiguousBlocks_(rowIndexes) {
   });
   return blocks;
 }
+
+
+// ============================================================================
+// DECISIONS — pure (records in, plan out; no store calls)
+// ============================================================================
+
+/** Decode every RUN_LOG data row (store.readRuns() → run records with their sheet rows). */
+function rlDecodeAll_(rows) {
+  return (rows || []).map(function (r, i) { return rlDecodeRow_(r, i + 2); });
+}
+
+/** Decode every VIN-log data row (store.readVinLog() → batch-row records with their sheet rows). */
+function rlDecodeVinLog_(rows) {
+  return (rows || []).map(function (r, i) { return rlDecodeVinLogRow_(r, i + 2); });
+}
+
+/**
+ * Which run a view means. Two kinds of reference:
+ *   - by fingerprint (VIN Logs view): { rowIndex, dealerKey, timestamp, dealId }
+ *     — the row at rowIndex must still carry that fingerprint;
+ *   - by output (Run view, straight after finalize): { dealerKey, outputDocId, note }
+ *     — the one non-deleted row for that output doc + billing group.
+ * Returns the run record, or throws a message the user can act on.
+ */
+function rlResolveRef_(recs, ref) {
+  if (!ref) throw new Error('No run given.');
+  var dealerKey = String(ref.dealerKey || '').trim();
+  if (ref.outputDocId) {
+    var doc = String(ref.outputDocId).trim(), group = rlSplitGroup_(ref.note);
+    var hits = recs.filter(function (r) {
+      return r.dealerKey === dealerKey && r.outputDocId === doc && r.group === group && r.status !== RL_STATUS.DELETED;
+    });
+    if (hits.length === 0) throw new Error('This run is not in the run log yet — reload and try again.');
+    if (hits.length > 1)   throw new Error('This run has ' + hits.length + ' rows in the run log — commit it from the VIN Logs page instead.');
+    return hits[0];
+  }
+  var rec = null;
+  for (var i = 0; i < recs.length; i++) if (recs[i].rowIndex === Number(ref.rowIndex)) { rec = recs[i]; break; }
+  if (!rec || !rlFingerprintMatches_(rec, ref)) {
+    throw new Error('The run log row no longer matches this run — reload and try again.');
+  }
+  return rec;
+}
+
+/**
+ * Which VIN-log rows are this run's batch (for rollback / delete).
+ *   - Tagged: rows whose deal id and run_ref are this run's. Exact.
+ *   - Legacy (committed before run_ref existed): untagged rows under this deal
+ *     id are this run's ONLY when the match is unambiguous — exactly one
+ *     untagged batch (one committed_at) under the deal, and this is the only
+ *     committed run on the deal whose batch isn't tagged. Otherwise refuse.
+ * Returns { rows: [1-based row numbers], mode: 'tagged'|'legacy'|'none' } or
+ * { refused: '<message>' }.
+ */
+function rlFindBatch_(vinRecs, recs, rec) {
+  var ref = rlRunRef_(rec);
+  var tagged = vinRecs.filter(function (v) { return v.orderId === rec.dealId && v.runRef === ref; });
+  if (tagged.length) return { rows: tagged.map(function (v) { return v.rowIndex; }), mode: 'tagged' };
+
+  var untagged = vinRecs.filter(function (v) { return v.orderId === rec.dealId && v.runRef === ''; });
+  if (!untagged.length) return { rows: [], mode: 'none' };
+
+  var batches = {};
+  untagged.forEach(function (v) { batches[v.committedAt] = true; });
+  var competitors = recs.filter(function (r) {
+    if (r.rowIndex === rec.rowIndex) return false;
+    if (r.dealerKey !== rec.dealerKey || r.dealId !== rec.dealId) return false;
+    if (r.status !== RL_STATUS.COMMITTED || r.isTest) return false;
+    var otherRef = rlRunRef_(r);
+    return !vinRecs.some(function (v) { return v.orderId === r.dealId && v.runRef === otherRef; });
+  });
+  if (Object.keys(batches).length === 1 && competitors.length === 0) {
+    return { rows: untagged.map(function (v) { return v.rowIndex; }), mode: 'legacy' };
+  }
+  return {
+    refused: 'Deal ' + rec.dealId + ' has more than one batch in the ' + rec.dealerKey +
+             ' VIN log from before batches were tagged, so the app can\'t tell which rows are this run\'s. ' +
+             'Roll it back by hand in SF_VIN_LOGS, then mark the run rolled_back.'
+  };
+}
+
+/**
+ * What committing one run should do. Returns one of:
+ *   { skip: 'committed' | 'test' }
+ *   { finishOnly: n }      this run's tagged batch is already in the log (a half-finished
+ *                          earlier commit) — only the status needs writing
+ *   { append: [rows] }     5-cell VIN-log rows to add, then set the status
+ * Throws for runs that can't be committed.
+ */
+function rlPlanCommit_(rec, vinRecs, now) {
+  if (rec.isTest) return { skip: 'test' };
+  if (rec.status === RL_STATUS.COMMITTED) return { skip: 'committed' };
+  if (rec.status === RL_STATUS.DELETED) throw new Error('This run was deleted, so it can\'t be committed.');
+  if (!rec.dealId) throw new Error('This run has no Deal ID. Cannot commit without a Deal ID.');
+  if (!rec.producedVins.length) throw new Error('No produced VINs found for this run.');
+
+  var ref = rlRunRef_(rec);
+  var already = vinRecs.filter(function (v) { return v.orderId === rec.dealId && v.runRef === ref; });
+  if (already.length) return { finishOnly: already.length };
+
+  return {
+    append: rec.producedVins.map(function (vin) {
+      // order_date = when the run happened, not when it was committed (a late commit keeps its date).
+      return rlEncodeVinLogRow_({ orderId: rec.dealId, vin: vin, committedAt: now, orderDate: rec.timestamp, runRef: ref });
+    })
+  };
+}
+
+/** Manual-entry VINs: trimmed, upper-cased, de-duplicated, blanks dropped. */
+function rlCleanManualVins_(vins) {
+  var seen = {}, out = [];
+  (vins || []).forEach(function (v) {
+    var u = String(v === null || v === undefined ? '' : v).trim().toUpperCase();
+    if (u && !seen[u]) { seen[u] = true; out.push(u); }
+  });
+  return out;
+}
+
+
+// ============================================================================
+// OPERATIONS — store-first internals (tests call these with the fake store)
+// ============================================================================
+
+/** Commit runs to their dealers' VIN logs. Test runs and already-committed runs are skipped. */
+function rlCommitRuns_(store, refs) {
+  if (!Array.isArray(refs) || !refs.length) throw new Error('No runs to commit.');
+  return store.withLock(function () {
+    var recs = rlDecodeAll_(store.readRuns());
+    var targets = refs.map(function (ref) { return rlResolveRef_(recs, ref); });
+    var out = { committed: 0, skippedCommitted: 0, skippedTest: 0 };
+    targets.forEach(function (rec) {
+      if (!rec.isTest && rec.status !== RL_STATUS.COMMITTED && !store.hasVinLog(rec.dealerKey)) {
+        throw new Error('No VIN log tab found for: ' + rec.dealerKey);
+      }
+      var plan = rlPlanCommit_(rec, rlDecodeVinLog_(store.readVinLog(rec.dealerKey)), store.now());
+      if (plan.skip === 'test')      { out.skippedTest++; return; }
+      if (plan.skip === 'committed') { out.skippedCommitted++; return; }
+      if (plan.append) store.appendVinLog(rec.dealerKey, plan.append);
+      store.setRunCell(rec.rowIndex, RL_COL.STATUS, RL_STATUS.COMMITTED);
+      rec.status = RL_STATUS.COMMITTED;        // a second ref to the same run in this call skips
+      out.committed += plan.append ? plan.append.length : plan.finishOnly;
+    });
+    return out;
+  });
+}
+
+/** Remove one committed run's batch from its VIN log (inside an open lock). */
+function rlRollbackRec_(store, recs, rec) {
+  if (rec.status !== RL_STATUS.COMMITTED) throw new Error('This run isn\'t committed, so there is nothing to roll back.');
+  var found = rlFindBatch_(rlDecodeVinLog_(store.readVinLog(rec.dealerKey)), recs, rec);
+  if (found.refused) throw new Error(found.refused);
+  if (found.rows.length) store.deleteVinLogRows(rec.dealerKey, found.rows);
+  store.setRunCell(rec.rowIndex, RL_COL.STATUS, RL_STATUS.ROLLED_BACK);
+  return found.rows.length;
+}
+
+/** Roll back one committed run (by fingerprint). */
+function rlRollbackRun_(store, ref) {
+  return store.withLock(function () {
+    var recs = rlDecodeAll_(store.readRuns());
+    return { removed: rlRollbackRec_(store, recs, rlResolveRef_(recs, ref)) };
+  });
+}
+
+/** Soft-delete one run (col W = deleted); a committed run's batch is rolled back first. */
+function rlDeleteRun_(store, ref) {
+  return store.withLock(function () {
+    var recs = rlDecodeAll_(store.readRuns());
+    var rec  = rlResolveRef_(recs, ref);
+    if (rec.status === RL_STATUS.DELETED) return { removed: 0 };
+    var removed = (rec.status === RL_STATUS.COMMITTED) ? rlRollbackRec_(store, recs, rec) : 0;
+    store.setRunCell(rec.rowIndex, RL_COL.STATUS, RL_STATUS.DELETED);
+    return { removed: removed };
+  });
+}
+
+/** Manual entry: VINs typed straight into a dealer's VIN log under an order number (no run behind them). */
+function rlManualEntry_(store, dealerKey, orderId, vins) {
+  dealerKey = String(dealerKey || '').trim();
+  orderId   = String(orderId === null || orderId === undefined ? '' : orderId).trim();
+  if (!dealerKey) throw new Error('No dealer key provided.');
+  if (!orderId)   throw new Error('Order number is required.');
+  if (!vins || !vins.length) throw new Error('No VINs provided.');
+  var cleaned = rlCleanManualVins_(vins);
+  if (!cleaned.length) throw new Error('No valid VINs after deduplication.');
+  return store.withLock(function () {
+    if (!store.hasVinLog(dealerKey)) throw new Error('No VIN log tab found for: ' + dealerKey);
+    var now = store.now();   // typed in near order time — order_date = now
+    store.appendVinLog(dealerKey, cleaned.map(function (vin) {
+      return rlEncodeVinLogRow_({ orderId: orderId, vin: vin, committedAt: now, orderDate: now, runRef: VL_MANUAL_REF });
+    }));
+    return { committed: cleaned.length };
+  });
+}
+
+
+// ============================================================================
+// PUBLIC ENDPOINTS — google.script.run (one line each: real store in, result out)
+// ============================================================================
+// Views name a run by reference (see rlResolveRef_) and never send VINs, deal
+// ids or dates for the server to trust.
+
+/** Commit runs to the VIN log. refs: [{rowIndex, dealerKey, timestamp, dealId}] or [{dealerKey, outputDocId, note}]. */
+function ledgerCommitRuns(refs) { return rlCommitRuns_(rlSheetStore_(), refs); }
+
+/** Roll back one committed run. ref: {rowIndex, dealerKey, timestamp, dealId}. */
+function ledgerRollbackRun(ref) { return rlRollbackRun_(rlSheetStore_(), ref); }
+
+/** Soft-delete one run (rolling back its batch first if committed). ref: {rowIndex, dealerKey, timestamp, dealId}. */
+function ledgerDeleteRun(ref) { return rlDeleteRun_(rlSheetStore_(), ref); }
+
+/** Manual entry into a dealer's VIN log. */
+function ledgerManualEntry(dealerKey, orderId, vins) { return rlManualEntry_(rlSheetStore_(), dealerKey, orderId, vins); }
