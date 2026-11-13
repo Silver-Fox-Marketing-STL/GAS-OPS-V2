@@ -5431,8 +5431,8 @@ function isThemeSlug_(t) {
  */
 function getThemePreference() {
   var t = PropertiesService.getUserProperties().getProperty('app_theme');
-  // Retired themes (deleted July 2026) — remap to preserve light/dark intent.
-  if (t === 'top-rail') t = 'light';
+  // Retired themes (top-rail* deleted July 2026, luna Nov 2026) — remap to preserve light/dark intent.
+  if (t === 'top-rail' || t === 'luna') t = 'light';
   if (t === 'top-rail-dark') t = 'dark';
   return isThemeSlug_(t) ? t : '';
 }

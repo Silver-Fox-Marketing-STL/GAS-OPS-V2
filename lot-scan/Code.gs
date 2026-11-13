@@ -131,7 +131,8 @@ function getLastSelectedDealer() {
 // SharedUtils via google.script.run — it must exist by this exact name
 // (google.script.run fails SILENTLY on missing names).
 function getThemePreference() {
-  return PropertiesService.getUserProperties().getProperty('lot_theme') || '';
+  var t = PropertiesService.getUserProperties().getProperty('lot_theme') || '';
+  return t === 'luna' ? 'light' : t;   // Windows XP theme retired Nov 2026
 }
 function saveThemePreference(id) {
   PropertiesService.getUserProperties().setProperty('lot_theme', String(id || 'light'));
