@@ -85,6 +85,10 @@
   VIEW_SHOWN['view-vin-inbox'] = function () { viLoad(); };   // reload pending on every visit
 
   var viSubs = [], viGroupNames = [];
+  // Whole-sheet queued count from the server (getVinSubmissions.queuedTotal) — the
+  // list itself is capped, so counting viSubs could under-report. null = unknown
+  // (error / not configured) → fall back to counting the loaded rows.
+  var viQueuedTotal = null;
   var viVinMaps = {};        // dealerKey → {VIN→vehicle} | 'loading'
   var viPendingChecks = {};  // sid → 1: cards typed-into before their map landed
 
@@ -178,8 +182,8 @@
     if (document.hidden) return;   // background tab — nothing to see, don't burn quota
     var view = document.getElementById('view-vin-inbox');
     if (!view || view.hidden) return;
-    var queued = false;
-    for (var i = 0; i < viSubs.length; i++) if (viSubs[i].ocrState === 'queued') { queued = true; break; }
+    var queued = (viQueuedTotal || 0) > 0;   // includes queued rows past the list cap
+    for (var i = 0; !queued && i < viSubs.length; i++) if (viSubs[i].ocrState === 'queued') queued = true;
     if (queued) viRefresh();
   }, 15000);
 
@@ -187,6 +191,7 @@
     var body = document.getElementById('viBody');
     // Every exit that rewrites #viBody destroys the checkboxes — resync the
     // header count on each one, always AFTER the innerHTML write (it counts live DOM).
+    viQueuedTotal = (res && res.ok && typeof res.queuedTotal === 'number') ? res.queuedTotal : null;
     if (!res || !res.ok) { body.innerHTML = '<p class="vi-empty">Error: ' + escHtml((res && res.error) || 'unknown') + '</p>'; viSubs = []; viRefreshOcrBtn(); viSelCountUpdate(); return; }
     if (!res.configured) {
       body.innerHTML = '<p class="vi-empty">The submissions sheet isn’t linked yet. Set <code>LOT_SUBMISSIONS_SHEET_ID</code> in Code.gs (run the Lot Scanner’s <code>setupLotScannerResources()</code> once to create it).</p>';
@@ -209,6 +214,10 @@
     viGroupNames.sort(function (a, b) { return viGroupTime_(groups[b][0]) - viGroupTime_(groups[a][0]); });
 
     var html = '';
+    if (res.truncated) {   // server caps the list (newest kept); say so instead of silently hiding rows
+      html += '<p class="u-hint">Showing the newest ' + viSubs.length.toLocaleString() + ' of ' +
+        (Number(res.total) || 0).toLocaleString() + ' open submissions. Discard or order older batches to see the rest.</p>';
+    }
     viGroupNames.forEach(function (key, gi) {
       var rows = groups[key];
       var isBatch = !!rows[0].batchId;
@@ -423,6 +432,10 @@
     viMutSeq++;   // invalidate any refresh snapshot taken before this removal
     var gone = {};
     ids.forEach(function (id) { gone[String(id)] = 1; });
+    if (viQueuedTotal !== null) {   // keep the server's whole-sheet count in step with local discards
+      viSubs.forEach(function (s) { if (gone[String(s.id)] && s.ocrState === 'queued') viQueuedTotal--; });
+      if (viQueuedTotal < 0) viQueuedTotal = 0;
+    }
     viSubs = viSubs.filter(function (s) { return !gone[String(s.id)]; });
     ids.forEach(function (id) {
       var card = document.getElementById('vicard_' + id);
@@ -575,7 +588,8 @@
   function viRefreshOcrBtn() {
     var btn = document.getElementById('viOcrBtn');
     if (!btn) return;
-    var n = viSubs.filter(function (s) { return s.ocrState === 'queued'; }).length;
+    var n = (viQueuedTotal !== null) ? viQueuedTotal
+          : viSubs.filter(function (s) { return s.ocrState === 'queued'; }).length;
     var countEl = document.getElementById('viOcrCount');
     if (countEl) countEl.textContent = n;
     btn.hidden = (n === 0);
@@ -594,6 +608,7 @@
         if (!res || !res.ok) {
           toast('OCR failed: ' + escHtml((res && res.error) || '?'), 'error');
           if (btn) btn.disabled = false;
+          viRefresh();   // earlier chunks (and part of this one) may have written results — resync the cards and the queued count
           return;
         }
         var total = doneSoFar + res.processed;
@@ -611,6 +626,7 @@
         toast('OCR failed: ' + escHtml((e && e.message) || String(e)), 'error');
         var btn = document.getElementById('viOcrBtn');
         if (btn) btn.disabled = false;
+        viRefresh();   // a timeout can land after rows were written — resync, same as the !ok branch
       })
       .runInboxOcr(10);
   }

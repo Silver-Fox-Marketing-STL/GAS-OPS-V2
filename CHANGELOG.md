@@ -256,6 +256,23 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   to the brain backlog; `CLAUDE.md` line count refreshed.
 
 ### Fixed
+- **VIN Inbox: three small fixes** (2026-11-13, `fix/vin-inbox-small`; backlog item from
+  2026-07-09).
+  - **OCR error mid-run now resyncs the cards.** When a "Run OCR" chunk failed (an error
+    result or a timeout), the view only showed a toast; rows that earlier chunks had
+    already read stayed on screen as "queued". Both error paths now run `viRefresh()`.
+  - **The 1000-row list cap no longer hides the newest work or the real queued count.**
+    `getVinSubmissions` scanned oldest-first and stopped at 1000, so past the cap it
+    dropped the NEWEST submissions, and the "Run OCR (N queued)" count (counted from the
+    capped list) under-reported what `runInboxOcr` would process. It now scans
+    newest-first (the returned order is still oldest-first), and returns `queuedTotal`
+    (whole sheet, same submitted + queued test as `runInboxOcr`), `total` and `truncated`.
+    The button uses `queuedTotal` (kept in step with local discards); the view says
+    "Showing the newest N of M open submissions" when the cap bites.
+  - **A timestamp stored as text now reads like the others.** The group header's
+    readable date (2026-07-10) only applied when Sheets had coerced the scanner's
+    timestamp to a Date; a text cell showed raw and sorted last. New `lotSubTsMs_`
+    parses the scanner's `yyyy-MM-dd HH:mm:ss` text in the script time zone.
 - **Luna (Windows XP) theme: AND and OR chips looked identical** (2026-11-13; debt C18).
   Luna's `--info` was the same blue as its `--accent`, so the targeting-rule editor's
   ALL (AND) and ANY (OR) chips (and info tags vs accent) were indistinguishable. Luna's
