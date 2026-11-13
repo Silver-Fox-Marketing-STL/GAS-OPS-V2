@@ -738,6 +738,9 @@ function rlManualEntry_(store, dealerKey, orderId, vins) {
   orderId   = String(orderId === null || orderId === undefined ? '' : orderId).trim();
   if (!dealerKey) throw new Error('No dealer key provided.');
   if (!orderId)   throw new Error('Order number is required.');
+  // 'test' marks test runs, which never enter the VIN log; under a manual entry it
+  // would quietly mark real cars as already printed.
+  if (rlIsTestDealId_(orderId)) throw new Error('"test" is for test runs and never goes in the VIN log — enter the real order number.');
   if (!vins || !vins.length) throw new Error('No VINs provided.');
   var cleaned = rlCleanManualVins_(vins);
   if (!cleaned.length) throw new Error('No valid VINs after deduplication.');

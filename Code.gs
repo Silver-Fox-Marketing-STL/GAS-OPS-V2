@@ -4707,60 +4707,6 @@ function orderDateTime_(cell) {
 
 
 /**
- * BACKFILL / REPAIR — run manually from the script editor. Fills VIN log
- * col D from RUN_LOG (deal id → earliest run_timestamp for that dealer) and
- * writes the order_date header on every tab. Legacy-system ids have no
- * RUN_LOG row, so they stay blank — correctly excluded from "most recent".
- * Idempotent: fills blank cells, and re-stamps cells that equal committed_at
- * (col C) — the pre-fix commit path defaulted order_date to the commit time,
- * so a late-committed old run wrongly became "most recent". Manual entries
- * (order_date = committed_at by design) have no RUN_LOG row and are untouched.
- */
-function backfillVinLogOrderDates() {
-  var runLog = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('RUN_LOG')
-    .getDataRange().getValues();
-
-  // dealer_key → deal id → earliest run timestamp (first run ≈ order date)
-  var dates = {};
-  for (var i = 1; i < runLog.length; i++) {
-    var dealer = String(runLog[i][1]).trim();   // B: dealer_key
-    var dealId = String(runLog[i][3]).trim();   // D: order_id
-    var ts     = runLog[i][0];                  // A: run_timestamp
-    if (!dealer || !dealId || dealId.toLowerCase() === 'test') continue;
-    if (orderDateTime_(ts) === null) continue;
-    if (!dates[dealer]) dates[dealer] = {};
-    var prev = dates[dealer][dealId];
-    if (!prev || orderDateTime_(ts) < orderDateTime_(prev)) dates[dealer][dealId] = ts;
-  }
-
-  var summary = [];
-  getVinLogsSS_().getSheets().forEach(function(sheet) {
-    var dealer = sheet.getName();
-    sheet.getRange(1, 4).setValue('order_date');
-    var lastRow = sheet.getLastRow();
-    if (lastRow < 2) return;
-
-    var rows   = sheet.getRange(2, 1, lastRow - 1, 4).getValues();
-    var filled = 0;
-    var colD   = rows.map(function(r) {
-      var existing  = orderDateTime_(r[3]);
-      var defaulted = existing !== null && existing === orderDateTime_(r[2]);
-      if ((existing !== null && !defaulted) || !dates[dealer]) return [r[3]];
-      var ts = dates[dealer][String(r[0]).trim()];
-      if (ts === undefined || (defaulted && orderDateTime_(ts) === existing)) return [r[3]];
-      filled++;
-      return [ts];
-    });
-
-    if (filled > 0) sheet.getRange(2, 4, colD.length, 1).setValues(colD);
-    summary.push(dealer + ': ' + filled + ' of ' + rows.length);
-  });
-
-  Logger.log('backfillVinLogOrderDates:\n' + summary.join('\n'));
-  return summary;
-}
-
-/**
  * Returns every identifier (VIN or stock, col B) in the dealer's VIN log tab,
  * uppercased, plus each one's order history. The Run Order table uses this to
  * highlight already-produced vehicles pre-run and to show (on hover) which

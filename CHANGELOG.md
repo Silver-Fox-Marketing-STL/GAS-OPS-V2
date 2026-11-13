@@ -23,7 +23,7 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
     `VL_COL`.
   - New read-only store method `findVinLogRowsByRunRef`: one TextFinder over the tab (or
     the whole SF_VIN_LOGS file in All-Dealers mode), then one read per tab with hits.
-  - Harness 233/233 (new suite "run ledger readers", 11 tests).
+  - Harness 234/234 (new suite "run ledger readers", 12 tests).
 - **Run ledger, step 3 of 4: finalize + the Pipedrive deal-ID write** (2026-11-13,
   `feat/run-ledger`). The ledger now owns every RUN_LOG write. After this step,
   `RunLedger.gs` is the only code that appends a run row, sets col D or sets col W.
@@ -207,6 +207,10 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   to the brain backlog; `CLAUDE.md` line count refreshed.
 
 ### Fixed
+- **Manual entry accepted "test" as an order number** (2026-11-13, run ledger step 4).
+  Test runs never enter the VIN log, but a manual entry under `test` did, quietly
+  marking real cars as already printed. `ledgerManualEntry` now refuses it (any case;
+  `test2` is still allowed, matching the test-run rule).
 - **Manual VIN-log entries never showed in the VIN Logs list** (2026-11-13, run ledger
   step 4). A manual entry writes VIN-log rows but no RUN_LOG row, and the list read only
   the run log, so the entry was in the log (and in "Most recent order") but invisible.
@@ -270,6 +274,11 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   the fields. **Promoted to PROD the same day — `/exec` @104 = `promote 6758147`**
   (all 24 files verified byte-identical to `main` by clasp pull; root `.clasp.json`
   confirmed restored to DEV); Nick re-ran the deal 5326 push and it completed.
+
+### Removed
+- **`backfillVinLogOrderDates()`** (2026-11-13, run ledger step 4). The one-time July 2026
+  editor-run repair that filled VIN-log col D from RUN_LOG; its job is done, and it was
+  the last code writing SF_VIN_LOGS outside the run ledger. Recoverable from git history.
 
 ## [1.1] — 2026-09-30
 

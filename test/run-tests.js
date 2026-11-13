@@ -2200,6 +2200,15 @@ t('VIN Logs list: a failed manual-entry lookup still returns the runs', function
   var runs = withReaderStubs_(s, function () { return getRunsForDealer('PUNDMANN_FORD'); });
   assert.deepStrictEqual(runs.map(function (r) { return r.dealId; }), ['3664']);
 });
+t('manual entry refuses the order number "test" (any case) and writes nothing', function () {
+  var s = makeFakeLedgerStore({ runLog: [], vinLogs: { PUNDMANN_FORD: [] } });
+  withReaderStubs_(s, function () {
+    assert.throws(function () { ledgerManualEntry('PUNDMANN_FORD', 'test', ['MX1']); }, /never goes in the VIN log/);
+    assert.throws(function () { ledgerManualEntry('PUNDMANN_FORD', ' TEST ', ['MX1']); }, /never goes in the VIN log/);
+    assert.deepStrictEqual(ledgerManualEntry('PUNDMANN_FORD', 'test2', ['MX1']), { committed: 1 });   // only exact 'test' is a test id
+  });
+  assert.strictEqual(s._vinLog('PUNDMANN_FORD').length, 1);
+});
 t('a manual entry appears in the list straight after it is added (the reported bug)', function () {
   var s = makeFakeLedgerStore({ runLog: [], vinLogs: { PUNDMANN_FORD: [] }, now: M1 });
   var runs = withReaderStubs_(s, function () {
@@ -2293,7 +2302,8 @@ t('real adapter: manual rows are found with ONE text search and one read per tab
 });
 t('Code.gs reads RUN_LOG only through the ledger (no raw row indexes, no own run list)', function () {
   var opens = codeSource.split("getSheetByName('RUN_LOG')").length - 1;
-  assert.strictEqual(opens, 2, 'expected only openRunLog + backfillVinLogOrderDates to open RUN_LOG, found ' + opens);
+  assert.strictEqual(opens, 1, 'expected only openRunLog (the menu jump to the tab) to open RUN_LOG, found ' + opens);
+  assert.strictEqual(codeSource.indexOf('backfillVinLogOrderDates'), -1, 'retired backfill tool is back');
   assert.strictEqual(/function getRunsForDealer\b/.test(codeSource), false, 'getRunsForDealer still defined in Code.gs');
   assert.strictEqual(/\b(?:row|r|last)\[(?:21|22)\]/.test(codeSource), false, 'raw produced_vins / status index still read');
   assert.strictEqual(typeof getRunsForDealer, 'function');
