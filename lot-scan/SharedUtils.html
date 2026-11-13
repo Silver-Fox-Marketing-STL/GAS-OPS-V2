@@ -242,28 +242,6 @@
     --focus-ring: 0 0 0 3px rgba(254,128,25,.5);
   }
 
-  /* ── "Windows XP" (Luna) — blue title bars, beige controls, system fonts.
-     Palette/tokens here; the window-frame chrome is the data-theme block in
-     App.html; the desktop page-arrangement is data-arrange="desktop". ── */
-  :root[data-theme="luna"] {
-    color-scheme: light;
-    --bg: #ffffff; --surface: #ece9d8; --surface-2: #e3e0cf; --surface-3: #d6d3c2;
-    --text: #000000; --text-2: #1c1c1c; --text-3: #444444; --text-muted: #6b6b6b;
-    --border: #aca899; --border-2: #7f9db9;
-    --accent: #316ac5; --accent-hover: #2a5bb0; --accent-active: #1f4894;
-    --accent-weak: #d8e4f8; --accent-weak-2: #bcd2f0; --on-accent: #ffffff;
-    --success: #2f7d1f; --success-weak: #dcecd2; --on-success: #ffffff;
-    --danger:  #b41a1a; --danger-weak:  #f3d6d6; --on-danger:  #ffffff;
-    --warning: #9a6a00; --warning-weak: #f5e7c6; --warning-strong: #6a4a00;
-    --info:    #1c5fb0; --info-weak:    #d8e4f8;
-    --radius-sm: 3px; --radius: 3px; --radius-lg: 4px;
-    --shadow: 0 1px 3px rgba(0,0,0,.25); --shadow-lg: 0 4px 14px rgba(0,0,0,.35);
-    --focus-ring: 0 0 0 2px rgba(255,140,0,.6);
-    --font-head: 'Trebuchet MS', Tahoma, 'Segoe UI', sans-serif;
-    --font-body: Tahoma, 'Segoe UI', Verdana, sans-serif;
-    --shell-header-h: 30px;
-  }
-
   /* ════════════════════════════════════════════════════════════════════════
      STRUCTURAL AXES (token half) — DENSITY + SHAPE. A theme opts in by declaring
      `density` / `shape` in its Theme.themes metadata; the client reflects it onto
@@ -505,8 +483,7 @@
       { id: 'encarta',       label: 'Encarta' },
       { id: 'sage',          label: 'Sage' },
       { id: 'gruvbox-rail',  label: 'Gruvbox' },
-      { id: 'slate-icons',   label: 'Slate' },
-      { id: 'luna',          label: 'Windows XP' }
+      { id: 'slate-icons',   label: 'Slate' }
     ],
     _meta: function(id) {
       for (var i = 0; i < this.themes.length; i++) { if (this.themes[i].id === id) return this.themes[i]; }

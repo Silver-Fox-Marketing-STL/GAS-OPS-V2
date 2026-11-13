@@ -293,6 +293,19 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   confirmed restored to DEV); Nick re-ran the deal 5326 push and it completed.
 
 ### Removed
+- **The Windows XP (`luna`) theme, from the main app and the Lot Scanner** (2026-11-13,
+  `chore/remove-luna`; Nick's call). The Home HUD verification pass found its Home column
+  headings invisible again (ViewHome's ID-scoped heading rule outranked App.html's
+  class-only white override), and Nick chose to retire the theme rather than fix it.
+  - Main app: the token block and registry entry in `SharedUtils.html`, and every
+    `[data-theme="luna"]` rule in `App.html` (window chrome, taskbar, buttons, inputs,
+    Home background, the Run Order VIN-column swap, the mobile tweak).
+  - The inert `arrange` axis left `Theme._axes` (Luna was its only declarer; nothing
+    has responded to it since 2026-07-21).
+  - Lot Scanner: the token block and registry entry in `lot-scan/SharedUtils.html`.
+  - A saved `luna` choice now reads as Light: `getThemePreference` in `Code.gs` (next to
+    the top-rail remaps) and in `lot-scan/Code.gs`.
+  - The theme menu now lists 7 themes.
 - **VIN Inbox: the dead "processed" write path** (2026-11-13; debt C17). The Processed
   button went away on 2026-07-10, but `updateVinSubmissionStatus(es)` still accepted the
   status. `LOT_SUB_STATUSES` is now the settable set `draft | submitted | discarded`;

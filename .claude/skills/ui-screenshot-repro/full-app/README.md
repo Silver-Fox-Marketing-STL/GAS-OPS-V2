@@ -27,7 +27,7 @@ cd .claude\skills\ui-screenshot-repro\full-app
 npm install            # puppeteer-core only (uses the installed Chrome)
 node build-app.js      # → app.html (re-run after any App/View/SharedUtils change)
 node shoot.js --themes light,dark --scenarios home,run-vins --width 1440 --height 900 --out shots
-node shoot.js --themes light,dark,midnight,encarta,sage,gruvbox-rail,slate-icons,luna --out shots   # everything
+node shoot.js --themes light,dark,midnight,encarta,sage,gruvbox-rail,slate-icons --out shots   # everything
 ```
 
 Then Read the PNGs. A clean run prints one `theme/scenario` line per shot with

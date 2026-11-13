@@ -72,7 +72,7 @@ is a theory; the PNG is the fact.
 
 ## Limits — do not over-trust the repro
 
-- **App.html is NOT included:** Encarta/Luna structural overrides (3D button
+- **App.html is NOT included:** Encarta structural overrides (3D button
   bevels, `!important` borders) won't show. Palette themes are representative;
   XP-style themes are not.
 - **CSS/layout only.** No `google.script.run`, no view JS — behavior bugs need

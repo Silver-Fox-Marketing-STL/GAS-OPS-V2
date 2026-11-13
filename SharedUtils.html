@@ -259,29 +259,6 @@
     --focus-ring: 0 0 0 3px rgba(254,128,25,.5);
   }
 
-  /* ── "Windows XP" (Luna) — blue title bars, beige controls, system fonts.
-     Palette/tokens here; the window-frame chrome is the data-theme block in
-     App.html; the desktop page-arrangement is data-arrange="desktop". ── */
-  :root[data-theme="luna"] {
-    color-scheme: light;
-    --bg: #ffffff; --surface: #ece9d8; --surface-2: #e3e0cf; --surface-3: #d6d3c2;
-    --text: #000000; --text-2: #1c1c1c; --text-3: #444444; --text-muted: #6b6b6b;
-    --border: #aca899; --border-2: #7f9db9;
-    --logo-fill: #d2d2d6;          /* light logo on the XP-blue title strip */
-    --accent: #316ac5; --accent-hover: #2a5bb0; --accent-active: #1f4894;
-    --accent-weak: #d8e4f8; --accent-weak-2: #bcd2f0; --on-accent: #ffffff;
-    --success: #2f7d1f; --success-weak: #dcecd2; --on-success: #ffffff;
-    --danger:  #b41a1a; --danger-weak:  #f3d6d6; --on-danger:  #ffffff;
-    --warning: #9a6a00; --warning-weak: #f5e7c6; --warning-strong: #6a4a00;
-    --info:    #0e7c86; --info-weak:    #d4eef0;   /* teal, not --accent's blue: AND/OR chips and info tags must differ */
-    --radius-sm: 3px; --radius: 3px; --radius-lg: 4px;
-    --shadow: 0 1px 3px rgba(0,0,0,.25); --shadow-lg: 0 4px 14px rgba(0,0,0,.35);
-    --focus-ring: 0 0 0 2px rgba(255,140,0,.6);
-    --font-head: 'Trebuchet MS', Tahoma, 'Segoe UI', sans-serif;
-    --font-body: Tahoma, 'Segoe UI', Verdana, sans-serif;
-    --shell-header-h: 30px;
-  }
-
   /* ════════════════════════════════════════════════════════════════════════
      STRUCTURAL AXES (token half) — DENSITY + SHAPE. A theme opts in by declaring
      `density` / `shape` in its Theme.themes metadata; the client reflects it onto
@@ -436,8 +413,8 @@
      UNIFIED COMPONENT LAYER — canonical button/pill/tag/table specs
      (SuperDesign "variant 1", July 2026). Unscoped on purpose: per-view
      #view-xxx dialect rules out-specify these until each view is migrated
-     (dialect CSS deleted). Keep class names in sync with the Encarta/Luna
-     override blocks in App.html (.pill, button).
+     (dialect CSS deleted). Keep class names in sync with the Encarta
+     override block in App.html (.pill, button).
      ════════════════════════════════════════════════════════════════════════ */
   /* Buttons — one 4-variant grammar. No .btn base class: base props live on
      this selector list so existing class="btn-primary" markup needs no edit. */
@@ -677,12 +654,12 @@
   // or set from the OS by a head script before first paint (App.html / Classic.html).
   var Theme = {
     // A curated theme = an id (identity) + a palette block (:root[data-theme="id"],
-    // or a shared one) + optionally the 'arrange' axis (Luna's desktop metaphor).
+    // or a shared one).
     // apply()/reflectAxes() write the axes onto <html>; an axis a theme doesn't
     // declare is REMOVED → the default. The shell/nav axes are no longer declared
     // by any theme (UI Settings owns them via UiPrefs.applyOverrides), but they
     // stay in _axes so reflectAxes clears stale attributes before UiPrefs re-applies.
-    _axes: ['shell', 'density', 'shape', 'nav', 'arrange'],
+    _axes: ['shell', 'density', 'shape', 'nav'],
     // ids are persistence keys — keep them stable even when a label changes
     // (renaming 'gruvbox-rail'/'slate-icons' would orphan saved prefs).
     themes: [
@@ -692,8 +669,7 @@
       { id: 'encarta',       label: 'Encarta' },
       { id: 'sage',          label: 'Sage' },
       { id: 'gruvbox-rail',  label: 'Gruvbox' },
-      { id: 'slate-icons',   label: 'Slate' },
-      { id: 'luna',          label: 'Windows XP', arrange: 'desktop' }
+      { id: 'slate-icons',   label: 'Slate' }
     ],
     _meta: function(id) {
       for (var i = 0; i < this.themes.length; i++) { if (this.themes[i].id === id) return this.themes[i]; }
