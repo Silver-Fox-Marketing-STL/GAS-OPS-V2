@@ -254,6 +254,7 @@
     #view-vinlog .status-pending { background: var(--warning-weak); color: var(--warning-strong); }
     #view-vinlog .status-committed { background: var(--success-weak); color: var(--success); }
     #view-vinlog .status-rolled_back { background: var(--danger-weak); color: var(--danger); }
+    #view-vinlog .status-manual { background: var(--info-weak); color: var(--info); }
 
     /* ── Show VINs button (inside runs table VIN count cell) ──────────────── */
     /* Compact in-row controls in the shared .btn-secondary grammar (body
@@ -633,10 +634,11 @@
           '<td>' + run.timestamp + noteBadge + '</td>' +
           (allMode ? '<td title="' + escHtml(run.dealerName || run.dealerKey || '') + '">' +
             escHtml(run.dealerName || run.dealerKey || '—') + '</td>' : '') +
-          '<td>' + (run.dealId || '<em style="color:var(--text-muted)">—</em>') + '</td>' +
+          '<td>' + (run.dealId ? escHtml(run.dealId) : '<em style="color:var(--text-muted)">—</em>') + '</td>' +
           '<td>' + vinCell + '</td>' +
           '<td><span class="status-badge ' + statusClass + '">' + statusLabel + '</span></td>' +
-          '<td><button class="vl-delete-btn" title="Delete this run" onclick="event.stopPropagation();deleteRunRow(' + idx + ', this)">✕</button></td>' +
+          // Manual entries are read-only (no run log row to delete).
+          '<td>' + (run.manual ? '' : '<button class="vl-delete-btn" title="Delete this run" onclick="event.stopPropagation();deleteRunRow(' + idx + ', this)">✕</button>') + '</td>' +
           '</tr>';
       });
 
@@ -665,7 +667,7 @@
       detail.innerHTML =
         (allMode && run.dealerName ? '<strong>Dealer:</strong> ' + escHtml(run.dealerName) + '<br>' : '') +
         '<strong>Timestamp:</strong> ' + run.timestamp + '<br>' +
-        '<strong>Deal ID:</strong> '   + (run.dealId || '—') + '<br>' +
+        '<strong>' + (run.manual ? 'Order' : 'Deal ID') + ':</strong> ' + escHtml(run.dealId || '—') + '<br>' +
         '<strong>VINs:</strong> '      + run.vinCount + ' vehicle' + (run.vinCount === 1 ? '' : 's');
 
       if (run.note && run.note.indexOf('SPLIT:') === 0) {
@@ -681,6 +683,17 @@
       var isTest = vinlogIsTestRun_(run);
       if (isTest) {
         detail.innerHTML += '<br><em style="color:var(--text-muted)">Test run — cannot be committed to the VIN log.</em>';
+      }
+
+      if (run.manual) {
+        // A manual entry has no run log row: nothing to commit, roll back or push.
+        detail.innerHTML += '<br><em style="color:var(--text-muted)">Manual entry — added on this page, read-only here.</em>';
+        commitBtn.disabled   = true;
+        rollbackBtn.disabled = true;
+        panel.style.display = 'block';
+        setVinlogStatus('', 'empty');
+        document.getElementById('pushPanel').style.display = 'none';
+        return;
       }
 
       if (status === 'pending') {
@@ -787,7 +800,7 @@
 
     // ── Commit ──────────────────────────────────────────────────────────────
     function commitRun() {
-      if (!selectedRun) return;
+      if (!selectedRun || selectedRun.manual) return;
       if (!selectedRun.dealId) {
         setVinlogStatus('This run has no Deal ID. Cannot commit without a Deal ID.', 'error');
         return;
@@ -831,7 +844,7 @@
 
     // ── Rollback ────────────────────────────────────────────────────────────
     function rollbackRun() {
-      if (!selectedRun) return;
+      if (!selectedRun || selectedRun.manual) return;
 
       // The run's own dealer — the select is '' in All-Dealers mode.
       var sel = document.getElementById('vinlogDealerSelect');
@@ -860,7 +873,7 @@
     // ── Delete (soft: RUN_LOG col W = 'deleted'; committed runs roll back first) ──
     function deleteRunRow(idx, btn) {
       var run = document.getElementById('runsContainer')._runs[idx];
-      if (!run) return;
+      if (!run || run.manual) return;
       var sel = document.getElementById('vinlogDealerSelect');
       var dealerKey  = run.dealerKey || sel.value;
       var dealerName = run.dealerName || sel.options[sel.selectedIndex].text;
@@ -944,6 +957,7 @@
           document.getElementById('manualVins').value = '';
           document.getElementById('vinlogVinCount').textContent = '0 VINs';
           loadLatestOrderId(dealerKey); // refresh latest order display
+          loadRuns(document.getElementById('vinlogDealerSelect').value);   // the new entry shows in the list
         })
         .withFailureHandler(function(e) {
           setVinlogStatus('Failed: ' + e.message, 'error');

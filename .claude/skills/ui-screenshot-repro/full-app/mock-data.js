@@ -51,6 +51,7 @@
 
   var RUNS = [
     { rowIndex: 845, dealerKey: D, dealerName: 'Bommarito West County', timestamp: '2026-09-23 09:14:02', dealId: '44872', vinCount: 11, status: 'pending',     note: '', producedVins: Object.keys(INV).slice(0, 11) },
+    { rowIndex: null, dealerKey: D, dealerName: 'Bommarito West County', timestamp: '2026-09-21 16:05:40', dealId: '44830', vinCount: 3, status: 'manual', note: '', producedVins: Object.keys(INV).slice(0, 3), manual: true },
     { rowIndex: 838, dealerKey: D, dealerName: 'Bommarito West County', timestamp: '2026-09-19 14:02:47', dealId: '44811', vinCount: 9,  status: 'committed',   note: '', producedVins: Object.keys(INV).slice(2, 11) },
     { rowIndex: 831, dealerKey: D, dealerName: 'Bommarito West County', timestamp: '2026-09-16 10:31:15', dealId: 'test',  vinCount: 4,  status: 'pending',     note: '', producedVins: Object.keys(INV).slice(0, 4) },
     { rowIndex: 822, dealerKey: D, dealerName: 'Bommarito West County', timestamp: '2026-09-12 08:55:03', dealId: '44760', vinCount: 17, status: 'committed',   note: '', producedVins: Object.keys(INV) },

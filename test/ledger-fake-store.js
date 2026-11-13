@@ -103,6 +103,16 @@ function makeFakeLedgerStore(seed) {
         t.splice(n - 2, 1);
       });
     },
+    findVinLogRowsByRunRef: function (runRef, dealerKey) {
+      var keys = dealerKey ? (Object.prototype.hasOwnProperty.call(vinLogs, dealerKey) ? [dealerKey] : []) : Object.keys(vinLogs);
+      var out = [];
+      keys.forEach(function (k) {
+        vinLogs[k].forEach(function (r, i) {
+          if (String(r[4]) === String(runRef)) out.push({ dealerKey: k, rowIndex: i + 2, row: r.slice() });
+        });
+      });
+      return out;
+    },
 
     // ── test-only inspection (not part of the store interface) ──────────────
     _runLog:  function () { return runLog; },
