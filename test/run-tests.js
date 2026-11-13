@@ -1182,6 +1182,128 @@ t('empty log or empty inventory yields empty list (never throws)', function () {
 });
 
 // ============================================================================
+// Suite: VDP liveness classifier — three-state, fail-SAFE (ambiguous → unknown)
+// ============================================================================
+suite('vdp liveness classifier');
+var VDP_URL = 'https://www.dealer.com/used/Honda/2021-Civic-1HGCV1F34MA000001/';
+var VDP_VIN = '1HGCV1F34MA000001';
+function vdpBody_(n) {
+  var s = '<html><title>2021 Honda Civic</title>';
+  for (var i = 0; i < n; i++) s += ' data-vin="' + VDP_VIN.toLowerCase() + '"';   // case-insensitive count
+  return s + '</html>';
+}
+t('404/410 → gone; other 4xx and 5xx → unknown (bot wall / transient is not evidence)', function () {
+  assert.strictEqual(classifyVdpResponse_(404, '', '', VDP_VIN, VDP_URL), 'gone');
+  assert.strictEqual(classifyVdpResponse_(410, '', '', VDP_VIN, VDP_URL), 'gone');
+  assert.strictEqual(classifyVdpResponse_(403, '', vdpBody_(0), VDP_VIN, VDP_URL), 'unknown');
+  assert.strictEqual(classifyVdpResponse_(429, '', '', VDP_VIN, VDP_URL), 'unknown');
+  assert.strictEqual(classifyVdpResponse_(500, '', '', VDP_VIN, VDP_URL), 'unknown');
+  assert.strictEqual(classifyVdpResponse_(503, '', vdpBody_(9), VDP_VIN, VDP_URL), 'unknown');
+});
+t('3xx same host+path (http→https, slash, www, query) → follow; different path → gone; no Location → unknown', function () {
+  var httpUrl = VDP_URL.replace('https://', 'http://');
+  assert.strictEqual(classifyVdpResponse_(301, VDP_URL, '', VDP_VIN, httpUrl), 'follow');
+  assert.strictEqual(classifyVdpResponse_(301, VDP_URL.replace(/\/$/, ''), '', VDP_VIN, VDP_URL), 'follow');
+  assert.strictEqual(classifyVdpResponse_(301, VDP_URL.replace('www.', ''), '', VDP_VIN, VDP_URL), 'follow');
+  assert.strictEqual(classifyVdpResponse_(301, VDP_URL + '?utm_source=x', '', VDP_VIN, VDP_URL), 'follow');
+  assert.strictEqual(classifyVdpResponse_(302, 'https://www.dealer.com/used-inventory/', '', VDP_VIN, VDP_URL), 'gone');
+  assert.strictEqual(classifyVdpResponse_(302, '/used-inventory/index.htm', '', VDP_VIN, VDP_URL), 'gone');   // relative Location
+  assert.strictEqual(classifyVdpResponse_(302, '', '', VDP_VIN, VDP_URL), 'unknown');
+});
+t('200: VIN ≥2× → alive (Dean Team live VDPs echo it exactly 2×), 0× → gone, 1× → unknown; blank VIN → unknown', function () {
+  assert.strictEqual(classifyVdpResponse_(200, '', vdpBody_(5), VDP_VIN, VDP_URL), 'alive');
+  assert.strictEqual(classifyVdpResponse_(200, '', vdpBody_(3), VDP_VIN, VDP_URL), 'alive');
+  assert.strictEqual(classifyVdpResponse_(200, '', vdpBody_(0), VDP_VIN, VDP_URL), 'gone');
+  assert.strictEqual(classifyVdpResponse_(200, '', vdpBody_(1), VDP_VIN, VDP_URL), 'unknown');
+  assert.strictEqual(classifyVdpResponse_(200, '', vdpBody_(2), VDP_VIN, VDP_URL), 'alive');
+  assert.strictEqual(classifyVdpResponse_(200, '', vdpBody_(5), '', VDP_URL), 'unknown');
+  assert.strictEqual(classifyVdpResponse_(0, '', '', VDP_VIN, VDP_URL), 'unknown');
+});
+t('vdpResolveUrl_: absolute passes through; relative resolves against the request origin', function () {
+  assert.strictEqual(vdpResolveUrl_('https://x.com/a', VDP_URL), 'https://x.com/a');
+  assert.strictEqual(vdpResolveUrl_('/used/', VDP_URL), 'https://www.dealer.com/used/');
+  assert.strictEqual(vdpResolveUrl_('used/', VDP_URL), 'https://www.dealer.com/used/');
+  assert.strictEqual(vdpResolveUrl_('//www.dealer.com/used/', VDP_URL), 'https://www.dealer.com/used/');
+  assert.strictEqual(vdpResolveUrl_('//www.dealer.com/used/', 'http://www.dealer.com/x'), 'http://www.dealer.com/used/');
+});
+t('protocol-relative Location ("//host/path"): same path → follow, different path → gone', function () {
+  var proto = VDP_URL.replace('https:', '');
+  assert.strictEqual(classifyVdpResponse_(301, proto, '', VDP_VIN, VDP_URL.replace('https://', 'http://')), 'follow');
+  assert.strictEqual(classifyVdpResponse_(301, '//dealer.com/used-inventory/', '', VDP_VIN, VDP_URL), 'gone');
+});
+t('site-change guard: most definite answers "gone" (≥6 answers) → every gone becomes unknown', function () {
+  var map = function (gone, alive, unknown) {
+    var m = {}, i;
+    for (i = 0; i < gone; i++) m['G' + i] = 'gone';
+    for (i = 0; i < alive; i++) m['A' + i] = 'alive';
+    for (i = 0; i < unknown; i++) m['U' + i] = 'unknown';
+    return m;
+  };
+  var r = vdpSiteChangeGuard_(map(5, 1, 3));                    // 5 of 6 gone → site change
+  assert.strictEqual(r.siteChange, true);
+  assert.strictEqual(r.goneCount, 5);
+  assert.strictEqual(r.answered, 6);
+  assert.strictEqual(r.statuses.G0, 'unknown');
+  assert.strictEqual(r.statuses.A0, 'alive');
+  r = vdpSiteChangeGuard_(map(3, 3, 0));                        // exactly half → normal flags
+  assert.strictEqual(r.siteChange, false);
+  assert.strictEqual(r.statuses.G0, 'gone');
+  r = vdpSiteChangeGuard_(map(5, 0, 9));                        // 5 answers — too few to judge
+  assert.strictEqual(r.siteChange, false);
+  assert.strictEqual(r.statuses.G4, 'gone');
+  r = vdpSiteChangeGuard_(map(2, 10, 0));                       // the normal ~1-in-6 case
+  assert.strictEqual(r.siteChange, false);
+  assert.deepStrictEqual(vdpSiteChangeGuard_(null), { statuses: {}, siteChange: false, goneCount: 0, answered: 0 });
+});
+t('checkVehicleUrls never throws and fails safe: bad input / non-http URLs → unknown', function () {
+  assert.deepStrictEqual(checkVehicleUrls(null).statuses, {});
+  var r = checkVehicleUrls([{ vin: 'abc', url: '*' }, { vin: '', url: 'https://x' }]);
+  assert.deepStrictEqual(r.statuses, { ABC: 'unknown' });
+  assert.strictEqual(r.siteChange, false);
+});
+t('vdpRecheckVerdict_: final page VIN ≥2× → alive, 0× → gone, 404 → gone; 1×, 403, leftover 3xx → unknown', function () {
+  assert.strictEqual(vdpRecheckVerdict_(200, vdpBody_(3), VDP_VIN), 'alive');
+  assert.strictEqual(vdpRecheckVerdict_(200, vdpBody_(0), VDP_VIN), 'gone');
+  assert.strictEqual(vdpRecheckVerdict_(404, '', VDP_VIN), 'gone');
+  assert.strictEqual(vdpRecheckVerdict_(200, vdpBody_(1), VDP_VIN), 'unknown');
+  assert.strictEqual(vdpRecheckVerdict_(403, '', VDP_VIN), 'unknown');
+  assert.strictEqual(vdpRecheckVerdict_(301, '', VDP_VIN), 'unknown');
+});
+t('checkVehicleUrls second check: moved page → alive, sold → gone, failed recheck → unknown', function () {
+  var MOVED = 'MOVED00000000001', SOLD = 'SOLD000000000001', FLAKY = 'FLAKY00000000001', LIVE = 'LIVE000000000001';
+  var base = 'https://www.dealer.com/used/';
+  var echo = function (vin, n) { var s = ''; for (var i = 0; i < n; i++) s += ' ' + vin; return s; };
+  var resp = function (code, loc, body) {
+    return { getResponseCode: function () { return code; },
+             getAllHeaders: function () { return loc ? { Location: loc } : {}; },
+             getContentText: function () { return body || ''; } };
+  };
+  var answer = function (req) {
+    var vin = req.url.split('/').filter(Boolean).pop();
+    if (!req.followRedirects) {                                     // first check
+      if (vin === MOVED) return resp(301, 'https://www.dealer.com/used/2021-civic-ex/' + 'X/');   // new address
+      if (vin === SOLD)  return resp(301, 'https://www.dealer.com/used-inventory/');
+      if (vin === FLAKY) return resp(404);
+      return resp(200, '', echo(LIVE, 4));
+    }
+    if (vin === MOVED) return resp(200, '', echo(MOVED, 5));        // final page still shows the car
+    if (vin === SOLD)  return resp(200, '', '<html>listing</html>');
+    return resp(503);                                               // FLAKY: second check not clear
+  };
+  var saved = globalThis.UrlFetchApp, calls = [];
+  globalThis.UrlFetchApp = {
+    fetchAll: function (reqs) { calls.push(reqs.length); return reqs.map(answer); },
+    fetch: function (url, o) { return answer({ url: url, followRedirects: o.followRedirects }); }
+  };
+  try {
+    var r = checkVehicleUrls([MOVED, SOLD, FLAKY, LIVE].map(function (v) { return { vin: v, url: base + v + '/' }; }));
+    assert.deepStrictEqual(r.statuses, { MOVED00000000001: 'alive', SOLD000000000001: 'gone',
+                                         FLAKY00000000001: 'unknown', LIVE000000000001: 'alive' });
+    assert.deepStrictEqual(calls, [4, 3]);                          // only the 3 first-check "gone" are rechecked
+  } finally { globalThis.UrlFetchApp = saved; }
+});
+
+// ============================================================================
 // Suite: VIN-log history + Compare Lists — appendVinLogHistory_, resolveCompareIds_
 // ============================================================================
 suite('compare lists');

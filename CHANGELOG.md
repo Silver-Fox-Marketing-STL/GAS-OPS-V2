@@ -11,6 +11,46 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Added
+- **Run Order: URL liveness check (dead-VDP detection).** Scrapers run once each
+  morning, so a vehicle can be pulled from the dealer's website before the order
+  prints — SCRAPERDATA has no signal for this, so CAO pre-fill and pasted VIN
+  lists could include a vehicle whose QR/URL is already dead. A new "🔗 Check
+  URLs" button on the Run view (fires automatically after CAO pre-fill, or
+  on-demand for whatever VINs are in the table) calls `checkVehicleUrls(items)`
+  with the VIN/URL pairs the client already holds (no sheet re-read) and gets
+  back a three-state `{VIN: 'gone'|'alive'|'unknown'}` map. Rows classified
+  `gone` render amber (`row-warn`, "· ⚠ URL GONE"), the footer adds "n URL
+  gone", and a "Remove URL Gone (n)" button strips those lines via the
+  existing dedupe-rewrite helper — **flag-only**: nothing is removed
+  automatically and a run is never blocked. The check is fail-safe: any
+  ambiguous response (bot-wall 4xx, 5xx, a lone VIN mention on a 200) classifies
+  as `unknown`, never `gone`; only a 404/410, a redirect off the vehicle's
+  path (a dead VDP bounced to a listing page), or a 200 body with 0 mentions of
+  the VIN counts as `gone`. Same-path redirects (http→https, trailing slash,
+  www) are followed exactly once. Fetches run in batches of 25 via
+  `UrlFetchApp.fetchAll` (`{muteHttpExceptions:true, followRedirects:false}`,
+  per-URL fallback if the batch call itself throws), capped at 200 VINs per
+  check; `checkVehicleUrls` never throws. New pure classifier
+  `classifyVdpResponse_` + harness suite "vdp liveness classifier" (9 tests).
+  **Second check** (`vdpRecheckVerdict_`, pure): every first-pass `gone` is
+  re-fetched from its original URL with redirects followed to the end. A live
+  car whose page moved to a new address still shows its VIN on the final page
+  → `alive`; only a second clear `gone` keeps the flag, and anything ambiguous
+  (failed fetch, bot wall, one VIN mention) withdraws it to `unknown`. Only
+  flagged cars get the extra fetch. The site-change guard runs after it.
+  **Site-change guard** (`vdpSiteChangeGuard_`, pure): when more than half of
+  the definite answers (≥ 6 gone + alive) come back `gone`, the likely cause is
+  the dealer's website (redesign, new URL scheme, VIN rendered by JavaScript),
+  not sold cars — every `gone` is withdrawn to `unknown` and the Run view says
+  so, so one click on Remove can't strip a good order. `checkVehicleUrls`
+  therefore returns `{statuses, siteChange, goneCount, answered}`. A
+  protocol-relative `Location` (`//host/path`) is read with its own host (it
+  was misread as an off-path redirect → false `gone`). "Remove URL Gone (n)"
+  sits beside "Remove Duplicates" on the Inventory match label row.
+  Calibrated against all 34 active dealers (256-URL probe, 2026-09-03): every
+  dealer that answers classifies correctly on both sides; Joe Machens Toyota
+  (Cloudflare) and Mazda of Columbia (Akamai) block Apps Script outright and
+  always report as unchecked.
 - **Run Order's uncommitted-runs warning now checks for shared cars** (2026-11-13,
   `feat/pending-overlap`; debt C19). Before a run, the warning used to fire whenever the
   dealer had any finalized-but-uncommitted run. Now it asks the run ledger which of

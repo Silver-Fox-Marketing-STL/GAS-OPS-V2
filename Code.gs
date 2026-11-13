@@ -1559,6 +1559,184 @@ function getDealerVinData(dealerKey) {
   }
 }
 
+
+// ── URL liveness check (Run view) ────────────────────────────────────────────
+// Scrapers run once each morning; a vehicle can leave the dealer's site before
+// the order prints. This FLAGS (never removes) VINs whose vehicle page is gone.
+// Three-state and fail-SAFE: anything ambiguous is 'unknown', never 'gone'.
+
+// Tuned from the 2026-09-03 live probe (67 URLs, 4 platforms): live VDPs echo the
+// VIN 2× (Dean Team) to 1100× (Dave Sinclair); dead pages 301/302 to a listing or
+// 404. A lone echo (the requested URL) is not proof of life → unknown.
+var VDP_ALIVE_MIN_VIN_HITS = 2;
+
+/**
+ * Pure: classifies one HTTP response for a vehicle detail page.
+ *   404/410                           → 'gone'
+ *   other 4xx (401/403/429), 5xx      → 'unknown'  (bot wall / transient — not evidence)
+ *   3xx to the SAME host+path         → 'follow'   (http→https / slash / www canonicalization;
+ *                                                   caller re-fetches once, else 'unknown')
+ *   3xx to a DIFFERENT path           → 'gone'     (dead VDP bounced to a listing page)
+ *   200: VIN ≥ VDP_ALIVE_MIN_VIN_HITS× → 'alive'; 0× → 'gone'; 1× → 'unknown'
+ */
+function classifyVdpResponse_(code, location, body, vin, url) {
+  code = Number(code) || 0;
+  if (code === 404 || code === 410) return 'gone';
+  if (code >= 400) return 'unknown';
+  if (code >= 300) {
+    if (!location) return 'unknown';
+    return vdpPathKey_(location, url) === vdpPathKey_(url) ? 'follow' : 'gone';
+  }
+  if (code === 200) {
+    var v = String(vin || '').trim().toUpperCase();
+    if (!v) return 'unknown';
+    var hits = String(body || '').toUpperCase().split(v).length - 1;
+    if (hits >= VDP_ALIVE_MIN_VIN_HITS) return 'alive';
+    return hits === 0 ? 'gone' : 'unknown';
+  }
+  return 'unknown';
+}
+
+/** Pure: "host/path" of a URL — lower-cased, no scheme/www/query/hash/trailing
+ *  slash. A relative Location header resolves against base's host; a
+ *  protocol-relative one ("//host/path") carries its own host. */
+function vdpPathKey_(url, base) {
+  var s = String(url || '').trim();
+  var m = s.match(/^(?:[a-z][a-z0-9+.-]*:)?\/\/([^\/?#]+)([^?#]*)/i);
+  var host, path;
+  if (m) { host = m[1]; path = m[2]; }
+  else {
+    var b = String(base || '').match(/^[a-z][a-z0-9+.-]*:\/\/([^\/?#]+)/i);
+    host = b ? b[1] : '';
+    path = s.replace(/[?#].*$/, '');
+    if (path.charAt(0) !== '/') path = '/' + path;
+  }
+  return (host + path).toLowerCase().replace(/^www\./, '').replace(/\/+$/, '');
+}
+
+/** Pure: absolute URL for a Location header (relative ones resolve against base's origin). */
+function vdpResolveUrl_(location, base) {
+  var loc = String(location || '').trim();
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(loc)) return loc;
+  if (loc.slice(0, 2) === '//') {                                   // protocol-relative → base's scheme
+    return (String(base || '').match(/^[a-z][a-z0-9+.-]*:/i) || ['https:'])[0] + loc;
+  }
+  var origin = (String(base || '').match(/^[a-z][a-z0-9+.-]*:\/\/[^\/?#]+/i) || [''])[0];
+  return origin + (loc.charAt(0) === '/' ? '' : '/') + loc;
+}
+
+// Site-change guard: the probe found ~1 in 6 same-morning cars already gone. When
+// MORE THAN HALF of the definite answers say 'gone' (and there are enough answers
+// to judge), the likely cause is the dealer's site (redesign, new URL scheme,
+// VIN rendered by JavaScript) — not a lot that sold out overnight. One click on
+// "Remove URL Gone" would then strip a good order, so the flags are withdrawn.
+var VDP_SITE_CHANGE_MIN_ANSWERS = 6;
+
+/**
+ * Pure: applies the site-change guard to a {VIN: state} map. Returns
+ * {statuses, siteChange, goneCount, answered}: when siteChange is true every
+ * 'gone' became 'unknown' (goneCount/answered describe the raw result).
+ */
+function vdpSiteChangeGuard_(statuses) {
+  var src = statuses || {}, gone = 0, alive = 0;
+  Object.keys(src).forEach(function (k) {
+    if (src[k] === 'gone') gone++;
+    else if (src[k] === 'alive') alive++;
+  });
+  var answered = gone + alive;
+  var siteChange = answered >= VDP_SITE_CHANGE_MIN_ANSWERS && gone * 2 > answered;
+  var out = {};
+  Object.keys(src).forEach(function (k) {
+    out[k] = (siteChange && src[k] === 'gone') ? 'unknown' : src[k];
+  });
+  return { statuses: out, siteChange: siteChange, goneCount: gone, answered: answered };
+}
+
+/**
+ * Client-callable. items = [{vin, url}] — URLs come from the dealer's own
+ * SCRAPERDATA rows the Run view already holds (no sheet re-read).
+ * Returns {statuses: {VIN_UPPER: 'gone'|'alive'|'unknown'}, siteChange, goneCount,
+ * answered} (see vdpSiteChangeGuard_). NEVER throws: a network/quota failure, a
+ * non-http URL, or anything past the cap simply stays 'unknown'.
+ * Same-path redirects are followed exactly once (a second, smaller batch).
+ */
+function checkVehicleUrls(items) {
+  var out = {};
+  try {
+    var MAX = 200, CHUNK = 25;
+    var todo = [], origUrl = {};
+    (Array.isArray(items) ? items : []).forEach(function (it, i) {
+      var vin = String((it && it.vin) || '').trim().toUpperCase();
+      var url = String((it && it.url) || '').trim();
+      if (!vin) return;
+      out[vin] = 'unknown';
+      if (i < MAX && /^https?:\/\//i.test(url)) { todo.push({ vin: vin, url: url }); origUrl[vin] = url; }
+    });
+    for (var hop = 0; hop < 2 && todo.length; hop++) {
+      var next = [];
+      for (var s = 0; s < todo.length; s += CHUNK) {
+        var slice = todo.slice(s, s + CHUNK);
+        vdpFetchSlice_(slice).forEach(function (resp, i) {
+          var it = slice[i];
+          if (!resp) return;                                        // stays 'unknown'
+          try {
+            var h = resp.getAllHeaders() || {};
+            var loc = h['Location'] || h['location'] || '';
+            var state = classifyVdpResponse_(resp.getResponseCode(), loc, resp.getContentText(), it.vin, it.url);
+            if (state === 'follow') { next.push({ vin: it.vin, url: vdpResolveUrl_(loc, it.url) }); return; }
+            out[it.vin] = state;
+          } catch (e) { /* stays 'unknown' */ }
+        });
+      }
+      todo = next;                                                  // leftovers after hop 2 stay 'unknown'
+    }
+
+    // Second check: every 'gone' is re-fetched from its ORIGINAL url with
+    // redirects followed to the end. A live car whose page moved to a new
+    // address shows its VIN on the final page → 'alive'. Only a second clear
+    // 'gone' keeps the flag; anything ambiguous (failed fetch, bot wall, one
+    // VIN mention) withdraws it to 'unknown'.
+    var recheck = Object.keys(out).filter(function (v) { return out[v] === 'gone'; })
+      .map(function (v) { return { vin: v, url: origUrl[v] }; });
+    for (var r = 0; r < recheck.length; r += CHUNK) {
+      var rslice = recheck.slice(r, r + CHUNK);
+      vdpFetchSlice_(rslice, true).forEach(function (resp, i) {
+        var it = rslice[i];
+        var verdict = 'unknown';
+        try {
+          if (resp) verdict = vdpRecheckVerdict_(resp.getResponseCode(), resp.getContentText(), it.vin);
+        } catch (e) { /* stays 'unknown' */ }
+        out[it.vin] = verdict;
+      });
+    }
+  } catch (e) { Logger.log('checkVehicleUrls failed: ' + e.message); }
+  return vdpSiteChangeGuard_(out);
+}
+
+/**
+ * Pure: verdict of the second check (a fetch that FOLLOWED redirects to the end).
+ * Same rules as classifyVdpResponse_ on the final page, but a leftover redirect
+ * (too many hops) has nowhere to go → 'unknown'. Returns 'gone'|'alive'|'unknown'.
+ */
+function vdpRecheckVerdict_(code, body, vin) {
+  var state = classifyVdpResponse_(code, '', body, vin, '');
+  return state === 'follow' ? 'unknown' : state;
+}
+
+/** One parallel batch, index-aligned (null = that fetch failed). A thrown
+ *  fetchAll falls back to per-URL fetch so one bad host can't blank the slice.
+ *  follow=true lets UrlFetchApp follow redirects (the second check). */
+function vdpFetchSlice_(slice, follow) {
+  var opts = { muteHttpExceptions: true, followRedirects: !!follow };
+  try {
+    return UrlFetchApp.fetchAll(slice.map(function (it) {
+      return { url: it.url, muteHttpExceptions: true, followRedirects: !!follow };
+    }));
+  } catch (e) {
+    return slice.map(function (it) { try { return UrlFetchApp.fetch(it.url, opts); } catch (e2) { return null; } });
+  }
+}
+
 /**
  * Client-callable. Returns a preview of SCRAPERDATA for the Import screen's
  * "Current Data" table — filtered by optional locationFilter and typeFilter,
