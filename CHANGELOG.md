@@ -31,7 +31,16 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   `UrlFetchApp.fetchAll` (`{muteHttpExceptions:true, followRedirects:false}`,
   per-URL fallback if the batch call itself throws), capped at 200 VINs per
   check; `checkVehicleUrls` never throws. New pure classifier
-  `classifyVdpResponse_` + harness suite "vdp liveness classifier" (5 tests).
+  `classifyVdpResponse_` + harness suite "vdp liveness classifier" (7 tests).
+  **Site-change guard** (`vdpSiteChangeGuard_`, pure): when more than half of
+  the definite answers (≥ 6 gone + alive) come back `gone`, the likely cause is
+  the dealer's website (redesign, new URL scheme, VIN rendered by JavaScript),
+  not sold cars — every `gone` is withdrawn to `unknown` and the Run view says
+  so, so one click on Remove can't strip a good order. `checkVehicleUrls`
+  therefore returns `{statuses, siteChange, goneCount, answered}`. A
+  protocol-relative `Location` (`//host/path`) is read with its own host (it
+  was misread as an off-path redirect → false `gone`). "Remove URL Gone (n)"
+  sits beside "Remove Duplicates" on the Inventory match label row.
   Calibrated against all 34 active dealers (256-URL probe, 2026-09-03): every
   dealer that answers classifies correctly on both sides; Joe Machens Toyota
   (Cloudflare) and Mazda of Columbia (Akamai) block Apps Script outright and

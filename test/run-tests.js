@@ -1223,10 +1223,43 @@ t('vdpResolveUrl_: absolute passes through; relative resolves against the reques
   assert.strictEqual(vdpResolveUrl_('https://x.com/a', VDP_URL), 'https://x.com/a');
   assert.strictEqual(vdpResolveUrl_('/used/', VDP_URL), 'https://www.dealer.com/used/');
   assert.strictEqual(vdpResolveUrl_('used/', VDP_URL), 'https://www.dealer.com/used/');
+  assert.strictEqual(vdpResolveUrl_('//www.dealer.com/used/', VDP_URL), 'https://www.dealer.com/used/');
+  assert.strictEqual(vdpResolveUrl_('//www.dealer.com/used/', 'http://www.dealer.com/x'), 'http://www.dealer.com/used/');
+});
+t('protocol-relative Location ("//host/path"): same path → follow, different path → gone', function () {
+  var proto = VDP_URL.replace('https:', '');
+  assert.strictEqual(classifyVdpResponse_(301, proto, '', VDP_VIN, VDP_URL.replace('https://', 'http://')), 'follow');
+  assert.strictEqual(classifyVdpResponse_(301, '//dealer.com/used-inventory/', '', VDP_VIN, VDP_URL), 'gone');
+});
+t('site-change guard: most definite answers "gone" (≥6 answers) → every gone becomes unknown', function () {
+  var map = function (gone, alive, unknown) {
+    var m = {}, i;
+    for (i = 0; i < gone; i++) m['G' + i] = 'gone';
+    for (i = 0; i < alive; i++) m['A' + i] = 'alive';
+    for (i = 0; i < unknown; i++) m['U' + i] = 'unknown';
+    return m;
+  };
+  var r = vdpSiteChangeGuard_(map(5, 1, 3));                    // 5 of 6 gone → site change
+  assert.strictEqual(r.siteChange, true);
+  assert.strictEqual(r.goneCount, 5);
+  assert.strictEqual(r.answered, 6);
+  assert.strictEqual(r.statuses.G0, 'unknown');
+  assert.strictEqual(r.statuses.A0, 'alive');
+  r = vdpSiteChangeGuard_(map(3, 3, 0));                        // exactly half → normal flags
+  assert.strictEqual(r.siteChange, false);
+  assert.strictEqual(r.statuses.G0, 'gone');
+  r = vdpSiteChangeGuard_(map(5, 0, 9));                        // 5 answers — too few to judge
+  assert.strictEqual(r.siteChange, false);
+  assert.strictEqual(r.statuses.G4, 'gone');
+  r = vdpSiteChangeGuard_(map(2, 10, 0));                       // the normal ~1-in-6 case
+  assert.strictEqual(r.siteChange, false);
+  assert.deepStrictEqual(vdpSiteChangeGuard_(null), { statuses: {}, siteChange: false, goneCount: 0, answered: 0 });
 });
 t('checkVehicleUrls never throws and fails safe: bad input / non-http URLs → unknown', function () {
-  assert.deepStrictEqual(checkVehicleUrls(null), {});
-  assert.deepStrictEqual(checkVehicleUrls([{ vin: 'abc', url: '*' }, { vin: '', url: 'https://x' }]), { ABC: 'unknown' });
+  assert.deepStrictEqual(checkVehicleUrls(null).statuses, {});
+  var r = checkVehicleUrls([{ vin: 'abc', url: '*' }, { vin: '', url: 'https://x' }]);
+  assert.deepStrictEqual(r.statuses, { ABC: 'unknown' });
+  assert.strictEqual(r.siteChange, false);
 });
 
 // ============================================================================

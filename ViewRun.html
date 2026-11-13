@@ -37,7 +37,6 @@
           <button id="rvSaveDraftBtn" class="btn-secondary" onclick="rvSaveDraft({manual:true})">&#128190; Save draft</button>
           <button id="caoBtn" class="btn-ghost" onclick="prefillFromCAO()" disabled>&#x21BA; Pre-fill from CAO</button>
           <button id="rvUrlCheckBtn" class="btn-ghost" onclick="rvCheckUrls()" disabled title="Fetch each VIN's vehicle page and flag the ones that are gone since the morning scrape">&#x1F517; Check URLs</button>
-          <button id="rvGoneBtn" class="btn-danger" style="display:none" onclick="rvRemoveGone()">Remove URL Gone</button>
           <button class="btn-primary" id="runBtn" onclick="runSelected()" disabled>Run Dealer</button>
         </div>
 
@@ -104,7 +103,10 @@
       <div class="rv-tablezone">
         <div class="rv-zone-label rv-zone-label-row">
           <span>Inventory match</span>
-          <button type="button" id="rvDedupeBtn" class="btn-danger" style="display:none" onclick="rvRemoveDuplicates()">Remove Duplicates</button>
+          <span class="rv-zone-actions">
+            <button type="button" id="rvGoneBtn" class="btn-danger" style="display:none" onclick="rvRemoveGone()">Remove URL Gone</button>
+            <button type="button" id="rvDedupeBtn" class="btn-danger" style="display:none" onclick="rvRemoveDuplicates()">Remove Duplicates</button>
+          </span>
         </div>
         <div class="rv-table-scroll">
           <table id="vinDataTable" class="table-u">
@@ -185,7 +187,8 @@
     /* 18px row + 4px margin = the plain label's 14px line + 8px margin, so the
        table header still lines up with the VIN box's top edge. */
     #view-run .rv-zone-label-row { display: flex; align-items: center; justify-content: space-between; min-height: 18px; margin-bottom: 4px; }
-    #view-run #rvDedupeBtn { padding: 1px 10px !important; font-size: 11px; line-height: 14px; white-space: nowrap; }  /* base .btn-danger padding is !important */
+    #view-run .rv-zone-actions { display: flex; gap: var(--space-2); }
+    #view-run #rvDedupeBtn, #view-run #rvGoneBtn { padding: 1px 10px !important; font-size: 11px; line-height: 14px; white-space: nowrap; }  /* base .btn-danger padding is !important */
     /* PINNED right edge: sticky on BOTH axes (top from .table-u th, right here)
        so the per-row ✕ stays reachable when Features / editable columns push
        the table wider than its box — the wide table scrolls UNDER this column
@@ -848,12 +851,20 @@
         .withSuccessHandler(function(res) {
           done();
           if (rvVinData.dealerKey !== dealerKey) return;   // dealer changed mid-flight
-          rvUrlStatus = { dealerKey: dealerKey, map: res || {} };
+          res = res || {};
+          rvUrlStatus = { dealerKey: dealerKey, map: res.statuses || {}, suspect: !!res.siteChange };
           var n = { gone: 0, alive: 0, unknown: 0 };
           Object.keys(rvUrlStatus.map).forEach(function(k) { var s = rvUrlStatus.map[k]; n[s] = (n[s] || 0) + 1; });
-          setRunStatus('URL check: ' + n.gone + ' gone · ' + n.alive + ' alive · ' + n.unknown + ' unchecked' +
-            (n.gone ? ' — review the flagged rows (nothing is removed automatically).' : ''),
-            n.gone ? 'error' : 'success');
+          if (rvUrlStatus.suspect) {
+            // Server withdrew the flags: most pages came back "gone" — a site change, not sold cars.
+            setRunStatus('URL check: ' + res.goneCount + ' of ' + res.answered + ' pages came back gone. ' +
+              'That looks like a change to the dealer\'s website, not sold cars, so no rows were flagged. ' +
+              'Open a few Vehicle URL links to check.', 'error');
+          } else {
+            setRunStatus('URL check: ' + n.gone + ' gone · ' + n.alive + ' alive · ' + n.unknown + ' unchecked' +
+              (n.gone ? ' — review the flagged rows (nothing is removed automatically).' : ''),
+              n.gone ? 'error' : 'success');
+          }
           rvRenderTable();
         })
         .withFailureHandler(function(e) { done(); setRunStatus('URL check failed: ' + e.message, 'error'); })
@@ -1903,7 +1914,7 @@
       if (rvVinData.dealerKey !== dealerKey) { rvFeatures = {}; rvEdits = {}; }   // new dealer → stale text out
       rvVinData = { dealerKey: dealerKey, map: {}, featuresTypes: {}, editCodes: {}, editSeeds: {}, filtered: {} };   // clear immediately
       rvLoggedIds = null;
-      rvUrlStatus = { dealerKey: dealerKey, map: {} };
+      rvUrlStatus = { dealerKey: dealerKey, map: {}, suspect: false };
       rvRenderTable();
       if (!dealerKey) return;
       google.script.run
