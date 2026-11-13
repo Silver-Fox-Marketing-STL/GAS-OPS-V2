@@ -11,6 +11,15 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Added
+- **Run Order's uncommitted-runs warning now checks for shared cars** (2026-11-13,
+  `feat/pending-overlap`; debt C19). Before a run, the warning used to fire whenever the
+  dealer had any finalized-but-uncommitted run. Now it asks the run ledger which of
+  THIS order's VINs are already in such a run (`ledgerPendingOverlap` →
+  `rlPendingOverlap_`: same dealer, blank col W, not a test run, case-insensitive) and
+  warns only on a real overlap. The popup names each run (deal, run time, split group)
+  with its shared cars. Pending runs with no shared cars keep only the amber "N pending"
+  tag. Still fails open: if the check can't be read, the run is never blocked.
+  Harness 237/237.
 - **Run ledger, step 4 of 4: every RUN_LOG reader goes through the codec** (2026-11-13,
   `feat/run-ledger-step4`). Steps 1–3 are on PROD (promoted 2026-11-13).
   - `getRunsForDealer` (the VIN Logs list) moved into `RunLedger.gs` (`rlListRuns_` /
@@ -207,6 +216,14 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   to the brain backlog; `CLAUDE.md` line count refreshed.
 
 ### Fixed
+- **Luna (Windows XP) theme: AND and OR chips looked identical** (2026-11-13; debt C18).
+  Luna's `--info` was the same blue as its `--accent`, so the targeting-rule editor's
+  ALL (AND) and ANY (OR) chips (and info tags vs accent) were indistinguishable. Luna's
+  info is now teal (`#0e7c86` / `#d4eef0`).
+- **VIN Logs dealer dropdown showed the wrong name after a jump from another view**
+  (2026-11-13; debt C1). `vinlogPreselectDealer` set the select's value but never synced
+  the CustomSelect facade; it now calls `CustomSelect.refresh(sel)`, like
+  `runPrefillFromInbox`.
 - **Manual entry accepted "test" as an order number** (2026-11-13, run ledger step 4).
   Test runs never enter the VIN log, but a manual entry under `test` did, quietly
   marking real cars as already printed. `ledgerManualEntry` now refuses it (any case;
@@ -276,6 +293,15 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   confirmed restored to DEV); Nick re-ran the deal 5326 push and it completed.
 
 ### Removed
+- **VIN Inbox: the dead "processed" write path** (2026-11-13; debt C17). The Processed
+  button went away on 2026-07-10, but `updateVinSubmissionStatus(es)` still accepted the
+  status. `LOT_SUB_STATUSES` is now the settable set `draft | submitted | discarded`;
+  older rows that carry `processed` stay hidden from the inbox and `sweepLotPhotos`
+  still trashes their photos. The lot-scan project's own copy is untouched.
+- **Field Codes: the per-view `.badge` style** (2026-11-13; debt C18). The Source column
+  uses the shared `.tag` component (built-in = neutral, custom = info, overridden =
+  warning). Pipedrive Settings' org "Change" link uses `--radius-sm` instead of a 3px
+  literal.
 - **`backfillVinLogOrderDates()`** (2026-11-13, run ledger step 4). The one-time July 2026
   editor-run repair that filled VIN-log col D from RUN_LOG; its job is done, and it was
   the last code writing SF_VIN_LOGS outside the run ledger. Recoverable from git history.

@@ -2300,6 +2300,35 @@ t('real adapter: manual rows are found with ONE text search and one read per tab
     globalThis.getVinLogsSS_ = saved;
   }
 });
+t('pending overlap: names only the order cars already in an uncommitted run (case-insensitive, newest first)', function () {
+  var s = makeFakeLedgerStore({
+    runLog: [pf_({ ts: T1, deal: '3664', vins: 'VA,VB,VC' }),
+             pf_({ ts: T2, deal: '3665', vins: 'vb,VD', note: 'SPLIT:SPRINTER' }),
+             pf_({ ts: T2, deal: '3666', vins: 'VA', status: 'committed' }),     // in the log already → flagged elsewhere
+             pf_({ ts: T2, deal: '3667', vins: 'VA', status: 'rolled_back' }),
+             pf_({ ts: T2, deal: '3668', vins: 'VA', status: 'deleted' }),
+             pf_({ ts: T2, deal: 'test', vins: 'VA' }),                          // test runs never commit
+             pf_({ ts: T2, deal: '5509', vins: 'VA', dealer: 'BMW_WEST_STL' })]  // another dealer
+  });
+  var res = withReaderStubs_(s, function () { return ledgerPendingOverlap('PUNDMANN_FORD', ['va', 'VB', ' vd ', 'VZ', 'VA']); });
+  assert.deepStrictEqual(res, {
+    pendingCount: 2, overlapCount: 3,
+    runs: [{ rowIndex: 3, dealId: '3665', timestamp: T2, note: 'SPLIT:SPRINTER', vins: ['VB', 'VD'] },
+           { rowIndex: 2, dealId: '3664', timestamp: T1, note: '', vins: ['VA', 'VB'] }]
+  });
+});
+t('pending overlap: pending runs that share no cars give no runs (no popup), but still count', function () {
+  var s = makeFakeLedgerStore({ runLog: [pf_({ ts: T1, vins: 'VA,VB' })] });
+  var res = withReaderStubs_(s, function () { return ledgerPendingOverlap('PUNDMANN_FORD', ['VX', 'VY']); });
+  assert.deepStrictEqual(res, { pendingCount: 1, overlapCount: 0, runs: [] });
+  assert.deepStrictEqual(rlPendingOverlap_([], 'PUNDMANN_FORD', null), { pendingCount: 0, overlapCount: 0, runs: [] });
+});
+t('Run view asks for the overlap with the order VINs, and warns only when runs come back', function () {
+  var view = fs.readFileSync(path.join(ROOT, 'ViewRun.html'), 'utf8');
+  assert.ok(/rvPendingCommitCheck_\(key, name, vins\)/.test(view), 'run handler does not pass the order VINs');
+  assert.ok(/\.ledgerPendingOverlap\(dealerKey, vins\)/.test(view), 'check does not call ledgerPendingOverlap');
+  assert.ok(/if \(!runs\.length\) return resolve\(true\);/.test(view), 'no-overlap path does not skip the popup');
+});
 t('Code.gs reads RUN_LOG only through the ledger (no raw row indexes, no own run list)', function () {
   var opens = codeSource.split("getSheetByName('RUN_LOG')").length - 1;
   assert.strictEqual(opens, 1, 'expected only openRunLog (the menu jump to the tab) to open RUN_LOG, found ' + opens);

@@ -8,8 +8,9 @@
 // Writes it owns: RUN_LOG row append (finalize), col D deal id (Pipedrive
 // push), col W status; SF_VIN_LOGS batch append / delete.
 // Reads it serves: the VIN Logs run list (getRunsForDealer, incl. manual-entry
-// batches), and decoded run records for every other RUN_LOG reader
-// (ledgerLiveRuns_ — Home HUD, dealer summary, print schedule, pending count).
+// batches), the Run view's pre-run overlap check (ledgerPendingOverlap), and
+// decoded run records for every other RUN_LOG reader (ledgerLiveRuns_ — Home
+// HUD, dealer summary, print schedule, pending count).
 //
 // Shape:
 //   - CODEC (pure): one place that knows the RUN_LOG column layout (A–W, 23
@@ -664,6 +665,34 @@ function rlRunsView_(recs, manualBatches, dealerKey) {
   return out;
 }
 
+/**
+ * Which of an order's VINs are already in a finalized run that hasn't been
+ * committed to the VIN log yet (so the log can't flag them as printed). Pending
+ * = this dealer, blank col W, not a test run. Case-insensitive.
+ * Returns { pendingCount, overlapCount, runs: [{rowIndex, dealId, timestamp, note, vins}] }
+ * — runs lists only pending runs that share at least one VIN, newest first;
+ * overlapCount counts distinct order VINs found in any of them.
+ */
+function rlPendingOverlap_(recs, dealerKey, vins) {
+  var key = String(dealerKey || '').trim();
+  var want = {};
+  (vins || []).forEach(function (v) { var u = String(v || '').trim().toUpperCase(); if (u) want[u] = true; });
+  var pending = (recs || []).filter(function (r) {
+    return r.dealerKey === key && r.status === RL_STATUS.PENDING && !r.isTest;
+  });
+  var hit = {}, runs = [];
+  pending.forEach(function (r) {
+    var shared = [], seen = {};
+    r.producedVins.forEach(function (v) {
+      var u = v.toUpperCase();
+      if (want[u] && !seen[u]) { seen[u] = true; shared.push(u); hit[u] = true; }
+    });
+    if (shared.length) runs.push({ rowIndex: r.rowIndex, dealId: r.dealId, timestamp: r.timestamp, note: r.note, vins: shared });
+  });
+  runs.reverse();   // append order → newest first
+  return { pendingCount: pending.length, overlapCount: Object.keys(hit).length, runs: runs };
+}
+
 /** Manual-entry VINs: trimmed, upper-cased, de-duplicated, blanks dropped. */
 function rlCleanManualVins_(vins) {
   var seen = {}, out = [];
@@ -852,6 +881,9 @@ function ledgerDeleteRun(ref) { return rlDeleteRun_(rlSheetStore_(), ref); }
 
 /** Manual entry into a dealer's VIN log. */
 function ledgerManualEntry(dealerKey, orderId, vins) { return rlManualEntry_(rlSheetStore_(), dealerKey, orderId, vins); }
+
+/** Run view, before a run: the order's VINs already in this dealer's uncommitted runs (see rlPendingOverlap_). */
+function ledgerPendingOverlap(dealerKey, vins) { return rlPendingOverlap_(rlLiveRuns_(rlSheetStore_()), dealerKey, vins); }
 
 /** The VIN Logs list for one dealer, or every dealer when dealerKey is blank (see rlRunsView_). */
 function getRunsForDealer(dealerKey) { return rlListRuns_(rlSheetStore_(), dealerKey); }
