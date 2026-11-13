@@ -11,6 +11,19 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Added
+- **Run ledger, step 4 of 4: every RUN_LOG reader goes through the codec** (2026-11-13,
+  `feat/run-ledger-step4`). Steps 1–3 are on PROD (promoted 2026-11-13).
+  - `getRunsForDealer` (the VIN Logs list) moved into `RunLedger.gs` (`rlListRuns_` /
+    `rlRunsView_`) and builds its rows from decoded run records.
+  - `readRunLog_` now returns decoded records (`ledgerLiveRuns_`, minus test runs), and
+    the Home HUD, dealer summary and print schedule read named fields (`totalProduced`,
+    `billing.totalDupes`, `status`…) instead of row indexes. `pendingRunCount_` reads the
+    same records; `pushRunToPipedrive` reads its row via the store (`readRun`).
+  - `getLatestOrderId` reads the VIN log through the store; `latestOrderIdFrom_` uses
+    `VL_COL`.
+  - New read-only store method `findVinLogRowsByRunRef`: one TextFinder over the tab (or
+    the whole SF_VIN_LOGS file in All-Dealers mode), then one read per tab with hits.
+  - Harness 233/233 (new suite "run ledger readers", 11 tests).
 - **Run ledger, step 3 of 4: finalize + the Pipedrive deal-ID write** (2026-11-13,
   `feat/run-ledger`). The ledger now owns every RUN_LOG write. After this step,
   `RunLedger.gs` is the only code that appends a run row, sets col D or sets col W.
@@ -194,6 +207,14 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   to the brain backlog; `CLAUDE.md` line count refreshed.
 
 ### Fixed
+- **Manual VIN-log entries never showed in the VIN Logs list** (2026-11-13, run ledger
+  step 4). A manual entry writes VIN-log rows but no RUN_LOG row, and the list read only
+  the run log, so the entry was in the log (and in "Most recent order") but invisible.
+  The list now shows each manual batch tagged `run_ref = manual` as a read-only row
+  (blue MANUAL badge, no delete, no commit/rollback/push), one per order + entry time,
+  merged in by time; it refreshes right after Add to VIN Log. Manual entries made before
+  the 2026-11-13 promote carry no tag and stay unlisted. A failed lookup leaves them out
+  and never breaks the list.
 - **A finalize retry could log the same run twice** (2026-11-13, run ledger step 3). A
   second `finalizeRun` for the same output doc appended a second RUN_LOG and ORDER_STATS
   row, which happens with a double click, or a server that finished after the browser

@@ -7,6 +7,9 @@
 //
 // Writes it owns: RUN_LOG row append (finalize), col D deal id (Pipedrive
 // push), col W status; SF_VIN_LOGS batch append / delete.
+// Reads it serves: the VIN Logs run list (getRunsForDealer, incl. manual-entry
+// batches), and decoded run records for every other RUN_LOG reader
+// (ledgerLiveRuns_ — Home HUD, dealer summary, print schedule, pending count).
 //
 // Shape:
 //   - CODEC (pure): one place that knows the RUN_LOG column layout (A–W, 23
@@ -25,10 +28,9 @@
 // does not depend on Code.gs being evaluated first (Apps Script's flat
 // namespace resolves cross-file names at call time).
 //
-// Build status (feat/run-ledger): steps 1–3 = codec, store seam, the guarded
-// commit / rollback / delete / manual entry the views call, and finalize +
-// the Pipedrive deal-id write (Code.gs calls the server-only ledger*_ wrappers).
-// The remaining RUN_LOG readers (step 4) move in next.
+// Build status: steps 1–4 done — codec, store seam, the guarded commit /
+// rollback / delete / manual entry the views call, finalize + the Pipedrive
+// deal-id write, and every RUN_LOG reader decoding through the codec.
 // ============================================================================
 
 // ── RUN_LOG layout (0-based indices into a getValues() row) ────────────────
@@ -277,6 +279,9 @@ function rlEncodeVinLogRow_(b) {
 //   appendVinLog(dealerKey, rows) append 5-cell rows (cols A–B stored as text; writes the
 //                                col-E header if missing). Throws if the tab is missing.
 //   deleteVinLogRows(dealerKey, rowIndexes) delete these 1-based rows (any order).
+//   findVinLogRowsByRunRef(runRef, dealerKey) read-only: every VIN-log row whose col E is
+//                                exactly runRef, on one tab (dealerKey) or every tab (null):
+//                                [{dealerKey, rowIndex, row (width 5)}]. [] when none.
 
 /** Real store over the bound RUN_LOG and SF_VIN_LOGS. Sheets are opened at call time (inside the lock). */
 function rlSheetStore_() {
@@ -378,6 +383,26 @@ function rlSheetStore_() {
       rlContiguousBlocks_(rowIndexes).forEach(function (blk) {   // bottom-up, so earlier rows don't shift
         sh.deleteRows(blk.start, blk.count);
       });
+    },
+    findVinLogRowsByRunRef: function (runRef, dealerKey) {
+      // ONE TextFinder over the tab (or the whole file) instead of reading every
+      // tab — the All-Dealers list would otherwise read ~50 tabs per load.
+      var scope = dealerKey ? vinTab_(dealerKey) : getVinLogsSS_();
+      if (!scope) return [];
+      var byTab = {};
+      scope.createTextFinder(String(runRef)).matchCase(true).matchEntireCell(true).findAll().forEach(function (rg) {
+        if (rg.getColumn() !== VL_COL.RUN_REF + 1 || rg.getRow() < 2) return;
+        var sh = rg.getSheet(), k = sh.getName();
+        (byTab[k] || (byTab[k] = { sheet: sh, rows: [] })).rows.push(rg.getRow());
+      });
+      var out = [];
+      Object.keys(byTab).forEach(function (k) {
+        var t = byTab[k];
+        var lo = Math.min.apply(null, t.rows), hi = Math.max.apply(null, t.rows);
+        var span = t.sheet.getRange(lo, 1, hi - lo + 1, VL_WIDTH).getValues();   // one read per tab with hits
+        t.rows.forEach(function (n) { out.push({ dealerKey: k, rowIndex: n, row: span[n - lo] }); });
+      });
+      return out;
     }
   };
 }
@@ -568,6 +593,77 @@ function rlDealIdChangeProblem_(rec, newId) {
   return '';
 }
 
+/**
+ * VIN-log rows tagged 'manual' → one batch per dealer + order id + commit time
+ * (a manual entry writes all its rows in one call, so they share committedAt).
+ * vinRecs: decoded VIN-log rows, each with a dealerKey. First-seen order.
+ */
+function rlManualBatches_(vinRecs) {
+  var batches = [], byKey = {};
+  (vinRecs || []).forEach(function (v) {
+    if (v.runRef !== VL_MANUAL_REF) return;
+    var k = v.dealerKey + '\u0000' + v.orderId + '\u0000' + v.committedAt;
+    var b = byKey[k];
+    if (!b) {
+      b = byKey[k] = { dealerKey: v.dealerKey, orderId: v.orderId, committedAt: v.committedAt, vins: [] };
+      batches.push(b);
+    }
+    b.vins.push(v.vin);
+  });
+  return batches;
+}
+
+/** A run record → the row shape the VIN Logs list renders (and hands back as a fingerprint). */
+function rlRunListRow_(rec) {
+  return {
+    rowIndex:     rec.rowIndex,
+    dealerKey:    rec.dealerKey,
+    dealerName:   rec.dealerName,
+    timestamp:    rec.timestamp,
+    dealId:       rec.dealId,
+    vinCount:     rec.producedVins.length,
+    status:       rec.status,
+    note:         rec.note,
+    producedVins: rec.producedVins
+  };
+}
+
+/**
+ * The VIN Logs list: the dealer's (or, with no dealerKey, every dealer's)
+ * non-deleted runs newest first, with manual-entry batches merged in by time.
+ * A manual row is read-only (manual: true, status 'manual', no rowIndex): it
+ * has no run log row, so there is nothing to commit, roll back or delete.
+ */
+function rlRunsView_(recs, manualBatches, dealerKey) {
+  var key = String(dealerKey || '').trim(), names = {};
+  var runs = [];
+  (recs || []).forEach(function (r) {
+    if (r.dealerName && !names[r.dealerKey]) names[r.dealerKey] = r.dealerName;
+    if (key && r.dealerKey !== key) return;
+    if (r.status === RL_STATUS.DELETED) return;
+    runs.push(rlRunListRow_(r));
+  });
+  runs.reverse();   // append order → newest first
+
+  var manual = (manualBatches || []).filter(function (b) { return !key || b.dealerKey === key; }).map(function (b) {
+    return {
+      rowIndex: null, dealerKey: b.dealerKey, dealerName: names[b.dealerKey] || b.dealerKey,
+      timestamp: b.committedAt, dealId: b.orderId, vinCount: b.vins.length,
+      status: 'manual', note: '', producedVins: b.vins, manual: true
+    };
+  }).sort(function (a, b) { return a.timestamp < b.timestamp ? 1 : a.timestamp > b.timestamp ? -1 : 0; });
+
+  // Merge, keeping the runs in their own order: a manual batch goes ahead of the
+  // first run that is older than it.
+  var out = [], m = 0;
+  runs.forEach(function (r) {
+    while (m < manual.length && manual[m].timestamp > r.timestamp) out.push(manual[m++]);
+    out.push(r);
+  });
+  while (m < manual.length) out.push(manual[m++]);
+  return out;
+}
+
 /** Manual-entry VINs: trimmed, upper-cased, de-duplicated, blanks dropped. */
 function rlCleanManualVins_(vins) {
   var seen = {}, out = [];
@@ -710,6 +806,31 @@ function rlFinalizedRunFor_(store, dealerKey, outputDocId, note) {
   return rlFindFinalized_(rlDecodeAll_(store.readRuns()), dealerKey, outputDocId, note);
 }
 
+/** Read-only: every non-deleted run record, in append order (test runs included — callers decide). */
+function rlLiveRuns_(store) {
+  return rlDecodeAll_(store.readRuns()).filter(function (r) { return r.status !== RL_STATUS.DELETED; });
+}
+
+/**
+ * Read-only: the VIN Logs list (rlRunsView_). A failed manual-entry lookup is
+ * logged and leaves those rows out — it never takes the run list down with it.
+ */
+function rlListRuns_(store, dealerKey) {
+  var key = String(dealerKey || '').trim();
+  var recs = rlDecodeAll_(store.readRuns());
+  var manual = [];
+  try {
+    manual = rlManualBatches_(store.findVinLogRowsByRunRef(VL_MANUAL_REF, key || null).map(function (h) {
+      var v = rlDecodeVinLogRow_(h.row, h.rowIndex);
+      v.dealerKey = h.dealerKey;
+      return v;
+    }));
+  } catch (e) {
+    if (typeof Logger !== 'undefined') Logger.log('rlListRuns_: manual entries skipped: ' + e.message);
+  }
+  return rlRunsView_(recs, manual, key);
+}
+
 
 // ============================================================================
 // PUBLIC ENDPOINTS — google.script.run (one line each: real store in, result out)
@@ -729,6 +850,9 @@ function ledgerDeleteRun(ref) { return rlDeleteRun_(rlSheetStore_(), ref); }
 /** Manual entry into a dealer's VIN log. */
 function ledgerManualEntry(dealerKey, orderId, vins) { return rlManualEntry_(rlSheetStore_(), dealerKey, orderId, vins); }
 
+/** The VIN Logs list for one dealer, or every dealer when dealerKey is blank (see rlRunsView_). */
+function getRunsForDealer(dealerKey) { return rlListRuns_(rlSheetStore_(), dealerKey); }
+
 // Server-side only (trailing _ keeps them off google.script.run): Code.gs's
 // finalize + Pipedrive push call these; no view can.
 
@@ -744,3 +868,6 @@ function ledgerSetDealId_(ref, dealId) { return rlSetDealId_(rlSheetStore_(), re
 function ledgerFinalizedRunFor_(dealerKey, outputDocId, note) {
   return rlFinalizedRunFor_(rlSheetStore_(), dealerKey, outputDocId, note);
 }
+
+/** Every non-deleted run record (decoded), append order — the one RUN_LOG read for Code.gs's readers. */
+function ledgerLiveRuns_() { return rlLiveRuns_(rlSheetStore_()); }

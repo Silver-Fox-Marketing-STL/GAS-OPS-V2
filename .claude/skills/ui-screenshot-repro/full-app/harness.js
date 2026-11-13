@@ -117,6 +117,13 @@
       var row = document.querySelector('#runsTable tbody tr'); if (row) row.click();
       await sleep(100);
     },
+    'vinlog-manual-row': async function () {
+      await nav('view-vinlog'); await sleep(250);
+      pick($('vinlogDealerSelect'), F.D);
+      await sleep(250);
+      var row = document.querySelector('#runsTable tbody tr:nth-child(2)'); if (row) row.click();
+      await sleep(100);
+    },
     'vinlog-manual': async function () {
       await nav('view-vinlog'); await sleep(250);
       pick($('vinlogDealerSelect'), F.D);

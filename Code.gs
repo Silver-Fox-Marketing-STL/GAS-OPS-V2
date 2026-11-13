@@ -4584,54 +4584,10 @@ function openVINLogUpdater() {
   openViewStandalone_('ViewVinLog', 'Update VIN Log');
 }
 
-function getRunsForDealer(dealerKey) {
-  // Empty/absent dealerKey = ALL dealers (the VIN Logs page's default view).
-  var wantAll = !dealerKey;
-  var sheet   = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('RUN_LOG');
-  var lastRow = sheet.getLastRow();
-  if (lastRow < 2) return [];
-
-  var data = sheet.getRange(2, 1, lastRow - 1, 23).getValues();
-  var runs = [];
-
-  for (var i = 0; i < data.length; i++) {
-    var row = data[i];
-    if (!wantAll && String(row[1]).trim() !== dealerKey) continue;
-
-    var rawTimestamp    = row[0];
-    var dealId          = String(row[3]).trim();
-    var producedVinsCSV = String(row[21]).trim();  // V: produced_vins
-    var status          = String(row[22]).trim();  // W: vin_log_status
-    if (status === 'deleted') continue;            // soft-deleted via the VIN Log view
-
-    var vins = producedVinsCSV
-      ? producedVinsCSV.split(',').map(function(v) { return v.trim(); }).filter(function(v) { return v !== ''; })
-      : [];
-
-    var timestampStr = rawTimestamp instanceof Date
-      ? Utilities.formatDate(rawTimestamp, 'America/Chicago', 'yyyy-MM-dd HH:mm:ss')
-      : String(rawTimestamp).trim();
-
-    runs.push({
-      rowIndex:     i + 2,
-      dealerKey:    String(row[1]).trim(),   // per-row identity — the All-Dealers
-      dealerName:   String(row[2]).trim(),   // table mixes dealers, actions need it
-      timestamp:    timestampStr,
-      dealId:       dealId,
-      vinCount:     vins.length,
-      status:       status || 'pending',
-      note:         String(row[20]).trim(),  // U: notes (e.g. SPLIT:PRIMARY / SPLIT:SPRINTER)
-      producedVins: vins
-    });
-  }
-
-  runs.reverse();
-  return runs;
-}
-
-// Commit / rollback / delete / manual entry live in RunLedger.gs (ledgerCommitRuns,
-// ledgerRollbackRun, ledgerDeleteRun, ledgerManualEntry) — the run ledger is the only
-// writer of RUN_LOG status and SF_VIN_LOGS batches. See docs/adr/0001.
+// The VIN Logs list (getRunsForDealer) and commit / rollback / delete / manual entry
+// live in RunLedger.gs (ledgerCommitRuns, ledgerRollbackRun, ledgerDeleteRun,
+// ledgerManualEntry) — the run ledger is the only writer of RUN_LOG rows and
+// SF_VIN_LOGS batches, and the one decoder of both. See docs/adr/0001.
 
 
 // ============================================================================
@@ -4688,16 +4644,8 @@ function clearRunProgress(runId) {
  * @returns {{ latestOrderId: string|null }}
  */
 function getLatestOrderId(dealerKey) {
-  var logSS = getVinLogsSS_();
-  var sheet = logSS.getSheetByName(dealerKey);
-
-  if (!sheet) return { latestOrderId: null, pendingCount: pendingRunCount_(dealerKey) };
-
-  var lastRow = sheet.getLastRow();
-  if (lastRow < 2) return { latestOrderId: null, pendingCount: pendingRunCount_(dealerKey) };
-
-  var values = sheet.getRange(2, 1, lastRow - 1, 4).getValues();
-  return { latestOrderId: latestOrderIdFrom_(values), pendingCount: pendingRunCount_(dealerKey) };
+  var rows = rlSheetStore_().readVinLog(dealerKey);   // [] when the tab is missing or empty
+  return { latestOrderId: latestOrderIdFrom_(rows), pendingCount: pendingRunCount_(dealerKey) };
 }
 
 /**
@@ -4705,8 +4653,8 @@ function getLatestOrderId(dealerKey) {
  * rollback (col W blank). Test runs never commit, so they never count.
  */
 function pendingRunCount_(dealerKey) {
-  return getRunsForDealer(dealerKey).filter(function(r) {
-    return r.status === 'pending' && r.dealId.toLowerCase() !== 'test';
+  return ledgerLiveRuns_().filter(function(r) {
+    return r.dealerKey === dealerKey && r.status === RL_STATUS.PENDING && !r.isTest;
   }).length;
 }
 
@@ -4720,19 +4668,19 @@ function pendingRunCount_(dealerKey) {
  * breaks order_date ties; the old numeric-max logic remains only as the
  * fallback for a log with no dated rows at all.
  *
- * @param {Array<Array>} rows - VIN log rows 2+, cols A-D (id, vin, committed_at, order_date)
+ * @param {Array<Array>} rows - VIN log rows 2+ (getValues() arrays, VL_COL layout)
  * @returns {string|null}
  */
 function latestOrderIdFrom_(rows) {
   var bestId = null, bestTime = null;
   var maxId = null, lastNonBlank = null;
   for (var i = 0; i < rows.length; i++) {
-    var val = String(rows[i][0]).trim();
+    var val = String(rows[i][VL_COL.ORDER_ID]).trim();
     if (val === '' || val === 'ORDER_ID') continue;
     lastNonBlank = val;
     var n = Number(val);
     if (isFinite(n) && (maxId === null || n > maxId)) maxId = n;
-    var time = orderDateTime_(rows[i][3]);
+    var time = orderDateTime_(rows[i][VL_COL.ORDER_DATE]);
     if (time === null) continue;
     if (bestTime === null || time > bestTime ||
         (time === bestTime && isFinite(n) && Number(bestId) < n)) {
@@ -7058,15 +7006,15 @@ function getPrintSchedule(refresh) {
       }
     }
 
-    // Today's per-dealer production from RUN_LOG (same cols as getHomeHud:
-    // B dealer_key, O total_dupes, P total_produced; test runs pre-excluded).
+    // Today's per-dealer production from RUN_LOG (same fields as getHomeHud;
+    // test runs pre-excluded).
     var statsByKey = {};
     var totals = { runs: 0, vins: 0, dupes: 0 };
-    readRunLog_().forEach(function(row) {
-      if (runLogTs_(row[0]).slice(0, 10) !== todayStr) return;
-      var k = String(row[1]);
+    readRunLog_().forEach(function(rec) {
+      if (rec.timestamp.slice(0, 10) !== todayStr) return;
+      var k = rec.dealerKey;
       var s = statsByKey[k] || (statsByKey[k] = { runs: 0, vins: 0, dupes: 0 });
-      var vins = Number(row[15]) || 0, dupes = Number(row[14]) || 0;
+      var vins = rec.totalProduced, dupes = rec.billing.totalDupes;
       s.runs++;        totals.runs++;
       s.vins += vins;  totals.vins += vins;
       s.dupes += dupes; totals.dupes += dupes;
@@ -8023,11 +7971,11 @@ function pushRunToPipedrive(dealerKey, runRowIndex, mode, existingDealId) {
     if (!getPipedriveStatus().configured) {
       return { ok: false, stage: 'config', message: 'Pipedrive is not configured. Set it up in Dealer Rules → Pipedrive.', retryable: false };
     }
-    var logSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('RUN_LOG');
-    if (!logSheet || runRowIndex < 2 || runRowIndex > logSheet.getLastRow()) {
+    var runRow = rlSheetStore_().readRun(Number(runRowIndex));   // null past the last row
+    if (!runRow) {
       return { ok: false, stage: 'gate', message: 'Run not found — finalize the run first.', retryable: false };
     }
-    var run = rlDecodeRow_(logSheet.getRange(runRowIndex, 1, 1, RL_WIDTH).getValues()[0], runRowIndex);
+    var run = rlDecodeRow_(runRow, Number(runRowIndex));
     if (run.dealerKey !== dealerKey) {
       return { ok: false, stage: 'gate', message: 'Run does not belong to this dealer.', retryable: false };
     }
@@ -10263,21 +10211,13 @@ function generateEomReport(scope, stageId, runId, monthLabel, splitContacts) {
 // These replaced the old whole-grid getDashboardView() read (retired).
 // ============================================================================
 
-/** RUN_LOG rows (23 cols A–W) minus test runs, in append order. ONE read. */
+/** Decoded run records (RunLedger.gs rlDecodeRow_) minus test and soft-deleted runs, append order. ONE read. */
 function readRunLog_() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('RUN_LOG');
-  if (!sheet) return [];
-  var lastRow = sheet.getLastRow();
-  if (lastRow < 2) return [];
-  return sheet.getRange(2, 1, lastRow - 1, 23).getValues()
-    .filter(function(r) {
-      return String(r[3]).trim().toLowerCase() !== 'test' &&
-             String(r[22]).trim() !== 'deleted';   // W: soft-deleted runs
-    });
+  return ledgerLiveRuns_().filter(function(rec) { return !rec.isTest; });
 }
 
 /** Log-sheet timestamp cell → 'yyyy-MM-dd HH:mm:ss' string (cells occasionally
- *  coerce to Date; same idiom as getRunsForDealer). */
+ *  coerce to Date; same idiom as rlFormatTs_). Used for IMPORT_STATS. */
 function runLogTs_(v) {
   return v instanceof Date
     ? Utilities.formatDate(v, 'America/Chicago', 'yyyy-MM-dd HH:mm:ss')
@@ -10319,9 +10259,9 @@ function getHomeHud() {
   function bucket() { return { runs: 0, vins: 0, dupes: 0, _dealers: {} }; }
   function add(b, r) {
     b.runs++;
-    b.vins  += Number(r[15]) || 0;   // P: total_produced
-    b.dupes += Number(r[14]) || 0;   // O: total_dupes
-    b._dealers[String(r[1])] = true;
+    b.vins  += r.totalProduced;
+    b.dupes += r.billing.totalDupes;
+    b._dealers[r.dealerKey] = true;
   }
   function pack(b) { return { runs: b.runs, vins: b.vins, dealers: Object.keys(b._dealers).length, dupes: b.dupes }; }
 
@@ -10329,13 +10269,12 @@ function getHomeHud() {
   var allTime = { runs: rows.length, vins: 0, avgVinsPerRun: 0, committed: 0, pending: 0, rolledBack: 0 };
 
   rows.forEach(function(r) {
-    allTime.vins += Number(r[15]) || 0;
-    var st = String(r[22]).trim();                 // W: vin_log_status
-    if (st === 'committed') allTime.committed++;
-    else if (st === 'rolled_back') allTime.rolledBack++;
+    allTime.vins += r.totalProduced;
+    if (r.status === RL_STATUS.COMMITTED) allTime.committed++;
+    else if (r.status === RL_STATUS.ROLLED_BACK) allTime.rolledBack++;
     else allTime.pending++;
 
-    var day = runLogTs_(r[0]).slice(0, 10);        // string prefix compare is safe
+    var day = r.timestamp.slice(0, 10);            // string prefix compare is safe
     if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return;  // malformed ts → all-time only
     if (day === todayStr) add(today, r);
     if (day >= mondayStr && day <= todayStr) add(week, r);
@@ -10441,20 +10380,20 @@ function getDealerSummary(dealerKey) {
   }
 
   // ── Run stats + last run (RUN_LOG, test runs already excluded) ─────────────
-  var runs = readRunLog_().filter(function(r) { return String(r[1]).trim() === dealerKey; });
+  var runs = readRunLog_().filter(function(r) { return r.dealerKey === dealerKey; });
   var runStats = {
     runs: runs.length, vinsOrdered: 0, vinsProduced: 0, avgMatchPct: 0,
     byType: { new: 0, po: 0, cpo: 0, cpoEl: 0 }
   };
   var matched = 0;
   runs.forEach(function(r) {
-    runStats.vinsOrdered  += Number(r[4])  || 0;   // E: total_ordered
-    matched               += Number(r[5])  || 0;   // F: total_matched
-    runStats.vinsProduced += Number(r[15]) || 0;   // P: total_produced
-    runStats.byType.new   += Number(r[6])  || 0;   // G–J: per-type gross
-    runStats.byType.po    += Number(r[7])  || 0;
-    runStats.byType.cpo   += Number(r[8])  || 0;
-    runStats.byType.cpoEl += Number(r[9])  || 0;
+    runStats.vinsOrdered  += r.totalOrdered;
+    matched               += r.totalMatched;
+    runStats.vinsProduced += r.totalProduced;
+    runStats.byType.new   += r.billing.totalNew;     // G–J: per-type gross
+    runStats.byType.po    += r.billing.totalPO;
+    runStats.byType.cpo   += r.billing.totalCPO;
+    runStats.byType.cpoEl += r.billing.totalCPOEL;
   });
   runStats.avgMatchPct = runStats.vinsOrdered
     ? Math.round(1000 * matched / runStats.vinsOrdered) / 10 : 0;
@@ -10463,12 +10402,12 @@ function getDealerSummary(dealerKey) {
   if (runs.length) {
     var last = runs[runs.length - 1];   // append order → last = newest
     lastRun = {
-      ts:           homeDisplayTs_(runLogTs_(last[0])),
-      orderId:      String(last[3]).trim(),
-      ordered:      Number(last[4])  || 0,
-      produced:     Number(last[15]) || 0,
-      durationSec:  Number(last[18]) || 0,
-      vinLogStatus: String(last[22]).trim() || 'pending'   // '' = pending, same as getRunsForDealer
+      ts:           homeDisplayTs_(last.timestamp),
+      orderId:      last.dealId,
+      ordered:      last.totalOrdered,
+      produced:     last.totalProduced,
+      durationSec:  last.durationSec,
+      vinLogStatus: last.status   // blank col W decodes as 'pending'
     };
   }
 

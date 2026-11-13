@@ -2121,6 +2121,185 @@ t('Code.gs writes no RUN_LOG row or col-D deal id itself (the ledger is the only
   });
 });
 
+suite('run ledger readers');
+// Code.gs readers with the ledger on the fake store and every other service stubbed.
+function withReaderStubs_(store, fn) {
+  var names = ['rlSheetStore_', 'getAppHomeStatus', 'getMyRunDrafts', 'getDealerConfig_', 'getPipedriveStatus', 'Session'];
+  var saved = {}; names.forEach(function (n) { saved[n] = globalThis[n]; });
+  var savedActive = SpreadsheetApp.getActiveSpreadsheet;
+  try {
+    globalThis.rlSheetStore_     = function () { return store; };
+    globalThis.getAppHomeStatus  = function () { return { lastImportDate: '', lastImportTime: '' }; };
+    globalThis.getMyRunDrafts    = function () { return { drafts: [] }; };
+    globalThis.getDealerConfig_  = function (k) {
+      var c = []; c[CFG.KEY] = k; c[CFG.NAME] = 'Pundmann Ford'; c[CFG.SCRAPER_LOCATION] = ''; return c;
+    };
+    globalThis.getPipedriveStatus = function () { return { configured: false }; };
+    globalThis.Session = { getScriptTimeZone: function () { return 'America/Chicago'; } };
+    SpreadsheetApp.getActiveSpreadsheet = function () { throw new Error('RUN_LOG must be read through the ledger'); };
+    return fn();
+  } finally {
+    names.forEach(function (n) { globalThis[n] = saved[n]; });
+    SpreadsheetApp.getActiveSpreadsheet = savedActive;
+  }
+}
+var M1 = '2026-06-01 17:33:00', M2 = '2026-06-01 18:00:00';
+function vl_(id, vin, at, ref) { return [id, vin, at, at, ref]; }
+
+t('VIN Logs list: one dealer, newest first, deleted runs hidden, other dealers left out', function () {
+  var s = makeFakeLedgerStore({
+    runLog: [pf_({ ts: T1, deal: '3664' }), pf_({ ts: T2, deal: '3665', status: 'deleted' }),
+             pf_({ ts: '2026-06-02 09:00:00', deal: '3670', status: 'committed' }),
+             pf_({ ts: '2026-06-02 10:00:00', dealer: 'BMW_WEST_STL', name: 'BMW West', deal: '5509' })],
+    vinLogs: { PUNDMANN_FORD: [], BMW_WEST_STL: [] }
+  });
+  var runs = withReaderStubs_(s, function () { return getRunsForDealer('PUNDMANN_FORD'); });
+  assert.deepStrictEqual(runs.map(function (r) { return [r.rowIndex, r.dealId, r.status]; }), [[4, '3670', 'committed'], [2, '3664', 'pending']]);
+  assert.deepStrictEqual(runs[1], {
+    rowIndex: 2, dealerKey: 'PUNDMANN_FORD', dealerName: 'Pundmann Ford', timestamp: T1, dealId: '3664',
+    vinCount: 2, status: 'pending', note: '', producedVins: ['VA', 'VB']
+  });
+});
+t('VIN Logs list: manual entries show up read-only, one row per order + time, merged in by time', function () {
+  var s = makeFakeLedgerStore({
+    runLog: [pf_({ ts: T1, deal: '3664' }), pf_({ ts: T2, deal: '3665' })],
+    vinLogs: { PUNDMANN_FORD: [
+      vl_('3600', 'OLD1', '2026-05-01 08:00:00', ''),          // legacy untagged — not a manual row
+      vl_('3664', 'VA', '2026-06-01 17:40:00', T1),            // a run's batch — not a manual row
+      vl_('9001', 'MX1', M1, 'manual'), vl_('9001', 'MX2', M1, 'manual'),
+      vl_('9001', 'MX3', M2, 'manual')                         // same order, later entry → its own row
+    ] }
+  });
+  var runs = withReaderStubs_(s, function () { return getRunsForDealer('PUNDMANN_FORD'); });
+  assert.deepStrictEqual(runs.map(function (r) { return [r.timestamp, r.dealId, r.status, r.vinCount]; }), [
+    [M2, '9001', 'manual', 1], [T2, '3665', 'pending', 2], [M1, '9001', 'manual', 2], [T1, '3664', 'pending', 2]
+  ]);
+  assert.deepStrictEqual(runs[2], {
+    rowIndex: null, dealerKey: 'PUNDMANN_FORD', dealerName: 'Pundmann Ford', timestamp: M1, dealId: '9001',
+    vinCount: 2, status: 'manual', note: '', producedVins: ['MX1', 'MX2'], manual: true
+  });
+});
+t('VIN Logs list (all dealers): manual rows from every tab; a dealer with no runs shows its key', function () {
+  var s = makeFakeLedgerStore({
+    runLog: [pf_({ ts: T1 })],
+    vinLogs: { PUNDMANN_FORD: [vl_('9001', 'MX1', M1, 'manual')], WEBER_CHEVY: [vl_('77', 'WX1', M2, 'manual')] }
+  });
+  var runs = withReaderStubs_(s, function () { return getRunsForDealer(''); });
+  assert.deepStrictEqual(runs.map(function (r) { return [r.dealerKey, r.dealerName, r.status]; }), [
+    ['WEBER_CHEVY', 'WEBER_CHEVY', 'manual'], ['PUNDMANN_FORD', 'Pundmann Ford', 'manual'], ['PUNDMANN_FORD', 'Pundmann Ford', 'pending']
+  ]);
+});
+t('rlManualBatches_: only rows tagged exactly "manual" form batches', function () {
+  var recs = [vl_('1', 'A', M1, 'manual'), vl_('1', 'B', M1, T1), vl_('1', 'C', M1, ''), vl_('1', 'D', M1, 'Manual')]
+    .map(function (r, i) { var v = rlDecodeVinLogRow_(r, i + 2); v.dealerKey = 'PUNDMANN_FORD'; return v; });
+  assert.deepStrictEqual(rlManualBatches_(recs), [{ dealerKey: 'PUNDMANN_FORD', orderId: '1', committedAt: M1, vins: ['A'] }]);
+});
+t('VIN Logs list: a failed manual-entry lookup still returns the runs', function () {
+  var s = makeFakeLedgerStore({ runLog: [pf_({ ts: T1 })], vinLogs: { PUNDMANN_FORD: [] } });
+  s.findVinLogRowsByRunRef = function () { throw new Error('Service Spreadsheets timed out'); };
+  var runs = withReaderStubs_(s, function () { return getRunsForDealer('PUNDMANN_FORD'); });
+  assert.deepStrictEqual(runs.map(function (r) { return r.dealId; }), ['3664']);
+});
+t('a manual entry appears in the list straight after it is added (the reported bug)', function () {
+  var s = makeFakeLedgerStore({ runLog: [], vinLogs: { PUNDMANN_FORD: [] }, now: M1 });
+  var runs = withReaderStubs_(s, function () {
+    ledgerManualEntry('PUNDMANN_FORD', '9001', ['mx1', 'MX2']);
+    return getRunsForDealer('PUNDMANN_FORD');
+  });
+  assert.deepStrictEqual(runs.map(function (r) { return [r.dealId, r.vinCount, r.manual]; }), [['9001', 2, true]]);
+});
+t('readRunLog_ / pendingRunCount_: decoded records, test and deleted runs left out', function () {
+  var s = makeFakeLedgerStore({
+    runLog: [pf_({ ts: T1, deal: '3664' }), pf_({ ts: T2, deal: 'test' }), pf_({ ts: T2, deal: '3665', status: 'deleted' }),
+             pf_({ ts: T2, deal: '3666', status: 'committed' }), pf_({ ts: T2, deal: '3667', dealer: 'BMW_WEST_STL' })]
+  });
+  withReaderStubs_(s, function () {
+    assert.deepStrictEqual(readRunLog_().map(function (r) { return r.dealId; }), ['3664', '3666', '3667']);
+    assert.strictEqual(readRunLog_()[0].rowIndex, 2);
+    assert.strictEqual(pendingRunCount_('PUNDMANN_FORD'), 1);
+    assert.strictEqual(pendingRunCount_('BMW_WEST_STL'), 1);
+  });
+});
+t('getLatestOrderId reads the VIN log through the store (latest order_date wins; no tab = none)', function () {
+  var s = makeFakeLedgerStore({
+    runLog: [pf_({ ts: T1 })],
+    vinLogs: { PUNDMANN_FORD: [['99999', 'A', T2, '2026-01-01 00:00:00', ''], ['3664', 'B', T2, T1, T1]] }
+  });
+  withReaderStubs_(s, function () {
+    assert.deepStrictEqual(getLatestOrderId('PUNDMANN_FORD'), { latestOrderId: '3664', pendingCount: 1 });
+    assert.deepStrictEqual(getLatestOrderId('NO_SUCH_TAB'), { latestOrderId: null, pendingCount: 0 });
+  });
+});
+t('getHomeHud all-time stats and getDealerSummary read decoded records', function () {
+  var s = makeFakeLedgerStore({
+    runLog: [runRow_({ ts: T1, dealer: 'PUNDMANN_FORD', deal: 3664, status: 'committed' }),
+             runRow_({ ts: T2, dealer: 'PUNDMANN_FORD', deal: 3665, status: 'rolled_back' }),
+             runRow_({ ts: T2, dealer: 'PUNDMANN_FORD', deal: 'test' }),
+             runRow_({ ts: '2026-06-02 09:00:00', dealer: 'PUNDMANN_FORD', deal: 3666 })]
+  });
+  withReaderStubs_(s, function () {
+    var hud = getHomeHud();
+    assert.deepStrictEqual(hud.allTime, { runs: 3, vins: 87, avgVinsPerRun: 29, committed: 1, pending: 1, rolledBack: 1 });
+    var sum = getDealerSummary('PUNDMANN_FORD');
+    assert.deepStrictEqual(sum.runStats, { runs: 3, vinsOrdered: 87, vinsProduced: 87, avgMatchPct: 100,
+                                           byType: { new: 60, po: 27, cpo: 0, cpoEl: 0 } });
+    assert.strictEqual(sum.lastRun.orderId, '3666');
+    assert.strictEqual(sum.lastRun.ordered, 29);
+    assert.strictEqual(sum.lastRun.durationSec, 42);
+    assert.strictEqual(sum.lastRun.vinLogStatus, 'pending');
+  });
+});
+t('real adapter: manual rows are found with ONE text search and one read per tab with hits', function () {
+  var reads = [];
+  function tab(name, cells) {   // cells: {row: [5 values]}
+    return {
+      getName: function () { return name; },
+      getRange: function (r, c, nr, nc) {
+        reads.push([name, r, c, nr, nc]);
+        return { getValues: function () { var out = []; for (var i = 0; i < nr; i++) out.push(cells[r + i] || ['', '', '', '', '']); return out; } };
+      }
+    };
+  }
+  var pf = tab('PUNDMANN_FORD', { 4: ['9001', 'MX1', M1, M1, 'manual'], 6: ['9001', 'MX2', M1, M1, 'manual'] });
+  var wb = tab('WEBER_CHEVY', { 3: ['77', 'WX1', M2, M2, 'manual'] });
+  function hit(sh, row, col) { return { getSheet: function () { return sh; }, getRow: function () { return row; }, getColumn: function () { return col; } }; }
+  var searches = [];
+  function finder(hits) {
+    return function (q) {
+      var opts = {};
+      var f = { matchCase: function (v) { opts.matchCase = v; return f; }, matchEntireCell: function (v) { opts.entire = v; return f; },
+                findAll: function () { searches.push([q, opts]); return hits; } };
+      return f;
+    };
+  }
+  var allHits = [hit(pf, 4, 5), hit(pf, 6, 5), hit(pf, 1, 5), hit(pf, 9, 1), hit(wb, 3, 5)];   // header row + col A hits ignored
+  pf.createTextFinder = finder([hit(pf, 4, 5), hit(pf, 6, 5)]);
+  var ss = { createTextFinder: finder(allHits), getSheetByName: function (k) { return k === 'PUNDMANN_FORD' ? pf : null; } };
+  var saved = globalThis.getVinLogsSS_;
+  try {
+    globalThis.getVinLogsSS_ = function () { return ss; };
+    var real = rlSheetStore_();
+    var all = real.findVinLogRowsByRunRef('manual', null);
+    assert.deepStrictEqual(all.map(function (h) { return [h.dealerKey, h.rowIndex, h.row[1]]; }),
+                           [['PUNDMANN_FORD', 4, 'MX1'], ['PUNDMANN_FORD', 6, 'MX2'], ['WEBER_CHEVY', 3, 'WX1']]);
+    assert.deepStrictEqual(reads, [['PUNDMANN_FORD', 4, 1, 3, 5], ['WEBER_CHEVY', 3, 1, 1, 5]]);
+    assert.deepStrictEqual(searches[0], ['manual', { matchCase: true, entire: true }]);
+    reads = [];
+    assert.strictEqual(real.findVinLogRowsByRunRef('manual', 'PUNDMANN_FORD').length, 2);
+    assert.deepStrictEqual(real.findVinLogRowsByRunRef('manual', 'NO_SUCH_TAB'), []);
+  } finally {
+    globalThis.getVinLogsSS_ = saved;
+  }
+});
+t('Code.gs reads RUN_LOG only through the ledger (no raw row indexes, no own run list)', function () {
+  var opens = codeSource.split("getSheetByName('RUN_LOG')").length - 1;
+  assert.strictEqual(opens, 2, 'expected only openRunLog + backfillVinLogOrderDates to open RUN_LOG, found ' + opens);
+  assert.strictEqual(/function getRunsForDealer\b/.test(codeSource), false, 'getRunsForDealer still defined in Code.gs');
+  assert.strictEqual(/\b(?:row|r|last)\[(?:21|22)\]/.test(codeSource), false, 'raw produced_vins / status index still read');
+  assert.strictEqual(typeof getRunsForDealer, 'function');
+  assert.strictEqual(typeof ledgerLiveRuns_, 'function');
+});
+
 // ── Report ───────────────────────────────────────────────────────────────────
 function report_() {
   var totalPass = 0, totalFail = 0;

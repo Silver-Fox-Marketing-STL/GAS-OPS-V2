@@ -105,7 +105,8 @@ previously-hit failure — don't relax without reading the matching Bridge secti
   dormant), `FILTER_RULES: 22` (col W). Cols P–V unused; inserting there means
   updating `CFG.FILTER_RULES`.
 - RUN_LOG is 23 cols A–W (`produced_vins` = V, `vin_log_status` = W).
-  `getRunsForDealer` reads all 23 — keep new reads in sync. Cols G–N are the
+  Every reader decodes through `RunLedger.gs` (`rlDecodeRow_`; `ledgerLiveRuns_`) —
+  a new column means a codec change, not a new raw index. Cols G–N are the
   canonical-four per-type counts — never widened (new types go to `ORDER_TYPE_STATS`).
 - ORDERMATCH cols A–I are the QUERY spill zone — never write there in the template.
   `FIELD_TO_COL` + the FIELD_CODES tab's `ordermatch_col` overlay are the runtime
