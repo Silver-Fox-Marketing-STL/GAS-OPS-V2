@@ -5,6 +5,9 @@
 // rollback, manual entry). Why identity + batches are shaped this way:
 // docs/adr/0001-run-identity-and-vin-log-batches.md.
 //
+// Writes it owns: RUN_LOG row append (finalize), col D deal id (Pipedrive
+// push), col W status; SF_VIN_LOGS batch append / delete.
+//
 // Shape:
 //   - CODEC (pure): one place that knows the RUN_LOG column layout (A–W, 23
 //     cols) and the VIN-log layout (A–E, 5 cols), the status vocabulary, test-
@@ -22,9 +25,10 @@
 // does not depend on Code.gs being evaluated first (Apps Script's flat
 // namespace resolves cross-file names at call time).
 //
-// Build status (feat/run-ledger): steps 1–2 = codec, store seam, and the
-// guarded commit / rollback / delete / manual entry the views call. Finalize
-// (step 3) and the remaining RUN_LOG readers (step 4) move in next.
+// Build status (feat/run-ledger): steps 1–3 = codec, store seam, the guarded
+// commit / rollback / delete / manual entry the views call, and finalize +
+// the Pipedrive deal-id write (Code.gs calls the server-only ledger*_ wrappers).
+// The remaining RUN_LOG readers (step 4) move in next.
 // ============================================================================
 
 // ── RUN_LOG layout (0-based indices into a getValues() row) ────────────────
@@ -355,7 +359,10 @@ function rlSheetStore_() {
       var at  = sh.getLastRow() + 1;
       var rng = sh.getRange(at, 1, rows.length, VL_WIDTH);
       // Order id + VIN are text BEFORE and AFTER the write (the QUERY mixed-type rule).
+      // run_ref is text too: left to Sheets, '2026-11-13 08:42:04' turns into a Date
+      // read back in the file's time zone — a tag must never depend on that setting.
       sh.getRange(at, 1, rows.length, 2).setNumberFormat('@');
+      sh.getRange(at, VL_COL.RUN_REF + 1, rows.length, 1).setNumberFormat('@');
       rng.setValues(rows.map(function (r) {
         var c = r.slice(0, VL_WIDTH);
         c[VL_COL.ORDER_ID] = String(c[VL_COL.ORDER_ID]);
@@ -498,6 +505,69 @@ function rlPlanCommit_(rec, vinRecs, now) {
   };
 }
 
+/**
+ * The run already finalized for this output doc + billing group: the newest
+ * non-deleted row, or null. One output doc is one run (every run copies a
+ * fresh template), so a second finalize of it is a retry, not a new run.
+ */
+function rlFindFinalized_(recs, dealerKey, outputDocId, note) {
+  var doc = String(outputDocId || '').trim();
+  if (!doc) return null;
+  var key = String(dealerKey || '').trim(), group = rlSplitGroup_(note), hit = null;
+  recs.forEach(function (r) {
+    if (r.dealerKey === key && r.outputDocId === doc && r.group === group && r.status !== RL_STATUS.DELETED) hit = r;
+  });
+  return hit;
+}
+
+/**
+ * A pending-run entry from runDealer (what a Run card finalizes) → a run
+ * record ready for rlEncodeRecord_, minus its timestamp (the ledger stamps it).
+ */
+function rlRecordFromEntry_(dealerKey, dealerName, dealId, entry) {
+  var b = entry.billing || {};
+  return {
+    dealerKey:     String(dealerKey || '').trim(),
+    dealerName:    dealerName || '',
+    dealId:        String(dealId === null || dealId === undefined ? '' : dealId).trim(),
+    totalOrdered:  entry.totalOrdered,
+    totalMatched:  entry.totalMatched,
+    billing: {
+      totalNew: b.totalNew || 0, totalPO: b.totalPO || 0, totalCPO: b.totalCPO || 0, totalCPOEL: b.totalCPOEL || 0,
+      newDupes: b.newDupes || 0, poDupes: b.poDupes || 0, cpoDupes: b.cpoDupes || 0, cpoElDupes: b.cpoElDupes || 0,
+      totalDupes: b.totalDupes || 0
+    },
+    totalProduced: entry.totalMatched,            // P has always carried total_matched
+    qrCodes:       '',
+    outputDocId:   String(entry.outputDocId || '').trim(),
+    durationSec:   entry.durationSec,
+    errors:        (entry.errors || []).join('; '),
+    note:          entry.note || '',
+    producedVins:  entry.producedVins || [],
+    status:        RL_STATUS.PENDING
+  };
+}
+
+/**
+ * Why a run's deal id (col D) must NOT change to newId, or '' when it may.
+ * newId null = "a new deal is about to be created, id not known yet" — checked
+ * BEFORE creating one, so a refusal never strands a fresh Pipedrive deal.
+ *   - a numeric col D is a real deal already: never repointed to another id;
+ *   - a committed run's batch is keyed by its deal id: changing it would
+ *     orphan the batch (rollback could no longer find it).
+ */
+function rlDealIdChangeProblem_(rec, newId) {
+  var id = (newId === null || newId === undefined) ? null : String(newId).trim();
+  if (id !== null && rec.dealId === id) return '';
+  if (/^\d+$/.test(rec.dealId)) {
+    return 'This run is already linked to deal ' + rec.dealId + (id ? ', so it was not changed to ' + id : '') + '.';
+  }
+  if (rec.status === RL_STATUS.COMMITTED) {
+    return 'This run is in the VIN log under "' + rec.dealId + '" — roll it back on the VIN Logs page before changing its deal ID.';
+  }
+  return '';
+}
+
 /** Manual-entry VINs: trimmed, upper-cased, de-duplicated, blanks dropped. */
 function rlCleanManualVins_(vins) {
   var seen = {}, out = [];
@@ -585,6 +655,61 @@ function rlManualEntry_(store, dealerKey, orderId, vins) {
   });
 }
 
+/**
+ * Finalize: write a run's RUN_LOG row exactly once. A retry for the same
+ * output doc + billing group returns the row already there (created: false)
+ * instead of appending a duplicate; a retry under a DIFFERENT deal id is
+ * refused (delete the row on the VIN Logs page to finalize it again).
+ * rec = rlRecordFromEntry_(…). Returns { rowIndex, timestamp, created }.
+ */
+function rlFinalizeRun_(store, rec) {
+  if (!rec || !rec.dealerKey) throw new Error('No dealer key provided.');
+  if (!rec.dealId) throw new Error('A Deal ID is required to finalize (use "test" for test runs).');
+  return store.withLock(function () {
+    var recs = rlDecodeAll_(store.readRuns());
+    var existing = rlFindFinalized_(recs, rec.dealerKey, rec.outputDocId, rec.note);
+    if (existing) {
+      if (existing.dealId !== rec.dealId) {
+        throw new Error('This run is already in the run log (row ' + existing.rowIndex + ') under deal "' + existing.dealId +
+                        '". Delete that row on the VIN Logs page to finalize it again.');
+      }
+      return { rowIndex: existing.rowIndex, timestamp: existing.timestamp, created: false };
+    }
+    var full = Object.assign({}, rec, { timestamp: store.now(), status: RL_STATUS.PENDING });
+    var rowIndex = store.appendRun(rlEncodeRecord_(full));
+    return { rowIndex: rowIndex, timestamp: full.timestamp, created: true };
+  });
+}
+
+/**
+ * Record a run's Pipedrive deal id in col D (the push's idempotency anchor).
+ * ref = { rowIndex, dealerKey, outputDocId, note } — the row must still be that
+ * run. Same id = no-op; a change rlDealIdChangeProblem_ forbids is refused.
+ * Returns { rowIndex, changed }.
+ */
+function rlSetDealId_(store, ref, dealId) {
+  var id = String(dealId === null || dealId === undefined ? '' : dealId).trim();
+  if (!id) throw new Error('No deal ID to record.');
+  return store.withLock(function () {
+    var row = store.readRun(Number(ref && ref.rowIndex));
+    var rec = row ? rlDecodeRow_(row, Number(ref.rowIndex)) : null;
+    if (!rec || rec.dealerKey !== String(ref.dealerKey || '').trim() ||
+        rec.outputDocId !== String(ref.outputDocId || '').trim() || rec.group !== rlSplitGroup_(ref.note)) {
+      throw new Error('The run log row no longer matches this run — reload and try again.');
+    }
+    if (rec.dealId === id) return { rowIndex: rec.rowIndex, changed: false };
+    var problem = rlDealIdChangeProblem_(rec, id);
+    if (problem) throw new Error(problem);
+    store.setRunCell(rec.rowIndex, RL_COL.DEAL_ID, id);
+    return { rowIndex: rec.rowIndex, changed: true };
+  });
+}
+
+/** Read-only: the finalized run for an output doc + group (see rlFindFinalized_), or null. No lock — a read. */
+function rlFinalizedRunFor_(store, dealerKey, outputDocId, note) {
+  return rlFindFinalized_(rlDecodeAll_(store.readRuns()), dealerKey, outputDocId, note);
+}
+
 
 // ============================================================================
 // PUBLIC ENDPOINTS — google.script.run (one line each: real store in, result out)
@@ -603,3 +728,19 @@ function ledgerDeleteRun(ref) { return rlDeleteRun_(rlSheetStore_(), ref); }
 
 /** Manual entry into a dealer's VIN log. */
 function ledgerManualEntry(dealerKey, orderId, vins) { return rlManualEntry_(rlSheetStore_(), dealerKey, orderId, vins); }
+
+// Server-side only (trailing _ keeps them off google.script.run): Code.gs's
+// finalize + Pipedrive push call these; no view can.
+
+/** Finalize one run card's entry into RUN_LOG (idempotent per output doc + group). */
+function ledgerFinalizeRun_(dealerKey, dealerName, dealId, entry) {
+  return rlFinalizeRun_(rlSheetStore_(), rlRecordFromEntry_(dealerKey, dealerName, dealId, entry));
+}
+
+/** Record a run's Pipedrive deal id in col D. ref: {rowIndex, dealerKey, outputDocId, note}. */
+function ledgerSetDealId_(ref, dealId) { return rlSetDealId_(rlSheetStore_(), ref, dealId); }
+
+/** The finalized run for an output doc + group, or null (read-only). */
+function ledgerFinalizedRunFor_(dealerKey, outputDocId, note) {
+  return rlFinalizedRunFor_(rlSheetStore_(), dealerKey, outputDocId, note);
+}

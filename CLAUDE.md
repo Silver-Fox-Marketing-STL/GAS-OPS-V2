@@ -166,7 +166,7 @@ previously-hit failure — don't relax without reading the matching Bridge secti
 - VIN logs are never written automatically — explicit commit/rollback via the VIN
   Logs view or the Run view's Add to VIN Log. Manually entered VINs are always
   produced (the log only flags dupes in billing). `test` runs are never committed.
-- **`RunLedger.gs` is the only writer of RUN_LOG status and SF_VIN_LOGS batches.**
+- **`RunLedger.gs` is the only writer of RUN_LOG rows (append, col D, col W) and SF_VIN_LOGS batches.**
   Every write goes through its store (`rlSheetStore_`) inside `withLock`; views send a
   run reference (fingerprint, or output doc + group), never VINs/dates. A batch is keyed
   by deal ID + `run_ref` (col E: run time, `|<GROUP>` on split halves, `manual`); an
@@ -199,8 +199,9 @@ previously-hit failure — don't relax without reading the matching Bridge secti
   copy / conditional / constant with the `if_empty` fail-safe: on link set only if
   empty; when the current value can't be read, SKIP — never overwrite.
 - Idempotency: deal ID → RUN_LOG col D the instant the API returns it (numeric
-  col D = dup guard); the `pd_new_<outputDocId|group>` token cache covers the
-  create-before-row window — keep both anchors. `pdFetch_` never throws — a
+  col D = dup guard), written via `ledgerSetDealId_`; the `pd_new_<outputDocId|group>`
+  token cache covers the create-before-row window — keep both anchors. Finalize is
+  idempotent per output doc + group (`ledgerFinalizeRun_` reuses the row). `pdFetch_` never throws — a
   Pipedrive failure can never fail a run.
 - Line-item quantity is GROSS (no dupe subtraction); tax is sent explicitly
   (`tax` + `tax_method: 'exclusive'`) — the API never copies catalog Tax %.

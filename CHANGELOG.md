@@ -11,6 +11,36 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Added
+- **Run ledger, step 3 of 4: finalize + the Pipedrive deal-ID write** (2026-11-13,
+  `feat/run-ledger`). The ledger now owns every RUN_LOG write. After this step,
+  `RunLedger.gs` is the only code that appends a run row, sets col D or sets col W.
+  - **Finalize is idempotent.** `finalizeRun` (Test, and the inner step of New Deal /
+    Existing) writes its row through `ledgerFinalizeRun_` under the ledger lock.
+    - A retry for the same output doc and billing group returns the existing row
+      (`reused: true`) instead of appending a duplicate.
+    - ORDER_STATS and ORDER_TYPE_STATS rows (now `writeRunStats_`) are written only when
+      the row is new.
+    - A retry under a different deal ID is refused ("Delete that row on the VIN Logs
+      page to finalize it again").
+    - A deleted row doesn't block finalizing again.
+  - **New Deal gets a second anchor.** If the `pd_new_<doc|group>` token cache is gone
+    but the run log already holds the row with a numeric deal ID, `finalizeRunNewDeal`
+    adopts that deal instead of creating a second one. Product attach was already
+    skip-if-present.
+  - **Col D through the ledger.** `pushRunToPipedrive` writes the deal ID via
+    `ledgerSetDealId_`, which re-checks under the lock that the row is still that run
+    (dealer, output doc and group).
+    - The write is re-attempted on every pass, so a retry whose ID came from the push
+      state still records it.
+    - Refused, checked before any deal is created or linked: repointing a run that
+      already holds a real (numeric) deal to a different one, and changing the deal ID
+      of a committed run (its VIN-log batch is filed under that ID).
+    - `pushRunToPipedrive` reads its row through the codec (`rlDecodeRow_`), not raw
+      indices.
+  - Server-only wrappers `ledgerFinalizeRun_`, `ledgerSetDealId_` and
+    `ledgerFinalizedRunFor_`: the trailing `_` keeps them off `google.script.run`.
+  - Harness: new suite `run ledger finalize` (19), including `pushRunToPipedrive` with
+    Pipedrive stubbed. 222/222. Mutation-checked: 8 deliberate breaks, all caught.
 - **Run ledger, step 2 of 4: guarded commit / rollback / delete / manual entry**
   (2026-11-12, `feat/run-ledger`). These now live in `RunLedger.gs` and run inside one
   script lock: `ledgerCommitRuns(refs)`, `ledgerRollbackRun(ref)`, `ledgerDeleteRun(ref)`
@@ -164,6 +194,16 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   to the brain backlog; `CLAUDE.md` line count refreshed.
 
 ### Fixed
+- **A finalize retry could log the same run twice** (2026-11-13, run ledger step 3). A
+  second `finalizeRun` for the same output doc appended a second RUN_LOG and ORDER_STATS
+  row, which happens with a double click, or a server that finished after the browser
+  gave up. That second row made the Run view's Add to VIN Log refuse with "has 2 rows in
+  the run log". Finalize is now keyed by output doc + billing group (see Added).
+- **VIN-log `run_ref` turned into a date** (2026-11-13, run ledger step 3; found in the DEV
+  click-through). Sheets parsed the run-time tag in col E as a date-time. Read back, it
+  depended on the VIN-log file's time zone, so a file set to another zone would have
+  made rollback find nothing. Col E is now written as `@` text. The DEV rows written
+  before the fix still decode correctly.
 - **Rollback could remove another run's VINs** (2026-11-12, run ledger step 2). The old
   rollback looked up the *newest* `committed_at` for a deal id, so on a deal with two
   committed runs, rolling back the older one deleted the newer run's batch and marked the

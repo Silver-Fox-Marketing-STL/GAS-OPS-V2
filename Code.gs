@@ -2848,40 +2848,19 @@ function copyVINLogToOutput_(outputDoc, dealerKey) {
 // SECTION 14: RUN LOG
 // ============================================================================
 
-function writeRunLog_(config, dealId, totalOrdered, totalMatched, billing, outputDocId, durationSec, errors, producedVins, note) {
-  var ss              = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet           = ss.getSheetByName('RUN_LOG');
-  var producedVinsCSV = Array.isArray(producedVins) ? producedVins.join(',') : '';
-  var timestamp       = Utilities.formatDate(new Date(), 'America/Chicago', 'yyyy-MM-dd HH:mm:ss');
-  var vinsProduced    = Array.isArray(producedVins) ? producedVins.length : 0;
+/**
+ * The analytics side-rows for one newly finalized run: ORDER_STATS (one row)
+ * and ORDER_TYPE_STATS (one row per type present). The RUN_LOG row itself is
+ * written by the run ledger (ledgerFinalizeRun_, RunLedger.gs); this runs only
+ * when that call actually created the row, so a finalize retry never double-
+ * counts. `timestamp` is the RUN_LOG row's, so the three tabs join on it.
+ * Both writes are non-fatal.
+ */
+function writeRunStats_(config, timestamp, dealId, totalOrdered, totalMatched, billing, producedVins) {
+  var ss           = SpreadsheetApp.getActiveSpreadsheet();
+  var vinsProduced = Array.isArray(producedVins) ? producedVins.length : 0;
 
-  sheet.appendRow([
-    timestamp,                     // A: run_timestamp
-    config[CFG.KEY],               // B: dealer_key
-    config[CFG.NAME],              // C: dealer_name
-    dealId || '',                  // D: order_id (Pipedrive Deal ID)
-    totalOrdered,                  // E: total_ordered
-    totalMatched,                  // F: total_matched
-    billing.totalNew    || 0,      // G: total_new
-    billing.totalPO     || 0,      // H: total_po
-    billing.totalCPO    || 0,      // I: total_cpo
-    billing.totalCPOEL  || 0,      // J: total_cpo_el
-    billing.newDupes    || 0,      // K: new_dupes
-    billing.poDupes     || 0,      // L: po_dupes
-    billing.cpoDupes    || 0,      // M: cpo_dupes
-    billing.cpoElDupes  || 0,      // N: cpo_el_dupes
-    billing.totalDupes  || 0,      // O: total_dupes
-    totalMatched,                  // P: total_produced
-    '',                            // Q: qr_codes_generated
-    outputDocId,                   // R: output_doc_id
-    durationSec,                   // S: run_duration_sec
-    errors.join('; ') || '',       // T: errors
-    note || '',                    // U: notes (e.g. 'SPLIT:PRIMARY' / 'SPLIT:<group>')
-    producedVinsCSV,               // V: produced_vins
-    ''                             // W: vin_log_status (blank = pending)
-  ]);
-
-  // Also append a clean analytics row to ORDER_STATS
+  // A clean analytics row to ORDER_STATS
   var matchRate = (totalOrdered > 0) ? (totalMatched / totalOrdered) : 0;
   try {
     var statsSheet = ss.getSheetByName('ORDER_STATS');
@@ -2902,7 +2881,7 @@ function writeRunLog_(config, dealId, totalOrdered, totalMatched, billing, outpu
       ]);
     }
   } catch (e) {
-    Logger.log('writeRunLog_: ORDER_STATS append failed (non-fatal): ' + e.message);
+    Logger.log('writeRunStats_: ORDER_STATS append failed (non-fatal): ' + e.message);
   }
 
   // Also append per-type rows to ORDER_TYPE_STATS — long-format, one row per type present
@@ -2923,10 +2902,8 @@ function writeRunLog_(config, dealId, totalOrdered, totalMatched, billing, outpu
       if (otsSheet) otsSheet.getRange(otsSheet.getLastRow() + 1, 1, typeRows.length, 7).setValues(typeRows);
     }
   } catch (e) {
-    Logger.log('writeRunLog_: ORDER_TYPE_STATS append failed (non-fatal): ' + e.message);
+    Logger.log('writeRunStats_: ORDER_TYPE_STATS append failed (non-fatal): ' + e.message);
   }
-
-  return sheet.getLastRow();
 }
 
 /** Creates the ORDER_TYPE_STATS tab (long-format per-type run history) with its header row. */
@@ -2951,10 +2928,15 @@ function createOrderTypeStatsSheet_(ss) {
  * enters "test" for test runs. Finalization NEVER touches the VIN log; that
  * stays an explicit, separate commit (Add to VIN Log / VIN Log Updater).
  *
+ * Idempotent (run ledger, RunLedger.gs): the row is written under the ledger
+ * lock, and a retry for the same output doc + billing group returns the row
+ * already there (reused: true) — no duplicate RUN_LOG / ORDER_STATS rows. A
+ * retry under a different deal id throws.
+ *
  * @param {string} dealerKey
  * @param {Object} entry  - one pendingRuns element from runDealer's return
  * @param {string} dealId - non-blank deal ID entered/confirmed on the card
- * @return {Object} {rowIndex, vinCount}
+ * @return {Object} {rowIndex, vinCount, reused}
  */
 function finalizeRun(dealerKey, entry, dealId) {
   if (!dealId || String(dealId).trim() === '') {
@@ -2965,11 +2947,21 @@ function finalizeRun(dealerKey, entry, dealId) {
   var config = getDealerConfig_(dealerKey);
   if (!config) throw new Error('Dealer key not found: ' + dealerKey);
 
-  var rowIndex = writeRunLog_(config, String(dealId).trim(),
-    entry.totalOrdered, entry.totalMatched, entry.billing, entry.outputDocId,
-    entry.durationSec, entry.errors || [], entry.producedVins || [], entry.note || '');
+  var id  = String(dealId).trim();
+  var fin = ledgerFinalizeRun_(config[CFG.KEY], config[CFG.NAME], id, entry);
+  if (fin.created) {
+    writeRunStats_(config, fin.timestamp, id, entry.totalOrdered, entry.totalMatched,
+                   entry.billing, entry.producedVins || []);
+  }
+  return { rowIndex: fin.rowIndex, vinCount: (entry.producedVins || []).length, reused: !fin.created };
+}
 
-  return { rowIndex: rowIndex, vinCount: (entry.producedVins || []).length };
+/** finalizeRun for the Pipedrive orchestrators: a refusal comes back as a result shape, not a throw. */
+function finalizeRunOrFail_(dealerKey, entry, dealId) {
+  try { return { ok: true, fin: finalizeRun(dealerKey, entry, dealId) }; }
+  catch (e) {
+    return { ok: false, stage: 'finalize', message: e.message, retryable: /try again/i.test(e.message) };
+  }
 }
 
 
@@ -8035,19 +8027,27 @@ function pushRunToPipedrive(dealerKey, runRowIndex, mode, existingDealId) {
     if (!logSheet || runRowIndex < 2 || runRowIndex > logSheet.getLastRow()) {
       return { ok: false, stage: 'gate', message: 'Run not found — finalize the run first.', retryable: false };
     }
-    var row = logSheet.getRange(runRowIndex, 1, 1, 23).getValues()[0];
-    if (String(row[1]).trim() !== dealerKey) {
+    var run = rlDecodeRow_(logSheet.getRange(runRowIndex, 1, 1, RL_WIDTH).getValues()[0], runRowIndex);
+    if (run.dealerKey !== dealerKey) {
       return { ok: false, stage: 'gate', message: 'Run does not belong to this dealer.', retryable: false };
     }
-    var existingColD = String(row[3]).trim();   // D: order_id / deal id
-    var outputDocId  = String(row[17]).trim();  // R: output_doc_id
-    var note         = String(row[20]).trim();  // U: notes
-    var group        = (note.indexOf('SPLIT:') === 0) ? note.substring(6).toUpperCase() : 'PRIMARY';
+    var existingColD = run.dealId;        // D: order_id / deal id
+    var outputDocId  = run.outputDocId;   // R: output_doc_id
+    var note         = run.note;          // U: notes
+    var group        = run.group;
+    var runRef       = { rowIndex: runRowIndex, dealerKey: dealerKey, outputDocId: outputDocId, note: note };
 
     // finalizeRun always writes a deal id to col D — a blank means never finalized.
     if (!existingColD) {
       return { ok: false, stage: 'gate', message: 'This run has no Deal ID yet — finalize it before pushing.', retryable: false };
     }
+    // Refuse BEFORE any deal is created or linked when col D can't take a new id
+    // (committed under a placeholder; linking a different deal than col D's).
+    // The ledger re-checks under its lock at the write.
+    var colDProblem = (mode === 'create')
+      ? (/^\d+$/.test(existingColD) ? '' : rlDealIdChangeProblem_(run, null))
+      : rlDealIdChangeProblem_(run, existingDealId);
+    if (colDProblem) return { ok: false, stage: 'gate', message: colDProblem, retryable: false };
 
     var ctx = pdResolveRunContext_(dealerKey, group, outputDocId);
     if (!ctx.ok) return ctx;
@@ -8074,18 +8074,27 @@ function pushRunToPipedrive(dealerKey, runRowIndex, mode, existingDealId) {
     // Resolve the deal; write col D the instant we have an id.
     if (!dealId) {
       var rd = pdResolveDealId_(mode, existingDealId, pdCfg, currency,
-                 { lineItems: lineItems, group: group, dealerName: row[2] || dealerKey, secrets: ctx.secrets });
+                 { lineItems: lineItems, group: group, dealerName: run.dealerName || dealerKey, secrets: ctx.secrets });
       if (!rd.ok) return rd;
-      dealId = rd.dealId;
+      dealId = String(rd.dealId);
       state.dealId = dealId;
-      pdPushStateSet_(runRowIndex, state);
-      logSheet.getRange(runRowIndex, 4).setValue(dealId);  // D — idempotency anchor
-      SpreadsheetApp.flush();
+      pdPushStateSet_(runRowIndex, state);   // a retry adopts this id even if the col-D write below fails
+    }
+    // D — idempotency anchor, written by the run ledger under its lock. Checked on
+    // every pass (not just after a create) so a retry whose id came from the push
+    // state still lands it if an earlier write failed.
+    if (existingColD !== String(dealId)) {
+      try {
+        ledgerSetDealId_(runRef, dealId);
+      } catch (e) {
+        return { ok: false, stage: 'deal', dealId: dealId, retryable: /try again/i.test(e.message),
+                 message: 'Deal ' + dealId + ' is set, but recording it on the run failed: ' + e.message };
+      }
     }
 
     var applied = pdApplyDealContents_(dealId, lineItems, pdCfg, currency, state,
                     function(s) { pdPushStateSet_(runRowIndex, s); }, (mode === 'create'),
-                    { outputDocId: outputDocId, group: group, dealerName: row[2] || dealerKey });
+                    { outputDocId: outputDocId, group: group, dealerName: run.dealerName || dealerKey });
     if (!applied.ok) return applied;
 
     pdPushStateClear_(runRowIndex);
@@ -8317,21 +8326,38 @@ function finalizeRunNewDeal(dealerKey, entry) {
     var token = outputDocId + '|' + group;
     var cache = pdNewDealCacheGet_(token);
     var dealId = cache.dealId || '';
+    // Second anchor: the run log itself. If this output doc + group is already
+    // finalized (the cache was lost/cleared), adopt that row's deal instead of
+    // creating another; a row under a placeholder ('test') is refused.
+    if (!dealId) {
+      var prior = ledgerFinalizedRunFor_(dealerKey, outputDocId, note);
+      if (prior) {
+        if (!/^\d+$/.test(prior.dealId)) {
+          return { ok: false, stage: 'finalize', retryable: false,
+                   message: 'This run is already in the run log (row ' + prior.rowIndex + ') under deal "' + prior.dealId +
+                            '". Delete that row on the VIN Logs page to finalize it again.' };
+        }
+        dealId = prior.dealId;
+        pdNewDealCacheSet_(token, { dealId: dealId, rowIndex: prior.rowIndex });
+        cache = pdNewDealCacheGet_(token);
+      }
+    }
     if (!dealId) {
       var config = getDealerConfig_(dealerKey);
       var rd = pdResolveDealId_('create', null, ctx.pdCfg, ctx.currency,
                  { lineItems: ctx.lineItems, group: group, dealerName: (config && config[CFG.NAME]) || dealerKey, secrets: ctx.secrets });
       if (!rd.ok) return rd;
-      dealId = rd.dealId;
+      dealId = String(rd.dealId);
       pdNewDealCacheSet_(token, { dealId: dealId });   // cache immediately — retry adopts, never re-creates
     }
 
     var rowIndex = cache.rowIndex || 0;
     if (!rowIndex) {
-      var fin = finalizeRun(dealerKey, entry, dealId);   // real numeric id → invariant holds
-      rowIndex = fin.rowIndex;
+      var f = finalizeRunOrFail_(dealerKey, entry, dealId);   // real numeric id → invariant holds; idempotent
+      if (!f.ok) { f.dealId = dealId; return f; }
+      rowIndex = f.fin.rowIndex;
       pdNewDealCacheMerge_(token, { rowIndex: rowIndex });
-      pdPushStateSet_(rowIndex, { dealId: dealId, productsDone: false, fieldsDone: false });
+      if (!f.fin.reused) pdPushStateSet_(rowIndex, { dealId: dealId, productsDone: false, fieldsDone: false });
     }
 
     var state = pdPushStateGet_(rowIndex);
@@ -8374,7 +8400,9 @@ function finalizeRunExisting(dealerKey, entry, existingDealId) {
     var got = pdGetDeal_(id);
     if (!got.ok) return { ok: false, stage: 'deal', message: 'Could not find deal ' + id + ' in Pipedrive: ' + got.error, retryable: true };
 
-    var fin = finalizeRun(dealerKey, entry, id);   // col D = id
+    var f = finalizeRunOrFail_(dealerKey, entry, id);   // col D = id; idempotent (a retry reuses the row)
+    if (!f.ok) return f;
+    var fin = f.fin;
     var res = pushRunToPipedrive(dealerKey, fin.rowIndex, 'link', id);
     res.rowIndex = fin.rowIndex;
     if (res.ok) res.vinCount = (entry.producedVins || []).length;

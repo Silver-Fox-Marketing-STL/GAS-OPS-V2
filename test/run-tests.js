@@ -1891,6 +1891,236 @@ t('every view call into the ledger names a function that exists (google.script.r
 // The public endpoint is a one-liner over rlSheetStore_(); tests drive the same internal with the fake.
 function ledgerCommitRunsWith_(store, refs) { return rlCommitRuns_(store, refs); }
 
+// ============================================================================
+// Suite: run ledger finalize — one RUN_LOG row per output doc + group, and the
+// Pipedrive deal-id (col D) write, both through the strict fake store
+// ============================================================================
+suite('run ledger finalize');
+function entry_(o) {
+  o = o || {};
+  return {
+    totalOrdered: 12, totalMatched: 10,
+    billing: { totalNew: 7, totalPO: 3, totalCPO: 0, totalCPOEL: 0, newDupes: 1, poDupes: 0, cpoDupes: 0, cpoElDupes: 0, totalDupes: 1 },
+    outputDocId: o.doc !== undefined ? o.doc : 'DOC_A', durationSec: 81, errors: o.errors || [],
+    producedVins: o.vins || ['VA', 'VB'], note: o.note || ''
+  };
+}
+function finRec_(deal, o) { return rlRecordFromEntry_('PUNDMANN_FORD', 'Pundmann Ford', deal, entry_(o)); }
+var NOW_F = '2026-11-13 08:42:04';
+
+t('finalize appends one pending row in the exact RUN_LOG layout, stamped by the ledger clock', function () {
+  var s = makeFakeLedgerStore({ runLog: [], now: NOW_F });
+  var res = rlFinalizeRun_(s, finRec_('5509', { errors: ['x', 'y'] }));
+  assert.deepStrictEqual(res, { rowIndex: 2, timestamp: NOW_F, created: true });
+  var row = s._runLog()[0];
+  assert.strictEqual(row.length, RL_WIDTH);
+  assert.deepStrictEqual(row, [NOW_F, 'PUNDMANN_FORD', 'Pundmann Ford', '5509', 12, 10, 7, 3, 0, 0, 1, 0, 0, 0, 1,
+                               10, '', 'DOC_A', 81, 'x; y', '', 'VA,VB', '']);
+  assert.strictEqual(s._stats().locks, 1);
+});
+t('a retried finalize (same output doc + group + deal) returns the existing row and writes nothing', function () {
+  var s = makeFakeLedgerStore({ runLog: [], now: NOW_F });
+  rlFinalizeRun_(s, finRec_('5509'));
+  var writes = s._stats().writes;
+  s._setNow('2026-11-13 08:45:00');
+  assert.deepStrictEqual(rlFinalizeRun_(s, finRec_('5509')), { rowIndex: 2, timestamp: NOW_F, created: false });
+  assert.strictEqual(s._runLog().length, 1);
+  assert.strictEqual(s._stats().writes, writes);
+});
+t('split halves of one output doc are two runs (one row per billing group)', function () {
+  var s = makeFakeLedgerStore({ runLog: [], now: NOW_F });
+  assert.strictEqual(rlFinalizeRun_(s, finRec_('501', { note: 'SPLIT:PRIMARY' })).created, true);
+  assert.strictEqual(rlFinalizeRun_(s, finRec_('502', { note: 'SPLIT:SPRINTER' })).created, true);
+  assert.strictEqual(rlFinalizeRun_(s, finRec_('502', { note: 'SPLIT:SPRINTER' })).created, false);
+  assert.strictEqual(s._runLog().length, 2);
+});
+t('a retry under a different deal id is refused and nothing is written', function () {
+  var s = makeFakeLedgerStore({ runLog: [], now: NOW_F });
+  rlFinalizeRun_(s, finRec_('test'));
+  var writes = s._stats().writes;
+  assert.throws(function () { rlFinalizeRun_(s, finRec_('5509')); }, /already in the run log \(row 2\) under deal "test"\. Delete that row/);
+  assert.strictEqual(s._stats().writes, writes);
+});
+t('a deleted row does not block finalizing the same output doc again', function () {
+  var s = makeFakeLedgerStore({ runLog: [pf_({ ts: T1, deal: 'test', doc: 'DOC_A', status: 'deleted' })], now: NOW_F });
+  assert.deepStrictEqual(rlFinalizeRun_(s, finRec_('5509')), { rowIndex: 3, timestamp: NOW_F, created: true });
+});
+t('a run with no output doc has no retry key, so each finalize appends', function () {
+  var s = makeFakeLedgerStore({ runLog: [], now: NOW_F });
+  rlFinalizeRun_(s, finRec_('test', { doc: '' }));
+  rlFinalizeRun_(s, finRec_('test', { doc: '' }));
+  assert.strictEqual(s._runLog().length, 2);
+});
+t('finalize needs a dealer and a deal id; a busy lock writes nothing', function () {
+  var s = makeFakeLedgerStore({ runLog: [] });
+  assert.throws(function () { rlFinalizeRun_(s, finRec_(' ')); }, /A Deal ID is required/);
+  assert.throws(function () { rlFinalizeRun_(s, rlRecordFromEntry_('', '', '1', entry_())); }, /No dealer key/);
+  var b = makeFakeLedgerStore({ runLog: [], lockBusy: true });
+  assert.throws(function () { rlFinalizeRun_(b, finRec_('1')); }, /Another change is in progress/);
+  assert.strictEqual(b._stats().writes, 0);
+});
+t('a finalized row commits and its batch tag is its run time (finalize → commit round trip)', function () {
+  var s = makeFakeLedgerStore({ runLog: [], vinLogs: { PUNDMANN_FORD: [] }, now: NOW_F });
+  rlFinalizeRun_(s, finRec_('5509'));
+  assert.strictEqual(ledgerCommitRunsWith_(s, [{ dealerKey: 'PUNDMANN_FORD', outputDocId: 'DOC_A', note: '' }]).committed, 2);
+  assert.deepStrictEqual(vinCol_(s, 'PUNDMANN_FORD', 4), [NOW_F, NOW_F]);
+});
+
+function dref_(row, o) { return Object.assign({ rowIndex: row, dealerKey: 'PUNDMANN_FORD', outputDocId: 'DOC_A', note: '' }, o || {}); }
+t('deal id: written to col D under the lock; the same id again is a no-op', function () {
+  var s = makeFakeLedgerStore({ runLog: [pf_({ ts: T1, deal: 'test', doc: 'DOC_A' })] });
+  assert.deepStrictEqual(rlSetDealId_(s, dref_(2), 5509), { rowIndex: 2, changed: true });
+  assert.strictEqual(s._runLog()[0][RL_COL.DEAL_ID], '5509');
+  var writes = s._stats().writes;
+  assert.deepStrictEqual(rlSetDealId_(s, dref_(2), '5509'), { rowIndex: 2, changed: false });
+  assert.strictEqual(s._stats().writes, writes);
+});
+t('deal id: a real deal is never repointed, and a committed run keeps the id its batch is filed under', function () {
+  var s = makeFakeLedgerStore({ runLog: [pf_({ ts: T1, deal: '5509', doc: 'DOC_A' }),
+                                         pf_({ ts: T2, deal: 'PENDING-1', doc: 'DOC_B', status: 'committed' })] });
+  assert.throws(function () { rlSetDealId_(s, dref_(2), '5600'); }, /already linked to deal 5509, so it was not changed to 5600/);
+  assert.throws(function () { rlSetDealId_(s, dref_(3, { outputDocId: 'DOC_B' }), '5600'); }, /roll it back on the VIN Logs page before changing/);
+  assert.strictEqual(s._stats().writes, 0);
+});
+t('deal id: a ref that no longer names the row (other doc / group / dealer / missing row) is refused', function () {
+  var s = makeFakeLedgerStore({ runLog: [pf_({ ts: T1, deal: 'test', doc: 'DOC_A' })] });
+  [dref_(2, { outputDocId: 'DOC_X' }), dref_(2, { note: 'SPLIT:SPRINTER' }), dref_(2, { dealerKey: 'BMW_WEST_STL' }), dref_(9)]
+    .forEach(function (ref) { assert.throws(function () { rlSetDealId_(s, ref, '1'); }, /no longer matches this run/); });
+  assert.throws(function () { rlSetDealId_(s, dref_(2), ' '); }, /No deal ID to record/);
+});
+t('deal id pre-check (before a deal is created): placeholder ok, real deal or committed placeholder refused', function () {
+  var pend = rlDecodeRow_(pf_({ ts: T1, deal: 'test' }), 2);
+  var real = rlDecodeRow_(pf_({ ts: T1, deal: '5509' }), 2);
+  var comm = rlDecodeRow_(pf_({ ts: T1, deal: 'X1', status: 'committed' }), 2);
+  assert.strictEqual(rlDealIdChangeProblem_(pend, null), '');
+  assert.strictEqual(rlDealIdChangeProblem_(real, '5509'), '');
+  assert.match(rlDealIdChangeProblem_(real, null), /already linked to deal 5509\./);
+  assert.match(rlDealIdChangeProblem_(comm, null), /roll it back/);
+});
+
+t('Code.gs finalizeRun: writes the stats side-rows once — a retry reuses the row and skips them', function () {
+  var s = makeFakeLedgerStore({ runLog: [], now: NOW_F });
+  var saved = { store: globalThis.rlSheetStore_, cfg: globalThis.getDealerConfig_, stats: globalThis.writeRunStats_ };
+  var statCalls = [];
+  try {
+    globalThis.rlSheetStore_    = function () { return s; };
+    globalThis.getDealerConfig_ = function (k) { var c = []; c[CFG.KEY] = k; c[CFG.NAME] = 'Pundmann Ford'; return c; };
+    globalThis.writeRunStats_   = function (cfg, ts, id) { statCalls.push([ts, id]); };
+    assert.deepStrictEqual(finalizeRun('PUNDMANN_FORD', entry_(), '5509'), { rowIndex: 2, vinCount: 2, reused: false });
+    assert.deepStrictEqual(finalizeRun('PUNDMANN_FORD', entry_(), '5509'), { rowIndex: 2, vinCount: 2, reused: true });
+    assert.deepStrictEqual(statCalls, [[NOW_F, '5509']]);
+    assert.strictEqual(s._runLog().length, 1);
+    var f = finalizeRunOrFail_('PUNDMANN_FORD', entry_(), '5600');       // a retry under another deal
+    assert.strictEqual(f.ok, false);
+    assert.strictEqual(f.stage, 'finalize');
+    assert.strictEqual(f.retryable, false);
+    assert.match(f.message, /under deal "5509"/);
+  } finally {
+    globalThis.rlSheetStore_ = saved.store; globalThis.getDealerConfig_ = saved.cfg; globalThis.writeRunStats_ = saved.stats;
+  }
+});
+t('real adapter: a VIN-log append stores order id, VIN and run_ref as text (run_ref never becomes a Date)', function () {
+  var formats = [], written = null;
+  var sheet = {
+    getMaxColumns: function () { return 5; }, getLastRow: function () { return 7; },
+    getRange: function (r, c, nr, nc) {
+      return {
+        getValue: function () { return 'run_ref'; },
+        setNumberFormat: function (f) { formats.push([r, c, nr || 1, nc || 1, f]); },
+        setValues: function (v) { written = v; }
+      };
+    }
+  };
+  var saved = { ss: globalThis.getVinLogsSS_, lock: globalThis.LockService, flush: SpreadsheetApp.flush };
+  try {
+    globalThis.getVinLogsSS_ = function () { return { getSheetByName: function () { return sheet; } }; };
+    globalThis.LockService   = { getScriptLock: function () { return { waitLock: function () {}, releaseLock: function () {} }; } };
+    SpreadsheetApp.flush     = function () {};
+    var real = rlSheetStore_();
+    real.withLock(function () { real.appendVinLog('PUNDMANN_FORD', [['5509', 'VA', NOW_F, NOW_F, NOW_F]]); });
+    assert.deepStrictEqual(formats.filter(function (f) { return f[1] === 5; }), [[8, 5, 1, 1, '@']]);   // col E, before the write
+    assert.strictEqual(formats.filter(function (f) { return f[1] === 1 && f[3] === 2; }).length, 2);   // A–B before + after
+    assert.deepStrictEqual(written, [['5509', 'VA', NOW_F, NOW_F, NOW_F]]);
+  } finally {
+    globalThis.getVinLogsSS_ = saved.ss; globalThis.LockService = saved.lock; SpreadsheetApp.flush = saved.flush;
+  }
+});
+// pushRunToPipedrive with every Pipedrive/Properties call stubbed and the ledger on the fake store.
+function withPushStubs_(store, pushState, fn) {
+  var names = ['rlSheetStore_', 'getPipedriveStatus', 'pdResolveRunContext_', 'pdCheckInactiveProducts_', 'pdPushStateGet_',
+               'pdPushStateSet_', 'pdPushStateClear_', 'pdResolveDealId_', 'pdApplyDealContents_'];
+  var saved = {}; names.forEach(function (n) { saved[n] = globalThis[n]; });
+  var savedActive = SpreadsheetApp.getActiveSpreadsheet;
+  var calls = { created: 0 };
+  try {
+    globalThis.rlSheetStore_            = function () { return store; };
+    globalThis.getPipedriveStatus       = function () { return { configured: true }; };
+    globalThis.pdResolveRunContext_     = function () { return { ok: true, pdCfg: {}, currency: 'USD', lineItems: [] }; };
+    globalThis.pdCheckInactiveProducts_ = function () { return null; };
+    globalThis.pdPushStateGet_          = function () { return JSON.parse(JSON.stringify(pushState)); };
+    globalThis.pdPushStateSet_          = function () {};
+    globalThis.pdPushStateClear_        = function () {};
+    globalThis.pdResolveDealId_         = function () { calls.created++; return { ok: true, dealId: 7001 }; };
+    globalThis.pdApplyDealContents_     = function () { return { ok: true, fieldsSet: 0 }; };
+    SpreadsheetApp.getActiveSpreadsheet = function () {
+      return { getSheetByName: function () {
+        return { getLastRow: function () { return store._runLog().length + 1; },
+                 getRange: function (r) { return { getValues: function () { return [store.readRun(r)]; } }; } };
+      } };
+    };
+    fn(calls);
+  } finally {
+    names.forEach(function (n) { globalThis[n] = saved[n]; });
+    SpreadsheetApp.getActiveSpreadsheet = savedActive;
+  }
+}
+t('push (create): the new deal id lands in col D through the ledger', function () {
+  var s = makeFakeLedgerStore({ runLog: [pf_({ ts: T1, deal: 'test', doc: 'DOC_A' })] });
+  withPushStubs_(s, { dealId: '' }, function (calls) {
+    var res = pushRunToPipedrive('PUNDMANN_FORD', 2, 'create');
+    assert.strictEqual(res.ok, true, res.message);
+    assert.strictEqual(calls.created, 1);
+    assert.strictEqual(s._runLog()[0][RL_COL.DEAL_ID], '7001');
+  });
+});
+t('push retry: an id kept in the push state still lands in col D when the earlier write failed', function () {
+  var s = makeFakeLedgerStore({ runLog: [pf_({ ts: T1, deal: 'test', doc: 'DOC_A' })] });
+  withPushStubs_(s, { dealId: '7001' }, function (calls) {
+    assert.strictEqual(pushRunToPipedrive('PUNDMANN_FORD', 2, 'create').ok, true);
+    assert.strictEqual(calls.created, 0);                                   // adopted, not re-created
+    assert.strictEqual(s._runLog()[0][RL_COL.DEAL_ID], '7001');
+  });
+});
+t('push: a committed run filed under a placeholder is refused BEFORE any deal is created', function () {
+  var s = makeFakeLedgerStore({ runLog: [pf_({ ts: T1, deal: 'PENDING-1', doc: 'DOC_A', status: 'committed' })] });
+  withPushStubs_(s, { dealId: '' }, function (calls) {
+    var res = pushRunToPipedrive('PUNDMANN_FORD', 2, 'create');
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.stage, 'gate');
+    assert.match(res.message, /roll it back/);
+    assert.strictEqual(calls.created, 0);
+    assert.strictEqual(s._stats().writes, 0);
+  });
+});
+t('push (link): linking a different deal than the one already in col D is refused', function () {
+  var s = makeFakeLedgerStore({ runLog: [pf_({ ts: T1, deal: '5509', doc: 'DOC_A' })] });
+  withPushStubs_(s, { dealId: '' }, function () {
+    var res = pushRunToPipedrive('PUNDMANN_FORD', 2, 'link', '5600');
+    assert.strictEqual(res.ok, false);
+    assert.match(res.message, /already linked to deal 5509/);
+    assert.strictEqual(s._runLog()[0][RL_COL.DEAL_ID], '5509');
+  });
+});
+t('Code.gs writes no RUN_LOG row or col-D deal id itself (the ledger is the only writer)', function () {
+  assert.strictEqual(codeSource.indexOf('writeRunLog_'), -1, 'writeRunLog_ still referenced');
+  assert.strictEqual(/getRange\(\s*runRowIndex\s*,\s*4\s*\)/.test(codeSource), false, 'raw col-D write still present');
+  assert.strictEqual(codeSource.slice(codeSource.indexOf('SECTION 14: RUN LOG'), codeSource.indexOf('SECTION 15:')).indexOf("'RUN_LOG'"), -1,
+                     'Section 14 still opens RUN_LOG directly');
+  ['ledgerFinalizeRun_', 'ledgerSetDealId_', 'ledgerFinalizedRunFor_'].forEach(function (n) {
+    assert.strictEqual(typeof globalThis[n], 'function', n + ' missing');
+  });
+});
+
 // ── Report ───────────────────────────────────────────────────────────────────
 function report_() {
   var totalPass = 0, totalFail = 0;
