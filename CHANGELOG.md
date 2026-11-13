@@ -216,6 +216,10 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   to the brain backlog; `CLAUDE.md` line count refreshed.
 
 ### Fixed
+- **Luna (Windows XP) theme: AND and OR chips looked identical** (2026-11-13; debt C18).
+  Luna's `--info` was the same blue as its `--accent`, so the targeting-rule editor's
+  ALL (AND) and ANY (OR) chips (and info tags vs accent) were indistinguishable. Luna's
+  info is now teal (`#0e7c86` / `#d4eef0`).
 - **VIN Logs dealer dropdown showed the wrong name after a jump from another view**
   (2026-11-13; debt C1). `vinlogPreselectDealer` set the select's value but never synced
   the CustomSelect facade; it now calls `CustomSelect.refresh(sel)`, like
@@ -289,6 +293,15 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   confirmed restored to DEV); Nick re-ran the deal 5326 push and it completed.
 
 ### Removed
+- **VIN Inbox: the dead "processed" write path** (2026-11-13; debt C17). The Processed
+  button went away on 2026-07-10, but `updateVinSubmissionStatus(es)` still accepted the
+  status. `LOT_SUB_STATUSES` is now the settable set `draft | submitted | discarded`;
+  older rows that carry `processed` stay hidden from the inbox and `sweepLotPhotos`
+  still trashes their photos. The lot-scan project's own copy is untouched.
+- **Field Codes: the per-view `.badge` style** (2026-11-13; debt C18). The Source column
+  uses the shared `.tag` component (built-in = neutral, custom = info, overridden =
+  warning). Pipedrive Settings' org "Change" link uses `--radius-sm` instead of a 3px
+  literal.
 - **`backfillVinLogOrderDates()`** (2026-11-13, run ledger step 4). The one-time July 2026
   editor-run repair that filled VIN-log col D from RUN_LOG; its job is done, and it was
   the last code writing SF_VIN_LOGS outside the run ledger. Recoverable from git history.

@@ -59,6 +59,9 @@
 
 <style>
   #view-fieldcodes * { box-sizing: border-box; margin: 0; padding: 0; }
+  /* The reset above (1,0,0) beats the unscoped .tag rule (0,1,0) — give the
+     Source tags their padding back (same fix as ViewAddDealer). */
+  #view-fieldcodes .tag { padding: 2px 8px; }
   #view-fieldcodes {
     font-family: var(--font-body);
     font-size: 13px;
@@ -147,22 +150,6 @@
   #view-fieldcodes td.col-source { white-space: nowrap; }
   #view-fieldcodes td.col-actions { text-align: center; white-space: nowrap; }
 
-  /* Source badge */
-  #view-fieldcodes .badge {
-    display: inline-block;
-    padding: 2px 7px;
-    font-size: 10px;
-    font-weight: bold;
-    text-transform: uppercase;
-    letter-spacing: .3px;
-    border-radius: 10px;
-    border: 1px solid var(--border-2);
-    color: var(--text-3);
-    background: var(--surface-2);
-  }
-  #view-fieldcodes .badge.builtin    { color: var(--text-3); background: var(--surface-2); border-color: var(--border-2); }
-  #view-fieldcodes .badge.custom     { color: var(--accent); background: var(--accent-weak); border-color: var(--accent); }
-  #view-fieldcodes .badge.overridden { color: var(--warning-strong); background: var(--warning-weak); border-color: var(--warning); }
 
   /* Inline edit row */
   #view-fieldcodes tr.editing td { background: var(--accent-weak); padding: 5px 8px; }
@@ -355,9 +342,9 @@
   }
 
   function fcSourceBadge(source) {
-    if (source === 'config')   return '<span class="badge custom">custom</span>';
-    if (source === 'override') return '<span class="badge overridden">overridden</span>';
-    return '<span class="badge builtin">built-in</span>';
+    if (source === 'config')   return '<span class="tag tone-info">custom</span>';
+    if (source === 'override') return '<span class="tag tone-warning">overridden</span>';
+    return '<span class="tag tone-neutral">built-in</span>';
   }
 
   function fcMkBtn(label, onclick, cls, disabled, title) {

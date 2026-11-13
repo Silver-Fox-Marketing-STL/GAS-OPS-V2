@@ -8477,7 +8477,7 @@ function attachBillingCsvToDeal_(dealId, outputDocId, group, meta) {
 // The standalone Lot Scanner app (a SEPARATE Apps Script project) writes one row
 // per photographed VIN to the shared SF_LOT_SUBMISSIONS sheet + a Drive photos
 // folder. This section is the office-side inbox the ViewVinInbox view reads:
-// review/correct the OCR'd VIN, mark processed/discarded, and copy a dealer's
+// review/correct the OCR'd VIN, discard bad reads, and copy a dealer's
 // confirmed VINs into Run Order. Connection is by ID only — no shared runtime.
 // ============================================================================
 
@@ -8490,8 +8490,11 @@ var LOT_SUB = {
   YEAR: 11, MAKE: 12, MODEL: 13, TYPE: 14, STOCK: 15, STATUS: 16, PROCESSED_TS: 17, PROCESSED_BY: 18, NOTES: 19,
   BATCH_ID: 20, OCR_STATE: 21
 };
-// Human lifecycle: draft (field still owns) | submitted (field-sent / real-time) | processed | discarded.
-var LOT_SUB_STATUSES = ['draft', 'submitted', 'processed', 'discarded'];
+// Human lifecycle: draft (field still owns) | submitted (field-sent / real-time) | discarded.
+// These are the statuses the office may SET. 'processed' is retired (its button was
+// removed 2026-07-10): older rows still carry it and stay hidden from the inbox, and
+// sweepLotPhotos still trashes their photos — but nothing writes it any more.
+var LOT_SUB_STATUSES = ['draft', 'submitted', 'discarded'];
 
 function getLotSubmissionsSheet_() {
   if (!LOT_SUBMISSIONS_SHEET_ID) return null;
@@ -8901,14 +8904,14 @@ function updateVinSubmissionStatus(submissionId, status, correctedVin) {
 
       var by = '';
       try { by = Session.getActiveUser().getEmail() || ''; } catch (e2) {}
-      var ts = (status === 'processed' || status === 'discarded')
+      var ts = (status === 'discarded')
         ? Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'America/Chicago', 'yyyy-MM-dd HH:mm:ss')
         : '';
       // cols 17..19 (1-based): status, processed_ts, processed_by
       sh.getRange(rowNum, LOT_SUB.STATUS + 1, 1, 3).setValues([[status, ts, by]]);
-      // Discard/processed rows render nowhere again — trash the photo (best-effort).
+      // Discarded rows render nowhere again — trash the photo (best-effort).
       var photoTrashed = null;
-      if (status === 'discarded' || status === 'processed') {
+      if (status === 'discarded') {
         photoTrashed = trashLotPhoto_(data[i][LOT_SUB.PHOTO_ID]);
       }
       return { ok: true, valid: resultValid, matched: resultMatched, photoTrashed: photoTrashed };
@@ -8941,11 +8944,11 @@ function updateVinSubmissionStatuses(submissionIds, status) {
 
     var by = '';
     try { by = Session.getActiveUser().getEmail() || ''; } catch (e2) {}
-    var ts = (status === 'processed' || status === 'discarded')
+    var ts = (status === 'discarded')
       ? Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'America/Chicago', 'yyyy-MM-dd HH:mm:ss')
       : '';
 
-    var doTrash = (status === 'discarded' || status === 'processed');
+    var doTrash = (status === 'discarded');
     var updated = 0, missing = 0, photosTrashed = 0, photosFailed = 0;
     ids.forEach(function (id) {
       // Rows can shift mid-loop (scanner-project deleteRow; LockService can't
@@ -8953,7 +8956,7 @@ function updateVinSubmissionStatuses(submissionIds, status) {
       // loop seconds long). Re-verify the ID at the cached position right
       // before writing; re-locate by ID if it moved, count missing if gone.
       // Same discipline as runInboxOcr — an unverified version of this loop
-      // stamped discarded/processed onto the wrong (shifted-up) rows.
+      // stamped discarded onto the wrong (shifted-up) rows.
       var rowNum = rowById[id];
       if (rowNum && String(sh.getRange(rowNum, LOT_SUB.ID + 1).getValue()) !== id) rowNum = 0;
       if (!rowNum) {
@@ -8982,7 +8985,7 @@ function updateVinSubmissionStatuses(submissionIds, status) {
 
 /**
  * Editor-run backlog sweep (NOT client-callable). Trashes the Drive photo of
- * every row already marked discarded/processed. Idempotent — setTrashed on an
+ * every row already marked discarded (or the retired 'processed'). Idempotent — setTrashed on an
  * already-trashed file is a no-op; crew-owned files the office can't trash just
  * log/count as failed. Rows are retained (never deleteRow'd).
  * @returns {string} 'sweepLotPhotos: scanned=N trashed=N failed=N'
