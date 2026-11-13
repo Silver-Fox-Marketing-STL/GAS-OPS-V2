@@ -198,17 +198,32 @@
       table-layout: fixed;   /* fixed columns (Timestamp/Deal ID/VINs/Status) — no jitter as the band widens */
       font-variant-numeric: tabular-nums;   /* Deal ID / VIN counts align — no digit-width shift */
     }
-    /* Static column widths — 4 columns per-dealer (Timestamp/Deal ID/VINs/Status) */
-    #view-vinlog #runsTable th:nth-child(1), #view-vinlog #runsTable td:nth-child(1) { width: 40%; }
-    #view-vinlog #runsTable th:nth-child(2), #view-vinlog #runsTable td:nth-child(2) { width: 26%; }
-    #view-vinlog #runsTable th:nth-child(3), #view-vinlog #runsTable td:nth-child(3) { width: 14%; }
-    #view-vinlog #runsTable th:nth-child(4), #view-vinlog #runsTable td:nth-child(4) { width: 20%; }
-    /* All-Dealers mode adds a Dealer column (Timestamp/Dealer/Deal ID/VINs/Status) */
-    #view-vinlog #runsTable.with-dealer th:nth-child(1), #view-vinlog #runsTable.with-dealer td:nth-child(1) { width: 26%; }
-    #view-vinlog #runsTable.with-dealer th:nth-child(2), #view-vinlog #runsTable.with-dealer td:nth-child(2) { width: 26%; }
-    #view-vinlog #runsTable.with-dealer th:nth-child(3), #view-vinlog #runsTable.with-dealer td:nth-child(3) { width: 20%; }
-    #view-vinlog #runsTable.with-dealer th:nth-child(4), #view-vinlog #runsTable.with-dealer td:nth-child(4) { width: 12%; }
-    #view-vinlog #runsTable.with-dealer th:nth-child(5), #view-vinlog #runsTable.with-dealer td:nth-child(5) { width: 16%; }
+    /* Static column widths — 4 columns per-dealer (Timestamp/Deal ID/VINs/Status).
+       The table lives in the ~750px left column, so budget in px at that width:
+       VINs must hold "22 " + the Show VINs button (~95px + cell padding),
+       Status must hold the ROLLED_BACK badge (~100px). The SPLIT:* badge sits
+       on its own line under the timestamp (display:block), so Timestamp only
+       needs the 19-char stamp (~125px). Sep 23, 2026 audit: at the old
+       24/24/18/12/14/8 split, VINs showed "11 …" and the badge "S…". */
+    #view-vinlog #runsTable th:nth-child(1), #view-vinlog #runsTable td:nth-child(1) { width: 32%; }
+    #view-vinlog #runsTable th:nth-child(2), #view-vinlog #runsTable td:nth-child(2) { width: 20%; }
+    #view-vinlog #runsTable th:nth-child(3), #view-vinlog #runsTable td:nth-child(3) { width: 22%; }
+    #view-vinlog #runsTable th:nth-child(4), #view-vinlog #runsTable td:nth-child(4) { width: 18%; }
+    #view-vinlog #runsTable th:nth-child(5), #view-vinlog #runsTable td:nth-child(5) { width: 8%; text-align: center; }
+    /* All-Dealers mode adds a Dealer column (Timestamp/Dealer/Deal ID/VINs/Status).
+       Dealer names longer than the cell ellipsize (full name in the title tooltip). */
+    #view-vinlog #runsTable.with-dealer th:nth-child(1), #view-vinlog #runsTable.with-dealer td:nth-child(1) { width: 21%; }
+    #view-vinlog #runsTable.with-dealer th:nth-child(2), #view-vinlog #runsTable.with-dealer td:nth-child(2) { width: 24%; }
+    #view-vinlog #runsTable.with-dealer th:nth-child(3), #view-vinlog #runsTable.with-dealer td:nth-child(3) { width: 12%; }
+    #view-vinlog #runsTable.with-dealer th:nth-child(4), #view-vinlog #runsTable.with-dealer td:nth-child(4) { width: 21%; }
+    #view-vinlog #runsTable.with-dealer th:nth-child(5), #view-vinlog #runsTable.with-dealer td:nth-child(5) { width: 15%; }
+    #view-vinlog #runsTable.with-dealer th:nth-child(6), #view-vinlog #runsTable.with-dealer td:nth-child(6) { width: 7%; text-align: center; }
+    /* Billing-split note badge — its own line under the timestamp so it never
+       fights the stamp for width (a block child breaks the line even inside
+       the nowrap cell). Only split rows get the second line. */
+    #view-vinlog .vl-note-badge { display: block; width: fit-content; margin-top: 3px;
+      font-size: 10px; line-height: 1.4; padding: 1px 5px; border-radius: 3px;
+      background: var(--info-weak); color: var(--info); white-space: nowrap; }
     #view-vinlog #runsTable td {
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
@@ -239,14 +254,27 @@
     #view-vinlog .status-pending { background: var(--warning-weak); color: var(--warning-strong); }
     #view-vinlog .status-committed { background: var(--success-weak); color: var(--success); }
     #view-vinlog .status-rolled_back { background: var(--danger-weak); color: var(--danger); }
+    #view-vinlog .status-manual { background: var(--info-weak); color: var(--info); }
 
     /* ── Show VINs button (inside runs table VIN count cell) ──────────────── */
+    /* Compact in-row controls in the shared .btn-secondary grammar (body
+       font, bold, token colors) — a bare <button> here inherits the browser's
+       system font and reads as an unstyled control in the dark themes. */
     #view-vinlog .vl-show-vins-btn {
-      font-size: 10px; padding: 2px 6px; margin-left: 5px; vertical-align: middle;
+      font-family: var(--font-body); font-weight: 700;
+      font-size: 10px; padding: 2px 7px; margin-left: 5px; vertical-align: middle;
       border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text-2);
-      border-radius: 3px; cursor: pointer; line-height: 1.4;
+      border-radius: var(--radius-sm); cursor: pointer; line-height: 1.4;
     }
-    #view-vinlog .vl-show-vins-btn:hover { background: var(--bg); color: var(--text); }
+    #view-vinlog .vl-show-vins-btn:hover { background: var(--bg); color: var(--text); border-color: var(--text-muted); }
+    #view-vinlog .vl-delete-btn {
+      font-family: var(--font-body); font-weight: 700;
+      font-size: 11px; padding: 2px 7px; vertical-align: middle;
+      border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text-muted);
+      border-radius: var(--radius-sm); cursor: pointer; line-height: 1.4;
+    }
+    #view-vinlog .vl-delete-btn:hover { background: var(--danger-weak); color: var(--danger); border-color: var(--danger); }
+    #view-vinlog .vl-delete-btn:disabled { opacity: 0.5; cursor: default; }
 
     /* ── VIN popup overlay ────────────────────────────────────────────────── */
     #vlVinPopup {
@@ -456,6 +484,13 @@
     // Dealer list comes from the shared AppData bootstrap (one server call per
     // session instead of a second getActiveDealersForUI execution).
     function initVinlogView() {
+      // Listeners FIRST: AppData.get fires synchronously once the App's
+      // prefetch has landed (always, by the time you leave Home), and the
+      // callback dispatches the initial All-Dealers 'change' — registering the
+      // listener afterwards left the runs list empty on first visit
+      // (Sep 2026 screenshot audit).
+      registerVinlogListeners();
+
       AppData.get(function(data, err) {
         if (!data) {
           document.getElementById('vinlogDealerSelect').innerHTML = '<option value="">Error loading dealers</option>';
@@ -478,8 +513,6 @@
           sel.dispatchEvent(new Event('change'));   // initial All-Dealers load
         }
       });
-
-      registerVinlogListeners();
     }
 
     window.VIEW_INITS = window.VIEW_INITS || {};
@@ -493,6 +526,7 @@
       if (!vinlogDealersLoaded) { pendingPreselectKey = key; return; }
       var sel = document.getElementById('vinlogDealerSelect');
       sel.value = key;
+      if (window.CustomSelect) CustomSelect.refresh(sel);   // sync the enhanced facade to the programmatic value (C1)
       sel.dispatchEvent(new Event('change'));
     }
 
@@ -582,7 +616,7 @@
 
       var html = '<table id="runsTable"' + (allMode ? ' class="with-dealer"' : '') + '><thead><tr>' +
         '<th>Timestamp</th>' + (allMode ? '<th>Dealer</th>' : '') +
-        '<th>Deal ID</th><th>VINs</th><th>Status</th>' +
+        '<th>Deal ID</th><th>VINs</th><th>Status</th><th></th>' +
         '</tr></thead><tbody>';
 
       runs.forEach(function(run, idx) {
@@ -591,7 +625,7 @@
         // Billing-split runs write two rows sharing a timestamp — the SPLIT:*
         // note badge is what tells them apart (e.g. SPLIT:PRIMARY / SPLIT:SPRINTER).
         var noteBadge = (run.note && run.note.indexOf('SPLIT:') === 0)
-          ? ' <span style="font-size:10px;background:var(--info-weak);color:var(--info);border-radius:3px;padding:1px 5px;white-space:nowrap;">' + run.note + '</span>'
+          ? '<span class="vl-note-badge">' + escHtml(run.note) + '</span>'
           : '';
         var vinCell = run.vinCount +
           (run.producedVins && run.producedVins.length
@@ -601,9 +635,11 @@
           '<td>' + run.timestamp + noteBadge + '</td>' +
           (allMode ? '<td title="' + escHtml(run.dealerName || run.dealerKey || '') + '">' +
             escHtml(run.dealerName || run.dealerKey || '—') + '</td>' : '') +
-          '<td>' + (run.dealId || '<em style="color:var(--text-muted)">—</em>') + '</td>' +
+          '<td>' + (run.dealId ? escHtml(run.dealId) : '<em style="color:var(--text-muted)">—</em>') + '</td>' +
           '<td>' + vinCell + '</td>' +
           '<td><span class="status-badge ' + statusClass + '">' + statusLabel + '</span></td>' +
+          // Manual entries are read-only (no run log row to delete).
+          '<td>' + (run.manual ? '' : '<button class="vl-delete-btn" title="Delete this run" onclick="event.stopPropagation();deleteRunRow(' + idx + ', this)">✕</button>') + '</td>' +
           '</tr>';
       });
 
@@ -632,7 +668,7 @@
       detail.innerHTML =
         (allMode && run.dealerName ? '<strong>Dealer:</strong> ' + escHtml(run.dealerName) + '<br>' : '') +
         '<strong>Timestamp:</strong> ' + run.timestamp + '<br>' +
-        '<strong>Deal ID:</strong> '   + (run.dealId || '—') + '<br>' +
+        '<strong>' + (run.manual ? 'Order' : 'Deal ID') + ':</strong> ' + escHtml(run.dealId || '—') + '<br>' +
         '<strong>VINs:</strong> '      + run.vinCount + ' vehicle' + (run.vinCount === 1 ? '' : 's');
 
       if (run.note && run.note.indexOf('SPLIT:') === 0) {
@@ -648,6 +684,17 @@
       var isTest = vinlogIsTestRun_(run);
       if (isTest) {
         detail.innerHTML += '<br><em style="color:var(--text-muted)">Test run — cannot be committed to the VIN log.</em>';
+      }
+
+      if (run.manual) {
+        // A manual entry has no run log row: nothing to commit, roll back or push.
+        detail.innerHTML += '<br><em style="color:var(--text-muted)">Manual entry — added on this page, read-only here.</em>';
+        commitBtn.disabled   = true;
+        rollbackBtn.disabled = true;
+        panel.style.display = 'block';
+        setVinlogStatus('', 'empty');
+        document.getElementById('pushPanel').style.display = 'none';
+        return;
       }
 
       if (status === 'pending') {
@@ -754,7 +801,7 @@
 
     // ── Commit ──────────────────────────────────────────────────────────────
     function commitRun() {
-      if (!selectedRun) return;
+      if (!selectedRun || selectedRun.manual) return;
       if (!selectedRun.dealId) {
         setVinlogStatus('This run has no Deal ID. Cannot commit without a Deal ID.', 'error');
         return;
@@ -776,8 +823,9 @@
 
       google.script.run
         .withSuccessHandler(function(result) {
-          setVinlogStatus('Committed ' + result.committed + ' VINs to the ' +
-            dealerName + ' VIN log.', 'success');
+          setVinlogStatus(result.skippedCommitted
+            ? 'This run was already committed — nothing new was written.'
+            : 'Committed ' + result.committed + ' VINs to the ' + dealerName + ' VIN log.', 'success');
           btn.textContent = 'Commit to VIN Log';
           loadRuns(sel.value);                          // reload whatever view mode is showing
           if (sel.value) loadLatestOrderId(sel.value);  // latest-order row is dealer-mode only
@@ -786,12 +834,18 @@
           setVinlogStatus('Commit failed: ' + e.message, 'error');
           btn.disabled = false; btn.textContent = 'Commit to VIN Log';
         })
-        .commitRunToVINLog(dealerKey, selectedRun.rowIndex, selectedRun.dealId, selectedRun.producedVins);
+        .ledgerCommitRuns([vinlogRunRef_(selectedRun, dealerKey)]);
+    }
+
+    // Which run, by fingerprint — the server re-reads the VINs, deal id and date
+    // from the run log row itself (RunLedger.gs rlResolveRef_).
+    function vinlogRunRef_(run, dealerKey) {
+      return { rowIndex: run.rowIndex, dealerKey: dealerKey, timestamp: run.timestamp, dealId: run.dealId };
     }
 
     // ── Rollback ────────────────────────────────────────────────────────────
     function rollbackRun() {
-      if (!selectedRun) return;
+      if (!selectedRun || selectedRun.manual) return;
 
       // The run's own dealer — the select is '' in All-Dealers mode.
       var sel = document.getElementById('vinlogDealerSelect');
@@ -800,36 +854,54 @@
       var btn = document.getElementById('rollbackBtn');
 
       btn.disabled = true; btn.textContent = 'Rolling back...';
-      setVinlogStatus('Looking up committed_at timestamp...', 'info');
+      setVinlogStatus('Removing this run\'s entries from the VIN log...', 'info');
 
       google.script.run
-        .withSuccessHandler(function(committedAt) {
-          if (!committedAt) {
-            setVinlogStatus('Could not find committed entries for this run in the VIN log.', 'error');
-            btn.disabled = false; btn.textContent = 'Rollback';
-            return;
-          }
-          setVinlogStatus('Removing entries from VIN log...', 'info');
-
-          google.script.run
-            .withSuccessHandler(function(result) {
-              setVinlogStatus('Rolled back ' + result.removed + ' entries from the ' +
-                dealerName + ' VIN log.', 'success');
-              btn.textContent = 'Rollback';
-              loadRuns(sel.value);                          // reload whatever view mode is showing
-              if (sel.value) loadLatestOrderId(sel.value);  // latest-order row is dealer-mode only
-            })
-            .withFailureHandler(function(e) {
-              setVinlogStatus('Rollback failed: ' + e.message, 'error');
-              btn.disabled = false; btn.textContent = 'Rollback';
-            })
-            .rollbackRunFromVINLog(dealerKey, selectedRun.rowIndex, selectedRun.dealId, committedAt);
+        .withSuccessHandler(function(result) {
+          setVinlogStatus('Rolled back ' + result.removed + ' entries from the ' +
+            dealerName + ' VIN log.', 'success');
+          btn.textContent = 'Rollback';
+          loadRuns(sel.value);                          // reload whatever view mode is showing
+          if (sel.value) loadLatestOrderId(sel.value);  // latest-order row is dealer-mode only
         })
         .withFailureHandler(function(e) {
-          setVinlogStatus('Error fetching committed_at: ' + e.message, 'error');
+          setVinlogStatus('Rollback failed: ' + e.message, 'error');
           btn.disabled = false; btn.textContent = 'Rollback';
         })
-        .getCommittedAt(dealerKey, selectedRun.dealId);
+        .ledgerRollbackRun(vinlogRunRef_(selectedRun, dealerKey));
+    }
+
+    // ── Delete (soft: RUN_LOG col W = 'deleted'; committed runs roll back first) ──
+    function deleteRunRow(idx, btn) {
+      var run = document.getElementById('runsContainer')._runs[idx];
+      if (!run || run.manual) return;
+      var sel = document.getElementById('vinlogDealerSelect');
+      var dealerKey  = run.dealerKey || sel.value;
+      var dealerName = run.dealerName || sel.options[sel.selectedIndex].text;
+
+      var msg = 'Delete the ' + run.timestamp + ' run (Deal ' + (run.dealId || '—') + ') for ' + dealerName + '?';
+      if (run.status === 'committed') {
+        msg += '\n\nThis run is committed — its ' + run.vinCount + ' VIN' + (run.vinCount === 1 ? '' : 's') +
+               ' will also be removed from the VIN log.';
+      }
+      appConfirm(msg, { title: 'Delete run?', okLabel: 'Delete', tone: 'danger' }).then(function(ok) {
+        if (!ok) return;
+
+        btn.disabled = true;
+        setVinlogStatus('Deleting run...', 'info');
+        google.script.run
+          .withSuccessHandler(function(result) {
+            setVinlogStatus('Deleted run' + (result.removed ? ' and removed ' + result.removed + ' VINs from the ' + dealerName + ' VIN log' : '') + '.', 'success');
+            if (selectedRun && selectedRun.rowIndex === run.rowIndex) hideActionPanel();
+            loadRuns(sel.value);
+            if (sel.value) loadLatestOrderId(sel.value);
+          })
+          .withFailureHandler(function(e) {
+            setVinlogStatus('Delete failed: ' + e.message, 'error');
+            btn.disabled = false;
+          })
+          .ledgerDeleteRun(vinlogRunRef_(run, dealerKey));
+      });
     }
 
     // ── Manual entry ────────────────────────────────────────────────────────
@@ -886,12 +958,13 @@
           document.getElementById('manualVins').value = '';
           document.getElementById('vinlogVinCount').textContent = '0 VINs';
           loadLatestOrderId(dealerKey); // refresh latest order display
+          loadRuns(document.getElementById('vinlogDealerSelect').value);   // the new entry shows in the list
         })
         .withFailureHandler(function(e) {
           setVinlogStatus('Failed: ' + e.message, 'error');
           btn.disabled = false; btn.textContent = 'Add to VIN Log';
         })
-        .manualCommitToVINLog(dealerKey, orderId, vins);
+        .ledgerManualEntry(dealerKey, orderId, vins);
     }
 
     function setVinlogStatus(msg, type) {

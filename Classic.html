@@ -52,10 +52,10 @@
 
     function exitApp() {
       var msgs = AppGuards.run();
-      if (msgs.length === 0 ||
-          confirm('Before you close:\n\n' + msgs.join('\n') + '\n\nClose anyway?')) {
-        google.script.host.close();
-      }
+      var ask = msgs.length
+        ? appConfirm('Before you close:\n\n' + msgs.join('\n'), { title: 'Close anyway?', okLabel: 'Close anyway', tone: 'warning' })
+        : Promise.resolve(true);
+      ask.then(function(ok) { if (ok) google.script.host.close(); });
     }
 
     // Reveal and boot the single embedded view.

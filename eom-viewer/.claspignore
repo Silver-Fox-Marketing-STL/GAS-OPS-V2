@@ -1,0 +1,7 @@
+# Never push the prod clasp target as an Apps Script .json file (jsonExtensions
+# includes .json). Same pattern as lot-scan/ — the root .claspignore does NOT
+# apply here (clasp reads the ignore file next to the .clasp.json it pushes from).
+# .clasp.json  -> DEV_SF EOM Report Viewer (default `clasp push` from inside eom-viewer/)
+# .clasp.prod.json -> PROD viewer, Nick-only (swap in by hand; never the default)
+.clasp.prod.json
+**/*.md

@@ -352,14 +352,17 @@
       if (currentData[i].sheetRow === sheetRow) { entry = currentData[i]; break; }
     }
     if (!entry) return;
-    if (!confirm('Delete this entry?\n\n"' + entry.input + '"  →  "' + entry.output + '"')) return;
-    setNormStatus('Deleting…', 'info');
-    google.script.run
-      .withSuccessHandler(function(data) {
-        editingRow = null; renderEntries(data); setNormStatus('Entry deleted.', 'success');
-      })
-      .withFailureHandler(function(e) { setNormStatus(e.message, 'error'); })
-      .deleteNormEntry(sheetRow);
+    appConfirm('Delete this entry?\n\n"' + entry.input + '"  →  "' + entry.output + '"',
+               { title: 'Delete entry?', okLabel: 'Delete', tone: 'danger' }).then(function(ok) {
+      if (!ok) return;
+      setNormStatus('Deleting…', 'info');
+      google.script.run
+        .withSuccessHandler(function(data) {
+          editingRow = null; renderEntries(data); setNormStatus('Entry deleted.', 'success');
+        })
+        .withFailureHandler(function(e) { setNormStatus(e.message, 'error'); })
+        .deleteNormEntry(sheetRow);
+    });
   }
 
   function moveEntry(sheetRow, direction) {

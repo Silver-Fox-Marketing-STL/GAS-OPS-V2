@@ -36,6 +36,571 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   dealer that answers classifies correctly on both sides; Joe Machens Toyota
   (Cloudflare) and Mazda of Columbia (Akamai) block Apps Script outright and
   always report as unchecked.
+- **Run Order's uncommitted-runs warning now checks for shared cars** (2026-11-13,
+  `feat/pending-overlap`; debt C19). Before a run, the warning used to fire whenever the
+  dealer had any finalized-but-uncommitted run. Now it asks the run ledger which of
+  THIS order's VINs are already in such a run (`ledgerPendingOverlap` →
+  `rlPendingOverlap_`: same dealer, blank col W, not a test run, case-insensitive) and
+  warns only on a real overlap. The popup names each run (deal, run time, split group)
+  with its shared cars. Pending runs with no shared cars keep only the amber "N pending"
+  tag. Still fails open: if the check can't be read, the run is never blocked.
+  Harness 237/237.
+- **Run ledger, step 4 of 4: every RUN_LOG reader goes through the codec** (2026-11-13,
+  `feat/run-ledger-step4`). Steps 1–3 are on PROD (promoted 2026-11-13).
+  - `getRunsForDealer` (the VIN Logs list) moved into `RunLedger.gs` (`rlListRuns_` /
+    `rlRunsView_`) and builds its rows from decoded run records.
+  - `readRunLog_` now returns decoded records (`ledgerLiveRuns_`, minus test runs), and
+    the Home HUD, dealer summary and print schedule read named fields (`totalProduced`,
+    `billing.totalDupes`, `status`…) instead of row indexes. `pendingRunCount_` reads the
+    same records; `pushRunToPipedrive` reads its row via the store (`readRun`).
+  - `getLatestOrderId` reads the VIN log through the store; `latestOrderIdFrom_` uses
+    `VL_COL`.
+  - New read-only store method `findVinLogRowsByRunRef`: one TextFinder over the tab (or
+    the whole SF_VIN_LOGS file in All-Dealers mode), then one read per tab with hits.
+  - Harness 234/234 (new suite "run ledger readers", 12 tests).
+- **Run ledger, step 3 of 4: finalize + the Pipedrive deal-ID write** (2026-11-13,
+  `feat/run-ledger`). The ledger now owns every RUN_LOG write. After this step,
+  `RunLedger.gs` is the only code that appends a run row, sets col D or sets col W.
+  - **Finalize is idempotent.** `finalizeRun` (Test, and the inner step of New Deal /
+    Existing) writes its row through `ledgerFinalizeRun_` under the ledger lock.
+    - A retry for the same output doc and billing group returns the existing row
+      (`reused: true`) instead of appending a duplicate.
+    - ORDER_STATS and ORDER_TYPE_STATS rows (now `writeRunStats_`) are written only when
+      the row is new.
+    - A retry under a different deal ID is refused ("Delete that row on the VIN Logs
+      page to finalize it again").
+    - A deleted row doesn't block finalizing again.
+  - **New Deal gets a second anchor.** If the `pd_new_<doc|group>` token cache is gone
+    but the run log already holds the row with a numeric deal ID, `finalizeRunNewDeal`
+    adopts that deal instead of creating a second one. Product attach was already
+    skip-if-present.
+  - **Col D through the ledger.** `pushRunToPipedrive` writes the deal ID via
+    `ledgerSetDealId_`, which re-checks under the lock that the row is still that run
+    (dealer, output doc and group).
+    - The write is re-attempted on every pass, so a retry whose ID came from the push
+      state still records it.
+    - Refused, checked before any deal is created or linked: repointing a run that
+      already holds a real (numeric) deal to a different one, and changing the deal ID
+      of a committed run (its VIN-log batch is filed under that ID).
+    - `pushRunToPipedrive` reads its row through the codec (`rlDecodeRow_`), not raw
+      indices.
+  - Server-only wrappers `ledgerFinalizeRun_`, `ledgerSetDealId_` and
+    `ledgerFinalizedRunFor_`: the trailing `_` keeps them off `google.script.run`.
+  - Harness: new suite `run ledger finalize` (19), including `pushRunToPipedrive` with
+    Pipedrive stubbed. 222/222. Mutation-checked: 8 deliberate breaks, all caught.
+- **Run ledger, step 2 of 4: guarded commit / rollback / delete / manual entry**
+  (2026-11-12, `feat/run-ledger`). These now live in `RunLedger.gs` and run inside one
+  script lock: `ledgerCommitRuns(refs)`, `ledgerRollbackRun(ref)`, `ledgerDeleteRun(ref)`
+  and `ledgerManualEntry(dealerKey, orderId, vins)`.
+  - **Views send only a run reference.** VIN Logs sends a fingerprint
+    `{rowIndex, dealerKey, timestamp, dealId}`. Run Order's Add to VIN Log sends
+    `{dealerKey, outputDocId, note}`. The server reads the VINs, deal id and order date
+    from the RUN_LOG row. A row that no longer matches its fingerprint is refused with
+    "reload and try again".
+  - **SF_VIN_LOGS col E `run_ref`** is written on every new batch: the run time, plus
+    `|<GROUP>` on split halves, or `manual` for manual entries. The header is added the
+    first time a tab is written; the Add Dealer wizard now creates new tabs with all 5
+    headers (`VL_HEADERS`).
+  - Double commit is a no-op. Committing the same run twice in one call commits it once.
+    A half-finished commit (batch written but status not) only finishes the status.
+  - **Removed** from `Code.gs` (no longer callable): `commitRunToVINLog`, `commitLatestRun`,
+    `commitRunRows`, `rollbackRunFromVINLog`, `getCommittedAt`, `deleteRun` and
+    `manualCommitToVINLog`. VIN Logs and Run Order switched to the ledger endpoints in the
+    same change. The harness checks that every `ledger*` call in those two views names an
+    existing function, and that none of the old names remain.
+  - Harness: new suite `run ledger operations` (26), run against the strict fake store.
+    Total 203/203. The screenshot harness mocks are renamed to the new endpoints.
+- **Run ledger, step 1 of 4: codec + store seam** (2026-11-12, `feat/run-ledger`). New
+  `RunLedger.gs` will become the one owner of RUN_LOG rows and SF_VIN_LOGS batches
+  (closes debt C20 once steps 2–3 land). This step adds only the foundation; no live path
+  calls it yet, so app behavior is unchanged.
+  - **Codec (pure):** `RL_COL` / `RL_WIDTH` (RUN_LOG A–W) and `VL_COL` / `VL_WIDTH` /
+    `VL_HEADERS` (VIN log A–E; E = new `run_ref`, written starting in step 2).
+    `rlDecodeRow_` / `rlEncodeRecord_` round-trip the exact `writeRunLog_` layout.
+    Status vocabulary `RL_STATUS` (blank W = pending), `rlIsTestDealId_` (exact `test`,
+    any case), `rlSplitGroup_`, `rlParseVinsCsv_`, run fingerprint
+    (`rlFingerprintMatches_`: dealer + run time + deal id), and `rlRunRef_` (run time,
+    `|<GROUP>` on billing-split halves).
+  - **Store seam:** `rlSheetStore_()` is the real adapter (RUN_LOG via
+    `getActiveSpreadsheet`, VIN logs via `getVinLogsSS_`, a 10 s `LockService` script lock,
+    `flush()` before release, cols A–B written as `@` text, the `run_ref` header added
+    lazily, rows deleted in contiguous blocks bottom-up). Every write refuses to run
+    outside `withLock`. `test/ledger-fake-store.js` is the strict in-memory adapter.
+  - **Harness:** loads `RunLedger.gs` and gains a UTC-only `Utilities.formatDate` stub.
+    New suites `run ledger codec` (13) and `run ledger store seam` (6, including an
+    interface-parity check between the real and fake adapters). 177/177.
+  - **`GLOSSARY.md`** (new: the domain terms) and
+    **`docs/adr/0001-run-identity-and-vin-log-batches.md`** (new: why runs are identified
+    by row + fingerprint and VIN-log batches are tagged by run).
+- **`scripts/promote-eom-viewer.ps1`** (2026-10-21) — guarded, Nick-run PROD deploy for the
+  standalone viewer, modeled on `promote-lot-scan.ps1` plus the Node harness gate (the
+  harness now guards the viewer directly). Gates: main / clean tree / synced with
+  origin / green harness / typed `PROMOTE`. Swaps `eom-viewer/.clasp.prod.json` in,
+  `clasp push -f`, bumps the invoice team's existing `/exec` deployment to a new version
+  (same URL), and delete-then-restores `.clasp.json` to the DEV twin. The ONLY path to
+  the prod viewer; `clasp push` from inside `eom-viewer/` always targets DEV.
+  **PROD viewer promoted the same day → deployment @15 (`promote eom-viewer 1ddc69a`)**;
+  Nick confirmed the live Current (EOM Merge) pull renders correctly — the first live
+  API v2 reads of the migration (deals by stage, deal products, orgs/persons/users,
+  products, variations, stages) are verified against real Pipedrive. The main app was
+  promoted the same day (`/exec` @103 = `promote e8eb8f7`).
+- **`eom-viewer/` DEV twin** (2026-10-21). A second standalone Apps Script project,
+  "DEV_SF EOM Report Viewer", so the viewer can be pushed and exercised without touching
+  the invoice team's production `/exec`. `eom-viewer/.clasp.json` now targets the DEV
+  twin (default push); the PROD viewer moved to `eom-viewer/.clasp.prod.json` (Nick-only,
+  excluded from pushes by a new `eom-viewer/.claspignore`). `eom-viewer/Code.gs` gained
+  the same scriptId-keyed `ENV_IDS` resolver as the main app and lot-scan: PROD reads
+  `SF_EOM_REPORTS`, DEV reads `DEV_SF_EOM_REPORTS_INDEX`, an unregistered scriptId throws
+  at load; the page title carries a " (DEV)" suffix off prod. Off prod the viewer runs
+  the **same in-process Pipedrive fake as the main app**: `eom-viewer/PdFake.gs` is a
+  byte-copy of the root `PdFake.gs` (harness-guarded together with
+  `EomReportRenderer.html`), `cvSecrets_` returns a fake settings object (no
+  `PD_API_TOKEN` in any dev project), `cvGetJson_` routes to `cvFakeJson_` →
+  `pdFakeFetch_`, deal products to `pdFakeEomProducts_`, and the credential probe is
+  skipped — the Current section renders the canned FAKE deals with zero API traffic.
+  New harness suite `standalone eom-viewer` (byte-copies, ENV resolver, the fake path
+  under a throwing `UrlFetchApp` stub, prod passthrough) — the viewer runs in its own
+  vm context because its helper names collide with `Code.gs`. DEV deployment "Dev EOM
+  Viewer Deploy" @1 = the API v2 migration below, @2 = the fake. Ids + runbook:
+  `docs/dev-environment.md`.
+
+### Changed
+- **Pipedrive integration moved off the out-of-support API v1 endpoints** (branch
+  `feat/pipedrive-api-v2`, October 9, 2026; merged to `main` `4b1cd35` and **promoted to
+  PROD October 21, 2026 — `/exec` @103 = `promote e8eb8f7`**; live acceptance checklist
+  items 1, 2 and 4 pending Nick's first real pushes). Pipedrive's changelog post
+  "Deprecated API v1 endpoints become out of support" (effective **August 1, 2026**,
+  no further migration period guaranteed) covers every v1 deals / organizations /
+  persons / products / pipelines / stages / search endpoint. This system used
+  fourteen of them. All now hit `/api/v2`:
+  - **Fetch layer.** `pdFetch_` defaults to the **v2** base; `version:'v1'` is passed
+    explicitly only for the endpoints that have no v2 twin and are NOT on the
+    deprecation list — `/dealFields`, `/productFields`, `/organizationFields`
+    (`pdListAllV1_`), `/users`, `/users/me`, and `/files` (billing CSV attach).
+    New helpers `pdListByIdsV2_` (batched `?ids=` lookups, 100 per call) and
+    `pdRelId_` (a relation id from either API shape).
+  - **Deal push.** `POST /deals` (create), `GET /deals/{id}` (link check +
+    if_empty read), **`PATCH /deals/{id}`** (was PUT), `GET/POST /deals/{id}/products`,
+    **`PATCH /deals/{id}/products/{attachmentId}`** (was PUT). Custom deal fields
+    now travel **under `custom_fields`** in v2 value shapes — `pdSetDealField_`
+    writes monetary as `{value, currency}` (the v1 `<key>_currency` companion is
+    gone), enum as the option id, **set as an array of ids** (a single stored id
+    is widened); `pdDealPatchBody_` files 40-char hash keys under `custom_fields`
+    and leaves standard keys top-level; `pdFlattenDealFields_` merges a v2 deal's
+    `custom_fields` into one flat map for the if_empty read and returns **null when
+    the object is missing** so the fail-safe (unreadable → never clobber) still
+    holds. Copy rules read v2 org values (set = array → mapped per element via
+    `option_map`, unmapped ids dropped).
+  - **Catalog / orgs.** `pdListProducts_` is v2 for both branches (the unscoped
+    branch was v1; `is_linkable` is now the only inactive flag). `/organizations`
+    list and `/organizations/search` are v2 (same `items[].item` shape).
+  - **End of Month.** `eomListDeals_` → v2 `/deals` with a **server-side
+    `pipeline_id` filter** (full billing) and **no `status`** for the stage scope
+    (v2 has no `all_not_deleted`; omitting status means exactly that); the
+    Duplicates field is requested explicitly via `custom_fields=`
+    (`eomDealsListPath_`). Deal products come from v2 (`pdEomFetchProductsForDeals_`),
+    which **no longer embeds the catalog `product`** (`include_product_data` is
+    gone) and returns relation fields as **plain ids** — so a new
+    `eomBuildContext_` resolves, once per report in batched reads, org + person
+    names (v2 `?ids=`), owner names (v1 `/users`), product code/description/tax
+    (v2 `/products?ids=`) and variation names (only for products that appear with a
+    variation); `eomBuildRows_(deal, products, ctx)` consumes it and still tolerates
+    the old v1 shapes (archived re-generation safety net). `product_last_edited`
+    reads `update_time` (v2) with a `last_edit` fallback; deal/product timestamps
+    are now RFC 3339 (the renderer's `substring(0,10)` date still works). Stage list
+    + pipeline/stage name lookups are v2. Both the live pull and the generator share
+    `eomFetchProductsAndContext_`.
+  - **Home HUD.** `getEomOrgCountsCached_` reads the plain v2 `org_id` (cache key
+    bumped to `eom_org_counts_v2` so a cached v1-shaped map is never read) — this
+    also closes the open "eomOrders org_id shape" live check.
+  - **DEV fake (`PdFake.gs`).** Fixtures are v2-shaped: plain relation ids,
+    `custom_fields` object (PATCH merges it), RFC 3339 times, `?ids=` filters on
+    `/organizations` `/persons` `/products`, a v1 `/users` route, deal-product rows
+    without an embedded `product` (name snapshot + `update_time`).
+  - **Standalone `eom-viewer/`** (separate Apps Script project — needs its own
+    `clasp push` from inside `eom-viewer/` + a new deployment version): mirrored
+    migration — `cvListAllV2_` / `cvListByIdsV2_` / `cvBuildContext_`, v2 deals
+    list + stage echo + deal products, `cvBuildRows_(deal, products, ctx)`.
+  - **Harness.** New suite `pipedrive api v2` (10 tests) pins the v2 write shapes,
+    the if_empty read of a v2 deal, the deals-list paths, the EOM row builder with
+    a context (v2 and legacy shapes), and the fake's v2 fixtures.
+  - **Not verifiable in DEV** (the fake never hits the API): a live PROD push
+    (New Deal + Existing) and one EOM "Current" pull are the acceptance test —
+    see the Bridge doc's "API v2 migration" note for the exact checklist.
+- **Docs-only housekeeping after the October 1, 2026 project audit** (branch
+  `chore/cleanup-2026-10`; no Apps Script source touched). Release `[1.1]` cut
+  below. Removed the stale `HANDOFF.md` (July crew-handbooks handoff, long merged),
+  `docs/ponytail-audit.md` (June cut-list), `docs/targeting_rules_migration.md`
+  (one-time June migration — archived in the brain) and the shipped
+  scanner-batch-note superpowers spec/plan. `.gitignore`'s Obsidian `2026-*.md`
+  rule is now root-anchored (`/2026-*.md`) — unanchored it had silently ignored
+  seven real spec/plan docs under `docs/superpowers/`. Bridge doc header dates,
+  the dead V3 doc reference and the verified-gone `VINLogMigration.gs` /
+  `FolderSetup.gs` / `test-write-access.txt` housekeeping lines fixed; Development
+  Plan's June branch snapshot replaced with the current deploy model + a pointer
+  to the brain backlog; `CLAUDE.md` line count refreshed.
+
+### Fixed
+- **Luna (Windows XP) theme: AND and OR chips looked identical** (2026-11-13; debt C18).
+  Luna's `--info` was the same blue as its `--accent`, so the targeting-rule editor's
+  ALL (AND) and ANY (OR) chips (and info tags vs accent) were indistinguishable. Luna's
+  info is now teal (`#0e7c86` / `#d4eef0`).
+- **VIN Logs dealer dropdown showed the wrong name after a jump from another view**
+  (2026-11-13; debt C1). `vinlogPreselectDealer` set the select's value but never synced
+  the CustomSelect facade; it now calls `CustomSelect.refresh(sel)`, like
+  `runPrefillFromInbox`.
+- **Manual entry accepted "test" as an order number** (2026-11-13, run ledger step 4).
+  Test runs never enter the VIN log, but a manual entry under `test` did, quietly
+  marking real cars as already printed. `ledgerManualEntry` now refuses it (any case;
+  `test2` is still allowed, matching the test-run rule).
+- **Manual VIN-log entries never showed in the VIN Logs list** (2026-11-13, run ledger
+  step 4). A manual entry writes VIN-log rows but no RUN_LOG row, and the list read only
+  the run log, so the entry was in the log (and in "Most recent order") but invisible.
+  The list now shows each manual batch tagged `run_ref = manual` as a read-only row
+  (blue MANUAL badge, no delete, no commit/rollback/push), one per order + entry time,
+  merged in by time; it refreshes right after Add to VIN Log. Manual entries made before
+  the 2026-11-13 promote carry no tag and stay unlisted. A failed lookup leaves them out
+  and never breaks the list.
+- **A finalize retry could log the same run twice** (2026-11-13, run ledger step 3). A
+  second `finalizeRun` for the same output doc appended a second RUN_LOG and ORDER_STATS
+  row, which happens with a double click, or a server that finished after the browser
+  gave up. That second row made the Run view's Add to VIN Log refuse with "has 2 rows in
+  the run log". Finalize is now keyed by output doc + billing group (see Added).
+- **VIN-log `run_ref` turned into a date** (2026-11-13, run ledger step 3; found in the DEV
+  click-through). Sheets parsed the run-time tag in col E as a date-time. Read back, it
+  depended on the VIN-log file's time zone, so a file set to another zone would have
+  made rollback find nothing. Col E is now written as `@` text. The DEV rows written
+  before the fix still decode correctly.
+- **Rollback could remove another run's VINs** (2026-11-12, run ledger step 2). The old
+  rollback looked up the *newest* `committed_at` for a deal id, so on a deal with two
+  committed runs, rolling back the older one deleted the newer run's batch and marked the
+  wrong row. On 2026-11-12, 7 live deals had 2+ committed runs. Rollback now matches the
+  batch by deal id + `run_ref`. An untagged (pre-change) batch is rolled back only when the
+  match is unambiguous: one untagged batch under the deal, and no other committed run on
+  it with an untagged batch. Otherwise it is refused with a "roll it back by hand" message.
+  A refused rollback also refuses Delete.
+- **VIN Logs Commit trusted the browser** (2026-11-12, run ledger step 2). The button sent
+  the row number, deal id, VIN list and date. The server wrote them with no lock, no
+  status check, no test check and no check that the row was still that run, so two clicks
+  committed twice. Rollback was likewise assembled client-side from two round trips. All of
+  this is now one locked, re-verifying server call. Manual entry also writes under the lock
+  and stores ids/VINs as `@` text.
+- **Run errors only flashed on screen, then vanished** (2026-10-27). `runDealer`'s catch
+  trashed the failed run's artifacts and then `return null` — so `pasteVinsAndRun`
+  resolved normally and the Run view's SUCCESS handler fired: it stopped polling
+  (clearing the stored progress error) and painted "Complete! 100%". The error was
+  visible only if a 1.5s progress poll landed in the gap. The catch now rethrows after
+  cleanup, so the failure handler keeps "Error: …" in the header and a red progress bar,
+  and the Executions log records the run as Failed (it showed Completed). Cleanup order
+  unchanged; `pasteVinsAndRun` is the only caller. Found on a Honda of Frontenac run.
+- **VIN Inbox: photo thumbnails intermittently missing, with no way to open the photo**
+  (2026-10-23). Cards loaded `drive.google.com/thumbnail?id=…` straight into an `<img>`.
+  Inside the HtmlService iframe that request rides on the browser's Google cookies
+  (third-party context, multi-account sign-in), so it works or fails per browser/session
+  with no code change. On failure, `onerror` hid the image and left an empty link, so the
+  photo was unreachable. Thumbnails now come server-side (`getVinPhotoThumbs`, a twin of
+  lot-scan `getPhotoThumbs`: `DriveApp.getThumbnail()` + 6h ScriptCache, open batches only,
+  parallel chunks). The thumbnail is a button with an always-visible camera placeholder.
+  Clicking it opens the full photo in an in-card panel (`getVinPhotoDataUrl`) next to the
+  VIN input, with an "Open in Drive" link. The panel survives the 15s OCR refresh.
+- **Pipedrive push: "setting deal fields failed: Parameter 'user_id' is not allowed"**
+  (2026-10-22, first PROD order after the API v2 promote, deal 5326). The deal-field
+  picker reads the v1-only `/dealFields`, so a rule targeting the Owner system field
+  stores the v1 key `user_id`; `pdDealPatchBody_` passed it top-level into the v2
+  `PATCH /deals/{id}`, which renamed it `owner_id` and rejects the old name. The patch
+  body now renames v1 system keys to v2 (`user_id` → `owner_id`) and coerces relation
+  ids (`owner_id`/`person_id`/`org_id`/`stage_id`/`pipeline_id`) to `Number`;
+  `pdFlattenDealFields_` aliases `owner_id` back to `user_id` so an `if_empty` Owner rule
+  on a linked deal reads the real value instead of "empty". Saved rules are unchanged.
+  The failed push is resumable — its state is `productsDone`, so a retry only re-sends
+  the fields. **Promoted to PROD the same day — `/exec` @104 = `promote 6758147`**
+  (all 24 files verified byte-identical to `main` by clasp pull; root `.clasp.json`
+  confirmed restored to DEV); Nick re-ran the deal 5326 push and it completed.
+
+### Removed
+- **The Windows XP (`luna`) theme, from the main app and the Lot Scanner** (2026-11-13,
+  `chore/remove-luna`; Nick's call). The Home HUD verification pass found its Home column
+  headings invisible again (ViewHome's ID-scoped heading rule outranked App.html's
+  class-only white override), and Nick chose to retire the theme rather than fix it.
+  - Main app: the token block and registry entry in `SharedUtils.html`, and every
+    `[data-theme="luna"]` rule in `App.html` (window chrome, taskbar, buttons, inputs,
+    Home background, the Run Order VIN-column swap, the mobile tweak).
+  - The inert `arrange` axis left `Theme._axes` (Luna was its only declarer; nothing
+    has responded to it since 2026-07-21).
+  - Lot Scanner: the token block and registry entry in `lot-scan/SharedUtils.html`.
+  - A saved `luna` choice now reads as Light: `getThemePreference` in `Code.gs` (next to
+    the top-rail remaps) and in `lot-scan/Code.gs`.
+  - The theme menu now lists 7 themes.
+- **VIN Inbox: the dead "processed" write path** (2026-11-13; debt C17). The Processed
+  button went away on 2026-07-10, but `updateVinSubmissionStatus(es)` still accepted the
+  status. `LOT_SUB_STATUSES` is now the settable set `draft | submitted | discarded`;
+  older rows that carry `processed` stay hidden from the inbox and `sweepLotPhotos`
+  still trashes their photos. The lot-scan project's own copy is untouched.
+- **Field Codes: the per-view `.badge` style** (2026-11-13; debt C18). The Source column
+  uses the shared `.tag` component (built-in = neutral, custom = info, overridden =
+  warning). Pipedrive Settings' org "Change" link uses `--radius-sm` instead of a 3px
+  literal.
+- **`backfillVinLogOrderDates()`** (2026-11-13, run ledger step 4). The one-time July 2026
+  editor-run repair that filled VIN-log col D from RUN_LOG; its job is done, and it was
+  the last code writing SF_VIN_LOGS outside the run ledger. Recoverable from git history.
+
+## [1.1] — 2026-09-30
+
+Everything promoted to PROD between 1.0 (2026-06-25) and the 2026-09-30 promote
+(`main` = `bd27806`, PROD deployment @102) — roughly fifteen promotes cut as one
+release. Entries are reverse-chronological within each heading; older entries
+keep the per-feature titled headings they were written with.
+
+### Added
+- **Compare Lists view** (Sep 30, 2026). New sidebar screen (`ViewCompare.html`)
+  with two modes. **Compare two lists:** paste List A and List B (VINs and/or
+  stock #s; newline/comma/tab/space separated, case-insensitive, deduped). Every
+  entry is looked up FIRST (`getCompareListData`; a stock # resolves to its
+  vehicle's VIN), then the lists split on the resolved VIN into **A only / In
+  both / B only** — a VIN in one list matches its stock # in the other (rows
+  note "(entered S100)"). **Look up list:** paste stock #s (VINs work too) →
+  **Found / Not found** with each vehicle's VIN and data; Copy VINs feeds Run
+  Order. Rows show year/make/model/stock/type/status/URL from current inventory
+  and prior orders from the VIN log — "ALREADY PRINTED" status with the same
+  prior-orders hover as Run Order, plus a Prior orders column. Sold vehicles
+  show "Not in current inventory" but keep their order history. A dealer (or All
+  dealers) is required.
+  Dealer picker includes **All dealers (slower)** — reads all of SCRAPERDATA and
+  every VIN-log tab and adds a Dealer column. **Copy VINs** and **Copy as table**
+  (tab-separated, pastes into Sheets) act on the active tab. VIN-log parsing is
+  now shared via `appendVinLogHistory_`; new pure `resolveCompareIds_`; both
+  covered by a new `compare lists` harness suite.
+- **Prior-order hover on ALREADY PRINTED rows** (Sep 30, 2026). In the Run Order
+  Inventory match table, hovering the Status cell of an "ALREADY PRINTED" row
+  (dotted underline, help cursor) lists every prior order the VIN or its stock #
+  was logged under, newest first, with dates — the billing sheet's "Prior
+  Order #s", visible before the run. `getLoggedIdentifiers` now reads VIN-log
+  cols A–D and also returns `history` (identifier → `[{order, date}]`; date =
+  order_date, falling back to committed_at); `identifiers` is unchanged and the
+  read still fails safe to empty. Native `title` tooltip, no new JS widget.
+- **EXPERIMENTAL environment — Prod / Dev / Experimental** (Sep 25, 2026). A
+  second Apps Script project bound to DEV_SF_SYSTEM_MASTER, registered in
+  `ENV_IDS` as `name: 'exp'` (same DEV sheet/folder ids, same Pipedrive fake),
+  with its own versioned `/exec` URL so a branch experiment (first user:
+  `exp/ui-playground`) can be clicked through without stomping DEV's HEAD.
+  New `scripts/push-exp.ps1` (gates: not main, committed tree, target is real /
+  not PROD / registered) pushes via `clasp -P .clasp.exp.json` and bumps the
+  deployment as `exp <branch> <sha>`. New committed `.clasp.exp.json` (in
+  `.claspignore`). The SPA / modal badge now prints the environment name
+  (`(DEV)` / `(EXP)`) instead of a hardcoded `(DEV)`. Runbook:
+  `docs/dev-environment.md` "EXPERIMENTAL".
+- **`csv_uppercase` dealer flag — force every CSV data cell to UPPERCASE**
+  (Sep 24, 2026). New optional boolean in `filtering_rules` (DEALERS col W),
+  parsed by `getDealerFilterRules_` as `csvUppercase` (strict `=== true`,
+  default off). `runDealer` passes it to `buildCSVSheet_` as `csvOpts.uppercase`;
+  `writeGroup_` folds each cell through the new pure `csvUppercaseCell_` AFTER
+  `csvCellValue_`, so Run-table edits are uppercased too. Headers are never
+  touched (they must match the template's variable names); QR path codes
+  (`@QR` / `@QR2`, `CSV_UPPERCASE_SKIP_CODES`) are skipped so case-sensitive
+  filesystems still resolve the PNGs; non-strings pass through. Rules editor
+  (`ViewRules.html`) gets an "Uppercase CSV Output" toggle in the Flags card —
+  emitted only when ON so re-saving any other dealer leaves col W unchanged.
+  Not a filter: it changes no vehicle selection, billing, or Pipedrive output.
+  Three harness tests cover the fold, the QR skip, and the strict parse.
+
+### Changed
+- **`--logo-fill` token replaces the dark-logo selector allowlist** (Sep 25, 2026).
+  `.app-brand .logo` (App.html) now paints its mask with `var(--logo-fill)`
+  (default `#4a4a4d` on `:root` in SharedUtils); `dark`, `midnight`, `encarta`,
+  `gruvbox-rail` and `luna` override it to `#d2d2d6` inside their own palette
+  blocks. A new dark theme carries its logo color with its other tokens — no
+  App.html edit, no cross-file allowlist to forget. Salvaged from the unmerged
+  `theme-acid` branch (Jul 9, 2026); the rest of that branch was obsolete.
+- **Dark-family themes: table headers are a surface tint instead of an
+  inverted near-white bar** (Sep 23, 2026 screenshot audit). The shared
+  `.table-u th` recipe now reads two new tokens, `--th-bg` / `--th-fg`. The
+  base `:root` keeps the inverted bar (`var(--text)` on `var(--bg)`) so every
+  light theme is pixel-identical; Dark and Gruvbox override to `--surface-2`
+  + `--text-2`, Midnight HC to `--surface-3` + `--text` (full contrast).
+  Encarta's own `!important` header override and Stack Cleanup's surface
+  header are untouched; Import's inventory-snapshot header, which re-declares
+  the canonical recipe to beat the view's own th dialect, now reads the
+  tokens too so it follows the theme like every other table.
+
+- **Native browser controls restyled to the theme** (Sep 23, 2026 screenshot
+  audit — most visible as white chips in the dark themes). New shared
+  `.file-pick` recipe (SharedUtils): a label wrapping a visually-hidden
+  `<input type=file>`, a `.btn-secondary` span and a filename readout the
+  view fills — used by Import ("Choose CSV files…" + names / count) and Data
+  Sources ("Choose CSV…" + name; disabled state and reset paths honored).
+  Dealer Rules: the product-table UTM inputs (which had no rule at all), the
+  targeting-tree value inputs, price / seasoning / org-search / deal-field
+  inputs all get explicit `var(--bg)` / `var(--text)`; the AND/OR joiner
+  select drops the native arrow (`appearance: none`) for a currentColor
+  chevron that tints with its state. VIN Logs' Show VINs / ✕ row buttons
+  take the shared button grammar (body font, bold, `--radius-sm`).
+
+### Fixed
+- **Run Order: the match table's ✕ column and "Remove Duplicates" cap slid
+  off-screen when Features / editable columns were present** (Sep 23, 2026
+  screenshot audit, highest-impact finding; overflowed at 1440 AND 1920).
+  The ✕ column is now pinned to the scroll box's right edge (`position:
+  sticky; right: 0`, on top of the existing sticky-top header) so the wide
+  table scrolls UNDER it. The pinned cells keep an opaque `var(--bg)` base
+  and re-apply their row tint as a `background-image` layer — the dark
+  themes' weak tints are translucent rgba and would otherwise let scrolled
+  cells bleed through. A left shadow (`.rv-more-right`, toggled by
+  `rvUpdateScrollCue()` on scroll / resize / render) shows only while
+  columns are hidden under the pinned edge — the horizontal-scroll cue the
+  audit found missing. Input columns' floor drops from 16rem to 12rem.
+  The "Remove Duplicates" button moved OUT of the ✕ header cell into the
+  "Inventory match" label row (right-aligned, directly above the column):
+  as an in-header "cap" it auto-widened the ✕ column to its own width,
+  which, once pinned, became an opaque strip hiding a whole data column at
+  rest (and in Encarta, whose headers are static, the cap scrolled away
+  while the ✕ cells stayed). The header-mask CSS (negative margins +
+  `overflow: hidden`) went with it; the pinned column is now ✕-wide.
+- **VIN Logs: the runs table was cramped in All-Dealers mode at 1440** (Sep
+  23, 2026 screenshot audit): the VINs cell showed "11 …" (the Show VINs
+  button ellipsized) and the SPLIT:* note badge collapsed to "S…" inside the
+  nowrap timestamp cell. Column budgets rebalanced in both modes
+  (per-dealer 32/20/22/18/8, all-dealers 21/24/12/21/15/7) and the billing-
+  split badge (`.vl-note-badge`, was inline styles) now sits on its own line
+  under the timestamp, so it never competes with the stamp for width. The
+  note text is now HTML-escaped on render.
+- **Smaller screenshot-audit items** (Sep 23, 2026): Home's THIS WEEK tiles
+  fill their row (4-up from ~520px; the 170px tile cap orphaned "21
+  DUPLICATES" on row 2 at 1440) and ALL TIME always sits 3×2; the CAO card's
+  "Filtered out (n)" caret is 13px instead of an inherited 10.5px "-";
+  Encarta's `.btn-secondary` sits on the face gray so its bevel shows (on
+  white the light edges vanished — the buttons read flat), and its CAO
+  toggle no longer becomes a full-width sunken box; Import's inventory
+  snapshot cells use 9px side padding, a two-line last header and a 170px
+  location column so the table fits its box at 1440; Run Order's fixed-
+  height flow zone shows a dashed outline + "Inventory stats, run progress
+  and finalize cards appear here" while empty (CSS-only, via `:has()` on
+  the cards' inline `display: flex`) instead of a 235px blank. Not changed:
+  Encarta's "1 PENDING" tag wrapping under the recent-order label — a plain
+  line wrap in the wider XP font, still readable.
+- **Stack Cleanup: table header was invisible in every non-Encarta theme**
+  (Sep 23, 2026 screenshot audit). `#view-stack-cleanup .table-u thead th`
+  overrode the shared inverted header's background to `var(--surface-2)` but
+  inherited its `color: var(--bg)` — light text on a light surface. Now also
+  sets `color: var(--text-2)`.
+- **CSV Schemas: the add bar and edit bar rendered at the same time**
+  (Sep 23, 2026 screenshot audit). `#view-csvschemas .add-bar { display:
+  flex }` out-specified the UA `[hidden]` rule, so list mode showed a stray
+  empty "Schema key / Add Column / Cancel / Save" bar and the editor showed
+  a stray "New schema key / + Create" bar above it. Added
+  `.add-bar[hidden] { display: none }`.
+- **VIN Logs: the "All Dealers" runs list was empty on first visit**
+  (Sep 23, 2026 screenshot audit). `initVinlogView` registered the dealer-
+  select change listener AFTER `AppData.get`'s callback — which fires
+  synchronously once the App's prefetch has landed and dispatches the
+  initial change event — so the listener meant to populate the table wasn't
+  registered in time to catch it. Registration now happens first.
+- **Windows XP (Luna) theme: primary buttons looked disabled; Home headings
+  were invisible on the desktop gradient** (Sep 23, 2026 screenshot audit).
+  `:root[data-theme="luna"] button`'s gradient rule (specificity 0,1,1)
+  out-specified `.btn-primary` (0,1,0), so "Run Dealer," "Run anyway," "+
+  Add," "Save," and "Save Settings" all rendered white text on a cream
+  gradient — i.e. looked disabled. The gradient now excludes `.btn-primary`,
+  which gets its own XP-blue bevel instead. Home's "System Stats" / "Dealer
+  Focus" headings (`.home-hud-title`) were accent-blue on the same-hue blue
+  desktop background and are now white.
+- **Lot Scanner: "Upload failed: HTTP 401" is now recoverable without losing
+  photos** (needs a lot-scan deploy). The 401 is `google.script.run` rejecting
+  the page's own sign-in credential, so the retry chip (which re-sends through
+  the same dead session) could never succeed — and a home-screen web app has no
+  address bar, so the installer's only escape was force-closing the app. Now:
+  (1) any HTTP 401/403 from an upload, commit, or drafts fetch flips the page
+  into a *session-expired* state — uploads/commits/online-retries stop, retry
+  taps explain why, and a sticky red bar counts how many unsaved photos are
+  confirmed backed up on the device and offers **⟳ Reload**, which navigates
+  the top frame to the deployment's own URL (`getCaptureBootstrap` now returns
+  `ScriptApp.getService().getUrl()`; falls back to a frame reload, then to a
+  "close and reopen" instruction). The existing localStorage/IndexedDB restore
+  then re-enters the photos. (2) IndexedDB writes are acknowledged per photo
+  (`item.persisted` set on transaction commit, not on the call), and a startup
+  write→read→delete probe paints **Photo backup: ON/OFF** in the header — the
+  silent try/catch degradation was invisible in the field. (3) **Unsent photos
+  on this phone**: every cached blob now carries `dealerKey`/`dealerName`, and
+  the idle screen (all widths) lists cached batches that aren't the open order
+  with Resume (re-enters shooting on that batchId; blobs upload like fresh
+  shots) and Discard (one IDB transaction). Covers localStorage-lost-but-IDB-
+  intact, and "finish WITHOUT them" now PARKS the failed blobs instead of
+  deleting them. Cache TTL 7→14 days. Handbook updated. Follow-ups from the
+  first field test: the stats tiles now describe the WHOLE order — Photos/Saved
+  fold in rows already committed to a resumed/restored batch (`vpPriorSaved`,
+  from the drafts payload, minus this session's own commits so a mid-session
+  drafts refresh can't double-count) with an "includes N saved earlier" line;
+  and a permanent **⟳** header button reloads through the same path as the
+  banner, confirming first if any photo isn't yet backed up on the device.
+  Second field-test finding: the cache stored the camera's `File` object, and
+  on iOS a capture is a temp file — Safari kept a REFERENCE, so after a reload
+  the record came back unreadable (decode failed → HEIC-converter fallback →
+  "heic convert failed"). The record now stores an `ArrayBuffer` read at pick
+  time (`vpReadBytes`; serialized by value), rebuilt into a Blob on restore;
+  legacy `blob` records are still read best-effort, and an empty cached copy
+  is reported ("came back EMPTY — re-shoot") instead of being fed to the
+  decoder. A temporary restart-survival marker + sandbox frame tag in the
+  header answered the storage question (below) and was removed before merge.
+  Field-test verdict: sandbox-frame storage IS session-scoped on the iOS
+  home-screen app (force-close wipes it; in-app reload keeps it), so the
+  reload path is the recovery and force-close is the one thing to avoid. A
+  **"Safe to close"** line under the stats tiles now says so in real time:
+  green "All saved — safe to close", amber "Keep the app open — N still
+  uploading", red "Don't close — N failed (tap retry ↻ / Reload)".
+
+### Added
+- **Full-app screenshot harness**
+  (`.claude/skills/ui-screenshot-repro/full-app/`, born from the Sep 23, 2026
+  UI audit above). Renders the real `App.html` + every view fragment with
+  `google.script.run` replaced by a fixture-backed mock, drives 40 scripted
+  scenarios (`harness.js`), and screenshots every theme × scenario
+  combination via puppeteer-core (`shoot.js`) — the tool that caught the
+  four fixes above. See the directory's README for usage.
+- **Lot Scan PWA experiment** (`lot-scan-pwa-experiment/`, static, served by
+  GitHub Pages from `main`; excluded from `clasp push`). Throwaway field test
+  answering two questions before any scanner rebuild: does a page on our own
+  origin keep storage across an iOS force-close when installed to the home
+  screen (the Apps Script sandbox frame does not), and how well does LIVE VIN
+  reading work on a lot — ZXing barcode + Tesseract.js OCR run together on a
+  framed strip of the viewfinder, a read accepted only when the check digit
+  passes and (with a pasted inventory list) matches the list. Logs method,
+  time-to-lock and a thumbnail per lock; CSV export. `.nojekyll` at the repo
+  root keeps Pages from Jekyll-processing the repo's markdown.
+- **Run Order: pending-commit warning.** Clicking Run Dealer also re-reads the
+  dealer's finalized-but-uncommitted VIN-log run count (`getLatestOrderId` ->
+  `pendingCount`, the same call behind the amber tag, which it refreshes). If
+  any exist, a themed confirm explains those VINs aren't in the log yet so the
+  order can't be checked against them, and offers Run anyway. Order of asks:
+  stale import -> pending commits -> discard un-finalized results. Fail-open.
+- **Themed confirm dialog (`appConfirm`).** Every `window.confirm()` in the
+  app (23 call sites incl. Classic across the Run, VIN Log, VIN Inbox, Rules, Norm, Field
+  Codes, CSV Schemas, Data Sources, End of Month, Pipedrive Settings,
+  Utilities views and the shell's close guard) is replaced by one shared
+  native `<dialog>` in SharedUtils, styled with the design tokens so it follows
+  light/dark themes. `appConfirm(message, {title, okLabel, cancelLabel, tone})`
+  returns a Promise<boolean>; Escape and a backdrop click cancel; destructive
+  asks (`tone:'danger'`) focus Cancel by default. Callers continue in `.then()`.
+  The Run view's dealer-change guard keeps a SYNCHRONOUS fast path (nothing
+  pending) because `runPrefillFromInbox` / `rvResumeDraft` dispatch the change
+  event and rely on it having run; programmatic switches go through
+  `rvSwitchDealer_`, which asks first and then dispatches with the guard marked
+  answered. The stale-import warning below uses the same dialog.
+- **Run Order: stale-import warning.** Clicking Run Dealer now reads the
+  last scraper-import timestamp (META tab via `getAppHomeStatus`) fresh on
+  every click; if the import date isn't today, a confirm names the stale
+  date/time and asks "Run anyway?" (Cancel aborts, OK proceeds). Reuses the
+  Home view's `homeDateIsToday_` parser (shared JS scope; Classic skips the
+  check). A failed timestamp read never blocks a run (fail-open).
+- **VIN Log: delete button per run.** The Order Runs table gets a trailing
+  ✕ column. Clicking it (after a confirm) soft-deletes the run —
+  `deleteRun` writes `deleted` to RUN_LOG col W (`vin_log_status`), a fourth
+  value alongside blank/pending, `committed`, `rolled_back`. A committed run
+  has its VIN-log rows removed first via the existing rollback path. Rows are
+  never physically deleted: that would shift other users' cached `rowIndex`
+  (Commit would stamp the wrong run), drop the numeric col-D Pipedrive dup
+  guard, and skew RUN_LOG-derived stats. `getRunsForDealer` and `readRunLog_`
+  skip deleted rows, so the table, the pending-count tag, and Home stats all
+  ignore them; reversible by clearing the cell. Row identity (dealer, deal ID,
+  timestamp) is re-verified server-side before any write.
 - **Run Order: pending-commit indicator.** Next to "Most recent order in log"
   the Run view now shows an amber `N pending` tag when the selected dealer has
   finalized RUN_LOG rows not yet committed or rolled back in the VIN log (test
@@ -97,6 +662,14 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   old skip behavior. Percent semantics unchanged (`percent` empty → $0).
 
 ### Fixed
+- **VIN Log: "most recent order" no longer moves when an old run is committed
+  late.** `commitRunToVINLog` accepts the run timestamp as `order_date` (col D)
+  but the Order Runs commit button never passed it, so every commit fell back
+  to `committed_at` — committing a stale Pending run made it the latest order.
+  The client now sends `run.timestamp`. `backfillVinLogOrderDates` (script
+  editor, run once) also re-stamps rows whose order_date equals committed_at
+  from the earliest RUN_LOG run for that deal; manual entries have no RUN_LOG
+  row and are left alone.
 - **Lot Scanner / VIN Inbox: stale-row-number writes and deletes on the shared
   SF_LOT_SUBMISSIONS sheet.** The July `runInboxOcr` fix (re-verify the row ID
   before each write) never reached the other row-addressed mutators; orphan

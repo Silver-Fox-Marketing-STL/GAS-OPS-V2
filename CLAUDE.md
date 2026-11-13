@@ -5,17 +5,16 @@ Config-driven Google Apps Script that produces vehicle window banner graphics
 (Shortcuts / Shortcut Packs) for automotive dealers: imports scraper inventory,
 matches ordered VINs, generates QR codes, and builds CSVs for Adobe Illustrator
 variable-data printing. One universal script + one universal template replaces
-the legacy V1 system's ~42 per-dealer functions. 43 configured dealers, 29 active.
+the legacy V1 system's ~42 per-dealer functions. 50 configured dealers, 32 active (live DEALERS tab, 2026-11-13).
 
 Nick is the primary developer and is using this project to learn Git/programming —
 explain reasoning and use beginner-friendly guidance, but stay efficient.
 
 ## Expertise & approach
 
-Beyond the always-on ponytail style (lazy senior dev — the simplest thing that
-actually works), operate as a domain expert in this stack: know the failure mode
-before writing the code, name the invariant you're protecting, reach for the
-batched / native / one-line tool first.
+Operate as a domain expert in this stack: know the failure mode before writing
+the code, name the invariant you're protecting, reach for the batched / native /
+one-line tool first, and prefer the simplest thing that actually works.
 
 - **Modern JS (GAS V8).** ES6+, but no Node/npm at runtime and Apps Script
   services are synchronous (no real async for Sheets/Drive/UrlFetch).
@@ -73,7 +72,7 @@ exact schemas/mechanism/history — NOT in context).
 
 ## Repo / environment
 
-- Repo: `Silver-Fox-Marketing-STL/GAS-OPS-V2`. `Code.gs` (~9,400 lines; Section 31
+- Repo: `Silver-Fox-Marketing-STL/GAS-OPS-V2`. `Code.gs` (~9,900 lines; Section 31
   = Pipedrive). Local checkout path varies per machine (this PC:
   `C:\Users\Nick_Workstation\Documents\SilverFox-V2`).
 - clasp script ID: `1E5aTcofzWzJZssOikaf6lFytS92vRHmj-k1NDV0C_Xu7NoJk7VUEjtNO`.
@@ -93,8 +92,8 @@ exact schemas/mechanism/history — NOT in context).
 |---|---|
 | SF_SYSTEM_MASTER (script bound; SCRAPERDATA, ORDERS, RUN_LOG, IMPORT_STATS, ORDER_STATS, DASHBOARD) | `1G_wrlXVmcUDJ37xr3bDwDHUGUy9ULIbNufq_Xk9xVes` |
 | SF_DEALER_CONFIG (DEALERS, NORM_MAPS, CSV_SCHEMAS, USER_PROFILES, FIELD_CODES, PIPEDRIVE, PIPEDRIVE_SETTINGS) | `1csQdjcNey_mgcVqY99GOJ2PNCGRTyoZTbaUyJ3IZkJ8` |
-| SF_UNIVERSAL_TEMPLATE (copied per order; ORDERMATCH cols A–Y) | `14Nk1FL-dfffIoWh9o8Q_EFCNlMXN3jUnlzzZ750QVTc` |
-| SF_VIN_LOGS (one tab per dealer_key; `ORDER_ID | VIN | committed_at | order_date`; order_date blank on legacy-system rows) | `12Xf6dyZXWXp4JwbytGo6lRUShwuGeN0yS3zhbco4-Lk` |
+| SF_UNIVERSAL_TEMPLATE (copied per order; ORDERMATCH cols A–Z) | `14Nk1FL-dfffIoWh9o8Q_EFCNlMXN3jUnlzzZ750QVTc` |
+| SF_VIN_LOGS (one tab per dealer_key; `ORDER_ID | VIN | committed_at | order_date | run_ref` (A–E); order_date blank on legacy-system rows, run_ref blank on batches before Nov 2026) | `12Xf6dyZXWXp4JwbytGo6lRUShwuGeN0yS3zhbco4-Lk` |
 
 ## Invariants — do not break
 
@@ -106,7 +105,8 @@ previously-hit failure — don't relax without reading the matching Bridge secti
   dormant), `FILTER_RULES: 22` (col W). Cols P–V unused; inserting there means
   updating `CFG.FILTER_RULES`.
 - RUN_LOG is 23 cols A–W (`produced_vins` = V, `vin_log_status` = W).
-  `getRunsForDealer` reads all 23 — keep new reads in sync. Cols G–N are the
+  Every reader decodes through `RunLedger.gs` (`rlDecodeRow_`; `ledgerLiveRuns_`) —
+  a new column means a codec change, not a new raw index. Cols G–N are the
   canonical-four per-type counts — never widened (new types go to `ORDER_TYPE_STATS`).
 - ORDERMATCH cols A–I are the QUERY spill zone — never write there in the template.
   `FIELD_TO_COL` + the FIELD_CODES tab's `ordermatch_col` overlay are the runtime
@@ -165,14 +165,19 @@ previously-hit failure — don't relax without reading the matching Bridge secti
 - VIN is the vehicle primary key. The legacy `use_stock_not_vin` flag is removed
   (DEALERS col F stays, dormant/append-only); ORDERMATCH always matches col A.
 - VIN logs are never written automatically — explicit commit/rollback via the VIN
-  Log Updater (key: deal ID + `committed_at`). Manually entered VINs are always
+  Logs view or the Run view's Add to VIN Log. Manually entered VINs are always
   produced (the log only flags dupes in billing). `test` runs are never committed.
+- **`RunLedger.gs` is the only writer of RUN_LOG rows (append, col D, col W) and SF_VIN_LOGS batches.**
+  Every write goes through its store (`rlSheetStore_`) inside `withLock`; views send a
+  run reference (fingerprint, or output doc + group), never VINs/dates. A batch is keyed
+  by deal ID + `run_ref` (col E: run time, `|<GROUP>` on split halves, `manual`); an
+  untagged legacy batch rolls back only when unambiguous. `RL_COL`/`VL_COL` are the
+  layout source — add no new raw RUN_LOG/VIN-log index literals. ADR-0001.
 
 **Scraper / config sheets**
 - `scraper_location_name` must exactly match the live feed (an exact-match miss =
-  zero inventory → broken CAO/runs). CDJR_OF_COLUMBIA is the legacy
-  `"Joe Machens Chrysler Dodge Jeep Ram"` — do not change until the scraper is
-  updated. (Full drift audit: brain `open-issues` / Bridge.)
+  zero inventory → broken CAO/runs). Check the newest IMPORT_STATS rows before
+  changing one. (Full drift audit: brain `open-issues` / Bridge.)
 - NORM_MAPS: the script reads only cols A–C; cols E+ are on-demand static reference
   regenerated by `refreshNormReference()`. Never reintroduce volatile full-column
   formulas here — over a 10k-row SCRAPERDATA they timed out all programmatic config
@@ -181,6 +186,10 @@ previously-hit failure — don't relax without reading the matching Bridge secti
   `refreshDashboard_`) are non-fatal try/catch — keep it that way.
 
 **Pipedrive** (v2.12; activates per dealer once live config is filled in)
+- **API v2 is the default base** (Oct 2026 — v1 deals/orgs/persons/products/
+  pipelines/stages/search went out of support 2026-08-01). `pdFetch_` only takes
+  `version:'v1'` for the endpoints with no v2 twin: `/dealFields` `/productFields`
+  `/organizationFields` `/users` `/users/me` `/files`. Never add a v1 entity call.
 - Persist every mapping by stable id/key (product/variation/org ids, 40-char field
   keys, enum option ids, numeric deal ids); names are display-only (rename-safe).
   Secrets (`PD_API_TOKEN` etc.) live in ScriptProperties only — never repo/sheet.
@@ -190,8 +199,9 @@ previously-hit failure — don't relax without reading the matching Bridge secti
   copy / conditional / constant with the `if_empty` fail-safe: on link set only if
   empty; when the current value can't be read, SKIP — never overwrite.
 - Idempotency: deal ID → RUN_LOG col D the instant the API returns it (numeric
-  col D = dup guard); the `pd_new_<outputDocId|group>` token cache covers the
-  create-before-row window — keep both anchors. `pdFetch_` never throws — a
+  col D = dup guard), written via `ledgerSetDealId_`; the `pd_new_<outputDocId|group>`
+  token cache covers the create-before-row window — keep both anchors. Finalize is
+  idempotent per output doc + group (`ledgerFinalizeRun_` reuses the row). `pdFetch_` never throws — a
   Pipedrive failure can never fail a run.
 - Line-item quantity is GROSS (no dupe subtraction); tax is sent explicitly
   (`tax` + `tax_method: 'exclusive'`) — the API never copies catalog Tax %.
@@ -255,12 +265,22 @@ when working with `*.html`).
 **Pipedrive API**
 - Coerce numeric ids to `Number` on writes — BY TYPE, never blanket (string ids
   create the deal fine, then product-attach/field-set silently fail).
-- v1 deal custom fields are TOP-LEVEL 40-char hash keys (+ `<key>_currency` for
-  monetary) — the `{custom_fields:{…}}` wrapper is v2-only and silently no-ops.
+- v2 deal custom fields live under `custom_fields` on read AND write, in v2 value
+  shapes: monetary `{value,currency}`, enum = option id, set = `[ids]`
+  (`pdSetDealField_` + `pdDealPatchBody_`). The flat top-level `<key>` +
+  `<key>_currency` form was v1 — sending it to v2 silently no-ops.
+- v2 relation fields (`org_id`/`person_id`/`owner_id`) are PLAIN ids and a deal
+  product has NO embedded `product` — names/catalog come from batched `?ids=`
+  reads (`eomBuildContext_`), never per-row GETs. `pdRelId_` tolerates both shapes.
 - Never guess a v2 shape from v1 or the docs — confirm live: v2 omits `success`;
-  deactivated = `is_linkable:false` (not `is_deleted`); variations are v2-only,
-  fetched per product; v1 GET under-reports line tax (verify via deal total or v2).
-- Line-item update = `PUT` with the deal-product ATTACHMENT id, not `product_id`.
+  deactivated = `is_linkable:false` (not `is_deleted`); variations are fetched per
+  product; v1 GET under-reported line tax (v2 reports it correctly).
+- v1-only field-definition lists (`/dealFields` etc.) store SYSTEM fields under v1 keys —
+  `pdDealPatchBody_` renames them for v2 (`user_id` → `owner_id`) and
+  `pdFlattenDealFields_` aliases back; any new v2 write of a rule-chosen key goes
+  through that map (only confirmed renames in it). `PdFake` can't catch a bad key.
+- Line-item update = `PATCH` with the deal-product ATTACHMENT id, not `product_id`
+  (v2 updates are PATCH everywhere; PUT was v1).
 - Values a third-party automation owns: poll for the row, then set ONLY-IF-EMPTY;
   when the current value can't be read, skip — never overwrite.
 
@@ -281,11 +301,14 @@ when working with `*.html`).
 
 ## Backlog & to-do
 
-Not tracked here. The active to-do, housekeeping, hardening backlog, and working
-agreements live in the brain (fresher and richer):
-`~/Documents/claude-brain/01-Projects/gas-ops-v2/open-issues.md` — pull via
-`/brain-find` or the brain skill. Deferred designs (Trim Cleanup, Order Types,
-Capacity Plan) are specced in the Bridge doc.
+Not tracked here. These live in the brain (fresher and richer), under
+`~/Documents/claude-brain/01-Projects/gas-ops-v2/`:
+- `open-issues.md`: the active to-do and housekeeping.
+- `debt-register.md`: deliberate shortcuts and the hardening backlog.
+- `standards.md`, `## Working agreements`: the working agreements.
+
+Pull them via `/brain-find` or the brain skill. Deferred designs (Trim Cleanup,
+Order Types, Capacity Plan) are specced in the Bridge doc.
 
 ## Reference docs
 
@@ -298,8 +321,8 @@ Read on demand (NOT auto-loaded):
   changelog; **canonical source of truth** for any exact invariant, schema, column
   index, or feature history. (De-auto-loaded to save ~56k tokens/session.)
 - Brain vault (`~/Documents/claude-brain/01-Projects/gas-ops-v2/`): `project-brief`,
-  `architecture` (schema quick-ref), `open-issues` (backlog), `ui-patterns`
-  (SPA/theme detail); plus `03-Resources/pipedrive/integration-notes`. Pull via the
+  `architecture` (schema quick-ref), `open-issues` (backlog), `debt-register`,
+  `standards` (rules + working agreements), `ui-patterns` (SPA/theme detail); plus `03-Resources/pipedrive/integration-notes`. Pull via the
   brain skill / `/brain-find`.
 - `GAS_ShortCut_OPS_Development_Plan.md` — roadmap incl. V3 direction.
 

@@ -21,10 +21,12 @@ prefixed `DEV_`. Minted 2026-07-10 by Drive-copying the prod originals.
 | DEV_LOT_PHOTOS folder (My Drive, Nick-only) | `10HB0u_IVHC6ah2OOgXraBzDbKnKUbxCF` | `1Gmw3fQ6tiPLL76tE374646huuYIVHxHf` ("SF Lot Submissions", Shared Drive) |
 | DEV lot-scan Apps Script project, named **"DEV_SF Lot Scanner"** (standalone; minted 2026-07-13) | `1SrMalU5GszZERqAk5xmISUCwGTgqjZwuPMtybJ4nsPrDY15PBPbc25Vu` | `1ww7VJnkeFdpQj8-m06r4RRKxPFikgpNGVMwEgU9BWOgL0DWaJP-jmZJ7` |
 | DEV_SF_EOM_REPORTS_INDEX | `18EQEMCS6Z6ux767ETyeVsFFjsYxrmHMw_m00sQEaoDU` | `1p28o2IbGFrHOqKVs_DUpAtyzM6LFYyAKUpsBB7NwFxg` |
+| DEV eom-viewer Apps Script project, named **"DEV_SF EOM Report Viewer"** (standalone; minted 2026-10-21) | `1IlGUPGyJpPeF9YnuvcKMGVbD8qQRIPHR6YurtBe5PrL3s7k138ff-P_f` | `14AbPr3pM9Grg3gu2dFMWvQOAIksI-x-zGysygzy8PXCmcBRObKvVQgW2` |
 | DEV_QR folder (all dealers) | `1c_BIBBmJL5HYJWIsMTzmHXNo5RvDUdQ1` | per-dealer folders (DEALERS col D) |
 | DEV_OUTPUT folder (all dealers) | `1h5FS0FDkY91bjKx2nTRMuCVflMYa77P2` | per-dealer folders (DEALERS col E) + `1iRDDlqgQPn9R67AEIUJcF8JmyiOyn8DI` |
 | DEV_EOM_REPORTS folder (inside DEV_OUTPUT) | `1EVSMdF1b7s__uAnTpCkET0tCHroOb1uV` | `1gM69qlwuUQYKCSYiwo6eXy9U3F83DQ19` (via PIPEDRIVE_SETTINGS `eom_reports_folder_id`) |
 | Dev Apps Script project (bound to DEV master), named **"DEV_SFOX OPS V2"** in the editor | `1jbcjMNuopoO-WgzdG8me-7ZYscbi8xK8JuzmF9ajFPdioOrQlWOIWM5F` | `1E5aTcofzWzJZssOikaf6lFytS92vRHmj-k1NDV0C_Xu7NoJk7VUEjtNO` |
+| **EXPERIMENTAL** Apps Script project (a SECOND script bound to the DEV master), named **"EXP_SFOX OPS V2"** (minted 2026-09-25) | `1P8oMEhR0xpljFLCGnzEJQRGSs38aju2VUiUy0HIj3imB-Hopt26hD3Ha` | (none — shares every DEV artifact above) |
 
 ## Containment guarantees
 
@@ -112,12 +114,44 @@ The fullscreen web app is a *deployment* and behaves differently per env:
   new version. Version pinning is a feature: rollback = redeploy a previous
   version from Manage deployments in the Apps Script UI.
 
+## EXPERIMENTAL — the third environment (added 2026-09-25)
+
+Prod / Dev / Experimental. EXP is a **second Apps Script project bound to
+DEV_SF_SYSTEM_MASTER**: same sheets, same DEV_QR/DEV_OUTPUT folders, same
+Pipedrive fake (every `ENV.name !== 'prod'` gate treats it as dev), its own
+scriptId (registered in `ENV_IDS` as `name: 'exp'`, so the badge reads
+**(EXP)**) and its own versioned `/exec` URL. Purpose: a UI/workflow
+experiment on a branch gets a stable URL to click through without stomping
+DEV's HEAD, which stays the test bed for the next promote.
+
+- **Push:** `scripts/push-exp.ps1` from the experiment branch. Gates: not
+  `main`, tracked changes committed, `.clasp.exp.json` is real / not PROD /
+  registered in ENV_IDS. It pushes via `clasp -P .clasp.exp.json` (clasp 3's
+  `--project` flag — no `.clasp.json` swap, so the stat-cache trap that bit the
+  lot-scan promote can't recur) and then bumps the EXP `/exec` deployment with
+  `exp <branch> <sha>` as the description.
+- **URLs:** versioned `/exec` deployment `AKfycbzE7vg5xz-75kxmhskxidN58anS8nHM_Nvc5vuHKew5q8IBeRwJP607nag63tEdTtsf`
+  ("experimental", minted 2026-09-25 — the Experimental bookmark); HEAD `/dev` test
+  deployment `AKfycbxBHPbDMRBDbZr9R-uEU67Fpo3QyseVJU-v8SRdqMc` (editors only, always the
+  latest push).
+- **Script properties** (per project — EXP has its own): DUMMY secrets only,
+  `PD_API_TOKEN` = `FAKE`, `PD_COMPANY_DOMAIN` = `fake-dev`, set by hand like DEV.
+- **Sheet menu:** both bound scripts add their menu to the DEV master on open —
+  the EXP one is labelled `SilverFox (EXP)`.
+- **Two bound scripts, one sheet:** a Drive copy of the DEV master would copy
+  BOTH scripts (each minting an unregistered id that throws — containment holds).
+- **Anything that changes sheet structure** does NOT belong on EXP: it shares
+  the DEV sheets, so a schema experiment would leak into DEV testing. Use the
+  normal DEV path with a migration.
+
 ## clasp targets
 
 - `.clasp.json` (committed) → **DEV** scriptId — default `clasp push` is safe.
 - `.clasp.prod.json` (committed) → PROD scriptId — reached ONLY via
   `scripts/promote.ps1` (Nick-run, guarded: main branch, clean tree, synced with
   origin, typed confirmation).
+- `.clasp.exp.json` (committed) → EXPERIMENTAL scriptId — reached ONLY via
+  `scripts/push-exp.ps1` (any non-main branch; see the EXPERIMENTAL section).
 - **lot-scan/** mirrors the same model (added 2026-07-13): `lot-scan/.clasp.json`
   → DEV scanner scriptId, `lot-scan/.clasp.prod.json` → PROD scanner, reached
   ONLY via `scripts/promote-lot-scan.ps1` (same gates minus the Node harness —
@@ -131,5 +165,28 @@ The fullscreen web app is a *deployment* and behaves differently per env:
   prod `/exec` = pinned versioned deployment
   (`AKfycbwOv4waW5OrV6tLllV2HxVqLsO6fMdP6hfGbYvuDu8IpGyRb5r2bmCNVkTB0mvcpOFvCQ`),
   bumped by the promote script.
-- eom-viewer/ has **no dev twin yet** — its `.clasp.json` still points at prod.
-  Rare changes; review gate + Nick-only pushes until a twin exists.
+- **eom-viewer/** mirrors the same model (dev twin minted 2026-10-21):
+  `eom-viewer/.clasp.json` → DEV viewer scriptId (default `clasp push` from
+  inside `eom-viewer/` is safe), `eom-viewer/.clasp.prod.json` → PROD viewer,
+  reached ONLY via **`scripts/promote-eom-viewer.ps1`** (Nick-run; same gates as
+  `promote.ps1`: main / clean / synced / green harness / typed PROMOTE; swaps the
+  prod target in, pushes, bumps the invoice team's existing `/exec` deployment
+  `AKfycby7zl3kavPEXArOp0lnSiEnW450R_jQThspSkhIUvUEDl4GaZ46DSNkYSVzMyXtoPitIQ`,
+  and delete-then-restores `.clasp.json` — the same-size-copy stat-cache trap).
+  `eom-viewer/.claspignore`
+  keeps `.clasp.prod.json` out of pushes. The viewer's `ENV_IDS` resolver
+  (eom-viewer/Code.gs, same scriptId-keyed idiom) routes dev to
+  DEV_SF_EOM_REPORTS_INDEX and prod to SF_EOM_REPORTS; an unregistered scriptId
+  throws; the page title gets a " (DEV)" suffix off prod. The DEV viewer runs
+  the **same in-process Pipedrive fake as the main app**: `eom-viewer/PdFake.gs`
+  is a byte-copy of the root `PdFake.gs` (harness-guarded with
+  `EomReportRenderer.html`); off prod `cvSecrets_` returns a fake settings
+  object (no Script properties, no token in any dev project), `cvGetJson_` →
+  `cvFakeJson_` → `pdFakeFetch_`, deal products → `pdFakeEomProducts_`, and the
+  credential probe is skipped — the Current section renders the canned FAKE
+  deals with zero API traffic. Dev web app = versioned deployment **"Dev EOM Viewer
+  Deploy"** (id `AKfycbwG0YCDAHHND0eawDbudMPkyxDrBWqsHpSI-ELefh3_w27UZN2Bg5jEeLlmJzMsQIXp`,
+  bump it after every push: `clasp deploy --deploymentId <id> --description
+  "Dev EOM Viewer Deploy"`); prod `/exec` = the viewer's existing pinned
+  deployment (**@15 = `promote eom-viewer 1ddc69a`, 2026-10-21** — the first promote
+  through the script; @14 was the pre-v2 viewer).

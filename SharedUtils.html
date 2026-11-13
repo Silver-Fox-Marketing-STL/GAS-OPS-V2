@@ -37,6 +37,11 @@
     /* borders */
     --border: #e7e1da;
     --border-2: #d9d3cd;
+    /* .table-u header bar. Light themes keep the inverted bar (near-black on
+       cream); the dark-family themes override to a surface tint — the
+       inverted bar there was a near-white band across a dark UI. */
+    --th-bg: var(--text);
+    --th-fg: var(--bg);
     /* accent — Coquelicot orange (brand primary) */
     --accent: #fd410d;
     --accent-hover: #d8350a;
@@ -95,6 +100,11 @@
     --shell-sidebar-w: 210px;  /* #sidebar width (App.html) */
     --brand-fs: 17px;          /* .app-brand font-size (App.html) */
     --rv-vin-w: 200px;         /* Run Order VIN textarea column (ViewRun) — ~one 17-char monospace VIN */
+
+    /* brand logo mask fill (.app-brand .logo, App.html). A dark palette or a
+       navy/blue title-strip theme overrides this in its OWN token block — App.html
+       keeps no per-theme selector allowlist. */
+    --logo-fill: #4a4a4d;
   }
 
   :root[data-theme="dark"] {
@@ -110,6 +120,8 @@
     --text-muted: #6e6e74;
     --border: #3a3a40;
     --border-2: #4a4a51;
+    --logo-fill: #d2d2d6;
+    --th-bg: var(--surface-2); --th-fg: var(--text-2);   /* table header: tint, not inverted */
     /* darker orange for accent fills, lighter coral/mikado for highlights */
     --accent: #fd410d;          /* Coquelicot — primary accent */
     --accent-hover: #ff8f71;    /* Coral — lighter highlight on hover */
@@ -136,6 +148,8 @@
     --bg: #000000; --surface: #0a0a0a; --surface-2: #141414; --surface-3: #1c1c1c;
     --text: #ffffff; --text-2: #dcdcdc; --text-3: #b0b0b0; --text-muted: #8a8a8a;
     --border: #5e5e5e; --border-2: #6a6a6a;   /* HC: ≥3:1 on near-black surfaces */
+    --logo-fill: #d2d2d6;
+    --th-bg: var(--surface-3); --th-fg: var(--text);     /* table header: tint, not inverted (HC: full text) */
     --accent: #ff5a2c; --accent-hover: #ff8a64; --accent-active: #d8350a;
     --accent-weak: rgba(255,90,44,.18); --accent-weak-2: rgba(255,90,44,.30); --on-accent: #000000;
     --success: #34d058; --success-weak: rgba(52,208,88,.18);  --on-success: #00130a;
@@ -163,6 +177,7 @@
     --text: #000000; --text-2: #1d1d1d; --text-3: #3f3f3f; --text-muted: #5e5e5e;
     --border: #808080;             /* shadow-gray bevel edge */
     --border-2: #404040;           /* dark-shadow edge */
+    --logo-fill: #d2d2d6;          /* light logo on the navy title strip */
     --accent: #000080;             /* navy — title bar + selection */
     --accent-hover: #1084d0;       /* active-title gradient blue */
     --accent-active: #00006a;
@@ -189,7 +204,7 @@
      CURATED PALETTE PRESETS — pure token overrides (no structural change), so
      each reuses the default light/dark layout and is backend/UX-safe by
      construction. To add one: copy a block, add { id, label } to Theme.themes
-     below, and (DARK only) add the id to the .app-brand .logo list in App.html.
+     below, and (DARK / navy-strip only) set --logo-fill: #d2d2d6 inside the block.
      ════════════════════════════════════════════════════════════════════════ */
 
   /* ── Slate — cool neutral light (the crisp blue counterpart to warm Light) ── */
@@ -232,6 +247,8 @@
     --bg: #282828; --surface: #3c3836; --surface-2: #504945; --surface-3: #665c54;
     --text: #ebdbb2; --text-2: #d5c4a1; --text-3: #bdae93; --text-muted: #928374;
     --border: #504945; --border-2: #665c54;
+    --logo-fill: #d2d2d6;
+    --th-bg: var(--surface-2); --th-fg: var(--text-2);   /* table header: tint, not inverted */
     --accent: #fe8019; --accent-hover: #ff9b47; --accent-active: #d65d0e;
     --accent-weak: rgba(254,128,25,.16); --accent-weak-2: rgba(254,128,25,.26); --on-accent: #1d1407;
     --success: #b8bb26; --success-weak: rgba(184,187,38,.18); --on-success: #141600;
@@ -240,28 +257,6 @@
     --info:    #8ec07c; --info-weak:    rgba(142,192,124,.18);
     --shadow: 0 2px 12px rgba(0,0,0,.5); --shadow-lg: 0 8px 28px rgba(0,0,0,.6);
     --focus-ring: 0 0 0 3px rgba(254,128,25,.5);
-  }
-
-  /* ── "Windows XP" (Luna) — blue title bars, beige controls, system fonts.
-     Palette/tokens here; the window-frame chrome is the data-theme block in
-     App.html; the desktop page-arrangement is data-arrange="desktop". ── */
-  :root[data-theme="luna"] {
-    color-scheme: light;
-    --bg: #ffffff; --surface: #ece9d8; --surface-2: #e3e0cf; --surface-3: #d6d3c2;
-    --text: #000000; --text-2: #1c1c1c; --text-3: #444444; --text-muted: #6b6b6b;
-    --border: #aca899; --border-2: #7f9db9;
-    --accent: #316ac5; --accent-hover: #2a5bb0; --accent-active: #1f4894;
-    --accent-weak: #d8e4f8; --accent-weak-2: #bcd2f0; --on-accent: #ffffff;
-    --success: #2f7d1f; --success-weak: #dcecd2; --on-success: #ffffff;
-    --danger:  #b41a1a; --danger-weak:  #f3d6d6; --on-danger:  #ffffff;
-    --warning: #9a6a00; --warning-weak: #f5e7c6; --warning-strong: #6a4a00;
-    --info:    #1c5fb0; --info-weak:    #d8e4f8;
-    --radius-sm: 3px; --radius: 3px; --radius-lg: 4px;
-    --shadow: 0 1px 3px rgba(0,0,0,.25); --shadow-lg: 0 4px 14px rgba(0,0,0,.35);
-    --focus-ring: 0 0 0 2px rgba(255,140,0,.6);
-    --font-head: 'Trebuchet MS', Tahoma, 'Segoe UI', sans-serif;
-    --font-body: Tahoma, 'Segoe UI', Verdana, sans-serif;
-    --shell-header-h: 30px;
   }
 
   /* ════════════════════════════════════════════════════════════════════════
@@ -323,6 +318,26 @@
   #appToast.info    { background: var(--info-weak);    color: var(--info);    border: 1px solid var(--info); }
   #appToast.success { background: var(--success-weak); color: var(--success); border: 1px solid var(--success); }
   #appToast.error   { background: var(--danger-weak);  color: var(--danger);  border: 1px solid var(--danger); }
+
+  /* Themed confirm — native <dialog> (renders in the top layer: no z-index games) */
+  #appConfirm {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    color: var(--text);
+    padding: 0;
+    width: min(440px, calc(100vw - 32px));
+    box-shadow: var(--shadow-lg);
+    font-family: var(--font-body);
+    font-size: var(--fs-body);
+  }
+  #appConfirm::backdrop { background: rgba(0,0,0,.45); }
+  #appConfirm .ac-body { padding: 18px 20px 16px; }
+  #appConfirm .ac-title { font-family: var(--font-head); font-weight: 600; font-size: var(--fs-lg); margin-bottom: 8px; }
+  #appConfirm.danger  .ac-title { color: var(--danger); }
+  #appConfirm.warning .ac-title { color: var(--warning-strong); }
+  #appConfirm .ac-msg { white-space: pre-line; line-height: 1.5; }
+  #appConfirm .ac-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 
   /* ════════════════════════════════════════════════════════════════════════
      CUSTOM SELECT — progressive enhancement of native <select> into a themed
@@ -398,8 +413,8 @@
      UNIFIED COMPONENT LAYER — canonical button/pill/tag/table specs
      (SuperDesign "variant 1", July 2026). Unscoped on purpose: per-view
      #view-xxx dialect rules out-specify these until each view is migrated
-     (dialect CSS deleted). Keep class names in sync with the Encarta/Luna
-     override blocks in App.html (.pill, button).
+     (dialect CSS deleted). Keep class names in sync with the Encarta
+     override block in App.html (.pill, button).
      ════════════════════════════════════════════════════════════════════════ */
   /* Buttons — one 4-variant grammar. No .btn base class: base props live on
      this selector list so existing class="btn-primary" markup needs no edit. */
@@ -466,7 +481,21 @@
   .tag.tone-info    { background: var(--info-weak);    color: var(--info); }
   .tag.tone-neutral { background: var(--surface-3);    color: var(--text-2); }
 
-  /* Data table — one recipe: inverted sticky header, hairline dividers,
+  /* File picker — a native <input type=file> paints browser chrome ("Choose
+     Files | No file chosen") that no theme can restyle. Pattern: a <label>
+     wraps a visually-hidden input, a .btn-secondary span (clicking the label
+     opens the picker) and a readout span the view's change handler fills.
+     Keyboard focus lands on the hidden input; :has() forwards the ring. */
+  .file-pick { position: relative; display: inline-flex; align-items: center; gap: 10px; cursor: pointer; max-width: 100%; }
+  .file-pick input[type="file"] { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; clip: rect(0 0 0 0); pointer-events: none; }
+  .file-pick-btn { display: inline-block; }
+  .file-pick-name { font-size: var(--fs-sm); color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-pick:has(input:focus-visible) .file-pick-btn { box-shadow: var(--focus-ring); }
+  .file-pick:has(input:disabled) { cursor: default; }
+  .file-pick:has(input:disabled) .file-pick-btn { opacity: .5; background: var(--bg); border-color: var(--border-2); }
+
+  /* Data table — one recipe: sticky header bar (--th-bg/--th-fg: inverted in
+     light themes, a surface tint in the dark family), hairline dividers,
      tabular numerals, hover row. View-specific row states stay view-scoped. */
   .table-u {
     width: 100%; border-collapse: collapse;
@@ -474,7 +503,7 @@
   }
   .table-u th {
     position: sticky; top: 0; z-index: 1;
-    background: var(--text); color: var(--bg);
+    background: var(--th-bg); color: var(--th-fg);
     text-align: left; padding: 7px 12px;
     font-family: var(--font-head); font-size: 10px; font-weight: 700;
     text-transform: uppercase; letter-spacing: .1em;
@@ -510,6 +539,49 @@
     el.style.display = 'block';
     if (_toastTimer) clearTimeout(_toastTimer);
     _toastTimer = setTimeout(function() { el.style.display = 'none'; }, 6000);
+  }
+
+  // ── Confirm (themed replacement for window.confirm) ────────────────────────
+  // appConfirm(message, {title, okLabel, cancelLabel, tone:'danger'|'warning'})
+  // → Promise<boolean>. Native <dialog>.showModal(): Escape and a backdrop click
+  // both cancel; the message keeps its line breaks. One shared element, built on
+  // first use. There is no blocking form — callers continue in .then().
+  var _confirmResolve = null;
+  function appConfirm(message, opts) {
+    opts = opts || {};
+    var dlg = document.getElementById('appConfirm');
+    if (!dlg) {
+      dlg = document.createElement('dialog');
+      dlg.id = 'appConfirm';
+      dlg.innerHTML = '<div class="ac-body"><div class="ac-title"></div><div class="ac-msg"></div>' +
+        '<div class="ac-actions"><button type="button" data-ok="0"></button>' +
+        '<button type="button" data-ok="1"></button></div></div>';
+      document.body.appendChild(dlg);
+      dlg.addEventListener('click', function(e) {
+        var b = e.target.closest ? e.target.closest('button[data-ok]') : null;
+        if (b) dlg.close(b.getAttribute('data-ok'));
+        else if (e.target === dlg) dlg.close('');   // padding is 0, so a hit on the element itself is the backdrop
+      });
+      dlg.addEventListener('close', function() {
+        var r = _confirmResolve; _confirmResolve = null;
+        if (r) r(dlg.returnValue === '1');
+      });
+    }
+    var okBtn = dlg.querySelector('[data-ok="1"]'), cancelBtn = dlg.querySelector('[data-ok="0"]');
+    dlg.className = opts.tone || '';
+    dlg.querySelector('.ac-title').textContent = opts.title || 'Please confirm';
+    dlg.querySelector('.ac-msg').textContent = message;
+    cancelBtn.textContent = opts.cancelLabel || 'Cancel';
+    cancelBtn.className = 'btn-secondary';
+    okBtn.textContent = opts.okLabel || 'OK';
+    okBtn.className = opts.tone === 'danger' ? 'btn-danger' : 'btn-primary';
+    return new Promise(function(resolve) {
+      if (_confirmResolve) _confirmResolve(false);   // a newer ask supersedes an open one
+      _confirmResolve = resolve;
+      dlg.returnValue = '';
+      if (!dlg.open) dlg.showModal();
+      (opts.tone === 'danger' ? cancelBtn : okBtn).focus();   // destructive = safe default
+    });
   }
 
   // ── Close guards ───────────────────────────────────────────────────────────
@@ -582,12 +654,12 @@
   // or set from the OS by a head script before first paint (App.html / Classic.html).
   var Theme = {
     // A curated theme = an id (identity) + a palette block (:root[data-theme="id"],
-    // or a shared one) + optionally the 'arrange' axis (Luna's desktop metaphor).
+    // or a shared one).
     // apply()/reflectAxes() write the axes onto <html>; an axis a theme doesn't
     // declare is REMOVED → the default. The shell/nav axes are no longer declared
     // by any theme (UI Settings owns them via UiPrefs.applyOverrides), but they
     // stay in _axes so reflectAxes clears stale attributes before UiPrefs re-applies.
-    _axes: ['shell', 'density', 'shape', 'nav', 'arrange'],
+    _axes: ['shell', 'density', 'shape', 'nav'],
     // ids are persistence keys — keep them stable even when a label changes
     // (renaming 'gruvbox-rail'/'slate-icons' would orphan saved prefs).
     themes: [
@@ -597,8 +669,7 @@
       { id: 'encarta',       label: 'Encarta' },
       { id: 'sage',          label: 'Sage' },
       { id: 'gruvbox-rail',  label: 'Gruvbox' },
-      { id: 'slate-icons',   label: 'Slate' },
-      { id: 'luna',          label: 'Windows XP', arrange: 'desktop' }
+      { id: 'slate-icons',   label: 'Slate' }
     ],
     _meta: function(id) {
       for (var i = 0; i < this.themes.length; i++) { if (this.themes[i].id === id) return this.themes[i]; }

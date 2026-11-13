@@ -11,7 +11,7 @@
 //          with realistic data — real VINs, long status strings, etc.)
 // --out    output HTML path
 // --theme  optional data-theme id (e.g. dark, gruvbox) — palette tokens only;
-//          App.html structural overrides (Encarta/Luna) are NOT included
+//          App.html structural overrides (Encarta) are NOT included
 // --id     view root id (default: taken from the first --view, e.g. view-run)
 'use strict';
 const fs = require('fs');

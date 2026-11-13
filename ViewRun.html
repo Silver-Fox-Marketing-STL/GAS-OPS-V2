@@ -102,7 +102,10 @@
       </div>
 
       <div class="rv-tablezone">
-        <div class="rv-zone-label">Inventory match</div>
+        <div class="rv-zone-label rv-zone-label-row">
+          <span>Inventory match</span>
+          <button type="button" id="rvDedupeBtn" class="btn-danger" style="display:none" onclick="rvRemoveDuplicates()">Remove Duplicates</button>
+        </div>
         <div class="rv-table-scroll">
           <table id="vinDataTable" class="table-u">
             <thead>
@@ -110,7 +113,7 @@
                 <th>Year</th><th>Make</th><th>Model</th><th>Type</th>
                 <th>Stock</th><th>VIN</th><th>Status</th><th>Link</th>
                 <th id="rvFeatHead" style="display:none">Features</th>
-                <th id="rvXHead"><button type="button" id="rvDedupeBtn" class="btn-danger" style="display:none" onclick="rvRemoveDuplicates()">Remove Duplicates</button></th>
+                <th id="rvXHead"></th>
               </tr>
             </thead>
             <tbody id="vinDataBody">
@@ -157,6 +160,14 @@
                             at the old 190px the card scrolled internally (bottom cut off). */
                          height: 235px;
                          overflow-x: auto; overflow-y: hidden; }
+    /* Empty-state placeholder — the fixed-height zone read as a blank before
+       a dealer is picked (Sep 23 audit). CSS-only: every card in the zone is
+       shown via inline `display: flex`, so "no child carries it" == empty.
+       Dashed outline + a faint caption, centered by margin:auto in the flex row. */
+    #view-run .rv-flow:not(:has(> [style*="display: flex"])) { border: 1px dashed var(--border-2); border-radius: var(--radius-sm); }
+    #view-run .rv-flow:not(:has(> [style*="display: flex"]))::before {
+      content: "Inventory stats, run progress and finalize cards appear here";
+      margin: auto; font-size: var(--fs-sm); color: var(--text-muted); text-align: center; padding: 0 var(--space-3); }
     #view-run .rv-topbar-actions { flex-shrink: 0; display: flex; flex-direction: column; gap: var(--space-2); padding-top: 18px; }
     #view-run .rv-topbar-actions button { width: 100%; white-space: nowrap; }
     #view-run .rv-body { display: grid; grid-template-columns: var(--rv-vin-w) 1fr;
@@ -164,32 +175,46 @@
     #view-run .rv-vinzone { grid-area: vin; display: flex; flex-direction: column; min-height: 0; }
     #view-run .rv-tablezone { grid-area: table; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
     #view-run .rv-zone-label { font-size: var(--fs-overline); text-transform: uppercase; letter-spacing: .04em; color: var(--text-3); margin-bottom: var(--space-2); }
-    /* Dedicated right-edge control gutter: the Remove Duplicates "cap" lives
-       INSIDE the last header cell, directly over the ✕ column — the column
-       auto-widens to fit it, so it can never cover a data column, and it
-       scrolls WITH the table (no absolute positioning, no height math). The
-       scroll container's rounded-corner clip rounds the cap's top corner. */
-    /* width:0 = shrink-to-content hint so this column never hoards the table's
-       slack width (auto layout hands extra space to wide-content columns);
-       overflow:hidden is the "mask" — it clips the oversized button below. */
-    #view-run #vinDataTable th#rvXHead { padding: 0; width: 0; overflow: hidden; }
-    /* The header-edge "mask" look: the button paints TALLER than the header row
-       (big vertical padding) while negative vertical margins cancel the extra
-       layout height, and the cell's overflow:hidden cuts it flush at the bar's
-       top/bottom edges — no header background can peek regardless of theme
-       fonts. A block BUTTON still shrinks to fit-content (unlike a div) —
-       margin-left:auto pins it against the cell's RIGHT edge; right side is
-       cut square (no right border), the container's corner clip finishes the
-       top-right curve, left corners keep the button radius. */
-    #view-run #rvDedupeBtn { display: block; margin: -8px 0 -8px auto; white-space: nowrap;
-                             padding: 15px 8px !important; font-size: 11px; line-height: 12px;
-                             border-right: 0;
-                             border-radius: var(--radius-sm) 0 0 var(--radius-sm); }  /* base .btn-danger padding is !important */
+    /* The label row also carries the Remove Duplicates button (right-aligned,
+       directly above the ✕ column). It used to live INSIDE the ✕ header cell
+       as a "cap", which auto-widened that column to the button's width — fine
+       while the column scrolled with the table, but once the column is pinned
+       (below) that width became an opaque strip hiding a whole data column at
+       rest. Up here it covers nothing and needs no height math. min-height
+       keeps the row the same height whether or not the button is showing. */
+    /* 18px row + 4px margin = the plain label's 14px line + 8px margin, so the
+       table header still lines up with the VIN box's top edge. */
+    #view-run .rv-zone-label-row { display: flex; align-items: center; justify-content: space-between; min-height: 18px; margin-bottom: 4px; }
+    #view-run #rvDedupeBtn { padding: 1px 10px !important; font-size: 11px; line-height: 14px; white-space: nowrap; }  /* base .btn-danger padding is !important */
+    /* PINNED right edge: sticky on BOTH axes (top from .table-u th, right here)
+       so the per-row ✕ stays reachable when Features / editable columns push
+       the table wider than its box — the wide table scrolls UNDER this column
+       instead of carrying it off-screen. z-index 2 beats the other sticky
+       headers (z 1) that slide beneath it. width:0 = shrink-to-content hint so
+       the column never hoards the table's slack width. */
+    #view-run #vinDataTable th#rvXHead { padding: 0; width: 0; right: 0; z-index: 2; }
     /* Per-row remove — compact table control, view-scoped like the other views' X buttons */
-    #view-run #vinDataTable td.rv-x-cell { text-align: right; padding-top: 0; padding-bottom: 0; }
+    #view-run #vinDataTable td.rv-x-cell { text-align: right; padding-top: 0; padding-bottom: 0; position: sticky; right: 0; }
+    /* A pinned cell needs an OPAQUE background or scrolled cells show through.
+       The shared row tints (.row-dup / .row-warn / hover) are translucent rgba
+       in the dark themes, so the cell can't just take the tint: it keeps an
+       opaque var(--bg) base and re-applies the same tint as an image LAYER on
+       top — same look as its row, nothing bleeds through. (ID specificity
+       here beats the shared row-state rules, which is what we want.) */
+    #view-run #vinDataTable td.rv-x-cell { background-color: var(--bg); }
+    #view-run #vinDataTable tr.row-dup td.rv-x-cell,
+    #view-run #vinDataTable tr.row-danger td.rv-x-cell { background-image: linear-gradient(var(--danger-weak), var(--danger-weak)); }
+    #view-run #vinDataTable tr.row-warn td.rv-x-cell { background-image: linear-gradient(var(--warning-weak), var(--warning-weak)); }
+    #view-run #vinDataTable tbody tr:hover td.rv-x-cell { background-image: linear-gradient(var(--surface), var(--surface)); }
+    /* Horizontal-scroll cue: rvUpdateScrollCue() sets .rv-more-right on the
+       scroll box only while columns are hidden under the pinned edge. */
+    #view-run .rv-table-scroll.rv-more-right td.rv-x-cell,
+    #view-run .rv-table-scroll.rv-more-right th#rvXHead { box-shadow: -8px 0 8px -6px rgba(0,0,0,.35); }
     #view-run .rv-x { background: none; border: none; color: var(--text-3); cursor: pointer;
                       font-size: var(--fs-sm); line-height: 1; padding: 3px 6px; border-radius: var(--radius-sm); }
     #view-run .rv-x:hover { color: var(--danger); background: var(--danger-weak); }
+    /* ALREADY PRINTED status carries a hover tooltip (title) listing prior orders */
+    #view-run #vinDataTable td.rv-dup-status { cursor: help; text-decoration: underline dotted; text-underline-offset: 3px; }
     /* Order-drafts band — one row per saved draft, natural height above the body.
        display:flex beats the UA [hidden] rule (the .view[hidden] trap) — re-pin. */
     #view-run .rv-drafts-band[hidden] { display: none !important; }
@@ -217,7 +242,10 @@
     #view-run #vinDataTable td.rv-link a { color: var(--accent); text-decoration: none; font-size: var(--fs-sm); }
     #view-run #vinDataTable td.rv-link a:hover { text-decoration: underline; }
     /* Features + editable-column text inputs (VersaWorks dealers) */
-    #view-run #vinDataTable td.rv-feat { min-width: 16rem; }
+    /* 12rem (was 16rem): two input columns at 1440 already overflow — the ✕
+       column is pinned, so a narrower floor just means less to scroll. The
+       input scrolls its own text; the caret is never lost. */
+    #view-run #vinDataTable td.rv-feat { min-width: 12rem; }
     #view-run .rv-feat-input,
     #view-run .rv-edit-input {
       width: 100%; box-sizing: border-box;
@@ -342,6 +370,8 @@
                             background: none; border: 0; padding: 0; font: inherit; cursor: pointer;
                             color: var(--accent); }
     #view-run .rej-toggle:hover span:first-child { text-decoration: underline; }
+    /* The caret at 10.5px inherited size read as a stray "-" (Sep 23 audit). */
+    #view-run .rej-toggle span:last-child { font-size: 13px; line-height: 1; opacity: .75; }
     /* Breakdown popover — top layer (never clipped by the card/band, zero
        layout shift); anchored under the toggle by rvPositionRejPop. */
     #view-run .rej-pop { position: fixed; inset: auto; margin: 0;
@@ -585,6 +615,7 @@
     var cardStates     = [];   // per pendingRuns entry: {state, rowIndex, committed}
                                // state: pending → finalizing → finalized | pending → abandoning → abandoned
     var lastConfirmedDealer = ''; // for reverting the dealer select if a discard is cancelled
+    var rvGuardAnswered = false;  // rvSwitchDealer_ already ran the un-finalized guard → change handler skips it
 
     // ── Init (lazy — first nav into the view) ────────────────────────────────
     // Dealers + users come from the shared AppData bootstrap (one server call
@@ -685,13 +716,30 @@
       var t = e.target;
       if (t && t.classList && t.classList.contains('rv-x')) rvRemoveVin(t.getAttribute('data-vin'));
     });
+    // Horizontal-scroll cue on the match table (shadow under the pinned ✕
+    // column while columns are hidden to the right) — re-checked on scroll,
+    // on window resize, and after every render.
+    var rvScrollBox = document.querySelector('#view-run .rv-table-scroll');
+    if (rvScrollBox) rvScrollBox.addEventListener('scroll', rvUpdateScrollCue);
+    window.addEventListener('resize', rvUpdateScrollCue);
     document.getElementById('runDealerSelect').addEventListener('change', function() {
       // Switching dealers discards any un-finalized run results — confirm first.
-      if (!discardPendingGuard()) {
-        this.value = lastConfirmedDealer;
-        return;
-      }
-      var key = this.value;
+      // The clean path stays SYNCHRONOUS (runPrefillFromInbox / rvResumeDraft
+      // rely on the handler having run when dispatchEvent returns); the confirm
+      // path is async and snaps the select back if the user backs out.
+      var sel = this;
+      if (rvGuardAnswered || !hasUnfinalizedCards()) { rvOnDealerChanged_(sel.value); return; }
+      discardPendingGuard().then(function(ok) {
+        if (ok) { rvOnDealerChanged_(sel.value); return; }
+        sel.value = lastConfirmedDealer;
+        if (window.CustomSelect) CustomSelect.refresh(sel);
+      });
+    });
+    }
+
+    // The dealer-change flow proper (guard already passed): save the outgoing
+    // draft, wipe the form, load the new dealer.
+    function rvOnDealerChanged_(key) {
       lastConfirmedDealer = key;
       // Auto-save the OUTGOING dealer's typed work as a draft BEFORE the wipe
       // below — an accidental switch must never lose typing. The payload is
@@ -715,7 +763,6 @@
         return;
       }
       loadVinLogStatus(key);
-    });
     }
 
     // (The pre-run Pipedrive Deal ID + split-deal fields were removed July 2026 —
@@ -737,18 +784,30 @@
       rvRenderTable();   // a programmatic .value set does NOT fire the input event, so render the table explicitly (CAO pre-fill)
     }
 
+    // Programmatic dealer switch through the normal change flow (guard + wipe +
+    // data load) → Promise<boolean>. Runs the un-finalized guard FIRST, then
+    // dispatches change with the guard marked answered so the handler runs
+    // synchronously. False = user backed out, or the dealer isn't in the list.
+    function rvSwitchDealer_(dealerKey) {
+      return discardPendingGuard().then(function(ok) {
+        if (!ok) return false;
+        var sel = document.getElementById('runDealerSelect');
+        sel.value = dealerKey;
+        rvGuardAnswered = true;
+        try { sel.dispatchEvent(new Event('change')); } finally { rvGuardAnswered = false; }
+        if (window.CustomSelect) CustomSelect.refresh(sel);   // sync the enhanced facade to the programmatic value
+        return sel.value === dealerKey;   // no matching option leaves sel.value = ''
+      });
+    }
+
     // Cross-view jump support (VIN Inbox → "Create order"): select the batch's
     // dealer through the normal change flow, then append its valid VINs.
     // Mirrors vinlogPreselectDealer (ViewVinLog).
     function runPrefillFromInbox(dealerKey, vins) {
-      var sel = document.getElementById('runDealerSelect');
-      sel.value = dealerKey;
-      sel.dispatchEvent(new Event('change'));   // full handler: un-finalized guard, clears textarea, loads dealer data
-      if (window.CustomSelect) CustomSelect.refresh(sel);   // sync the enhanced facade to the programmatic value
-      // Guard cancelled → the handler reverted the select (also catches a
-      // dealerKey with no matching option, which leaves sel.value = '').
-      if (sel.value !== dealerKey) { window.viPendingBatch = null; return; }
-      appendVins(vins);   // AFTER the change handler cleared the textarea
+      rvSwitchDealer_(dealerKey).then(function(ok) {
+        if (!ok) { window.viPendingBatch = null; return; }
+        appendVins(vins);   // AFTER the change handler cleared the textarea
+      });
     }
 
     // Row ✕ button: drop every textarea line matching this VIN (rendered row
@@ -1188,10 +1247,67 @@
       });
     }
 
+    // → Promise<boolean>: true when it's OK to proceed (nothing pending, or the
+    // user agreed to discard). Callers that must stay synchronous check
+    // hasUnfinalizedCards() themselves and only await this on the slow path.
     function discardPendingGuard() {
-      if (!hasUnfinalizedCards()) return true;
-      return confirm('You have run results that haven\'t been finalized or abandoned. ' +
-                     'Discard them? They will never appear in the run log.');
+      if (!hasUnfinalizedCards()) return Promise.resolve(true);
+      return appConfirm('You have run results that haven\'t been finalized or abandoned. ' +
+                        'Discard them? They will never appear in the run log.',
+                        { title: 'Discard un-finalized results?', okLabel: 'Discard', tone: 'danger' });
+    }
+
+    // Stale-import check → Promise<boolean>. Reads the META timestamp fresh on
+    // every call (never cached); if it isn't today, asks before running. A
+    // failed read never blocks a run (fail-open); Classic (no ViewHome) skips.
+    function rvImportFreshCheck_() {
+      return new Promise(function(resolve) {
+        google.script.run
+          .withSuccessHandler(function(st) {
+            var date = String((st && st.lastImportDate) || '').trim();
+            var time = String((st && st.lastImportTime) || '').trim();
+            if (typeof homeDateIsToday_ !== 'function' || homeDateIsToday_(date)) return resolve(true);
+            appConfirm('The most recent data import was ' +
+                (date ? date + (time ? ' ' + time : '') : 'never recorded') +
+                ' — not today, so inventory may be out of date.',
+                { title: 'Inventory may be out of date', okLabel: 'Run anyway', tone: 'warning' }).then(resolve);
+          })
+          .withFailureHandler(function() { resolve(true); })
+          .getAppHomeStatus();
+      });
+    }
+
+    // Pending-commit check → Promise<boolean>. A finalized run that was never
+    // committed to the VIN log isn't in the log yet, so the log can't flag its
+    // cars as printed. Warns only when THIS order shares cars with such a run
+    // (RunLedger.gs rlPendingOverlap_) and names them; pending runs with no
+    // shared cars just keep the amber "N pending" tag, refreshed from the same
+    // call. A failed read never blocks a run (fail-open).
+    function rvPendingCommitCheck_(dealerKey, dealerName, vins) {
+      return new Promise(function(resolve) {
+        google.script.run
+          .withSuccessHandler(function(result) {
+            result = result || {};
+            var n = result.pendingCount || 0;
+            var pend = document.getElementById('vinLogPendingSpan');
+            if (pend) { pend.textContent = n + ' pending'; pend.style.display = n > 0 ? '' : 'none'; }
+            var runs = result.runs || [];
+            if (!runs.length) return resolve(true);
+            var c = result.overlapCount || 0;
+            var lines = runs.map(function(r) {
+              var shown = r.vins.slice(0, 3).join(', ') + (r.vins.length > 3 ? ', +' + (r.vins.length - 3) + ' more' : '');
+              return '• Deal ' + r.dealId + (r.note && r.note.indexOf('SPLIT:') === 0 ? ' (' + r.note + ')' : '') +
+                     ', run ' + r.timestamp + ': ' + r.vins.length + ' car' + (r.vins.length === 1 ? '' : 's') + ' — ' + shown;
+            });
+            appConfirm(c + ' car' + (c === 1 ? ' in this order is' : 's in this order are') +
+                ' in a finalized ' + dealerName + ' run that is not yet committed to the VIN log,' +
+                ' so ' + (c === 1 ? 'it' : 'they') + ' may already be printed:\n\n' + lines.join('\n') +
+                '\n\nCommit or roll back ' + (runs.length === 1 ? 'that run' : 'those runs') + ' first, or run anyway.',
+                { title: 'Cars already in an uncommitted run', okLabel: 'Run anyway', tone: 'warning' }).then(resolve);
+          })
+          .withFailureHandler(function() { resolve(true); })
+          .ledgerPendingOverlap(dealerKey, vins);
+      });
     }
 
     // Method-first finalize. One server call per method; always capture rowIndex
@@ -1385,60 +1501,74 @@
       });
 
       if (siblingsAlive) {
-        if (!confirm('Abandon this entry? It will never appear in the run log or order stats. ' +
-                     'The output document is kept — the other entry still uses it.')) return;
-        cardStates[i].state = 'abandoned';
-        markCardAbandoned(i);
-        updateVinLogBtn();
+        appConfirm('Abandon this entry? It will never appear in the run log or order stats. ' +
+                   'The output document is kept — the other entry still uses it.',
+                   { title: 'Abandon this entry?', okLabel: 'Abandon', tone: 'danger' }).then(function(ok) {
+          if (!ok) return;
+          cardStates[i].state = 'abandoned';
+          markCardAbandoned(i);
+          updateVinLogBtn();
+        });
         return;
       }
 
       // Last live card and nothing finalized — abandoning deletes the run's artifacts.
-      if (!confirm('Abandon this run? Nothing will be logged, and the output document, ' +
-                   'QR codes, and exported CSV files will be deleted (moved to Drive trash).')) return;
+      appConfirm('Abandon this run? Nothing will be logged, and the output document, ' +
+                 'QR codes, and exported CSV files will be deleted (moved to Drive trash).',
+                 { title: 'Abandon this run?', okLabel: 'Abandon run', tone: 'danger' }).then(function(ok) {
+        if (!ok) return;
 
-      cardStates[i].state = 'abandoning';
-      setCardBusy(i, true);
-      statusEl.textContent = 'Deleting output doc, QR codes, and CSV files...';
-      statusEl.className = 'finalize-card-status';
+        cardStates[i].state = 'abandoning';
+        setCardBusy(i, true);
+        statusEl.textContent = 'Deleting output doc, QR codes, and CSV files...';
+        statusEl.className = 'finalize-card-status';
 
-      google.script.run
-        .withSuccessHandler(function(res) {
-          cardStates[i].state = 'abandoned';
-          statusEl.textContent = 'Abandoned — output doc, ' + res.trashedQrs +
-                                 ' QR PNG' + (res.trashedQrs === 1 ? '' : 's') + ', and ' +
-                                 (res.trashedCsvs || 0) + ' CSV file' +
-                                 (res.trashedCsvs === 1 ? '' : 's') + ' moved to Drive trash.';
-          markCardAbandoned(i);
-          var link = document.getElementById('driveFolderBtn');
-          link.removeAttribute('href');
-          link.style.opacity = '0.5';
-          link.style.pointerEvents = 'none';
-          updateVinLogBtn();
-        })
-        .withFailureHandler(function(e) {
-          cardStates[i].state = 'pending';
-          setCardBusy(i, false);
-          statusEl.textContent = 'Error: ' + e.message;
-          statusEl.className = 'finalize-card-status error';
-        })
-        .abandonRun(lastDealerKey, lastRunResult.pendingRuns[i].outputDocId,
-                    lastRunResult.pendingRuns[i].qrFileIds || null,
-                    lastRunResult.pendingRuns[i].csvFileIds || null);
+        google.script.run
+          .withSuccessHandler(function(res) {
+            cardStates[i].state = 'abandoned';
+            statusEl.textContent = 'Abandoned — output doc, ' + res.trashedQrs +
+                                   ' QR PNG' + (res.trashedQrs === 1 ? '' : 's') + ', and ' +
+                                   (res.trashedCsvs || 0) + ' CSV file' +
+                                   (res.trashedCsvs === 1 ? '' : 's') + ' moved to Drive trash.';
+            markCardAbandoned(i);
+            var link = document.getElementById('driveFolderBtn');
+            link.removeAttribute('href');
+            link.style.opacity = '0.5';
+            link.style.pointerEvents = 'none';
+            updateVinLogBtn();
+          })
+          .withFailureHandler(function(e) {
+            cardStates[i].state = 'pending';
+            setCardBusy(i, false);
+            statusEl.textContent = 'Error: ' + e.message;
+            statusEl.className = 'finalize-card-status error';
+          })
+          .abandonRun(lastDealerKey, lastRunResult.pendingRuns[i].outputDocId,
+                      lastRunResult.pendingRuns[i].qrFileIds || null,
+                      lastRunResult.pendingRuns[i].csvFileIds || null);
+      });
     }
 
     function getCommittableRows() {
       var rows = [];
       cardStates.forEach(function(s, i) {
-        // Test-method cards are NEVER committable (the server throws for a `test`
+        // Test-method cards are NEVER committable (the server skips a `test`
         // deal id), so the UI must never offer them to the VIN log.
         if (s.method === 'test') return;
         if (s.state === 'finalized' && !s.committed &&
             lastRunResult.pendingRuns[i].producedVins.length > 0) {
-          rows.push(s.rowIndex);
+          rows.push(i);
         }
       });
       return rows;
+    }
+
+    // Which run, by its output doc + billing group — the run ledger finds the
+    // one run log row for it (RunLedger.gs rlResolveRef_) and reads everything
+    // else from that row.
+    function runLedgerRef_(i) {
+      var entry = lastRunResult.pendingRuns[i];
+      return { dealerKey: lastDealerKey, outputDocId: entry.outputDocId, note: entry.note || '' };
     }
 
     function updateVinLogBtn() {
@@ -1448,8 +1578,8 @@
     }
 
     function addToVINLog() {
-      var rowIndexes = getCommittableRows();
-      if (!lastDealerKey || rowIndexes.length === 0) {
+      var cardIdxs = getCommittableRows();
+      if (!lastDealerKey || cardIdxs.length === 0) {
         setRunStatus('No finalized entries to commit.', 'error');
         return;
       }
@@ -1467,7 +1597,7 @@
           vinBtn.className = 'committed';
           setRunStatus(result.committed + ' VINs committed to the ' +
             lastRunResult.dealerName + ' VIN log' +
-            (rowIndexes.length > 1 ? ' (' + rowIndexes.length + ' deals)' : '') + '.', 'success');
+            (cardIdxs.length > 1 ? ' (' + cardIdxs.length + ' deals)' : '') + '.', 'success');
           refreshVinLogStatus_();
         })
         .withFailureHandler(function(e) {
@@ -1475,7 +1605,7 @@
           vinBtn.textContent = '✓ Add to VIN Log';
           setRunStatus('VIN log error: ' + e.message, 'error');
         })
-        .commitRunRows(lastDealerKey, rowIndexes);
+        .ledgerCommitRuns(cardIdxs.map(runLedgerRef_));
     }
 
     // ── Run handler ───────────────────────────────────────────────────────────
@@ -1532,11 +1662,6 @@
           }
         });
       });
-      if (dupsRemoved > 0) {
-        toast('Removed ' + dupsRemoved + ' duplicate VIN' + (dupsRemoved === 1 ? '' : 's') +
-              ' from the order.', 'info');
-      }
-
       // Mutual exclusion with imports: an import rewrites SCRAPERDATA, which
       // this run is about to read.
       if (window.AppBusy && AppBusy.is('import')) {
@@ -1544,47 +1669,63 @@
         return;
       }
 
-      // Starting a new run discards any un-finalized results from the last one.
-      if (!discardPendingGuard()) return;
-
-      var runId  = String(Date.now());
-      lastDealerKey = key;
-      lastRunResult = null;
-      hidePostRunActions();
-
-      runBtn.disabled = true;
-      runBtn.textContent = 'Running...';
-      setRunStatus('', 'empty');
-      startPolling(runId);
-
-      var bypass = document.getElementById('bypassFilters').checked;
-
-      google.script.run
-        .withSuccessHandler(function(result) {
-          stopPolling();
-          lastRunResult = result;
-          updateProgressUI({ message: 'Complete!', percent: 100, done: true, error: null });
-          setRunStatus('Done! ' + name + ' order complete — finalize or abandon below.', 'success');
-          runBtn.textContent = 'Run Dealer';
-          updateButtons();
-          if (result) showFinalizePanel(result);
-          // The run materialized this work — its draft is stale. Clear the
-          // dirty state first so the pending autosave can't re-save it.
-          rvDirty = false;
-          if (rvAutosaveTimer) { clearTimeout(rvAutosaveTimer); rvAutosaveTimer = null; }
-          try {
-            google.script.run.withSuccessHandler(rvRefreshDrafts).withFailureHandler(function() {})
-              .deleteRunDraft(lastDealerKey);
-          } catch (e) {}
+      // Stale-import warning → pending-commit warning → un-finalized-results
+      // guard. All themed confirms (async), so the run continues in .then().
+      rvImportFreshCheck_()
+        .then(function(ok) {
+          if (!ok) { setRunStatus('Run cancelled — import fresh data first.', 'info'); return false; }
+          return rvPendingCommitCheck_(key, name, vins);
         })
-        .withFailureHandler(function(e) {
-          stopPolling();
-          updateProgressUI({ message: 'Error: ' + e.message, percent: 0, done: true, error: e.message });
-          setRunStatus('Error: ' + e.message, 'error');
-          runBtn.disabled = false;
-          runBtn.textContent = 'Run Dealer';
+        .then(function(ok) {
+          if (!ok) { setRunStatus('Run cancelled — commit or roll back the pending runs in the VIN log first.', 'info'); return false; }
+          return discardPendingGuard();   // a new run discards un-finalized results
         })
-        .pasteVinsAndRun(key, vins, '', runId, bypass, userKey, null, featuresMap, editsMap);
+        .then(function(ok) {
+          if (!ok) return;
+          if (dupsRemoved > 0) {
+            toast('Removed ' + dupsRemoved + ' duplicate VIN' + (dupsRemoved === 1 ? '' : 's') +
+                  ' from the order.', 'info');
+          }
+
+          var runId  = String(Date.now());
+          lastDealerKey = key;
+          lastRunResult = null;
+          hidePostRunActions();
+
+          runBtn.disabled = true;
+          runBtn.textContent = 'Running...';
+          setRunStatus('', 'empty');
+          startPolling(runId);
+
+          var bypass = document.getElementById('bypassFilters').checked;
+
+          google.script.run
+            .withSuccessHandler(function(result) {
+              stopPolling();
+              lastRunResult = result;
+              updateProgressUI({ message: 'Complete!', percent: 100, done: true, error: null });
+              setRunStatus('Done! ' + name + ' order complete — finalize or abandon below.', 'success');
+              runBtn.textContent = 'Run Dealer';
+              updateButtons();
+              if (result) showFinalizePanel(result);
+              // The run materialized this work — its draft is stale. Clear the
+              // dirty state first so the pending autosave can't re-save it.
+              rvDirty = false;
+              if (rvAutosaveTimer) { clearTimeout(rvAutosaveTimer); rvAutosaveTimer = null; }
+              try {
+                google.script.run.withSuccessHandler(rvRefreshDrafts).withFailureHandler(function() {})
+                  .deleteRunDraft(lastDealerKey);
+              } catch (e) {}
+            })
+            .withFailureHandler(function(e) {
+              stopPolling();
+              updateProgressUI({ message: 'Error: ' + e.message, percent: 0, done: true, error: e.message });
+              setRunStatus('Error: ' + e.message, 'error');
+              runBtn.disabled = false;
+              runBtn.textContent = 'Run Dealer';
+            })
+            .pasteVinsAndRun(key, vins, '', runId, bypass, userKey, null, featuresMap, editsMap);
+        });
     }
 
     // Status messages live in the app header (fixed spot beside the title).
@@ -1603,8 +1744,8 @@
     var rvVinData = { dealerKey: '', map: {}, featuresTypes: {}, editCodes: {}, editSeeds: {} };
     var rvFeatures = {};   // {VIN(upper) → text} — survives table re-renders
     var rvEdits = {};      // {VIN(upper) → {code → text}} — editable-column values (seeded)
-    var rvLoggedIds = null;   // {identifier(upper) → 1} from the dealer's VIN log; null until loaded
-    var rvUrlStatus = { dealerKey: '', map: {} };   // {VIN(upper) → 'gone'|'alive'|'unknown'} from checkVehicleUrls; cleared on dealer change
+    var rvLoggedIds = null;   // {identifier(upper) → [{order, date}]} from the dealer's VIN log; null until loaded
+    var rvUrlStatus = { dealerKey: '', map: {}, suspect: false };   // {VIN(upper) → 'gone'|'alive'|'unknown'} from checkVehicleUrls; cleared on dealer change
     var rvDebounce = null;
 
     // ── Order drafts ──────────────────────────────────────────────────────────
@@ -1734,27 +1875,28 @@
       var d = rvDraftList[i];
       if (!d || !d.payload) return;
       var p = d.payload;
-      var sel = document.getElementById('runDealerSelect');
-      sel.value = d.dealerKey;
-      sel.dispatchEvent(new Event('change'));
-      if (window.CustomSelect) CustomSelect.refresh(sel);
-      // Guard cancelled, or the dealer is no longer in the active list.
-      if (sel.value !== d.dealerKey) return;
-      document.getElementById('vinInput').value = p.vinText || '';
-      rvFeatures = p.features || {};
-      rvEdits = p.edits || {};
-      document.getElementById('bypassFilters').checked = !!p.bypassFilters;
-      rvDirty = false;   // restored state matches the saved draft
-      updateRunVinCount(); updateButtons(); rvRenderTable();   // programmatic sets fire no events
+      rvSwitchDealer_(d.dealerKey).then(function(ok) {
+        if (!ok) return;   // guard cancelled, or the dealer is no longer in the active list
+        document.getElementById('vinInput').value = p.vinText || '';
+        rvFeatures = p.features || {};
+        rvEdits = p.edits || {};
+        document.getElementById('bypassFilters').checked = !!p.bypassFilters;
+        rvDirty = false;   // restored state matches the saved draft
+        updateRunVinCount(); updateButtons(); rvRenderTable();   // programmatic sets fire no events
+      });
     }
 
     function rvDeleteDraft(i) {
       var d = rvDraftList[i];
       if (!d) return;
-      if (!confirm('Delete the draft for ' + (d.dealerName || d.dealerKey) + '?')) return;
-      rvDraftList.splice(i, 1);
-      rvRenderDraftsBand();
-      google.script.run.withFailureHandler(function() {}).deleteRunDraft(d.dealerKey);
+      appConfirm('Delete the draft for ' + (d.dealerName || d.dealerKey) + '?',
+                 { title: 'Delete draft?', okLabel: 'Delete', tone: 'danger' }).then(function(ok) {
+        if (!ok) return;
+        var at = rvDraftList.indexOf(d);   // by identity — the band may have re-rendered meanwhile
+        if (at >= 0) rvDraftList.splice(at, 1);
+        rvRenderDraftsBand();
+        google.script.run.withFailureHandler(function() {}).deleteRunDraft(d.dealerKey);
+      });
     }
 
     function rvLoadDealerData(dealerKey) {
@@ -1787,8 +1929,9 @@
       google.script.run
         .withSuccessHandler(function(res) {
           if (rvVinData.dealerKey !== dealerKey) return;
+          var hist = (res && res.history) || {};
           rvLoggedIds = {};
-          (((res && res.identifiers) || [])).forEach(function(id) { rvLoggedIds[id] = 1; });
+          (((res && res.identifiers) || [])).forEach(function(id) { rvLoggedIds[id] = hist[id] || []; });
           rvRenderTable();
         })
         .withFailureHandler(function() {})
@@ -1802,6 +1945,21 @@
       if (rvLoggedIds[key]) return true;
       var d = rvVinData.map[key];
       return !!(d && d.stock && rvLoggedIds[String(d.stock).toUpperCase()]);
+    }
+
+    // Hover text for an ALREADY PRINTED status cell: every prior order the VIN
+    // (or its stock) was logged under, newest first — the billing sheet's
+    // "Prior Order #s", shown before the run. Repeats a week apart = a red flag.
+    function rvPriorOrdersTitle(key) {
+      var d = rvVinData.map[key];
+      var list = (rvLoggedIds[key] || []).concat(
+        (d && d.stock && rvLoggedIds[String(d.stock).toUpperCase()]) || []);
+      var seen = {}, uniq = [];
+      list.forEach(function(o) { if (!seen[o.order]) { seen[o.order] = 1; uniq.push(o); } });
+      if (!uniq.length) return 'Already in the VIN log (no order # recorded)';
+      uniq.sort(function(a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
+      return 'Previously printed on ' + uniq.length + (uniq.length === 1 ? ' order:' : ' orders:') +
+        uniq.map(function(o) { return '\n• Order ' + o.order + (o.date ? '  (' + o.date + ')' : ''); }).join('');
     }
 
     // Union of edit-flagged codes across the dealer's types, first-seen order:
@@ -1830,6 +1988,15 @@
       if (rvEdits[vinKey] && rvEdits[vinKey][code] != null) return rvEdits[vinKey][code];
       var seeds = rvVinData.editSeeds[vinKey];
       return (seeds && seeds[code] != null) ? seeds[code] : '';
+    }
+
+    // .rv-more-right = "there are columns hidden under the pinned ✕ edge".
+    // One px of tolerance absorbs fractional layout widths.
+    function rvUpdateScrollCue() {
+      var box = document.querySelector('#view-run .rv-table-scroll');
+      if (!box) return;
+      var more = box.scrollWidth - box.clientWidth - box.scrollLeft > 1;
+      box.classList.toggle('rv-more-right', more);
     }
 
     function rvRenderTable() {
@@ -1880,6 +2047,7 @@
         if (countEl) countEl.textContent = '';
         if (dedupeBtn) dedupeBtn.style.display = 'none';
         if (goneBtn) goneBtn.style.display = 'none';
+        rvUpdateScrollCue();
         return;
       }
 
@@ -1932,7 +2100,9 @@
             '<td>' + rvTypePill(d.type) + '</td>' +
             '<td>' + escHtml(d.stock) + '</td>' +
             '<td class="rv-vin">' + escHtml(lines[j]) + '</td>' +
-            '<td>' + escHtml(d.status) + (isDupe ? ' · ALREADY PRINTED' : '') +
+            (isDupe ? '<td class="rv-dup-status" title="' + escHtml(rvPriorOrdersTitle(key)) + '">'
+                    : '<td>') +
+              escHtml(d.status) + (isDupe ? ' · ALREADY PRINTED' : '') +
               (filtReason ? ' · ⚠ WILL BE FILTERED (' + escHtml(filtReason) + ')' : '') +
               (gone ? ' · ⚠ URL GONE' : '') + '</td>' +
             '<td class="rv-link">' + urlCell + '</td>' +
@@ -1959,6 +2129,7 @@
         (dupes ? ' · ' + dupes + ' ALREADY PRINTED' : '') +
         (filteredN ? ' · ' + filteredN + ' will be filtered' : '') +
         (goneN ? ' · ' + goneN + ' URL gone' : '');
+      rvUpdateScrollCue();
       if (dedupeBtn) {
         dedupeBtn.style.display = dupes ? '' : 'none';
         dedupeBtn.textContent = 'Remove Duplicates (' + dupes + ')';

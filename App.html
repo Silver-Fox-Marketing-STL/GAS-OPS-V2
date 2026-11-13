@@ -67,16 +67,10 @@
       width: 54px;
       height: 22px;
       flex-shrink: 0;
-      background-color: #4a4a4d;   /* neutral silver fox; lightens in dark mode below */
+      background-color: var(--logo-fill);   /* token (SharedUtils): dark/navy-strip palettes override it in their own block */
       -webkit-mask: url("data:image/png;base64,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") center / contain no-repeat;
               mask: url("data:image/png;base64,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") center / contain no-repeat;
     }
-    :root[data-theme="dark"] .app-brand .logo,
-    :root[data-theme="midnight"] .app-brand .logo,
-    :root[data-theme="encarta"] .app-brand .logo,
-    :root[data-theme="gruvbox-rail"] .app-brand .logo,
-    :root[data-theme="luna"] .app-brand .logo { background-color: #d2d2d6; }   /* light logo on the navy/blue title strip */
-
     /* Theme picker (sidebar) — a CUSTOM dropdown, NOT a native <select>. The
        native open option list is OS-rendered, and the Apps Script web-app
        sandbox iframe doesn't propagate color-scheme to it — so a native <select>
@@ -245,10 +239,6 @@
     .start-btn:hover { background: var(--accent-hover); }
     .start-btn .start-logo { font-size: 14px; line-height: 1; }
     .start-clock { margin-left: auto; font-size: var(--fs-sm); color: var(--text-2); font-variant-numeric: tabular-nums; }
-    /* Luna dresses the taskbar + Start button as Windows XP. */
-    :root[data-theme="luna"] #startBar { background: linear-gradient(180deg,#2a8bf2 0%,#1860c8 50%,#0a52c0 100%); border-top: 1px solid #003bbf; }
-    :root[data-theme="luna"] .start-btn { background: linear-gradient(180deg,#7bbf4a,#3c8d0d); color: #fff; border-radius: 0 12px 12px 0; font-style: italic; box-shadow: inset 0 1px 0 rgba(255,255,255,.4); }
-    :root[data-theme="luna"] .start-clock { color: #fff; }
 
     /* ════════════════════════════════════════════════════════════════════════
        MOBILE (data-viewport="mobile") — auto by viewport width (<=760px), set in
@@ -289,9 +279,6 @@
     :root[data-viewport="mobile"] #view-rules .filter-grid-2,
     :root[data-viewport="mobile"] #view-rules .ps-thenelse,
     :root[data-viewport="mobile"] #view-rules .pd-overrides-grid { grid-template-columns: 1fr; }
-
-    /* Per-theme mobile tweak: Luna sheds its desktop window chrome (full-bleed client). */
-    :root[data-viewport="mobile"][data-theme="luna"] #appMain { margin: 0; border-radius: 0; border: none; }
 
     /* ── "Encarta" — Win95/98 window-frame reskin ────────────────────────────────
        Reframes the app as a Win95 application window over the existing markup:
@@ -395,34 +382,18 @@
     /* Toggle switches → squared, beveled Win95 sliders. */
     :root[data-theme="encarta"] .toggle-slider { border: 2px inset #dfdfdf !important; }
     :root[data-theme="encarta"] .toggle-slider:before { border: 2px outset #dfdfdf !important; background: var(--surface) !important; }
+    /* Secondary buttons sit on the face gray, not white: on a white face the
+       bevel's light edges vanish and the button reads flat (Sep 23 audit). */
+    :root[data-theme="encarta"] .btn-secondary { background: var(--surface); color: var(--text); }
+    :root[data-theme="encarta"] .btn-secondary:hover:not(:disabled) { background: var(--surface-2); }
+    /* The CAO card's "Filtered out (n) ▾" toggle is a button dressed as a
+       text row — no bevel, or it becomes a full-width sunken box. */
+    :root[data-theme="encarta"] #view-run .rej-toggle { border: 0 !important; }
     /* Every unified table header goes flat gray — Win95 has no sticky inverted headers. */
     :root[data-theme="encarta"] .table-u th { background: var(--surface) !important; color: var(--text) !important; position: static; }
     /* Encarta — Run Order table as a Win95 panel (the old right rail is retired;
        its content lives in the topbar flow zone, themed by its own child borders) */
     :root[data-theme="encarta"] #view-run .rv-table-scroll { border: 2px inset #dfdfdf !important; }
-
-    /* ── "Windows XP" (Luna) — window-frame reskin over the existing shell. ── */
-    :root[data-theme="luna"] #appRoot { background: linear-gradient(180deg,#5a7edc,#4a6fc8); }
-    :root[data-theme="luna"] #appMain { margin: 6px 6px 0; border-radius: 8px 8px 0 0; overflow: hidden; border: 1px solid #0831d9; }
-    :root[data-theme="luna"] #appHeader { background: linear-gradient(180deg,#0058ee 0%,#2a8bf2 9%,#1d6fd6 45%,#0054e3 90%,#003bbf 100%); border-bottom: 1px solid #003bbf; }
-    :root[data-theme="luna"] #appHeaderTitle { color: #fff; font-weight: 700; text-shadow: 1px 1px 1px rgba(0,0,0,.4); }
-    :root[data-theme="luna"] #appHeaderRight { color: #dce8ff; }
-    :root[data-theme="luna"] #sidebar { background: linear-gradient(180deg,#f0f4fb,#d6e2f5); border-right: 1px solid #7f9db9; }
-    :root[data-theme="luna"] .app-brand { background: linear-gradient(180deg,#0058ee,#0054e3); color: #fff; border-bottom: 1px solid #003bbf; }
-    :root[data-theme="luna"] .nav-item.active { background: var(--accent); color: #fff; border-left-color: #002d8a; }
-    :root[data-theme="luna"] .nav-item.active .icon { color: #fff; }
-    :root[data-theme="luna"] .nav-footer { background: linear-gradient(180deg,#57a818,#3c8d0d); color: #fff; border-top: 1px solid #2a6a08; }
-    :root[data-theme="luna"] button { background: linear-gradient(180deg,#fdfdfd,#e8e8d8); border: 1px solid #8a8a7a; border-radius: 3px; box-shadow: none; }
-    :root[data-theme="luna"] button:hover { border-color: var(--accent-hover); }
-    :root[data-theme="luna"] input:not([type=checkbox]):not([type=radio]):not([type=range]),
-    :root[data-theme="luna"] select, :root[data-theme="luna"] textarea { background: #fff; border: 1px solid #7f9db9; border-radius: 2px; box-shadow: none; }
-
-    /* (The data-arrange="desktop" home-card icon rules died with the Workflows
-       cards, July 2026 — the arrange axis itself stays on the theme registry.) */
-    :root[data-theme="luna"] #view-home, :root[data-theme="luna"] #appContent { background: linear-gradient(180deg,#5a7edc,#4a6fc8); }
-    /* Luna mirrors the Run body — VIN column on the right, Explorer-style
-       (the rail is retired; base order is "vin table"). */
-    :root[data-theme="luna"] #view-run .rv-body { grid-template-columns: 1fr var(--rv-vin-w); grid-template-areas: "table vin"; }
 
     .nav-item {
       display: flex;
@@ -549,7 +520,7 @@
 
     <nav id="sidebar">
       <div class="app-brand" onclick="navTo('view-home')">
-        <span class="logo" role="img" aria-label="SilverFox logo"></span> SilverFox<?= ENV.name !== 'prod' ? ' (DEV)' : '' ?>
+        <span class="logo" role="img" aria-label="SilverFox logo"></span> SilverFox<?= ENV.name !== 'prod' ? ' (' + ENV.name.toUpperCase() + ')' : '' ?>
       </div>
       <div class="nav-item" id="nav-view-home" onclick="navTo('view-home')">
         <span class="icon">&#8962;</span> Home
@@ -568,6 +539,9 @@
       </div>
       <div class="nav-item" id="nav-view-stack-cleanup" onclick="navTo('view-stack-cleanup')">
         <span class="icon">&#129529;</span> Stack Cleanup
+      </div>
+      <div class="nav-item" id="nav-view-compare" onclick="navTo('view-compare')">
+        <span class="icon">&#8644;</span> Compare Lists
       </div>
       <div class="nav-item" id="nav-view-end-of-month" onclick="navTo('view-end-of-month')">
         <span class="icon">&#128202;</span> End of Month
@@ -635,6 +609,7 @@
         <?!= include_('ViewVinLog') ?>
         <?!= include_('ViewVinInbox') ?>
         <?!= include_('ViewStackCleanup') ?>
+        <?!= include_('ViewCompare') ?>
         <?!= include_('ViewEndOfMonth') ?>
         <?!= include_('ViewRules') ?>
         <?!= include_('ViewNorm') ?>
@@ -667,6 +642,7 @@
       'view-vinlog': 'VIN Logs',
       'view-vin-inbox': 'VIN Inbox',
       'view-stack-cleanup': 'Stack Cleanup',
+      'view-compare': 'Compare Lists',
       'view-end-of-month': 'End of Month',
       'view-rules':  'Dealer Rules',
       'view-norm':   'Normalization',
@@ -771,8 +747,11 @@
 
     function exitApp() {
       var msgs = AppGuards.run();
-      if (msgs.length === 0 ||
-          confirm('Before you close:\n\n' + msgs.join('\n') + '\n\nClose anyway?')) {
+      var ask = msgs.length
+        ? appConfirm('Before you close:\n\n' + msgs.join('\n'), { title: 'Close anyway?', okLabel: 'Close anyway', tone: 'warning' })
+        : Promise.resolve(true);
+      ask.then(function(ok) {
+        if (!ok) return;
         // In a browser tab (web app) there's no host dialog to close — the Close
         // item is hidden, but guard the path anyway.
         if (document.documentElement.getAttribute('data-mode') === 'webapp') {
@@ -780,7 +759,7 @@
         } else {
           google.script.host.close();
         }
-      }
+      });
     }
 
     markPendingViews();

@@ -55,6 +55,20 @@ var ENV_IDS = {
     VIN_LOGS_ID:              '1iXLrqW7e3DSdiGz5K13POjr561AwmfwL2DyXe3FR2no', // DEV_SF_VIN_LOGS
     LOT_SUBMISSIONS_SHEET_ID: '1mftxwQOW_Pdqka8ZNPBlczDbBIku2lS91hwWUqUwNfg', // DEV_SF_LOT_SUBMISSIONS
     EOM_INDEX_SHEET_ID:       '18EQEMCS6Z6ux767ETyeVsFFjsYxrmHMw_m00sQEaoDU'  // DEV_SF_EOM_REPORTS_INDEX
+  },
+  // EXPERIMENTAL — a second script project bound to DEV_SF_SYSTEM_MASTER with its
+  // own /exec URL, pushed from a branch by scripts/push-exp.ps1. Same sheets,
+  // folders and Pipedrive fake as DEV (every ENV.name !== 'prod' gate applies);
+  // only the name differs, so the badge reads (EXP). docs/dev-environment.md.
+  '1P8oMEhR0xpljFLCGnzEJQRGSs38aju2VUiUy0HIj3imB-Hopt26hD3Ha': {
+    name: 'exp',
+    MASTER_SHEET_ID:          '1-0rHSoBmQip-yi_dB_S-kz-2fjc6x7pOxlbg2S7PEjk', // DEV_SF_SYSTEM_MASTER (this script's container too)
+    CONFIG_SHEET_ID:          '1ajpIn_TD7fOZ_rZZMfK6KSdJ4niqiB4l85eC0dok5lA', // DEV_SF_DEALER_CONFIG
+    TEMPLATE_ID:              '1BgwoKC_QnRm4SF9HwrSZxmKTe8PznzwCBr33oJ5LFxg', // DEV_SF_UNIVERSAL_TEMPLATE
+    OUTPUT_FOLDER_ID:         '1h5FS0FDkY91bjKx2nTRMuCVflMYa77P2',            // DEV_OUTPUT
+    VIN_LOGS_ID:              '1iXLrqW7e3DSdiGz5K13POjr561AwmfwL2DyXe3FR2no', // DEV_SF_VIN_LOGS
+    LOT_SUBMISSIONS_SHEET_ID: '1mftxwQOW_Pdqka8ZNPBlczDbBIku2lS91hwWUqUwNfg', // DEV_SF_LOT_SUBMISSIONS
+    EOM_INDEX_SHEET_ID:       '18EQEMCS6Z6ux767ETyeVsFFjsYxrmHMw_m00sQEaoDU'  // DEV_SF_EOM_REPORTS_INDEX
   }
 };
 var ENV = ENV_IDS[ScriptApp.getScriptId()];
@@ -434,7 +448,7 @@ function openApp() {
   var html = t.evaluate()
     .setWidth(MODAL_WIDTH)
     .setHeight(MODAL_HEIGHT);
-  SpreadsheetApp.getUi().showModalDialog(html, 'SilverFox' + (ENV.name !== 'prod' ? ' (DEV)' : ''));
+  SpreadsheetApp.getUi().showModalDialog(html, 'SilverFox' + (ENV.name !== 'prod' ? ' (' + ENV.name.toUpperCase() + ')' : ''));
 }
 
 /**
@@ -453,7 +467,7 @@ function doGet(e) {
   t.initialNavLayout = uiPrefs_.navLayout;             // 'sidebar' | 'icons' | 'top-rail' | 'bottom-rail' | 'start-menu'
   t.appMode = 'webapp';
   return t.evaluate()
-    .setTitle('SilverFox' + (ENV.name !== 'prod' ? ' (DEV)' : ''))
+    .setTitle('SilverFox' + (ENV.name !== 'prod' ? ' (' + ENV.name.toUpperCase() + ')' : ''))
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
@@ -1032,9 +1046,10 @@ function pasteVinsAndRun(dealerKey, vins, dealId, runId, bypassFilters, userKey,
  * @param {Object|null} editsMap       - {VIN(upper) → {code → text}} user-changed values for
  *                                        `edit`-flagged schema columns; overrides the
  *                                        formula-derived value at CSV-write time only.
- * @return {Object|null} {outputFolderUrl, pendingRuns, dealerName, producedVinCount} —
- *                       pendingRuns entries are finalized or abandoned in the modal;
- *                       nothing is logged until finalizeRun runs.
+ * @return {Object} {outputFolderUrl, pendingRuns, dealerName, producedVinCount} —
+ *                  pendingRuns entries are finalized or abandoned in the modal;
+ *                  nothing is logged until finalizeRun runs. On failure, trashes the
+ *                  run's artifacts and rethrows (the modal shows the error).
  */
 function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloadedConfig, splitDealId, presetVins, featuresMap, editsMap) {
   var startTime = new Date();
@@ -1202,7 +1217,10 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     //     (source_split) additionally splits each CSV by URL domain
     //     (e.g. main vs AutoLoanPro) — one billing/deal, separate CSVs.
     setProgress_(runId, 'Building CSV output...', 88);
-    buildCSVSheet_(outputDoc, typeRules, csvSourceSplit, csvProductMaps.main, csvProductMaps.secondary, editsMap);
+    //     csv_uppercase (filtering_rules) is read fresh here — the step-8.5
+    //     filterRules object is skipped entirely on bypassFilters runs.
+    buildCSVSheet_(outputDoc, typeRules, csvSourceSplit, csvProductMaps.main, csvProductMaps.secondary, editsMap,
+                   { uppercase: getDealerFilterRules_(config).csvUppercase });
 
     // 14. Write BILLING sheet(s) from ORDERMATCH + LOG data. An optional
     //     billing_split in filtering_rules renders group vehicles (e.g. Sprinter
@@ -1346,7 +1364,10 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     } catch (cleanupErr) {
       Logger.log('runDealer: failed-run cleanup skipped (' + cleanupErr.message + ')');
     }
-    return null;
+    // Rethrow so the modal's failure handler shows the error persistently.
+    // Returning null here reached the SUCCESS handler, which overwrote the
+    // progress error with "Complete!" and cleared it — the error only flashed.
+    throw e;
   }
 }
 
@@ -2390,10 +2411,11 @@ function csvOutputGroups_(typeRules, productMap) {
   return { groups: groups, matchToKey: matchToKey, single: single };
 }
 
-function buildCSVSheet_(outputDoc, typeRules, sourceSplit, mainProductMap, secondaryProductMap, editsMap) {
+function buildCSVSheet_(outputDoc, typeRules, sourceSplit, mainProductMap, secondaryProductMap, editsMap, csvOpts) {
   mainProductMap      = mainProductMap || {};
   secondaryProductMap = secondaryProductMap || {};
   editsMap            = editsMap || null;
+  var uppercase       = !!(csvOpts && csvOpts.uppercase);   // filtering_rules.csv_uppercase
   var omSheet = outputDoc.getSheetByName('ORDERMATCH');
   var lastRow = omSheet.getLastRow();
   if (lastRow < 2) { Logger.log('No ORDERMATCH data for CSV.'); return; }
@@ -2407,14 +2429,17 @@ function buildCSVSheet_(outputDoc, typeRules, sourceSplit, mainProductMap, secon
   // Schema cells may carry a header override (`CODE:HEADER`, e.g. VersaWorks
   // VDP field names) — the code drives the data lookup, the header prints.
   // User edits from the Run table (editsMap, keyed VIN+code) override the
-  // formula-derived value per cell at write time (csvCellValue_).
+  // formula-derived value per cell at write time (csvCellValue_). With
+  // csv_uppercase set, every DATA cell is then upper-cased (csvUppercaseCell_)
+  // — headers are never touched (they must match the template's variable names).
   function writeGroup_(schemaKey, rows, sheetName) {
     var entries = (getCsvSchema_(schemaKey) || getCsvSchema_('SCP')).map(parseSchemaCell_);
     var dataRows = rows.map(function(row) {
       var vin = row[4];   // ORDERMATCH col E
       return entries.map(function(e) {
         var col = fieldToCol[e.code];
-        return csvCellValue_(col ? row[col - 1] : '', vin, e.code, editsMap);
+        var val = csvCellValue_(col ? row[col - 1] : '', vin, e.code, editsMap);
+        return uppercase ? csvUppercaseCell_(val, e.code) : val;
       });
     });
     var headers = dedupFieldCodeHeaders_(entries.map(function(e) { return e.header; }));
@@ -2795,6 +2820,22 @@ function csvCellValue_(current, vin, code, edits) {
   return current;
 }
 
+// Field codes whose CSV value is a FILE PATH (QR PNGs) — never case-folded, so a
+// case-sensitive filesystem (macOS/Linux Illustrator stations) still resolves them.
+var CSV_UPPERCASE_SKIP_CODES = { '@QR': 1, '@QR2': 1 };
+
+/**
+ * Pure: the `csv_uppercase` transform for ONE CSV data cell. Strings are
+ * upper-cased; numbers/Dates/blanks pass through untouched (setNumberFormat('@')
+ * downstream already prints them as text); QR path codes are skipped. Applied
+ * AFTER csvCellValue_ so user edits from the Run table are folded too.
+ */
+function csvUppercaseCell_(value, code) {
+  if (typeof value !== 'string') return value;
+  if (CSV_UPPERCASE_SKIP_CODES[String(code || '').toUpperCase()] === 1) return value;
+  return value.toUpperCase();
+}
+
 /**
  * Pure: does a schema's field-code list include the FEATURES column?
  * (FEATURES is the manually-typed per-row text column — ORDERMATCH col W.)
@@ -2923,40 +2964,19 @@ function copyVINLogToOutput_(outputDoc, dealerKey) {
 // SECTION 14: RUN LOG
 // ============================================================================
 
-function writeRunLog_(config, dealId, totalOrdered, totalMatched, billing, outputDocId, durationSec, errors, producedVins, note) {
-  var ss              = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet           = ss.getSheetByName('RUN_LOG');
-  var producedVinsCSV = Array.isArray(producedVins) ? producedVins.join(',') : '';
-  var timestamp       = Utilities.formatDate(new Date(), 'America/Chicago', 'yyyy-MM-dd HH:mm:ss');
-  var vinsProduced    = Array.isArray(producedVins) ? producedVins.length : 0;
+/**
+ * The analytics side-rows for one newly finalized run: ORDER_STATS (one row)
+ * and ORDER_TYPE_STATS (one row per type present). The RUN_LOG row itself is
+ * written by the run ledger (ledgerFinalizeRun_, RunLedger.gs); this runs only
+ * when that call actually created the row, so a finalize retry never double-
+ * counts. `timestamp` is the RUN_LOG row's, so the three tabs join on it.
+ * Both writes are non-fatal.
+ */
+function writeRunStats_(config, timestamp, dealId, totalOrdered, totalMatched, billing, producedVins) {
+  var ss           = SpreadsheetApp.getActiveSpreadsheet();
+  var vinsProduced = Array.isArray(producedVins) ? producedVins.length : 0;
 
-  sheet.appendRow([
-    timestamp,                     // A: run_timestamp
-    config[CFG.KEY],               // B: dealer_key
-    config[CFG.NAME],              // C: dealer_name
-    dealId || '',                  // D: order_id (Pipedrive Deal ID)
-    totalOrdered,                  // E: total_ordered
-    totalMatched,                  // F: total_matched
-    billing.totalNew    || 0,      // G: total_new
-    billing.totalPO     || 0,      // H: total_po
-    billing.totalCPO    || 0,      // I: total_cpo
-    billing.totalCPOEL  || 0,      // J: total_cpo_el
-    billing.newDupes    || 0,      // K: new_dupes
-    billing.poDupes     || 0,      // L: po_dupes
-    billing.cpoDupes    || 0,      // M: cpo_dupes
-    billing.cpoElDupes  || 0,      // N: cpo_el_dupes
-    billing.totalDupes  || 0,      // O: total_dupes
-    totalMatched,                  // P: total_produced
-    '',                            // Q: qr_codes_generated
-    outputDocId,                   // R: output_doc_id
-    durationSec,                   // S: run_duration_sec
-    errors.join('; ') || '',       // T: errors
-    note || '',                    // U: notes (e.g. 'SPLIT:PRIMARY' / 'SPLIT:<group>')
-    producedVinsCSV,               // V: produced_vins
-    ''                             // W: vin_log_status (blank = pending)
-  ]);
-
-  // Also append a clean analytics row to ORDER_STATS
+  // A clean analytics row to ORDER_STATS
   var matchRate = (totalOrdered > 0) ? (totalMatched / totalOrdered) : 0;
   try {
     var statsSheet = ss.getSheetByName('ORDER_STATS');
@@ -2977,7 +2997,7 @@ function writeRunLog_(config, dealId, totalOrdered, totalMatched, billing, outpu
       ]);
     }
   } catch (e) {
-    Logger.log('writeRunLog_: ORDER_STATS append failed (non-fatal): ' + e.message);
+    Logger.log('writeRunStats_: ORDER_STATS append failed (non-fatal): ' + e.message);
   }
 
   // Also append per-type rows to ORDER_TYPE_STATS — long-format, one row per type present
@@ -2998,10 +3018,8 @@ function writeRunLog_(config, dealId, totalOrdered, totalMatched, billing, outpu
       if (otsSheet) otsSheet.getRange(otsSheet.getLastRow() + 1, 1, typeRows.length, 7).setValues(typeRows);
     }
   } catch (e) {
-    Logger.log('writeRunLog_: ORDER_TYPE_STATS append failed (non-fatal): ' + e.message);
+    Logger.log('writeRunStats_: ORDER_TYPE_STATS append failed (non-fatal): ' + e.message);
   }
-
-  return sheet.getLastRow();
 }
 
 /** Creates the ORDER_TYPE_STATS tab (long-format per-type run history) with its header row. */
@@ -3026,10 +3044,15 @@ function createOrderTypeStatsSheet_(ss) {
  * enters "test" for test runs. Finalization NEVER touches the VIN log; that
  * stays an explicit, separate commit (Add to VIN Log / VIN Log Updater).
  *
+ * Idempotent (run ledger, RunLedger.gs): the row is written under the ledger
+ * lock, and a retry for the same output doc + billing group returns the row
+ * already there (reused: true) — no duplicate RUN_LOG / ORDER_STATS rows. A
+ * retry under a different deal id throws.
+ *
  * @param {string} dealerKey
  * @param {Object} entry  - one pendingRuns element from runDealer's return
  * @param {string} dealId - non-blank deal ID entered/confirmed on the card
- * @return {Object} {rowIndex, vinCount}
+ * @return {Object} {rowIndex, vinCount, reused}
  */
 function finalizeRun(dealerKey, entry, dealId) {
   if (!dealId || String(dealId).trim() === '') {
@@ -3040,11 +3063,21 @@ function finalizeRun(dealerKey, entry, dealId) {
   var config = getDealerConfig_(dealerKey);
   if (!config) throw new Error('Dealer key not found: ' + dealerKey);
 
-  var rowIndex = writeRunLog_(config, String(dealId).trim(),
-    entry.totalOrdered, entry.totalMatched, entry.billing, entry.outputDocId,
-    entry.durationSec, entry.errors || [], entry.producedVins || [], entry.note || '');
+  var id  = String(dealId).trim();
+  var fin = ledgerFinalizeRun_(config[CFG.KEY], config[CFG.NAME], id, entry);
+  if (fin.created) {
+    writeRunStats_(config, fin.timestamp, id, entry.totalOrdered, entry.totalMatched,
+                   entry.billing, entry.producedVins || []);
+  }
+  return { rowIndex: fin.rowIndex, vinCount: (entry.producedVins || []).length, reused: !fin.created };
+}
 
-  return { rowIndex: rowIndex, vinCount: (entry.producedVins || []).length };
+/** finalizeRun for the Pipedrive orchestrators: a refusal comes back as a result shape, not a throw. */
+function finalizeRunOrFail_(dealerKey, entry, dealId) {
+  try { return { ok: true, fin: finalizeRun(dealerKey, entry, dealId) }; }
+  catch (e) {
+    return { ok: false, stage: 'finalize', message: e.message, retryable: /try again/i.test(e.message) };
+  }
 }
 
 
@@ -4108,7 +4141,8 @@ function getDealerFilterRules_(config) {
     maxPrice:        null,
     seasoning:       [],
     targetingRules:  [],
-    caoExcludeTypes: []
+    caoExcludeTypes: [],
+    csvUppercase:    false
   };
 
   var raw = config[CFG.FILTER_RULES];
@@ -4132,7 +4166,10 @@ function getDealerFilterRules_(config) {
     maxPrice:        (typeof parsed.max_price === 'number') ? parsed.max_price     : null,
     seasoning:       Array.isArray(parsed.seasoning)        ? parsed.seasoning         : [],
     targetingRules:  Array.isArray(parsed.targeting_rules)  ? parsed.targeting_rules   : [],
-    caoExcludeTypes: Array.isArray(parsed.cao_exclude_types) ? parsed.cao_exclude_types : []
+    caoExcludeTypes: Array.isArray(parsed.cao_exclude_types) ? parsed.cao_exclude_types : [],
+    // Output formatting (not a filter): force every CSV data cell to UPPERCASE.
+    // Strict `=== true` like the require_* flags — a string "true" stays off.
+    csvUppercase:    parsed.csv_uppercase === true
   };
 }
 
@@ -4663,186 +4700,10 @@ function openVINLogUpdater() {
   openViewStandalone_('ViewVinLog', 'Update VIN Log');
 }
 
-function getRunsForDealer(dealerKey) {
-  // Empty/absent dealerKey = ALL dealers (the VIN Logs page's default view).
-  var wantAll = !dealerKey;
-  var sheet   = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('RUN_LOG');
-  var lastRow = sheet.getLastRow();
-  if (lastRow < 2) return [];
-
-  var data = sheet.getRange(2, 1, lastRow - 1, 23).getValues();
-  var runs = [];
-
-  for (var i = 0; i < data.length; i++) {
-    var row = data[i];
-    if (!wantAll && String(row[1]).trim() !== dealerKey) continue;
-
-    var rawTimestamp    = row[0];
-    var dealId          = String(row[3]).trim();
-    var producedVinsCSV = String(row[21]).trim();  // V: produced_vins
-    var status          = String(row[22]).trim();  // W: vin_log_status
-
-    var vins = producedVinsCSV
-      ? producedVinsCSV.split(',').map(function(v) { return v.trim(); }).filter(function(v) { return v !== ''; })
-      : [];
-
-    var timestampStr = rawTimestamp instanceof Date
-      ? Utilities.formatDate(rawTimestamp, 'America/Chicago', 'yyyy-MM-dd HH:mm:ss')
-      : String(rawTimestamp).trim();
-
-    runs.push({
-      rowIndex:     i + 2,
-      dealerKey:    String(row[1]).trim(),   // per-row identity — the All-Dealers
-      dealerName:   String(row[2]).trim(),   // table mixes dealers, actions need it
-      timestamp:    timestampStr,
-      dealId:       dealId,
-      vinCount:     vins.length,
-      status:       status || 'pending',
-      note:         String(row[20]).trim(),  // U: notes (e.g. SPLIT:PRIMARY / SPLIT:SPRINTER)
-      producedVins: vins
-    });
-  }
-
-  runs.reverse();
-  return runs;
-}
-
-function commitRunToVINLog(dealerKey, runRowIndex, dealId, producedVins, orderDate) {
-  if (!producedVins || producedVins.length === 0) {
-    throw new Error('No VINs to commit for this run.');
-  }
-
-  var logSS    = getVinLogsSS_();
-  var logSheet = logSS.getSheetByName(dealerKey);
-  if (!logSheet) throw new Error('No VIN log tab found for: ' + dealerKey);
-
-  var committedAt = Utilities.formatDate(new Date(), 'America/Chicago', 'yyyy-MM-dd HH:mm:ss');
-  // order_date (col D) = when the order happened (run timestamp), NOT when it
-  // was committed — an old run committed late must keep its old date.
-  var appendData  = producedVins.map(function(vin) {
-    return [dealId, vin, committedAt, orderDate || committedAt];
-  });
-
-  logSheet.getRange(logSheet.getLastRow() + 1, 1, appendData.length, 4).setValues(appendData);
-
-  SpreadsheetApp.getActiveSpreadsheet()
-    .getSheetByName('RUN_LOG')
-    .getRange(runRowIndex, 23)
-    .setValue('committed');
-
-  return { committed: producedVins.length };
-}
-
-function rollbackRunFromVINLog(dealerKey, runRowIndex, dealId, committedAt) {
-  var logSS    = getVinLogsSS_();
-  var logSheet = logSS.getSheetByName(dealerKey);
-  if (!logSheet) throw new Error('No VIN log tab found for: ' + dealerKey);
-
-  var lastRow = logSheet.getLastRow();
-  if (lastRow < 2) return { removed: 0 };
-
-  var data     = logSheet.getRange(2, 1, lastRow - 1, 3).getValues();
-  var toDelete = [];
-
-  for (var i = 0; i < data.length; i++) {
-    var rowDealId      = String(data[i][0]).trim();
-    var rowCommittedAt = String(data[i][2]).trim();
-    if (data[i][2] instanceof Date) {
-      rowCommittedAt = Utilities.formatDate(data[i][2], 'America/Chicago', 'yyyy-MM-dd HH:mm:ss');
-    }
-    if (rowDealId === String(dealId).trim() && rowCommittedAt === String(committedAt).trim()) {
-      toDelete.push(i + 2);
-    }
-  }
-
-  for (var d = toDelete.length - 1; d >= 0; d--) {
-    logSheet.deleteRow(toDelete[d]);
-  }
-
-  SpreadsheetApp.getActiveSpreadsheet()
-    .getSheetByName('RUN_LOG')
-    .getRange(runRowIndex, 23)
-    .setValue('rolled_back');
-
-  return { removed: toDelete.length };
-}
-
-function commitLatestRun(dealerKey, runRowIndex) {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('RUN_LOG');
-  var row   = sheet.getRange(runRowIndex, 1, 1, 23).getValues()[0];
-
-  var dealId          = String(row[3]).trim();
-  var runTimestamp    = row[0];                  // A: run_timestamp (Date or string)
-  var producedVinsCSV = String(row[21]).trim();  // V: produced_vins
-  var status          = String(row[22]).trim();  // W: vin_log_status
-
-  if (status === 'committed') throw new Error('This run has already been committed to the VIN log.');
-  if (dealId.toLowerCase() === 'test') throw new Error('Test runs are not committed to the VIN log (debugging only).');
-
-  var producedVins = producedVinsCSV
-    ? producedVinsCSV.split(',').map(function(v) { return v.trim(); }).filter(Boolean)
-    : [];
-
-  if (producedVins.length === 0) throw new Error('No produced VINs found for this run.');
-  if (!dealId)                   throw new Error('No Deal ID on this run log entry.');
-
-  return commitRunToVINLog(dealerKey, runRowIndex, dealId, producedVins, runTimestamp);
-}
-
-/**
- * Commits multiple RUN_LOG rows in one call — used by the post-run "Add to VIN
- * Log" button for billing-split runs, which write two rows (one per account).
- * Already-committed rows are skipped instead of throwing, so a retry after a
- * partial failure finishes the remaining row cleanly.
- *
- * @param {string} dealerKey
- * @param {Array}  rowIndexes - 1-based RUN_LOG row indexes
- * @return {Object} {committed: total VINs written, skippedCommitted: rows skipped}
- */
-function commitRunRows(dealerKey, rowIndexes) {
-  if (!Array.isArray(rowIndexes) || rowIndexes.length === 0) {
-    throw new Error('No run log rows to commit.');
-  }
-
-  var sheet            = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('RUN_LOG');
-  var committed        = 0;
-  var skippedCommitted = 0;
-  var skippedTest      = 0;
-
-  rowIndexes.forEach(function(rowIndex) {
-    var rowVals = sheet.getRange(rowIndex, 1, 1, 23).getValues()[0];
-    var status  = String(rowVals[22]).trim();    // W: vin_log_status
-    var dealId  = String(rowVals[3]).trim();      // D: order_id / deal id
-    if (status === 'committed') { skippedCommitted++; return; }
-    if (dealId.toLowerCase() === 'test') { skippedTest++; return; }   // tests never enter the dedup log
-    var result = commitLatestRun(dealerKey, rowIndex);
-    committed += result.committed;
-  });
-
-  return { committed: committed, skippedCommitted: skippedCommitted, skippedTest: skippedTest };
-}
-
-function getCommittedAt(dealerKey, dealId) {
-  var logSS    = getVinLogsSS_();
-  var logSheet = logSS.getSheetByName(dealerKey);
-  if (!logSheet) return null;
-
-  var lastRow = logSheet.getLastRow();
-  if (lastRow < 2) return null;
-
-  var data = logSheet.getRange(2, 1, lastRow - 1, 3).getValues();
-  for (var i = data.length - 1; i >= 0; i--) {
-    var rowDealId = String(data[i][0]).trim();
-    if (rowDealId === String(dealId).trim()) {
-      var ts = data[i][2];
-      if (ts instanceof Date) {
-        return Utilities.formatDate(ts, 'America/Chicago', 'yyyy-MM-dd HH:mm:ss');
-      }
-      return String(ts).trim() || null;
-    }
-  }
-  return null;
-}
+// The VIN Logs list (getRunsForDealer) and commit / rollback / delete / manual entry
+// live in RunLedger.gs (ledgerCommitRuns, ledgerRollbackRun, ledgerDeleteRun,
+// ledgerManualEntry) — the run ledger is the only writer of RUN_LOG rows and
+// SF_VIN_LOGS batches, and the one decoder of both. See docs/adr/0001.
 
 
 // ============================================================================
@@ -4899,16 +4760,8 @@ function clearRunProgress(runId) {
  * @returns {{ latestOrderId: string|null }}
  */
 function getLatestOrderId(dealerKey) {
-  var logSS = getVinLogsSS_();
-  var sheet = logSS.getSheetByName(dealerKey);
-
-  if (!sheet) return { latestOrderId: null, pendingCount: pendingRunCount_(dealerKey) };
-
-  var lastRow = sheet.getLastRow();
-  if (lastRow < 2) return { latestOrderId: null, pendingCount: pendingRunCount_(dealerKey) };
-
-  var values = sheet.getRange(2, 1, lastRow - 1, 4).getValues();
-  return { latestOrderId: latestOrderIdFrom_(values), pendingCount: pendingRunCount_(dealerKey) };
+  var rows = rlSheetStore_().readVinLog(dealerKey);   // [] when the tab is missing or empty
+  return { latestOrderId: latestOrderIdFrom_(rows), pendingCount: pendingRunCount_(dealerKey) };
 }
 
 /**
@@ -4916,8 +4769,8 @@ function getLatestOrderId(dealerKey) {
  * rollback (col W blank). Test runs never commit, so they never count.
  */
 function pendingRunCount_(dealerKey) {
-  return getRunsForDealer(dealerKey).filter(function(r) {
-    return r.status === 'pending' && r.dealId.toLowerCase() !== 'test';
+  return ledgerLiveRuns_().filter(function(r) {
+    return r.dealerKey === dealerKey && r.status === RL_STATUS.PENDING && !r.isTest;
   }).length;
 }
 
@@ -4931,19 +4784,19 @@ function pendingRunCount_(dealerKey) {
  * breaks order_date ties; the old numeric-max logic remains only as the
  * fallback for a log with no dated rows at all.
  *
- * @param {Array<Array>} rows - VIN log rows 2+, cols A-D (id, vin, committed_at, order_date)
+ * @param {Array<Array>} rows - VIN log rows 2+ (getValues() arrays, VL_COL layout)
  * @returns {string|null}
  */
 function latestOrderIdFrom_(rows) {
   var bestId = null, bestTime = null;
   var maxId = null, lastNonBlank = null;
   for (var i = 0; i < rows.length; i++) {
-    var val = String(rows[i][0]).trim();
+    var val = String(rows[i][VL_COL.ORDER_ID]).trim();
     if (val === '' || val === 'ORDER_ID') continue;
     lastNonBlank = val;
     var n = Number(val);
     if (isFinite(n) && (maxId === null || n > maxId)) maxId = n;
-    var time = orderDateTime_(rows[i][3]);
+    var time = orderDateTime_(rows[i][VL_COL.ORDER_DATE]);
     if (time === null) continue;
     if (bestTime === null || time > bestTime ||
         (time === bestTime && isFinite(n) && Number(bestId) < n)) {
@@ -4970,82 +4823,67 @@ function orderDateTime_(cell) {
 
 
 /**
- * ONE-TIME BACKFILL — run manually from the script editor after deploying the
- * order_date column. Fills VIN log col D from RUN_LOG (deal id → earliest
- * run_timestamp for that dealer) and writes the order_date header on every
- * tab. Legacy-system ids have no RUN_LOG row, so they stay blank — correctly
- * excluded from "most recent". Idempotent: only blank cells are filled.
- */
-function backfillVinLogOrderDates() {
-  var runLog = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('RUN_LOG')
-    .getDataRange().getValues();
-
-  // dealer_key → deal id → earliest run timestamp (first run ≈ order date)
-  var dates = {};
-  for (var i = 1; i < runLog.length; i++) {
-    var dealer = String(runLog[i][1]).trim();   // B: dealer_key
-    var dealId = String(runLog[i][3]).trim();   // D: order_id
-    var ts     = runLog[i][0];                  // A: run_timestamp
-    if (!dealer || !dealId || dealId.toLowerCase() === 'test') continue;
-    if (orderDateTime_(ts) === null) continue;
-    if (!dates[dealer]) dates[dealer] = {};
-    var prev = dates[dealer][dealId];
-    if (!prev || orderDateTime_(ts) < orderDateTime_(prev)) dates[dealer][dealId] = ts;
-  }
-
-  var summary = [];
-  getVinLogsSS_().getSheets().forEach(function(sheet) {
-    var dealer = sheet.getName();
-    sheet.getRange(1, 4).setValue('order_date');
-    var lastRow = sheet.getLastRow();
-    if (lastRow < 2) return;
-
-    var rows   = sheet.getRange(2, 1, lastRow - 1, 4).getValues();
-    var filled = 0;
-    var colD   = rows.map(function(r) {
-      var existing = String(r[3] == null ? '' : r[3]).trim();
-      if (existing !== '' || !dates[dealer]) return [r[3]];
-      var ts = dates[dealer][String(r[0]).trim()];
-      if (ts === undefined) return [r[3]];
-      filled++;
-      return [ts];
-    });
-
-    if (filled > 0) sheet.getRange(2, 4, colD.length, 1).setValues(colD);
-    summary.push(dealer + ': ' + filled + ' of ' + rows.length);
-  });
-
-  Logger.log('backfillVinLogOrderDates:\n' + summary.join('\n'));
-  return summary;
-}
-
-/**
  * Returns every identifier (VIN or stock, col B) in the dealer's VIN log tab,
- * uppercased. The Run Order table uses this to highlight already-produced
- * vehicles pre-run. Non-fatal by design: any read failure returns an empty
- * list — a log hiccup must never degrade the Run screen.
+ * uppercased, plus each one's order history. The Run Order table uses this to
+ * highlight already-produced vehicles pre-run and to show (on hover) which
+ * prior orders they were in — the same ORDER_IDs the billing sheet's
+ * "Prior Order #s" column lists. Non-fatal by design: any read failure returns
+ * an empty result — a log hiccup must never degrade the Run screen.
+ *
+ * Dates are strings (google.script.run can't serialize Dates): order_date
+ * (col D), falling back to committed_at (col C) on legacy rows.
  *
  * @param {string} dealerKey - must match a tab name in SF_VIN_LOGS exactly
- * @returns {{ identifiers: string[] }}
+ * @returns {{ identifiers: string[], history: Object<string, Array<{order:string, date:string}>> }}
  */
 function getLoggedIdentifiers(dealerKey) {
   try {
     var sheet = getVinLogsSS_().getSheetByName(dealerKey);
-    if (!sheet) return { identifiers: [] };
+    if (!sheet) return { identifiers: [], history: {} };
 
     var lastRow = sheet.getLastRow();
-    if (lastRow < 2) return { identifiers: [] };
+    if (lastRow < 2) return { identifiers: [], history: {} };
 
-    var values = sheet.getRange(2, 2, lastRow - 1, 1).getValues();
-    var out = [];
-    for (var i = 0; i < values.length; i++) {
-      var val = String(values[i][0]).trim().toUpperCase();
-      if (val !== '' && val !== 'VIN') out.push(val);
-    }
-    return { identifiers: out };
+    var history = {};
+    var out = appendVinLogHistory_(sheet.getRange(2, 1, lastRow - 1, 4).getValues(), history, '');
+    return { identifiers: out, history: history };
   } catch (e) {
-    return { identifiers: [] };
+    return { identifiers: [], history: {} };
   }
+}
+
+/**
+ * Pure: folds VIN-log rows (cols A–D: ORDER_ID | VIN | committed_at |
+ * order_date) into `history` (identifier(upper) → [{order, date, dealer}]),
+ * one entry per distinct (dealer, order). date = order_date, falling back to
+ * committed_at on legacy rows, always a 'yyyy-MM-dd' string (google.script.run
+ * can't serialize Dates). Returns every identifier seen (header 'VIN' skipped).
+ *
+ * @param {Array[]} values    - VIN-log rows, cols A–D
+ * @param {Object}  history   - accumulator, mutated
+ * @param {string}  dealerKey - stamped on each entry ('' when single-dealer)
+ * @returns {string[]}
+ */
+function appendVinLogHistory_(values, history, dealerKey) {
+  var fmtDate = function(v) {
+    if (v instanceof Date) return Utilities.formatDate(v, 'America/Chicago', 'yyyy-MM-dd');
+    return String(v == null ? '' : v).trim().split(' ')[0];   // 'yyyy-MM-dd HH:mm:ss' → date
+  };
+  var out = [];
+  for (var i = 0; i < values.length; i++) {
+    var val = String(values[i][1] == null ? '' : values[i][1]).trim().toUpperCase();
+    if (val === '' || val === 'VIN') continue;
+    out.push(val);
+    var order = String(values[i][0] == null ? '' : values[i][0]).trim();
+    if (!order) continue;
+    var list = history[val] || (history[val] = []);
+    var seen = false;
+    for (var k = 0; k < list.length; k++) {
+      if (list[k].order === order && list[k].dealer === dealerKey) { seen = true; break; }
+    }
+    if (!seen) list.push({ order: order, date: fmtDate(values[i][3]) || fmtDate(values[i][2]), dealer: dealerKey });
+  }
+  return out;
 }
 
 
@@ -5127,50 +4965,123 @@ function getStackCleanupList(dealerKey) {
 }
 
 
+// ── Compare Lists ───────────────────────────────────────────────────────────
+
+var COMPARE_ALL_DEALERS = '*ALL*';
+
 /**
- * Manually appends a list of VINs/stock numbers to a dealer's VIN log.
- * Used by the VINLogUpdater modal's manual entry panel.
+ * Pure: resolves requested identifiers (VIN or stock #) against inventory rows
+ * and VIN-log history. Each id resolves VIN-first, then stock. History for an
+ * id merges entries logged under the id itself AND under the resolved
+ * vehicle's VIN/stock (same identifier logic as the billing dupe flags),
+ * deduped per (dealer, order), newest first. Ids with nothing found are
+ * simply absent from both maps.
  *
- * @param {string}   dealerKey
- * @param {string}   orderId
- * @param {string[]} vins
- * @returns {{ committed: number }}
+ * @param {string[]} ids        - uppercase, trimmed, unique
+ * @param {Array[]}  rows       - SCRAPERDATA rows (≥ 21 cols)
+ * @param {Object}   history    - appendVinLogHistory_ output
+ * @param {Object}   locToName  - scraper location → dealer name ({} = don't stamp)
+ * @returns {{ vehicles: Object, history: Object }}
  */
-function manualCommitToVINLog(dealerKey, orderId, vins) {
-  if (!dealerKey) throw new Error('No dealer key provided.');
-  if (!orderId || String(orderId).trim() === '') throw new Error('Order number is required.');
-  if (!vins || vins.length === 0) throw new Error('No VINs provided.');
+function resolveCompareIds_(ids, rows, history, locToName) {
+  var byVin = {}, byStock = {};
+  var s = function(v) { return String(v == null ? '' : v).trim(); };
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    var vin = s(r[0]).toUpperCase(), stock = s(r[1]).toUpperCase();
+    if (vin && vin !== '*' && !byVin[vin]) byVin[vin] = r;
+    if (stock && stock !== '*' && !byStock[stock]) byStock[stock] = r;
+  }
 
-  var logSS  = getVinLogsSS_();
-  var sheet  = logSS.getSheetByName(dealerKey);
-  if (!sheet) throw new Error('No VIN log tab found for: ' + dealerKey);
-
-  var seen    = {};
-  var cleaned = [];
-  vins.forEach(function(v) {
-    var upper = String(v).trim().toUpperCase();
-    if (upper !== '' && !seen[upper]) {
-      seen[upper] = true;
-      cleaned.push(upper);
+  var vehicles = {}, hist = {};
+  ids.forEach(function(id) {
+    var r = byVin[id] || byStock[id];
+    var v = null;
+    if (r) {
+      v = { vin: s(r[0]), stock: s(r[1]), type: s(r[2]), year: s(r[3]), make: s(r[4]),
+            model: s(r[5]), status: s(r[8]), url: s(r[20]), dealer: locToName[s(r[19])] || '' };
+      vehicles[id] = v;
+    }
+    var keys = [id];
+    if (v) keys.push(v.vin.toUpperCase(), v.stock.toUpperCase());
+    var seen = {}, merged = [];
+    keys.forEach(function(k) {
+      (k && history[k] || []).forEach(function(e) {
+        var dk = e.dealer + '|' + e.order;
+        if (!seen[dk]) { seen[dk] = true; merged.push(e); }
+      });
+    });
+    if (merged.length) {
+      merged.sort(function(a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
+      hist[id] = merged;
     }
   });
-
-  if (cleaned.length === 0) throw new Error('No valid VINs after deduplication.');
-
-  var committedAt = Utilities.formatDate(new Date(), 'America/Chicago', 'yyyy-MM-dd HH:mm:ss');
-  var appendData  = cleaned.map(function(vin) {
-    // Manual entries are typed in near order time — order_date = now.
-    return [String(orderId).trim(), vin, committedAt, committedAt];
-  });
-
-  var startRow = sheet.getLastRow() + 1;
-  sheet.getRange(startRow, 1, appendData.length, 4).setValues(appendData);
-
-  Logger.log('manualCommitToVINLog: wrote ' + cleaned.length + ' VINs to ' +
-             dealerKey + ' under order ' + orderId);
-
-  return { committed: cleaned.length };
+  return { vehicles: vehicles, history: hist };
 }
+
+/**
+ * Client-callable (Compare Lists view). The list comparison itself runs in
+ * the browser; this only enriches the union of both lists with vehicle data
+ * (current SCRAPERDATA) and prior-order history (VIN logs).
+ *
+ * dealerKey = one dealer → that dealer's inventory span + its one log tab.
+ * dealerKey = COMPARE_ALL_DEALERS → full SCRAPERDATA + EVERY log tab (slower;
+ * vehicles/entries are stamped with the dealer name so mixed lists read).
+ *
+ * Fails LOUD on the inventory read (a silent empty would show every VIN as
+ * "not in inventory"); a missing log tab is just "no history".
+ *
+ * @param {string}   dealerKey
+ * @param {string[]} ids - identifiers from both lists
+ * @returns {{ vehicles: Object, history: Object, dealerNames: Object }}
+ */
+function getCompareListData(dealerKey, ids) {
+  if (!dealerKey) throw new Error('No dealer selected.');
+  var want = {}, list = [];
+  (ids || []).forEach(function(id) {
+    var k = String(id == null ? '' : id).trim().toUpperCase();
+    if (k && !want[k]) { want[k] = true; list.push(k); }
+  });
+  if (!list.length) return { vehicles: {}, history: {}, dealerNames: {} };
+
+  var cfgRows = getConfigSS_().getSheetByName('DEALERS').getDataRange().getValues();
+  var dealerNames = {};   // dealer_key → display name (VIN-log tabs are named by key)
+  var locToName = {};
+  for (var i = 1; i < cfgRows.length; i++) {
+    var key = String(cfgRows[i][CFG.KEY] || '').trim();
+    if (!key) continue;
+    dealerNames[key] = String(cfgRows[i][CFG.NAME] || key).trim();
+    var loc = String(cfgRows[i][CFG.SCRAPER_LOCATION] || '').trim();
+    if (loc && !locToName[loc]) locToName[loc] = dealerNames[key];
+  }
+
+  var rows, history = {};
+  if (dealerKey === COMPARE_ALL_DEALERS) {
+    var sheet = getMasterSS_().getSheetByName('SCRAPERDATA');
+    var lastRow = sheet.getLastRow();
+    rows = lastRow < 2 ? [] : sheet.getRange(2, 1, lastRow - 1, 21).getValues();
+    getVinLogsSS_().getSheets().forEach(function(tab) {
+      var n = tab.getLastRow();
+      if (n < 2) return;
+      appendVinLogHistory_(tab.getRange(2, 1, n - 1, 4).getValues(), history, tab.getName());
+    });
+  } else {
+    var config = getDealerConfig_(dealerKey);
+    if (!config) throw new Error('No dealer config found for: ' + dealerKey);
+    var location = String(config[CFG.SCRAPER_LOCATION] || '').trim();
+    rows = location ? getDealerScraperData_(location) : [];
+    locToName = {};   // single dealer — no per-row dealer column
+    var logTab = getVinLogsSS_().getSheetByName(dealerKey);
+    if (logTab && logTab.getLastRow() >= 2) {
+      appendVinLogHistory_(logTab.getRange(2, 1, logTab.getLastRow() - 1, 4).getValues(), history, '');
+    }
+  }
+
+  var res = resolveCompareIds_(list, rows, history, locToName);
+  res.dealerNames = dealerNames;
+  return res;
+}
+
 
 // ============================================================================
 // SECTION 27: DEALER RULES EDITOR
@@ -5636,8 +5547,8 @@ function isThemeSlug_(t) {
  */
 function getThemePreference() {
   var t = PropertiesService.getUserProperties().getProperty('app_theme');
-  // Retired themes (deleted July 2026) — remap to preserve light/dark intent.
-  if (t === 'top-rail') t = 'light';
+  // Retired themes (top-rail* deleted July 2026, luna Nov 2026) — remap to preserve light/dark intent.
+  if (t === 'top-rail' || t === 'luna') t = 'light';
   if (t === 'top-rail-dark') t = 'dark';
   return isThemeSlug_(t) ? t : '';
 }
@@ -6507,6 +6418,7 @@ function setupPipedriveSecrets(token, domain, pipelineId, stageId, currency) {
   if (!token)  return { ok: false, message: 'API token is required.' };
   if (!domain) return { ok: false, message: 'Company domain is required (e.g. "acme" from acme.pipedrive.com).' };
 
+  // /users/me is v1-only (no v2 twin; not on the Aug 2026 out-of-support list).
   var url = 'https://' + domain + '.pipedrive.com/api/v1/users/me?api_token=' + encodeURIComponent(token);
   var resp;
   try { resp = UrlFetchApp.fetch(url, { method: 'get', muteHttpExceptions: true }); }
@@ -6544,17 +6456,23 @@ function getPipedriveStatus() {
 
 /**
  * Core Pipedrive request. Returns {ok,status,data,error,additional,raw}.
- * @param {string} method  'get'|'post'|'put'|'delete'
+ * @param {string} method  'get'|'post'|'patch'|'put'|'delete'
  * @param {string} path    e.g. '/deals' or '/organizations/5?custom_fields=ab'
  * @param {Object} payload optional JSON body
- * @param {Object} opts    optional { version:'v2' }
+ * @param {Object} opts    optional { version:'v1' } — the base is **v2 by default**
+ *                         (Oct 2026 migration: every v1 deals/organizations/products/
+ *                         pipelines/stages/search endpoint went out of support
+ *                         2026-08-01). Pass version:'v1' ONLY for the endpoints that
+ *                         have no v2 twin and are NOT on the deprecation list:
+ *                         /dealFields /productFields /organizationFields, /users,
+ *                         /files. v1 updates are PUT; v2 updates are PATCH.
  */
 function pdFetch_(method, path, payload, opts) {
   if (ENV.name !== 'prod') return pdFakeFetch_(method, path, payload, opts);   // DEV: in-process fake, zero API traffic (PdFake.gs)
   var s = pdGetSecrets_();
   if (!s) return { ok: false, status: 0, data: null, error: 'Pipedrive is not configured.' };
   opts = opts || {};
-  var base = (opts.version === 'v2') ? s.baseV2 : s.baseV1;
+  var base = (opts.version === 'v1') ? s.baseV1 : s.baseV2;
   var sep  = (path.indexOf('?') === -1) ? '?' : '&';
   var url  = base + path + sep + 'api_token=' + encodeURIComponent(s.token);
 
@@ -6591,12 +6509,18 @@ function pdFetch_(method, path, payload, opts) {
   return { ok: false, status: 429, data: null, error: 'Pipedrive rate limit — try again shortly.' };
 }
 
-/** GET a v1 collection, following pagination. Returns the concatenated array. */
+/**
+ * GET a v1 collection, following start/limit pagination. Returns the concatenated
+ * array. v1 is now ONLY for the field-definition lists (/dealFields,
+ * /productFields, /organizationFields) and /users — none of which have a v2 twin
+ * or appear on the Aug 2026 deprecation list. Every entity list goes through
+ * pdListAllV2_.
+ */
 function pdListAllV1_(path) {
   var out = [], start = 0, limit = 500, guard = 0;
   while (guard++ < 40) {
     var sep = (path.indexOf('?') === -1) ? '?' : '&';
-    var r = pdFetch_('get', path + sep + 'start=' + start + '&limit=' + limit);
+    var r = pdFetch_('get', path + sep + 'start=' + start + '&limit=' + limit, null, { version: 'v1' });
     if (!r.ok) break;
     if (r.data && r.data.length) out = out.concat(r.data);
     var pg = r.additional && r.additional.pagination;
@@ -6611,13 +6535,40 @@ function pdListAllV2_(path) {
   var out = [], cursor = '', guard = 0;
   do {
     var sep = (path.indexOf('?') === -1) ? '?' : '&';
-    var r = pdFetch_('get', path + sep + 'limit=500' + (cursor ? '&cursor=' + encodeURIComponent(cursor) : ''),
-                     null, { version: 'v2' });
+    var r = pdFetch_('get', path + sep + 'limit=500' + (cursor ? '&cursor=' + encodeURIComponent(cursor) : ''));
     if (!r.ok) break;
     if (r.data && r.data.length) out = out.concat(r.data);
     cursor = (r.additional && r.additional.next_cursor) ? r.additional.next_cursor : '';
   } while (cursor && guard++ < 40);
   return out;
+}
+
+/**
+ * GET v2 entities BY ID in batches (`?ids=` takes up to 100 per call). Returns
+ * {id: entity}. Best-effort: a failed batch just leaves its ids unresolved.
+ * Used by the EOM report to resolve the names v2 no longer embeds on a deal.
+ */
+function pdListByIdsV2_(path, ids, extraQuery) {
+  var out = {}, uniq = {}, list = [];
+  (ids || []).forEach(function(id) {
+    var n = Number(id);
+    if (!n || isNaN(n) || uniq[n]) return;
+    uniq[n] = true; list.push(n);
+  });
+  for (var i = 0; i < list.length; i += 100) {
+    var batch = list.slice(i, i + 100);
+    var sep = (path.indexOf('?') === -1) ? '?' : '&';
+    var items = pdListAllV2_(path + sep + 'ids=' + batch.join(',') + (extraQuery ? '&' + extraQuery : ''));
+    items.forEach(function(it) { if (it && it.id !== undefined) out[String(it.id)] = it; });
+  }
+  return out;
+}
+
+/** A relation id from either API shape: v2 plain id, or v1 `{value}`/`{id}` object. 0 if none. */
+function pdRelId_(v) {
+  if (v && typeof v === 'object') v = (v.value !== undefined) ? v.value : v.id;
+  var n = Number(v);
+  return (v === undefined || v === null || v === '' || isNaN(n)) ? 0 : n;
 }
 
 // ── Read endpoints (config UI) ─────────────────────────────────────────────
@@ -6626,23 +6577,19 @@ function pdListProducts_() {
   // Scope key = the product's Organization-type custom field ("Customer"), either
   // explicitly chosen or AUTO-DETECTED. When set, surface each product's linked
   // org id (customerOrgId) so the per-dealer picker can scope to that dealer's org.
+  // Always v2 (v1 /products went out of support Aug 2026). With a scope field,
+  // `?custom_fields=<key>` returns the value under custom_fields[<key>]; for an
+  // Organization field that value is the org id.
   var orgFieldKey = getEffectiveProductOrgField_();
-  if (!orgFieldKey) {
-    return pdListAllV1_('/products').map(function(p) {
-      return { id: p.id, name: p.name, code: p.code || '', prices: p.prices || [],
-               tax: Number(p.tax) || 0,
-               inactive: (p.selectable === false || p.active_flag === false) };
-    });
-  }
-  // Fetch via v2 with custom_fields — v2 reliably returns the custom-field value
-  // (under custom_fields[<key>]); for an Organization field that value is the org id.
-  return pdListAllV2_('/products?custom_fields=' + encodeURIComponent(orgFieldKey)).map(function(p) {
+  var path = '/products' + (orgFieldKey ? '?custom_fields=' + encodeURIComponent(orgFieldKey) : '');
+  return pdListAllV2_(path).map(function(p) {
     var out = { id: p.id, name: p.name, code: p.code || '', prices: p.prices || [],
                 tax: Number(p.tax) || 0,
                 inactive: (p.is_linkable === false) };  // v2: not linkable to deals = deactivated
-    var cf = p.custom_fields || {};
-    var cid = pdExtractOrgId_(cf[orgFieldKey]);
-    if (cid) out.customerOrgId = cid;
+    if (orgFieldKey) {
+      var cid = pdExtractOrgId_((p.custom_fields || {})[orgFieldKey]);
+      if (cid) out.customerOrgId = cid;
+    }
     return out;
   });
 }
@@ -6656,6 +6603,10 @@ function pdExtractOrgId_(raw) {
   var v = (typeof raw === 'object') ? (raw.value !== undefined ? raw.value : raw.id) : raw;
   return (v === undefined || v === null || v === '') ? '' : String(v);
 }
+
+// Field-DEFINITION lists stay on v1: /productFields, /dealFields and
+// /organizationFields have no v2 equivalent and are NOT on the Aug 2026
+// out-of-support list (pdListAllV1_ pins version:'v1').
 
 /** Product custom-field definitions, for the "product → org" field picker. */
 function pdListProductFields_() {
@@ -6676,7 +6627,8 @@ function pdListOrganizationFields_() {
   });
 }
 
-/** Client-callable org search for the config picker. Returns [{id,name}]. */
+/** Client-callable org search for the config picker. Returns [{id,name}].
+ *  v2 GET /organizations/search — same `data.items[].item.{id,name}` shape as v1. */
 function searchPipedriveOrganizations(term) {
   term = String(term || '').trim();
   if (term.length < 2) return [];
@@ -6690,7 +6642,7 @@ function pdGetOrgWithCustomFields_(orgId, fieldKeys) {
   if (!orgId) return null;
   var path = '/organizations/' + orgId;
   if (fieldKeys && fieldKeys.length) path += '?custom_fields=' + fieldKeys.join(',');
-  var r = pdFetch_('get', path, null, { version: 'v2' });
+  var r = pdFetch_('get', path);
   if (!r.ok || !r.data) return null;
   return { id: r.data.id, name: r.data.name, custom_fields: r.data.custom_fields || {} };
 }
@@ -6863,9 +6815,9 @@ function savePipedriveDealerConfig(dealerKey, rows) {
 
 // ── Bulk dealer → organization linking (one-time setup helper) ─────────────
 
-/** All Pipedrive organizations (id + name), for name-matching against dealers. */
+/** All Pipedrive organizations (id + name), for name-matching against dealers. v2 list. */
 function pdListAllOrganizations_() {
-  return pdListAllV1_('/organizations').map(function(o) { return { id: o.id, name: o.name }; });
+  return pdListAllV2_('/organizations').map(function(o) { return { id: o.id, name: o.name }; });
 }
 
 /** Normalizes a name for fuzzy matching: lowercase, strip punctuation + filler words. */
@@ -7116,15 +7068,15 @@ function getPrintSchedule(refresh) {
       }
     }
 
-    // Today's per-dealer production from RUN_LOG (same cols as getHomeHud:
-    // B dealer_key, O total_dupes, P total_produced; test runs pre-excluded).
+    // Today's per-dealer production from RUN_LOG (same fields as getHomeHud;
+    // test runs pre-excluded).
     var statsByKey = {};
     var totals = { runs: 0, vins: 0, dupes: 0 };
-    readRunLog_().forEach(function(row) {
-      if (runLogTs_(row[0]).slice(0, 10) !== todayStr) return;
-      var k = String(row[1]);
+    readRunLog_().forEach(function(rec) {
+      if (rec.timestamp.slice(0, 10) !== todayStr) return;
+      var k = rec.dealerKey;
       var s = statsByKey[k] || (statsByKey[k] = { runs: 0, vins: 0, dupes: 0 });
-      var vins = Number(row[15]) || 0, dupes = Number(row[14]) || 0;
+      var vins = rec.totalProduced, dupes = rec.billing.totalDupes;
       s.runs++;        totals.runs++;
       s.vins += vins;  totals.vins += vins;
       s.dupes += dupes; totals.dupes += dupes;
@@ -7442,7 +7394,7 @@ function pdListProductVariations_(productId) {
   do {
     var path = '/products/' + productId + '/variations?limit=500' +
                (cursor ? '&cursor=' + encodeURIComponent(cursor) : '');
-    var r = pdFetch_('get', path, null, { version: 'v2' });
+    var r = pdFetch_('get', path);
     if (!r.ok) break;
     if (r.data && r.data.length) out = out.concat(r.data);
     cursor = (r.additional && r.additional.next_cursor) ? r.additional.next_cursor : '';
@@ -7554,27 +7506,83 @@ function mergeLineItems_(items) {
 }
 
 // ── Deal push (P2) — create/link, attach products, set fields ───────────────
+// All deal endpoints are v2 (Oct 2026 migration; v1 deals went out of support
+// 2026-08-01). v2 shape rules that matter here: relation fields (org_id,
+// person_id, owner_id) are plain ids; custom fields live under
+// `custom_fields` on read AND write (pdDealPatchBody_); updates are PATCH.
 
+/** POST /api/v2/deals — {title, org_id, pipeline_id, stage_id, currency}. Returns {ok, dealId}. */
 function pdCreateDeal_(params) {
   var r = pdFetch_('post', '/deals', params);
   if (!r.ok || !r.data || !r.data.id) return { ok: false, error: r.error || 'Deal creation failed.' };
   return { ok: true, dealId: r.data.id };
 }
 
+/** GET /api/v2/deals/{id} — custom fields arrive under deal.custom_fields. */
 function pdGetDeal_(dealId) {
   var r = pdFetch_('get', '/deals/' + dealId);
   if (!r.ok || !r.data) return { ok: false, error: r.error || ('Deal ' + dealId + ' not found.') };
   return { ok: true, deal: r.data };
 }
 
-function pdUpdateDeal_(dealId, fields) {
-  var r = pdFetch_('put', '/deals/' + dealId, fields);
+/**
+ * A linked deal's current field values as ONE flat map (standard keys + the
+ * 40-char custom keys), so if_empty rules read `fields[rule.deal_field]`
+ * regardless of where v2 files the field. Returns null when the deal has no
+ * readable `custom_fields` object — the callers treat null as "unreadable →
+ * never clobber" (the if_empty fail-safe), which is the right direction when
+ * the API shape is not what we expect.
+ */
+function pdFlattenDealFields_(deal) {
+  if (!deal || typeof deal !== 'object') return null;
+  if (!deal.custom_fields || typeof deal.custom_fields !== 'object') return null;
+  var flat = {};
+  Object.keys(deal).forEach(function(k) { if (k !== 'custom_fields') flat[k] = deal[k]; });
+  Object.keys(deal.custom_fields).forEach(function(k) { flat[k] = deal.custom_fields[k]; });
+  // Rules keep the v1 /dealFields key for a system field — alias it back so an
+  // if_empty rule on Owner reads the v2 value instead of seeing "empty".
+  Object.keys(PD_DEAL_V1_TO_V2_KEY).forEach(function(v1) {
+    var v2 = PD_DEAL_V1_TO_V2_KEY[v1];
+    if (flat[v1] === undefined && deal[v2] !== undefined) flat[v1] = deal[v2];
+  });
+  return flat;
+}
+
+// /dealFields is v1-only (no v2 twin), so a rule targeting a SYSTEM deal field
+// stores its v1 key. v2 renamed Owner and rejects the old name ("Parameter
+// 'user_id' is not allowed for this request"). Relation ids must be integers.
+var PD_DEAL_V1_TO_V2_KEY = { user_id: 'owner_id' };
+var PD_DEAL_V2_ID_KEYS   = { owner_id: true, person_id: true, org_id: true, stage_id: true, pipeline_id: true };
+
+/**
+ * Splits a flat {field: value} map into the v2 PATCH body: 40-char hash keys go
+ * under `custom_fields`, anything else (title, value, stage_id…) stays top-level,
+ * with v1 system keys renamed to v2 (user_id → owner_id) and relation ids coerced
+ * to Number. Values must already be v2-shaped (pdSetDealField_): monetary
+ * {value,currency}, enum = option id, set = [option ids], text/date = string.
+ */
+function pdDealPatchBody_(fieldMap) {
+  var body = {}, custom = {}, n = 0;
+  Object.keys(fieldMap || {}).forEach(function(k) {
+    if (/^[0-9a-f]{40}$/i.test(k)) { custom[k] = fieldMap[k]; n++; return; }
+    var key = PD_DEAL_V1_TO_V2_KEY[k] || k;
+    body[key] = PD_DEAL_V2_ID_KEYS[key] ? pdOptionId_(fieldMap[k]) : fieldMap[k];
+  });
+  if (n) body.custom_fields = custom;
+  return body;
+}
+
+/** PATCH /api/v2/deals/{id}. `body` is a ready v2 body (see pdDealPatchBody_). */
+function pdUpdateDeal_(dealId, body) {
+  var r = pdFetch_('patch', '/deals/' + dealId, body);
   if (!r.ok) return { ok: false, error: r.error || 'Deal update failed.' };
   return { ok: true };
 }
 
+/** GET /api/v2/deals/{id}/products — rows carry `id` (attachment), product_id,
+ *  product_variation_id, item_price, quantity, tax, name. One page covers any deal. */
 function pdListDealProducts_(dealId) {
-  var r = pdFetch_('get', '/deals/' + dealId + '/products');
+  var r = pdFetch_('get', '/deals/' + dealId + '/products?limit=500');
   if (!r.ok || !r.data) return [];
   return r.data;
 }
@@ -7608,9 +7616,12 @@ function pdAttachProducts_(dealId, lineItems) {
 // ── Install cost: an extra Install line item + the Design no-charge variation ──
 // Generic, config-driven (PIPEDRIVE_SETTINGS `install_cost_config`); inert until set.
 
-/** Updates one existing deal line item. PUT /deals/{id}/products/{attachmentId}. */
+/** Updates one existing deal line item. PATCH /api/v2/deals/{id}/products/{attachmentId}
+ *  (`product_variation_id` is nullable in v2 — null clears the variation; undefined keys are dropped). */
 function pdUpdateDealProduct_(dealId, attachmentId, body) {
-  var r = pdFetch_('put', '/deals/' + dealId + '/products/' + attachmentId, body);
+  var clean = {};
+  Object.keys(body || {}).forEach(function(k) { if (body[k] !== undefined) clean[k] = body[k]; });
+  var r = pdFetch_('patch', '/deals/' + dealId + '/products/' + attachmentId, clean);
   if (!r.ok) return { ok: false, error: r.error || 'Line-item update failed.' };
   return { ok: true };
 }
@@ -7794,20 +7805,34 @@ function pdOptionId_(v) {
   return isNaN(n) ? v : n;
 }
 
+// Writes v2 value shapes (Oct 2026 migration — v1 wrote a flat `<key>` +
+// `<key>_currency` pair): monetary → {value, currency}; enum → option id;
+// set → [option ids] (a UI-stored single id or "1,2" string is widened to an
+// array); text/date/number → as-is.
 function pdSetDealField_(out, dealField, type, value, currency) {
   if (!dealField || value === undefined || value === null || value === '') return;
   if (type === 'monetary') {
+    var amt, cur;
     if (typeof value === 'object') {
       if (value.value === undefined || value.value === null || value.value === '') return;
-      out[dealField] = pdOptionId_(value.value);
-      out[dealField + '_currency'] = value.currency || currency || 'USD';
+      amt = pdOptionId_(value.value); cur = value.currency || currency || 'USD';
     } else {
-      out[dealField] = pdOptionId_(value);
-      out[dealField + '_currency'] = currency || 'USD';
+      amt = pdOptionId_(value); cur = currency || 'USD';
     }
+    out[dealField] = { value: amt, currency: cur };
+  } else if (type === 'set') {
+    var list = Array.isArray(value) ? value
+             : (typeof value === 'string' && value.indexOf(',') !== -1) ? value.split(',') : [value];
+    var ids = [];
+    list.forEach(function(v) {
+      if (v && typeof v === 'object') v = (v.id !== undefined) ? v.id : v.value;
+      if (v === undefined || v === null || String(v).trim() === '') return;
+      ids.push(pdOptionId_(String(v).trim()));
+    });
+    if (ids.length) out[dealField] = ids;
   } else {
     var v = (typeof value === 'object' && value.id !== undefined) ? value.id : value;
-    if (type === 'enum' || type === 'set') v = pdOptionId_(v);   // option ids must be integers
+    if (type === 'enum') v = pdOptionId_(v);   // option ids must be integers
     out[dealField] = v;
   }
 }
@@ -7833,9 +7858,10 @@ function pdCollectOrgKeys_(rules) {
 /**
  * Resolves the effective deal-field map for one push: global rules with
  * per-(dealer,group) overrides applied, evaluated against the org's fields.
- * Returns a flat {dealFieldKey: value} map (v1 top-level shape, incl. monetary
- * `_currency`). Pure given its inputs — the caller passes the global rules and
- * the override object so it stays unit-testable.
+ * Returns a flat {dealFieldKey: value} map with v2-shaped values (monetary
+ * {value,currency}, enum id, set [ids]) — pdDealPatchBody_ files the 40-char keys
+ * under custom_fields for the PATCH. Pure given its inputs — the caller passes the
+ * global rules and the override object so it stays unit-testable.
  *
  * @param {string} orgId
  * @param {Array}  globalRules  getPipedriveGlobalRules_()
@@ -7918,20 +7944,26 @@ function pdResolveDealFields_(orgId, globalRules, overrides, currency, isNewDeal
       pdSetDealField_(out, rule.deal_field, rule.type, picked, currency);
     } else {   // copy (default)
       if (!rule.org_field) return;
+      // v2 org custom-field value shapes: enum = option id, set = [option ids],
+      // monetary = {value, currency}, text/date = string, address = {value,…}.
+      // Older {id}/{value} object forms are still tolerated.
       var raw = cf[rule.org_field];
       if (raw === undefined || raw === null || raw === '') return;
-      var id = (raw && raw.id !== undefined) ? raw.id : raw;
-      if ((rule.type === 'enum' || rule.type === 'set') && rule.option_map) {
-        var mapped = rule.option_map[String(id)];
-        if (mapped !== undefined) out[rule.deal_field] = pdOptionId_(mapped);   // option id → integer
-      } else if (rule.type === 'enum' || rule.type === 'set') {
-        out[rule.deal_field] = pdOptionId_(id);                                  // option id → integer
+      if (rule.type === 'enum' || rule.type === 'set') {
+        var ids = Array.isArray(raw) ? raw.slice()
+                : [ (raw && typeof raw === 'object') ? ((raw.id !== undefined) ? raw.id : raw.value) : raw ];
+        if (rule.option_map) {                       // org option id → deal option id; unmapped ids drop
+          ids = ids.map(function(id) { var m = rule.option_map[String(id)]; return (m === undefined) ? null : m; })
+                   .filter(function(m) { return m !== null && m !== undefined && m !== ''; });
+        }
+        if (!ids.length) return;
+        pdSetDealField_(out, rule.deal_field, rule.type, (rule.type === 'set') ? ids : ids[0], currency);
       } else if (rule.type === 'monetary') {
-        out[rule.deal_field] = pdOptionId_((raw && raw.value !== undefined) ? raw.value : raw);
-        out[rule.deal_field + '_currency'] = (raw && raw.currency) ? raw.currency : (currency || 'USD');
+        pdSetDealField_(out, rule.deal_field, 'monetary', raw, currency);   // {value,currency} or a bare amount
       } else {
-        out[rule.deal_field] = (raw && raw.value !== undefined) ? raw.value
-                              : ((raw && raw.id !== undefined) ? raw.id : raw);   // text/varchar: leave as-is
+        var v = (raw && typeof raw === 'object') ? ((raw.value !== undefined) ? raw.value : raw.id) : raw;
+        if (v === undefined || v === null || v === '') return;
+        out[rule.deal_field] = v;                                            // text/varchar/date: leave as-is
       }
     }
   });
@@ -8001,23 +8033,31 @@ function pushRunToPipedrive(dealerKey, runRowIndex, mode, existingDealId) {
     if (!getPipedriveStatus().configured) {
       return { ok: false, stage: 'config', message: 'Pipedrive is not configured. Set it up in Dealer Rules → Pipedrive.', retryable: false };
     }
-    var logSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('RUN_LOG');
-    if (!logSheet || runRowIndex < 2 || runRowIndex > logSheet.getLastRow()) {
+    var runRow = rlSheetStore_().readRun(Number(runRowIndex));   // null past the last row
+    if (!runRow) {
       return { ok: false, stage: 'gate', message: 'Run not found — finalize the run first.', retryable: false };
     }
-    var row = logSheet.getRange(runRowIndex, 1, 1, 23).getValues()[0];
-    if (String(row[1]).trim() !== dealerKey) {
+    var run = rlDecodeRow_(runRow, Number(runRowIndex));
+    if (run.dealerKey !== dealerKey) {
       return { ok: false, stage: 'gate', message: 'Run does not belong to this dealer.', retryable: false };
     }
-    var existingColD = String(row[3]).trim();   // D: order_id / deal id
-    var outputDocId  = String(row[17]).trim();  // R: output_doc_id
-    var note         = String(row[20]).trim();  // U: notes
-    var group        = (note.indexOf('SPLIT:') === 0) ? note.substring(6).toUpperCase() : 'PRIMARY';
+    var existingColD = run.dealId;        // D: order_id / deal id
+    var outputDocId  = run.outputDocId;   // R: output_doc_id
+    var note         = run.note;          // U: notes
+    var group        = run.group;
+    var runRef       = { rowIndex: runRowIndex, dealerKey: dealerKey, outputDocId: outputDocId, note: note };
 
     // finalizeRun always writes a deal id to col D — a blank means never finalized.
     if (!existingColD) {
       return { ok: false, stage: 'gate', message: 'This run has no Deal ID yet — finalize it before pushing.', retryable: false };
     }
+    // Refuse BEFORE any deal is created or linked when col D can't take a new id
+    // (committed under a placeholder; linking a different deal than col D's).
+    // The ledger re-checks under its lock at the write.
+    var colDProblem = (mode === 'create')
+      ? (/^\d+$/.test(existingColD) ? '' : rlDealIdChangeProblem_(run, null))
+      : rlDealIdChangeProblem_(run, existingDealId);
+    if (colDProblem) return { ok: false, stage: 'gate', message: colDProblem, retryable: false };
 
     var ctx = pdResolveRunContext_(dealerKey, group, outputDocId);
     if (!ctx.ok) return ctx;
@@ -8044,18 +8084,27 @@ function pushRunToPipedrive(dealerKey, runRowIndex, mode, existingDealId) {
     // Resolve the deal; write col D the instant we have an id.
     if (!dealId) {
       var rd = pdResolveDealId_(mode, existingDealId, pdCfg, currency,
-                 { lineItems: lineItems, group: group, dealerName: row[2] || dealerKey, secrets: ctx.secrets });
+                 { lineItems: lineItems, group: group, dealerName: run.dealerName || dealerKey, secrets: ctx.secrets });
       if (!rd.ok) return rd;
-      dealId = rd.dealId;
+      dealId = String(rd.dealId);
       state.dealId = dealId;
-      pdPushStateSet_(runRowIndex, state);
-      logSheet.getRange(runRowIndex, 4).setValue(dealId);  // D — idempotency anchor
-      SpreadsheetApp.flush();
+      pdPushStateSet_(runRowIndex, state);   // a retry adopts this id even if the col-D write below fails
+    }
+    // D — idempotency anchor, written by the run ledger under its lock. Checked on
+    // every pass (not just after a create) so a retry whose id came from the push
+    // state still lands it if an earlier write failed.
+    if (existingColD !== String(dealId)) {
+      try {
+        ledgerSetDealId_(runRef, dealId);
+      } catch (e) {
+        return { ok: false, stage: 'deal', dealId: dealId, retryable: /try again/i.test(e.message),
+                 message: 'Deal ' + dealId + ' is set, but recording it on the run failed: ' + e.message };
+      }
     }
 
     var applied = pdApplyDealContents_(dealId, lineItems, pdCfg, currency, state,
                     function(s) { pdPushStateSet_(runRowIndex, s); }, (mode === 'create'),
-                    { outputDocId: outputDocId, group: group, dealerName: row[2] || dealerKey });
+                    { outputDocId: outputDocId, group: group, dealerName: run.dealerName || dealerKey });
     if (!applied.ok) return applied;
 
     pdPushStateClear_(runRowIndex);
@@ -8191,24 +8240,25 @@ function pdApplyDealContents_(dealId, lineItems, pdCfg, currency, state, persist
     state.productsDone = true;
     persist(state);
   }
-  // v1 deals API takes custom fields as TOP-LEVEL keys (40-char hashes), not nested
-  // under a custom_fields object (v2). pdResolveDealFields_ returns a flat {key:value}
-  // map (incl. the `<key>_currency` companion for monetary fields) — pass it directly.
+  // pdResolveDealFields_ returns a flat {fieldKey: v2-shaped value} map;
+  // pdDealPatchBody_ files the 40-char custom keys under `custom_fields` for the
+  // v2 PATCH (v1 took them top-level with a `<key>_currency` companion — gone).
   var fieldsSet = 0;
   if (!state.fieldsDone) {
     var rules = getPipedriveGlobalRules_();
     // For a LINK (existing deal) with a constant if_empty rule, read the deal's current
     // fields once so an already-set value (e.g. a required Proof) is never overwritten.
-    // New deals are treated as empty (no read). Fetch failure → null → if_empty rules skip.
+    // New deals are treated as empty (no read). Fetch failure OR an unexpected shape
+    // (no custom_fields object) → null → if_empty rules skip, never clobber.
     var existingDealFields = null;
     if (!isNewDeal && pdHasIfEmptyConstant_(rules, pdCfg.fieldOverrides)) {
       var dg = pdGetDeal_(dealId);
-      existingDealFields = dg.ok ? dg.deal : null;
+      existingDealFields = dg.ok ? pdFlattenDealFields_(dg.deal) : null;
     }
     var custom = pdResolveDealFields_(pdCfg.orgId, rules, pdCfg.fieldOverrides, currency, !!isNewDeal, existingDealFields);
     var ckeys = Object.keys(custom);
     if (ckeys.length) {
-      var upd = pdUpdateDeal_(dealId, custom);
+      var upd = pdUpdateDeal_(dealId, pdDealPatchBody_(custom));
       if (!upd.ok) {
         return { ok: false, stage: 'fields', dealId: dealId, retryable: true,
                  message: 'Deal ' + dealId + ' built, but setting deal fields failed: ' + upd.error + ' — retry to finish.' };
@@ -8286,21 +8336,38 @@ function finalizeRunNewDeal(dealerKey, entry) {
     var token = outputDocId + '|' + group;
     var cache = pdNewDealCacheGet_(token);
     var dealId = cache.dealId || '';
+    // Second anchor: the run log itself. If this output doc + group is already
+    // finalized (the cache was lost/cleared), adopt that row's deal instead of
+    // creating another; a row under a placeholder ('test') is refused.
+    if (!dealId) {
+      var prior = ledgerFinalizedRunFor_(dealerKey, outputDocId, note);
+      if (prior) {
+        if (!/^\d+$/.test(prior.dealId)) {
+          return { ok: false, stage: 'finalize', retryable: false,
+                   message: 'This run is already in the run log (row ' + prior.rowIndex + ') under deal "' + prior.dealId +
+                            '". Delete that row on the VIN Logs page to finalize it again.' };
+        }
+        dealId = prior.dealId;
+        pdNewDealCacheSet_(token, { dealId: dealId, rowIndex: prior.rowIndex });
+        cache = pdNewDealCacheGet_(token);
+      }
+    }
     if (!dealId) {
       var config = getDealerConfig_(dealerKey);
       var rd = pdResolveDealId_('create', null, ctx.pdCfg, ctx.currency,
                  { lineItems: ctx.lineItems, group: group, dealerName: (config && config[CFG.NAME]) || dealerKey, secrets: ctx.secrets });
       if (!rd.ok) return rd;
-      dealId = rd.dealId;
+      dealId = String(rd.dealId);
       pdNewDealCacheSet_(token, { dealId: dealId });   // cache immediately — retry adopts, never re-creates
     }
 
     var rowIndex = cache.rowIndex || 0;
     if (!rowIndex) {
-      var fin = finalizeRun(dealerKey, entry, dealId);   // real numeric id → invariant holds
-      rowIndex = fin.rowIndex;
+      var f = finalizeRunOrFail_(dealerKey, entry, dealId);   // real numeric id → invariant holds; idempotent
+      if (!f.ok) { f.dealId = dealId; return f; }
+      rowIndex = f.fin.rowIndex;
       pdNewDealCacheMerge_(token, { rowIndex: rowIndex });
-      pdPushStateSet_(rowIndex, { dealId: dealId, productsDone: false, fieldsDone: false });
+      if (!f.fin.reused) pdPushStateSet_(rowIndex, { dealId: dealId, productsDone: false, fieldsDone: false });
     }
 
     var state = pdPushStateGet_(rowIndex);
@@ -8343,7 +8410,9 @@ function finalizeRunExisting(dealerKey, entry, existingDealId) {
     var got = pdGetDeal_(id);
     if (!got.ok) return { ok: false, stage: 'deal', message: 'Could not find deal ' + id + ' in Pipedrive: ' + got.error, retryable: true };
 
-    var fin = finalizeRun(dealerKey, entry, id);   // col D = id
+    var f = finalizeRunOrFail_(dealerKey, entry, id);   // col D = id; idempotent (a retry reuses the row)
+    if (!f.ok) return f;
+    var fin = f.fin;
     var res = pushRunToPipedrive(dealerKey, fin.rowIndex, 'link', id);
     res.rowIndex = fin.rowIndex;
     if (res.ok) res.vinCount = (entry.producedVins || []).length;
@@ -8457,10 +8526,11 @@ function csvExportFileName_(outputDocName, tabName) {
   return outputDocName + ' - ' + tabName + '.csv';
 }
 
-/** True if a file with this exact name is already attached to the deal. Best-effort (false on error). */
+/** True if a file with this exact name is already attached to the deal. Best-effort (false on error).
+ *  /files is v1-only (no v2 twin; not on the Aug 2026 out-of-support list). */
 function pdDealHasBillingFile_(dealId, filename) {
   try {
-    var res = pdFetch_('get', '/files?deal_id=' + encodeURIComponent(dealId));
+    var res = pdFetch_('get', '/files?deal_id=' + encodeURIComponent(dealId), null, { version: 'v1' });
     if (!res.ok || !res.data || !res.data.length) return false;
     for (var i = 0; i < res.data.length; i++) {
       var n = String(res.data[i].name || res.data[i].clean_name || '');
@@ -8523,7 +8593,7 @@ function attachBillingCsvToDeal_(dealId, outputDocId, group, meta) {
 // The standalone Lot Scanner app (a SEPARATE Apps Script project) writes one row
 // per photographed VIN to the shared SF_LOT_SUBMISSIONS sheet + a Drive photos
 // folder. This section is the office-side inbox the ViewVinInbox view reads:
-// review/correct the OCR'd VIN, mark processed/discarded, and copy a dealer's
+// review/correct the OCR'd VIN, discard bad reads, and copy a dealer's
 // confirmed VINs into Run Order. Connection is by ID only — no shared runtime.
 // ============================================================================
 
@@ -8536,8 +8606,11 @@ var LOT_SUB = {
   YEAR: 11, MAKE: 12, MODEL: 13, TYPE: 14, STOCK: 15, STATUS: 16, PROCESSED_TS: 17, PROCESSED_BY: 18, NOTES: 19,
   BATCH_ID: 20, OCR_STATE: 21
 };
-// Human lifecycle: draft (field still owns) | submitted (field-sent / real-time) | processed | discarded.
-var LOT_SUB_STATUSES = ['draft', 'submitted', 'processed', 'discarded'];
+// Human lifecycle: draft (field still owns) | submitted (field-sent / real-time) | discarded.
+// These are the statuses the office may SET. 'processed' is retired (its button was
+// removed 2026-07-10): older rows still carry it and stay hidden from the inbox, and
+// sweepLotPhotos still trashes their photos — but nothing writes it any more.
+var LOT_SUB_STATUSES = ['draft', 'submitted', 'discarded'];
 
 function getLotSubmissionsSheet_() {
   if (!LOT_SUBMISSIONS_SHEET_ID) return null;
@@ -8839,6 +8912,58 @@ function getVinSubmissions(filter) {
 }
 
 /**
+ * Client-callable. VIN Inbox card thumbnails as { fileId: dataUrl } — bytes fetched
+ * SERVER-side, because a drive.google.com/thumbnail URL in an <img> rides on the
+ * browser's Google cookies and silently fails inside the HtmlService iframe
+ * (third-party context / multi-account). Ids without a generated Drive thumbnail are
+ * simply absent; the client retries them on its next render. Photos are immutable, so
+ * a 6h ScriptCache makes repeat loads fast. Twin of lot-scan getPhotoThumbs.
+ * @param {string[]} fileIds
+ * @returns {{ok:boolean, thumbs:Object, error?:string}}
+ */
+function getVinPhotoThumbs(fileIds) {
+  try {
+    var ids = (fileIds || []).map(String).filter(Boolean);
+    var out = {};
+    if (!ids.length) return { ok: true, thumbs: out };
+    var cache = CacheService.getScriptCache();
+    var hit = {};
+    try { hit = cache.getAll(ids.map(function (id) { return 'vith_' + id; })) || {}; } catch (e) {}
+    var toPut = {};
+    ids.forEach(function (id) {
+      var c = hit['vith_' + id];
+      if (c) { out[id] = c; return; }
+      try {
+        var t = DriveApp.getFileById(id).getThumbnail();
+        if (!t) return;
+        var d = 'data:' + (t.getContentType() || 'image/jpeg') + ';base64,' + Utilities.base64Encode(t.getBytes());
+        out[id] = d;
+        if (d.length < 95000) toPut['vith_' + id] = d;   // CacheService 100KB/value cap
+      } catch (e) {}   // cosmetic — one bad id never blocks the rest
+    });
+    if (Object.keys(toPut).length) { try { cache.putAll(toPut, 21600); } catch (e) {} }
+    return { ok: true, thumbs: out };
+  } catch (e) {
+    return { ok: false, thumbs: {}, error: String((e && e.message) || e) };
+  }
+}
+
+/**
+ * Client-callable. One full-size submission photo as a data URL (server-fetched, same
+ * reason as getVinPhotoThumbs) — the VIN Inbox's in-card "view photo" panel.
+ * @returns {{ok:boolean, dataUrl?:string, error?:string}}
+ */
+function getVinPhotoDataUrl(fileId) {
+  try {
+    if (!fileId) return { ok: false, error: 'no id' };
+    var blob = DriveApp.getFileById(String(fileId)).getBlob();
+    return { ok: true, dataUrl: 'data:' + (blob.getContentType() || 'image/jpeg') + ';base64,' + Utilities.base64Encode(blob.getBytes()) };
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) };
+  }
+}
+
+/**
  * Client-callable. Updates one submission's status (allow-listed) and, if a
  * corrected VIN is supplied, re-validates + re-matches it against the dealer's
  * inventory and rewrites the VIN/vehicle columns.
@@ -8895,14 +9020,14 @@ function updateVinSubmissionStatus(submissionId, status, correctedVin) {
 
       var by = '';
       try { by = Session.getActiveUser().getEmail() || ''; } catch (e2) {}
-      var ts = (status === 'processed' || status === 'discarded')
+      var ts = (status === 'discarded')
         ? Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'America/Chicago', 'yyyy-MM-dd HH:mm:ss')
         : '';
       // cols 17..19 (1-based): status, processed_ts, processed_by
       sh.getRange(rowNum, LOT_SUB.STATUS + 1, 1, 3).setValues([[status, ts, by]]);
-      // Discard/processed rows render nowhere again — trash the photo (best-effort).
+      // Discarded rows render nowhere again — trash the photo (best-effort).
       var photoTrashed = null;
-      if (status === 'discarded' || status === 'processed') {
+      if (status === 'discarded') {
         photoTrashed = trashLotPhoto_(data[i][LOT_SUB.PHOTO_ID]);
       }
       return { ok: true, valid: resultValid, matched: resultMatched, photoTrashed: photoTrashed };
@@ -8935,11 +9060,11 @@ function updateVinSubmissionStatuses(submissionIds, status) {
 
     var by = '';
     try { by = Session.getActiveUser().getEmail() || ''; } catch (e2) {}
-    var ts = (status === 'processed' || status === 'discarded')
+    var ts = (status === 'discarded')
       ? Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'America/Chicago', 'yyyy-MM-dd HH:mm:ss')
       : '';
 
-    var doTrash = (status === 'discarded' || status === 'processed');
+    var doTrash = (status === 'discarded');
     var updated = 0, missing = 0, photosTrashed = 0, photosFailed = 0;
     ids.forEach(function (id) {
       // Rows can shift mid-loop (scanner-project deleteRow; LockService can't
@@ -8947,7 +9072,7 @@ function updateVinSubmissionStatuses(submissionIds, status) {
       // loop seconds long). Re-verify the ID at the cached position right
       // before writing; re-locate by ID if it moved, count missing if gone.
       // Same discipline as runInboxOcr — an unverified version of this loop
-      // stamped discarded/processed onto the wrong (shifted-up) rows.
+      // stamped discarded onto the wrong (shifted-up) rows.
       var rowNum = rowById[id];
       if (rowNum && String(sh.getRange(rowNum, LOT_SUB.ID + 1).getValue()) !== id) rowNum = 0;
       if (!rowNum) {
@@ -8976,7 +9101,7 @@ function updateVinSubmissionStatuses(submissionIds, status) {
 
 /**
  * Editor-run backlog sweep (NOT client-callable). Trashes the Drive photo of
- * every row already marked discarded/processed. Idempotent — setTrashed on an
+ * every row already marked discarded (or the retired 'processed'). Idempotent — setTrashed on an
  * already-trashed file is a no-op; crew-owned files the office can't trash just
  * log/count as failed. Rows are retained (never deleteRow'd).
  * @returns {string} 'sweepLotPhotos: scanned=N trashed=N failed=N'
@@ -9081,28 +9206,38 @@ function eomGetReportsFolder_() {
 
 // ── Pipedrive reads (reuse Section 31) ──────────────────────────────────────
 
-/** Stages of a pipeline, sorted by order — powers the run-screen stage picker. */
+/** Stages of a pipeline, sorted by order — powers the run-screen stage picker. v2 list. */
 function pdEomListStages_(pipelineId) {
-  var r = pdFetch_('get', '/stages?pipeline_id=' + encodeURIComponent(pipelineId));
-  if (!r.ok || !r.data) return [];
-  return r.data.map(function (s) { return { id: s.id, name: s.name, order_nr: s.order_nr || 0 }; })
+  return pdListAllV2_('/stages?pipeline_id=' + encodeURIComponent(pipelineId))
+    .map(function (s) { return { id: s.id, name: s.name, order_nr: s.order_nr || 0 }; })
     .sort(function (a, b) { return a.order_nr - b.order_nr; });
 }
 
-/** Deals for a scope. 'full_billing' = all open deals in the configured pipeline;
- * otherwise all not-deleted deals in the given stage (defaults to the EOM stage). */
-function eomListDeals_(scope, stageId) {
-  if (scope === 'full_billing') {
-    var pid = eomGetPipelineId_();
-    return pdListAllV1_('/deals?status=open').filter(function (d) { return d.pipeline_id === pid; });
-  }
+/**
+ * The v2 /deals list path for a scope. 'full_billing' = open deals in the configured
+ * pipeline (server-side `pipeline_id` filter — v1 filtered client-side); otherwise
+ * every not-deleted deal in the stage — v2 has no `all_not_deleted`; OMITTING
+ * `status` means exactly that. `dupKey` (the Duplicates custom field) is requested
+ * explicitly via `custom_fields=` so the rows carry it under deal.custom_fields.
+ */
+function eomDealsListPath_(scope, stageId, dupKey) {
+  var cf = dupKey ? '&custom_fields=' + encodeURIComponent(dupKey) : '';
+  if (scope === 'full_billing') return '/deals?status=open&pipeline_id=' + eomGetPipelineId_() + cf;
   var sid = parseInt(stageId, 10);
   if (isNaN(sid)) sid = eomGetDefaultStageId_();
-  return pdListAllV1_('/deals?stage_id=' + sid + '&status=all_not_deleted');
+  return '/deals?stage_id=' + sid + cf;
+}
+
+/** Deals for a scope (v2 shape: org_id/person_id/owner_id are plain ids, custom
+ * fields under custom_fields, RFC 3339 times). */
+function eomListDeals_(scope, stageId) {
+  return pdListAllV2_(eomDealsListPath_(scope, stageId, eomDuplicatesFieldKey_()));
 }
 
 /** Products for many deals in ONE parallel batch. Returns {dealId:[dealProduct,…]}.
- * Never throws — a failed deal yields an empty product list. */
+ * v2 rows carry name/price/qty/tax/variation id but NO embedded `product`
+ * (v1's include_product_data is gone) — eomBuildContext_ resolves the catalog
+ * side. Never throws — a failed deal yields an empty product list. */
 function pdEomFetchProductsForDeals_(dealIds) {
   if (ENV.name !== 'prod') return pdFakeEomProducts_(dealIds);   // DEV: in-process fake, zero API traffic (PdFake.gs)
   var out = {};
@@ -9110,7 +9245,7 @@ function pdEomFetchProductsForDeals_(dealIds) {
   if (!s) { dealIds.forEach(function (id) { out[id] = []; }); return out; }
   var requests = dealIds.map(function (id) {
     return {
-      url: s.baseV1 + '/deals/' + id + '/products?include_product_data=1&api_token=' + encodeURIComponent(s.token),
+      url: s.baseV2 + '/deals/' + id + '/products?limit=500&api_token=' + encodeURIComponent(s.token),
       muteHttpExceptions: true
     };
   });
@@ -9175,7 +9310,13 @@ function eomCleanHtml_(raw) {
 }
 
 function eomIsObj_(x) { return x !== null && typeof x === 'object'; }
-function eomResolveName_(obj) { return eomIsObj_(obj) ? (obj.name || '') : ''; }
+/** A relation's display name from either API shape: v1 `{name,value}` object, or a
+ *  v2 plain id looked up in `names` ({id: name}). '' when unknown. */
+function eomRelName_(rel, names) {
+  if (eomIsObj_(rel) && rel.name) return rel.name;
+  var id = pdRelId_(rel);
+  return (id && names && names[String(id)]) ? names[String(id)] : '';
+}
 function eomVariationName_(product, variationId) {
   if (!variationId || !product) return '';
   var vars = product.product_variations || [];
@@ -9183,20 +9324,74 @@ function eomVariationName_(product, variationId) {
   return '';
 }
 
+/**
+ * Everything eomBuildRows_ needs that a v2 deal / deal-product no longer embeds,
+ * resolved in a handful of batched reads (never per-row):
+ *   orgNames / personNames  — v2 `/organizations?ids=` and `/persons?ids=` (100 per call)
+ *   userNames               — v1 `/users` (deal owners; users have no v2 endpoint)
+ *   catalog                 — v2 `/products?ids=` → {id: {code, description, tax}}
+ *   variations              — v2 `/products/{id}/variations`, only for products that
+ *                             actually appear with a variation on some line → {id: name}
+ *   dupKey                  — the Duplicates deal-field key
+ * Every lookup is best-effort: a failed read leaves names blank, never throws.
+ */
+function eomBuildContext_(deals, productsByDeal) {
+  var ctx = { dupKey: eomDuplicatesFieldKey_(), orgNames: {}, personNames: {}, userNames: {}, catalog: {}, variations: {} };
+  var orgIds = [], personIds = [], productIds = {}, variedProducts = {};
+  (deals || []).forEach(function (d) {
+    orgIds.push(pdRelId_(d.org_id));
+    personIds.push(pdRelId_(d.person_id));
+  });
+  Object.keys(productsByDeal || {}).forEach(function (dealId) {
+    (productsByDeal[dealId] || []).forEach(function (dp) {
+      if (dp.product_id) productIds[String(dp.product_id)] = true;
+      if (dp.product_id && dp.product_variation_id) variedProducts[String(dp.product_id)] = true;
+    });
+  });
+  try {
+    var orgs = pdListByIdsV2_('/organizations', orgIds);
+    Object.keys(orgs).forEach(function (id) { ctx.orgNames[id] = orgs[id].name || ''; });
+  } catch (e) {}
+  try {
+    var persons = pdListByIdsV2_('/persons', personIds);
+    Object.keys(persons).forEach(function (id) { ctx.personNames[id] = persons[id].name || ''; });
+  } catch (e) {}
+  try {
+    pdListAllV1_('/users').forEach(function (u) { if (u && u.id) ctx.userNames[String(u.id)] = u.name || ''; });
+  } catch (e) {}
+  try {
+    var prods = pdListByIdsV2_('/products', Object.keys(productIds));
+    Object.keys(prods).forEach(function (id) {
+      var p = prods[id];
+      ctx.catalog[id] = { code: p.code || '', description: p.description || '', tax: (p.tax != null ? p.tax : '') };
+    });
+  } catch (e) {}
+  Object.keys(variedProducts).forEach(function (pid) {
+    try {
+      pdListProductVariations_(pid).forEach(function (v) { ctx.variations[String(v.id)] = v.name || ''; });
+    } catch (e) {}
+  });
+  return ctx;
+}
+
 /** One deal (+ its products) → flat rows in EOM_COLUMNS order. A deal with no
- * products still emits one row so it isn't lost (ports RowBuilder.build). */
-function eomBuildRows_(deal, products) {
-  var dupKey = eomDuplicatesFieldKey_();
-  var dupVal = dupKey ? deal[dupKey] : '';
+ * products still emits one row so it isn't lost (ports RowBuilder.build).
+ * `ctx` = eomBuildContext_() — the names/catalog v2 no longer embeds. Tolerates
+ * both API shapes (v1 `{name,value}` relations + embedded `product`; v2 ids). */
+function eomBuildRows_(deal, products, ctx) {
+  ctx = ctx || { dupKey: '', orgNames: {}, personNames: {}, userNames: {}, catalog: {}, variations: {} };
+  var dupKey = ctx.dupKey || '';
+  var cfd = deal.custom_fields || {};
+  var dupVal = dupKey ? (cfd[dupKey] !== undefined ? cfd[dupKey] : deal[dupKey]) : '';
   if (dupVal == null) dupVal = '';
   var base = {
     processed_at: new Date().toISOString(),
     deal_id: deal.id,
     deal_title: deal.title || '',
     deal_created_at: deal.add_time || '',
-    org_name: eomResolveName_(deal.org_id),
-    person_name: eomResolveName_(deal.person_id),
-    deal_owner: eomResolveName_(deal.user_id),
+    org_name: eomRelName_(deal.org_id, ctx.orgNames),
+    person_name: eomRelName_(deal.person_id, ctx.personNames),
+    deal_owner: eomRelName_(deal.owner_id !== undefined ? deal.owner_id : deal.user_id, ctx.userNames),
     deal_value: deal.value != null ? deal.value : '',
     currency: deal.currency || '',
     pipeline: eomPipelineName_(deal.pipeline_id),
@@ -9208,7 +9403,9 @@ function eomBuildRows_(deal, products) {
   }
   var rows = [];
   products.forEach(function (dp) {
-    var catalog = dp.product || {};
+    var catalog = ctx.catalog[String(dp.product_id)] || dp.product || {};
+    var varName = (dp.product_variation_id && ctx.variations[String(dp.product_variation_id)])
+                  || eomVariationName_(dp.product || null, dp.product_variation_id) || '';
     var pr = Object.assign({}, base, {
       product_id: dp.product_id,
       product_code: catalog.code || '',
@@ -9216,7 +9413,7 @@ function eomBuildRows_(deal, products) {
       product_description: eomCleanHtml_(catalog.description || ''),
       product_tax_percent: catalog.tax != null ? catalog.tax : '',
       deal_tax_percent: dp.tax != null ? dp.tax : '',
-      variation: eomVariationName_(catalog, dp.product_variation_id),
+      variation: varName,
       quantity: dp.quantity != null ? dp.quantity : '',
       item_price: dp.item_price != null ? dp.item_price : '',
       discount: dp.discount != null ? dp.discount : '',
@@ -9225,11 +9422,28 @@ function eomBuildRows_(deal, products) {
       billing_start_date: dp.billing_start_date || '',
       product_notes: eomCleanHtml_(dp.comments || ''),
       product_added_at: dp.add_time || '',
-      product_last_edited: dp.last_edit || ''
+      product_last_edited: dp.update_time || dp.last_edit || ''
     });
     rows.push(EOM_COLUMNS.map(function (c) { return pr[c] != null ? pr[c] : ''; }));
   });
   return rows;
+}
+
+/**
+ * Fetches every deal's products in parallel batches of 100 (progress-reporting
+ * optional), then builds the shared context ONCE. Returns {productsByDeal, ctx}.
+ * Shared by the live pull and the report generator so both stay in sync.
+ */
+function eomFetchProductsAndContext_(deals, onBatch) {
+  var productsByDeal = {}, CHUNK = 100;
+  for (var i = 0; i < deals.length; i += CHUNK) {
+    var batch = deals.slice(i, i + CHUNK);
+    if (onBatch) onBatch(Math.min(i + CHUNK, deals.length), deals.length, i);
+    var got = pdEomFetchProductsForDeals_(batch.map(function (d) { return d.id; }));
+    Object.keys(got).forEach(function (k) { productsByDeal[k] = got[k]; });
+    if (i + CHUNK < deals.length) Utilities.sleep(800);
+  }
+  return { productsByDeal: productsByDeal, ctx: eomBuildContext_(deals, productsByDeal) };
 }
 
 // ── Report writing (ports SheetWriter + BillingDashboard) ───────────────────
@@ -9955,13 +10169,9 @@ function getEomCurrentReport() {
     if (!getPipedriveStatus().configured) return { ok: false, error: 'Pipedrive is not connected.' };
     var stageId = eomGetDefaultStageId_();
     var deals = eomListDeals_('stage', stageId);
-    var rows = [], CHUNK = 100;
-    for (var i = 0; i < deals.length; i += CHUNK) {
-      var batch = deals.slice(i, i + CHUNK);
-      var productsByDeal = pdEomFetchProductsForDeals_(batch.map(function (d) { return d.id; }));
-      batch.forEach(function (deal) { rows = rows.concat(eomBuildRows_(deal, productsByDeal[deal.id] || [])); });
-      if (i + CHUNK < deals.length) Utilities.sleep(800);
-    }
+    var fetched = eomFetchProductsAndContext_(deals);
+    var rows = [];
+    deals.forEach(function (deal) { rows = rows.concat(eomBuildRows_(deal, fetched.productsByDeal[deal.id] || [], fetched.ctx)); });
     var group = eomGroupForReport_(rows);
     var meta = {
       current: true, stageId: String(stageId), stageName: eomStageName_(stageId),
@@ -10024,14 +10234,12 @@ function generateEomReport(scope, stageId, runId, monthLabel, splitContacts) {
       return { ok: false, error: none };
     }
 
-    var allRows = [], CHUNK = 100;
-    for (var i = 0; i < deals.length; i += CHUNK) {
-      var batch = deals.slice(i, i + CHUNK);
-      eomSetProgress_(runId, { message: 'Fetching products ' + Math.min(i + CHUNK, deals.length) + ' / ' + deals.length + '…', percent: 5 + Math.round(45 * (i / deals.length)), done: false, error: null });
-      var productsByDeal = pdEomFetchProductsForDeals_(batch.map(function (d) { return d.id; }));
-      batch.forEach(function (deal) { allRows = allRows.concat(eomBuildRows_(deal, productsByDeal[deal.id] || [])); });
-      if (i + CHUNK < deals.length) Utilities.sleep(800);
-    }
+    var fetched = eomFetchProductsAndContext_(deals, function (done, total, i) {
+      eomSetProgress_(runId, { message: 'Fetching products ' + done + ' / ' + total + '…', percent: 5 + Math.round(40 * (i / total)), done: false, error: null });
+    });
+    eomSetProgress_(runId, { message: 'Resolving names + catalog…', percent: 50, done: false, error: null });
+    var allRows = [];
+    deals.forEach(function (deal) { allRows = allRows.concat(eomBuildRows_(deal, fetched.productsByDeal[deal.id] || [], fetched.ctx)); });
 
     eomSetProgress_(runId, { message: 'Building spreadsheet…', percent: 60, done: false, error: null });
     var result = eomWriteReport_(allRows, scope, monthLabel, runId, stageId, splitContacts);
@@ -10068,18 +10276,13 @@ function generateEomReport(scope, stageId, runId, monthLabel, splitContacts) {
 // These replaced the old whole-grid getDashboardView() read (retired).
 // ============================================================================
 
-/** RUN_LOG rows (23 cols A–W) minus test runs, in append order. ONE read. */
+/** Decoded run records (RunLedger.gs rlDecodeRow_) minus test and soft-deleted runs, append order. ONE read. */
 function readRunLog_() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('RUN_LOG');
-  if (!sheet) return [];
-  var lastRow = sheet.getLastRow();
-  if (lastRow < 2) return [];
-  return sheet.getRange(2, 1, lastRow - 1, 23).getValues()
-    .filter(function(r) { return String(r[3]).trim().toLowerCase() !== 'test'; });
+  return ledgerLiveRuns_().filter(function(rec) { return !rec.isTest; });
 }
 
 /** Log-sheet timestamp cell → 'yyyy-MM-dd HH:mm:ss' string (cells occasionally
- *  coerce to Date; same idiom as getRunsForDealer). */
+ *  coerce to Date; same idiom as rlFormatTs_). Used for IMPORT_STATS. */
 function runLogTs_(v) {
   return v instanceof Date
     ? Utilities.formatDate(v, 'America/Chicago', 'yyyy-MM-dd HH:mm:ss')
@@ -10121,9 +10324,9 @@ function getHomeHud() {
   function bucket() { return { runs: 0, vins: 0, dupes: 0, _dealers: {} }; }
   function add(b, r) {
     b.runs++;
-    b.vins  += Number(r[15]) || 0;   // P: total_produced
-    b.dupes += Number(r[14]) || 0;   // O: total_dupes
-    b._dealers[String(r[1])] = true;
+    b.vins  += r.totalProduced;
+    b.dupes += r.billing.totalDupes;
+    b._dealers[r.dealerKey] = true;
   }
   function pack(b) { return { runs: b.runs, vins: b.vins, dealers: Object.keys(b._dealers).length, dupes: b.dupes }; }
 
@@ -10131,13 +10334,12 @@ function getHomeHud() {
   var allTime = { runs: rows.length, vins: 0, avgVinsPerRun: 0, committed: 0, pending: 0, rolledBack: 0 };
 
   rows.forEach(function(r) {
-    allTime.vins += Number(r[15]) || 0;
-    var st = String(r[22]).trim();                 // W: vin_log_status
-    if (st === 'committed') allTime.committed++;
-    else if (st === 'rolled_back') allTime.rolledBack++;
+    allTime.vins += r.totalProduced;
+    if (r.status === RL_STATUS.COMMITTED) allTime.committed++;
+    else if (r.status === RL_STATUS.ROLLED_BACK) allTime.rolledBack++;
     else allTime.pending++;
 
-    var day = runLogTs_(r[0]).slice(0, 10);        // string prefix compare is safe
+    var day = r.timestamp.slice(0, 10);            // string prefix compare is safe
     if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return;  // malformed ts → all-time only
     if (day === todayStr) add(today, r);
     if (day >= mondayStr && day <= todayStr) add(week, r);
@@ -10159,27 +10361,27 @@ function getHomeHud() {
 
 /**
  * {orgId → deal count} for the default EOM stage, cached 10 min in the script
- * cache (key 'eom_org_counts_v1'). GET requests only. Returns null on ANY
- * failure or when Pipedrive isn't configured — an EOM/Pipedrive problem can
- * never break getDealerSummary (pdFetch_ philosophy).
+ * cache (key 'eom_org_counts_v2' — bumped with the v2 list so no v1-shaped
+ * cache is ever read). GET requests only. Returns null on ANY failure or when
+ * Pipedrive isn't configured — an EOM/Pipedrive problem can never break
+ * getDealerSummary (pdFetch_ philosophy).
  */
 function getEomOrgCountsCached_() {
   try {
     if (!getPipedriveStatus().configured) return null;
     var cache = CacheService.getScriptCache();
-    var hit = cache.get('eom_org_counts_v1');
+    var hit = cache.get('eom_org_counts_v2');
     if (hit) return JSON.parse(hit);
 
     // Same stage resolution as getEomCurrentReport: configured default EOM stage.
     var deals = eomListDeals_('stage', eomGetDefaultStageId_());
     var counts = {};
     deals.forEach(function(d) {
-      var o = d.org_id;   // v1 list shape: object {name, value, …} (or a bare id)
-      var id = Number(o && typeof o === 'object' ? o.value : o);
+      var id = pdRelId_(d.org_id);   // v2: plain id (pdRelId_ also tolerates the old {name,value})
       if (!id) return;
       counts[id] = (counts[id] || 0) + 1;
     });
-    try { cache.put('eom_org_counts_v1', JSON.stringify(counts), 600); } catch (e) {}
+    try { cache.put('eom_org_counts_v2', JSON.stringify(counts), 600); } catch (e) {}
     return counts;
   } catch (e) {
     return null;
@@ -10243,20 +10445,20 @@ function getDealerSummary(dealerKey) {
   }
 
   // ── Run stats + last run (RUN_LOG, test runs already excluded) ─────────────
-  var runs = readRunLog_().filter(function(r) { return String(r[1]).trim() === dealerKey; });
+  var runs = readRunLog_().filter(function(r) { return r.dealerKey === dealerKey; });
   var runStats = {
     runs: runs.length, vinsOrdered: 0, vinsProduced: 0, avgMatchPct: 0,
     byType: { new: 0, po: 0, cpo: 0, cpoEl: 0 }
   };
   var matched = 0;
   runs.forEach(function(r) {
-    runStats.vinsOrdered  += Number(r[4])  || 0;   // E: total_ordered
-    matched               += Number(r[5])  || 0;   // F: total_matched
-    runStats.vinsProduced += Number(r[15]) || 0;   // P: total_produced
-    runStats.byType.new   += Number(r[6])  || 0;   // G–J: per-type gross
-    runStats.byType.po    += Number(r[7])  || 0;
-    runStats.byType.cpo   += Number(r[8])  || 0;
-    runStats.byType.cpoEl += Number(r[9])  || 0;
+    runStats.vinsOrdered  += r.totalOrdered;
+    matched               += r.totalMatched;
+    runStats.vinsProduced += r.totalProduced;
+    runStats.byType.new   += r.billing.totalNew;     // G–J: per-type gross
+    runStats.byType.po    += r.billing.totalPO;
+    runStats.byType.cpo   += r.billing.totalCPO;
+    runStats.byType.cpoEl += r.billing.totalCPOEL;
   });
   runStats.avgMatchPct = runStats.vinsOrdered
     ? Math.round(1000 * matched / runStats.vinsOrdered) / 10 : 0;
@@ -10265,12 +10467,12 @@ function getDealerSummary(dealerKey) {
   if (runs.length) {
     var last = runs[runs.length - 1];   // append order → last = newest
     lastRun = {
-      ts:           homeDisplayTs_(runLogTs_(last[0])),
-      orderId:      String(last[3]).trim(),
-      ordered:      Number(last[4])  || 0,
-      produced:     Number(last[15]) || 0,
-      durationSec:  Number(last[18]) || 0,
-      vinLogStatus: String(last[22]).trim() || 'pending'   // '' = pending, same as getRunsForDealer
+      ts:           homeDisplayTs_(last.timestamp),
+      orderId:      last.dealId,
+      ordered:      last.totalOrdered,
+      produced:     last.totalProduced,
+      durationSec:  last.durationSec,
+      vinLogStatus: last.status   // blank col W decodes as 'pending'
     };
   }
 
@@ -10650,7 +10852,7 @@ function createDealer(payload) {
              vinTab.getLastRow() > 1 ? (vinTab.getLastRow() - 1) + ' logged rows kept' : '');
       } else {
         vinTab = vinSS.insertSheet(key);
-        vinTab.getRange(1, 1, 1, 4).setValues([['ORDER_ID', 'VIN', 'committed_at', 'order_date']]);
+        vinTab.getRange(1, 1, 1, VL_WIDTH).setValues([VL_HEADERS]);   // RunLedger.gs owns the VIN-log layout (A–E)
         vinTab.setFrozenRows(1);
         step('vin_log', 'VIN log tab', 'created', 'Tab "' + key + '"');
       }
@@ -10753,7 +10955,7 @@ function getDealerChecklist(dealerKey) {
   }
   item('orders_col', 'ORDERS column', ordersOk, true, ordersDetail, null);
 
-  // VIN log tab (blocking: commitRunToVINLog throws without it).
+  // VIN log tab (blocking: a run-ledger commit throws without it).
   var vinOk = false, vinDetail = '';
   try {
     vinOk = !!getVinLogsSS_().getSheetByName(key);

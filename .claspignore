@@ -17,6 +17,7 @@ docs/**
 # scripts/promote.ps1 — must never be pushed as an Apps Script .json file)
 test/**
 .clasp.prod.json
+.clasp.exp.json
 
 # Visual-brainstorming companion scratch (local-only mockups; never Apps Script source)
 .superpowers/**
@@ -34,3 +35,6 @@ lot-scan/**
 # pushed separately from inside eom-viewer/. Excluded here so its Code.gs / Viewer.html /
 # EomReportRenderer.html copy never collides with the main project (flat namespace).
 eom-viewer/**
+
+# Lot Scan PWA experiment (static GitHub Pages test page; never Apps Script source)
+lot-scan-pwa-experiment/**

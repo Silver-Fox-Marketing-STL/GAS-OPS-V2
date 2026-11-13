@@ -32,7 +32,11 @@
           </div>
 
           <label class="field-label" for="fileInput">Select CSV File(s)</label>
-          <input type="file" id="fileInput" accept=".csv" multiple onchange="handleFilesSelect()" />
+          <label class="file-pick">
+            <input type="file" id="fileInput" accept=".csv" multiple onchange="handleFilesSelect()" />
+            <span class="btn-secondary file-pick-btn">Choose CSV files…</span>
+            <span class="file-pick-name" id="fileInputName">No files chosen</span>
+          </label>
           <div class="totals-line" id="totalsLine" style="display:none;"></div>
 
           <div class="import-actions">
@@ -282,21 +286,32 @@
       border-radius: var(--radius-sm);
     }
     /* The generic #view-import th dialect rules above outrank .table-u —
-       restore the canonical inverted sticky header for this table only.
+       restore the canonical sticky header bar (--th-bg/--th-fg, so it follows
+       the theme like every other table) for this table only.
        (Dialect alignment — th/td right, first-child left — is kept: it's
        exactly what a numeric snapshot wants.) */
     #view-import #invSnapshot .table-u th {
-      background: var(--text);
-      color: var(--bg);
+      background: var(--th-bg);
+      color: var(--th-fg);
       font-family: var(--font-head);
       font-size: 10px;
       font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: .1em;
-      padding: 7px 12px;
+      letter-spacing: .06em;
+      padding: 7px 9px;
       border-bottom: none;
     }
-    #view-import #invSnapshot .table-u td { padding: 6px 12px; }
+    /* Tighter cells than the shared 12px: ten columns in the ~670px right
+       column at 1440 clipped the last one ("No Price / No Stock") with no
+       scroll cue (Sep 23 audit). 9px fits it; the scroll box stays as backstop. */
+    #view-import #invSnapshot .table-u td { padding: 6px 9px; }
+    /* The last header ("No Price / No Stock" — a server-written sheet label,
+       not renamed here) is the widest thing in the table; let it wrap to two
+       lines instead of forcing the whole table past the column edge. */
+    #view-import #invSnapshot .table-u th:last-child { white-space: normal; line-height: 1.25; min-width: 76px; }
+    /* Location column: 200px → 170px (long names already ellipsize) — with
+       the header wrap above that brings the table inside the 673px box. */
+    #view-import #invSnapshot .table-u tbody td:first-child { max-width: 170px; }
     #view-import #invSnapshot tr.row-total td {
       font-weight: bold;
       border-top: 2px solid var(--border-2);
@@ -342,11 +357,8 @@
       font-weight: bold;
       margin-bottom: 5px;
     }
-    #view-import input[type="file"] {
-      width: 100%;
-      font-size: 12px;
-      padding: 4px 0;
-    }
+    /* Styled picker (SharedUtils .file-pick) — the native control is hidden. */
+    #view-import .file-pick { margin: 2px 0 6px; }
 
     /* ── Per-file cards (left column, between mode picker and file input) ────── */
     #view-import #fileCards { margin-bottom: 14px; }
@@ -773,6 +785,12 @@
     // ── File select (multi-file) ──────────────────────────────────────────────
     function handleFilesSelect() {
       var files = document.getElementById('fileInput').files;
+      var nameEl = document.getElementById('fileInputName');
+      if (nameEl) {
+        nameEl.textContent = (!files || !files.length) ? 'No files chosen'
+          : files.length <= 2 ? Array.prototype.map.call(files, function(f) { return f.name; }).join(', ')
+          : files.length + ' files selected';
+      }
       if (!files || files.length === 0) return;
 
       setImportStatus('Reading ' + files.length + ' file' + (files.length === 1 ? '' : 's') + '...', 'info');
@@ -1259,6 +1277,9 @@
       var clone = old.cloneNode(false);
       clone.onchange = handleFilesSelect;
       old.parentNode.replaceChild(clone, old);
+      // The styled picker's readout is separate text now — reset it too.
+      var nameEl = document.getElementById('fileInputName');
+      if (nameEl) nameEl.textContent = 'No files chosen';
 
       document.getElementById('reviewPanel').style.display    = 'none';
       document.getElementById('conflictPanel').style.display  = 'none';

@@ -103,6 +103,24 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   (`#homeDraftsChip[hidden]` / `.rv-drafts-band[hidden]`). Rule of thumb: if you
   set `display` on a class AND ever set its `hidden` attribute, you owe it a
   `[hidden]` override.
+- **View-scoped CSS keeps outranking shared/UA rules on specificity — the
+  same trap wears three costumes.** All three caught together in a Sep 23,
+  2026 8-theme screenshot audit: (1) `#view-csvschemas .add-bar { display:
+  flex }` beat the UA `[hidden]` rule — the exact family above (a
+  display-setting component class defeats `[hidden]`), just hit on a new
+  component; the fix is the same idiom, `.add-bar[hidden] { display:none }`.
+  (2) A THEME-level rule, `:root[data-theme="luna"] button` (an attribute
+  selector + a bare tag), out-specified the component class `.btn-primary`
+  (a single class) and repainted every primary button with the theme's
+  default chrome — count actual selector parts (id,class,tag), don't
+  eyeball "generic tag vs named class" as automatically losing; a
+  theme-root rule with an attribute selector can still out-rank a
+  single-class component rule. (3) `#view-stack-cleanup .table-u thead th`
+  overrode only the shared inverted header's `background`, leaving
+  `color: var(--bg)` inherited from the base `.table-u th` rule — light
+  text on a light surface. CSS cascades PER PROPERTY, not per rule: a view
+  that repaints one property of a shared component owes itself an audit of
+  every property the shared rule set, not just the one it meant to change.
 - **The HtmlService SPA parses ALL view fragments into ONE shared global JS
   scope.** Every `<?!= include_('ViewXxx') ?>` fragment's `<script>` is concatenated
   into the same window, so a duplicate **top-level** `function name()` in two
@@ -320,7 +338,12 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   **server-side** and return a data URL (`getPhotoDataUrl` → `DriveApp.getFileById(id).getBlob()` →
   base64) to show a Drive photo reliably in-app. (A *just-captured* local image shows fine as a
   client-side object URL — iOS Safari can even render HEIC in an `<img>` — it's only the
-  already-on-Drive photo that needs the server fetch.)
+  already-on-Drive photo that needs the server fetch.) **It's intermittent, which makes it
+  look like it was fixed:** the main app's VIN Inbox shipped with a raw thumbnail `<img>`
+  that loaded at times and blanked out at others (recurring; Oct 2026 report) with no code change, because
+  whether it loads depends on the browser's Google cookies and signed-in accounts. Never
+  let an `onerror` hide the only click target. Keep a visible fallback (placeholder
+  button) so the photo stays reachable.
 - **Client-side barcode / Data-Matrix decode (ZXing) beats OCR when the label carries a code.** CDK
   windshield labels print a small VIN but also encode it in a 2D **Data Matrix** (or a 1D Code
   39/128). Decode **2D formats first then 1D**, and **validate every decode as a real 17-char VIN**
@@ -449,6 +472,65 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   was reworked to a **local `ls-chip`** class defined in the scanner's own files. Grep the
   *lot-scan* copy for any class before using it there — the two SharedUtils are not kept in sync.
   (Lot Scanner drafts chip.)
+- **A `position: sticky` cell needs an OPAQUE background — a shorthand `background:` on a
+  row-state rule wipes it, and a translucent row tint lets scrolled content bleed through.**
+  Pinning Run Order's ✕ column (`td.rv-x-cell { position: sticky; right: 0 }`) exposed that the
+  shared row tints (`.row-dup`, `.row-warn`, hover) are translucent `rgba` in the dark themes —
+  a pinned cell just tinted the same way let the table's scrolled-under content show through the
+  gaps. Fix: the pinned cell keeps a solid `background-color: var(--bg)` base and re-applies its
+  row's tint as a separate `background-image: linear-gradient(tint, tint)` layer on top — same
+  visual result, but the base layer stays opaque regardless of the tint's alpha. Using the
+  `background` shorthand for the tint layer would have overwritten the base `background-color`
+  in one declaration — the two properties have to be set separately. (`ViewRun.html`, Sep 23,
+  2026 screenshot audit.)
+- **Pinning a column that carries an in-header "cap" control turns the cap's width into an
+  opaque strip hiding data at rest — move the control OUT of the pinned cell.** Run Order's
+  "Remove Duplicates" button lived inside the ✕ header cell (`th#rvXHead`), auto-widening that
+  column to the button's own width — harmless while the column scrolled WITH the table, but once
+  the column was pinned (`position: sticky; right: 0`) that same width became a permanent opaque
+  block over a whole data column, and in Encarta (whose headers are `position: static`, not
+  sticky) the cap scrolled away while the ✕ cells it capped stayed put. Fix: moved the button out
+  of the header cell entirely, into the zone label row directly above the table — any in-header
+  "cap" pattern stops being safe the moment that header's column gets pinned. (`ViewRun.html`,
+  Sep 23, 2026.)
+- **Form controls (`button`, `input`, `select`) don't inherit the page font — "looks native" in
+  a theme audit is often just unstyled Arial/system-UI, not a broken theme.** Several Dealer
+  Rules inputs (UTM fields, targeting values, price/seasoning/org-search/deal-field inputs) had
+  no font-family rule at all and rendered in the browser default, invisible as a "bug" until
+  screenshotted next to themed text. One low-specificity view-wide rule fixes the whole view:
+  `#view-rules button, #view-rules input, #view-rules select { font-family: var(--font-body); }`.
+  Before rewriting colors/fonts on a "doesn't look native" report, probe the ACTUAL computed
+  style first (the `ui-screenshot-repro` harness's `probe.js` prints computed styles per
+  selector) rather than guessing which rule is missing.
+- **When a native control's readout moves into custom JS-rendered text, EVERY programmatic
+  reset of the control must also reset that text — the DOM's own reset doesn't touch it.** The
+  new `.file-pick` recipe hides the real `<input type=file>` and renders the chosen filename in
+  a separate `.file-pick-name` span the view fills on `change`. Import's existing reset path
+  (`resetImport`) replaces the input via `cloneNode(false)` + re-attach (the standard way to
+  drop a file input's selected-files state) — that clears the REAL input fine, but the `<span>`
+  text is independent DOM state the clone-and-replace never touches, so the readout kept showing
+  the old filename after a reset until the reset handler explicitly set `fileInputName.textContent`
+  back to the placeholder too. Any future readout-outside-the-control pattern needs the same
+  explicit reset at every place the control itself is reset.
+- **A `:root` custom property that references another custom property resolves PER-THEME with no
+  redeclaration needed, as long as the theme overrides the referenced variable on the same
+  element.** The new `--th-bg: var(--text); --th-fg: var(--bg)` declared once on base `:root`
+  is pixel-identical across every light theme without each one redeclaring `--th-bg`/`--th-fg` —
+  because those themes already override `--text`/`--bg` on the same `:root` selector, and the
+  reference re-resolves against whatever `--text`/`--bg` are in that cascade layer. Only the
+  dark-family themes (which want a genuinely different mapping — a surface tint, not an
+  inversion) needed an explicit `--th-bg`/`--th-fg` override. Don't assume a derived token needs
+  copying into every theme block; check whether it's already correct by composition first.
+- **`:has()` on an inline `style*="display: flex"` gives a CSS-only empty-state for a container
+  whose children are all toggled via inline `display`, with no JS bookkeeping.** Run Order's
+  fixed-height flow zone (stats/progress/finalize cards) read as a 235px blank box before any
+  card was shown, because every card in it is shown by setting `style.display = 'flex'` in JS —
+  there was no class or count to key a "some card is visible" state off of. Fix:
+  `#view-run .rv-flow:not(:has(> [style*="display: flex"]))` matches exactly the empty case (no
+  child currently has that inline style) and paints a dashed outline + caption via `::before` —
+  no new JS state, and it stays correct automatically as cards come and go. General pattern:
+  before adding a visibility-tracking variable, check whether `:has()` can read the state directly
+  off the DOM's own inline styles.
 
 ## External APIs (Pipedrive)
 
@@ -462,14 +544,43 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   leave `text`/`varchar` fields as strings, or a numeric-looking text value (a stock number, a
   phone) gets mangled. The tell: `org_id` was already `Number()`-coerced at deal creation, so the
   deal created while everything keyed on string ids silently failed.
-- **Pipedrive v1 deal custom fields are TOP-LEVEL hash keys, not a
-  `custom_fields` object.** The `{custom_fields: {...}}` wrapper is a **v2**
-  convention; the v1 `/deals` create/update API takes each custom field as a
-  top-level key (the 40-char field hash), and a **monetary** field needs both
-  `<key>` (the amount) and `<key>_currency`. Passing the v2 nested shape to a v1
-  endpoint silently **no-ops** the fields — the call succeeds, the values just
-  don't land. (`pdResolveDealFields_` returns a flat `{key:value}` map, incl. the
-  `_currency` companion, precisely so it can be passed straight to `pdUpdateDeal_`.)
+- **Deal custom fields: the wire shape is an API-VERSION property — know which one
+  you're on, because the wrong one silently no-ops.** On **v1** `/deals`, custom
+  fields were top-level 40-char hash keys with a `<key>_currency` companion for
+  monetary; sending the nested shape there did nothing (call succeeds, values
+  don't land). On **v2** (where every deal call lives since Oct 2026) it is the
+  reverse: custom fields go under **`custom_fields`** with v2 value shapes —
+  monetary **`{value, currency}`**, enum = option id, set = **`[option ids]`**,
+  text/date = string — and standard fields (`title`, `stage_id`…) stay top-level.
+  `pdSetDealField_` writes the v2 values and `pdDealPatchBody_` splits the map by
+  key shape (`/^[0-9a-f]{40}$/` → `custom_fields`). Read side mirrors it: a v2
+  deal's custom values are under `deal.custom_fields`, which `pdFlattenDealFields_`
+  merges flat for the if_empty check — and returns **null when that object is
+  missing**, so an unexpected shape takes the "unreadable → skip" branch rather
+  than the "empty → set" one.
+- **When a vendor marks an API version out of support, audit by ENDPOINT, not by
+  "do we use v1" — and migrate the response SHAPES, not just the base URL.**
+  Pipedrive's Aug 1, 2026 notice ("Deprecated API v1 endpoints become out of
+  support", no further migration period guaranteed) listed every v1 deals /
+  organizations / persons / products / pipelines / stages / search endpoint but
+  NOT the field-definition lists, `/users`, or `/files` — so the right move was a
+  per-call-site table (fourteen hits here), flipping `pdFetch_`'s default base to
+  v2 and pinning `version:'v1'` on the few survivors, rather than a blanket
+  replace. The URL swap was the easy part; the real work was the **v1→v2 shape
+  deltas** each caller silently depended on: relation fields became **plain ids**
+  (v1's `{name, value}` objects — the Home HUD's `org_id.value` read, the EOM
+  report's `org_id.name`), **`include_product_data=1` is gone** so a deal product
+  no longer embeds its catalog `product` (code/description/tax/variations), the
+  `status=all_not_deleted` list filter doesn't exist (**omit `status`** means
+  exactly that), `PUT` became `PATCH`, `last_edit` became `update_time`, and
+  timestamps became RFC 3339. Where v2 stopped embedding something, the fix was
+  **one batched read per report** (`?ids=` takes 100 at a time — `pdListByIdsV2_`
+  / `eomBuildContext_`), never a per-row GET; and the builders were left
+  **tolerant of both shapes** (`pdRelId_`, `eomRelName_`, `dp.product ||`) so an
+  archived payload or a half-migrated sibling still renders. Pin every shape rule
+  in the offline harness (suite `pipedrive api v2`) — the DEV fake proves the code
+  path, not the API, so the first PROD push + EOM pull after promote are the
+  acceptance test.
 - **Pipedrive does NOT auto-copy a product's catalog tax onto a deal line — only
   the UI does. The API push must send `tax` + `tax_method` explicitly.** A product
   in the catalog carries a `tax` percentage ("Tax %"), and adding it to a deal *in
@@ -620,7 +731,8 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   and inline-custom-fields traps: **don't guess a v2 response shape from v1 or the
   migration guide — confirm the field against live data.**
 - **Pipedrive has NO line-item update until you `PUT /deals/{id}/products/{attachmentId}`
-  with the deal-product ATTACHMENT id — which is distinct from `product_id`.** Attaching
+  (v1; **`PATCH` on v2** since Oct 2026) with the deal-product ATTACHMENT id — which is
+  distinct from `product_id`.** Attaching
   a product (`POST /deals/{id}/products`) returns a *deal-product attachment* row whose
   own `id` identifies that line on that deal; editing the line (price, quantity,
   variation) is a `PUT` against `/deals/{id}/products/{that-attachment-id}`, NOT against
@@ -642,6 +754,18 @@ Accumulated from V2 development. Check here before debugging "impossible" behavi
   it) rather than failing the run or blocking forever. Same family as the constant-rule
   `if_empty` policy and the org-engine fail-safe: when another system may own the value,
   read-then-set-if-empty, never blind-write.
+- **A v1-only field-DEFINITION list leaks v1 key names for SYSTEM fields into stored
+  config — translate them at the v2 write choke point.** `/dealFields` has no v2 twin,
+  so the deal-field rule picker saves Owner as its v1 key `user_id`. Custom fields
+  (40-char hashes) are the same in both versions, which hid the problem: the first PROD
+  order after the v2 promote failed with "Parameter 'user_id' is not allowed for this
+  request" (Oct 22, 2026, deal 5326) — v2 renamed it `owner_id`. Fix pattern: rename
+  in ONE place on write (`pdDealPatchBody_` + `PD_DEAL_V1_TO_V2_KEY`), alias back on
+  read (`pdFlattenDealFields_`, or an if_empty rule sees "empty" and clobbers), coerce
+  relation ids to `Number` (the picker types a `user` field as text), and leave saved
+  config alone. Map only renames you've confirmed live — `pipeline`/`label` are still
+  unmapped. The DEV `PdFake` accepts any body, so it can't catch a rejected key; a
+  harness test on the outgoing body is the cheap guard.
 
 ## Google Sheets behavior
 
