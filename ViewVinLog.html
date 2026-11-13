@@ -809,8 +809,9 @@
 
       google.script.run
         .withSuccessHandler(function(result) {
-          setVinlogStatus('Committed ' + result.committed + ' VINs to the ' +
-            dealerName + ' VIN log.', 'success');
+          setVinlogStatus(result.skippedCommitted
+            ? 'This run was already committed — nothing new was written.'
+            : 'Committed ' + result.committed + ' VINs to the ' + dealerName + ' VIN log.', 'success');
           btn.textContent = 'Commit to VIN Log';
           loadRuns(sel.value);                          // reload whatever view mode is showing
           if (sel.value) loadLatestOrderId(sel.value);  // latest-order row is dealer-mode only
@@ -819,7 +820,13 @@
           setVinlogStatus('Commit failed: ' + e.message, 'error');
           btn.disabled = false; btn.textContent = 'Commit to VIN Log';
         })
-        .commitRunToVINLog(dealerKey, selectedRun.rowIndex, selectedRun.dealId, selectedRun.producedVins, selectedRun.timestamp);
+        .ledgerCommitRuns([vinlogRunRef_(selectedRun, dealerKey)]);
+    }
+
+    // Which run, by fingerprint — the server re-reads the VINs, deal id and date
+    // from the run log row itself (RunLedger.gs rlResolveRef_).
+    function vinlogRunRef_(run, dealerKey) {
+      return { rowIndex: run.rowIndex, dealerKey: dealerKey, timestamp: run.timestamp, dealId: run.dealId };
     }
 
     // ── Rollback ────────────────────────────────────────────────────────────
@@ -833,36 +840,21 @@
       var btn = document.getElementById('rollbackBtn');
 
       btn.disabled = true; btn.textContent = 'Rolling back...';
-      setVinlogStatus('Looking up committed_at timestamp...', 'info');
+      setVinlogStatus('Removing this run\'s entries from the VIN log...', 'info');
 
       google.script.run
-        .withSuccessHandler(function(committedAt) {
-          if (!committedAt) {
-            setVinlogStatus('Could not find committed entries for this run in the VIN log.', 'error');
-            btn.disabled = false; btn.textContent = 'Rollback';
-            return;
-          }
-          setVinlogStatus('Removing entries from VIN log...', 'info');
-
-          google.script.run
-            .withSuccessHandler(function(result) {
-              setVinlogStatus('Rolled back ' + result.removed + ' entries from the ' +
-                dealerName + ' VIN log.', 'success');
-              btn.textContent = 'Rollback';
-              loadRuns(sel.value);                          // reload whatever view mode is showing
-              if (sel.value) loadLatestOrderId(sel.value);  // latest-order row is dealer-mode only
-            })
-            .withFailureHandler(function(e) {
-              setVinlogStatus('Rollback failed: ' + e.message, 'error');
-              btn.disabled = false; btn.textContent = 'Rollback';
-            })
-            .rollbackRunFromVINLog(dealerKey, selectedRun.rowIndex, selectedRun.dealId, committedAt);
+        .withSuccessHandler(function(result) {
+          setVinlogStatus('Rolled back ' + result.removed + ' entries from the ' +
+            dealerName + ' VIN log.', 'success');
+          btn.textContent = 'Rollback';
+          loadRuns(sel.value);                          // reload whatever view mode is showing
+          if (sel.value) loadLatestOrderId(sel.value);  // latest-order row is dealer-mode only
         })
         .withFailureHandler(function(e) {
-          setVinlogStatus('Error fetching committed_at: ' + e.message, 'error');
+          setVinlogStatus('Rollback failed: ' + e.message, 'error');
           btn.disabled = false; btn.textContent = 'Rollback';
         })
-        .getCommittedAt(dealerKey, selectedRun.dealId);
+        .ledgerRollbackRun(vinlogRunRef_(selectedRun, dealerKey));
     }
 
     // ── Delete (soft: RUN_LOG col W = 'deleted'; committed runs roll back first) ──
@@ -894,7 +886,7 @@
             setVinlogStatus('Delete failed: ' + e.message, 'error');
             btn.disabled = false;
           })
-          .deleteRun(dealerKey, run.rowIndex, run.dealId, run.timestamp);
+          .ledgerDeleteRun(vinlogRunRef_(run, dealerKey));
       });
     }
 
@@ -957,7 +949,7 @@
           setVinlogStatus('Failed: ' + e.message, 'error');
           btn.disabled = false; btn.textContent = 'Add to VIN Log';
         })
-        .manualCommitToVINLog(dealerKey, orderId, vins);
+        .ledgerManualEntry(dealerKey, orderId, vins);
     }
 
     function setVinlogStatus(msg, type) {

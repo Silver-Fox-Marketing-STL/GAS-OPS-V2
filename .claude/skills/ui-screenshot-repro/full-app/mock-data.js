@@ -130,7 +130,7 @@
     getRunProgress: function () { return window.MOCK_PROGRESS || { message: 'Generating 11 QR codes (parallel)...', percent: 64, done: false, error: null }; },
     clearRunProgress: { ok: true },
     pasteVinsAndRun: function () { return window.MOCK_RUN_RESULT || PENDING_RUN; },
-    finalizeRun: { rowIndex: 846, vinCount: 11 },
+    finalizeRun: { rowIndex: 846, vinCount: 11, reused: false },
     finalizeRunNewDeal: { ok: true, stage: 'done', dealId: '44873', rowIndex: 846, productsAttached: 3, fieldsSet: 4, billingCsvPending: false, vinCount: 11, message: 'Created deal 44873 (3 product lines).' },
     finalizeRunExisting: { ok: true, stage: 'done', dealId: '44811', rowIndex: 847, productsAttached: 2, fieldsSet: 3, billingCsvPending: false, vinCount: 9, message: 'Linked to deal 44811 (2 product lines).' },
     pushRunToPipedrive: { ok: true, stage: 'done', dealId: '44872', productsAttached: 3, fieldsSet: 4, billingCsvPending: false, message: 'Created deal 44872 (3 product lines).' },
@@ -172,9 +172,10 @@
 
     // ── VIN Logs ────────────────────────────────────────────────────────────
     getRunsForDealer: function (key) { return key ? RUNS.filter(function (r) { return r.dealerKey === key; }) : ALL_RUNS; },
-    commitRunToVINLog: { ok: true, message: 'Committed 11 VINs.' },
-    rollbackRunFromVINLog: { ok: true },
-    deleteRun: { ok: true },
+    ledgerCommitRuns: { committed: 11, skippedCommitted: 0, skippedTest: 0 },
+    ledgerRollbackRun: { removed: 11 },
+    ledgerDeleteRun: { removed: 0 },
+    ledgerManualEntry: { committed: 1 },
 
     // ── VIN Inbox ───────────────────────────────────────────────────────────
     getVinSubmissions: { ok: true, configured: true, submissions: SUBS },

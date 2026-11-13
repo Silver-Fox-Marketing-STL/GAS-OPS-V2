@@ -1502,15 +1502,23 @@
     function getCommittableRows() {
       var rows = [];
       cardStates.forEach(function(s, i) {
-        // Test-method cards are NEVER committable (the server throws for a `test`
+        // Test-method cards are NEVER committable (the server skips a `test`
         // deal id), so the UI must never offer them to the VIN log.
         if (s.method === 'test') return;
         if (s.state === 'finalized' && !s.committed &&
             lastRunResult.pendingRuns[i].producedVins.length > 0) {
-          rows.push(s.rowIndex);
+          rows.push(i);
         }
       });
       return rows;
+    }
+
+    // Which run, by its output doc + billing group — the run ledger finds the
+    // one run log row for it (RunLedger.gs rlResolveRef_) and reads everything
+    // else from that row.
+    function runLedgerRef_(i) {
+      var entry = lastRunResult.pendingRuns[i];
+      return { dealerKey: lastDealerKey, outputDocId: entry.outputDocId, note: entry.note || '' };
     }
 
     function updateVinLogBtn() {
@@ -1520,8 +1528,8 @@
     }
 
     function addToVINLog() {
-      var rowIndexes = getCommittableRows();
-      if (!lastDealerKey || rowIndexes.length === 0) {
+      var cardIdxs = getCommittableRows();
+      if (!lastDealerKey || cardIdxs.length === 0) {
         setRunStatus('No finalized entries to commit.', 'error');
         return;
       }
@@ -1539,7 +1547,7 @@
           vinBtn.className = 'committed';
           setRunStatus(result.committed + ' VINs committed to the ' +
             lastRunResult.dealerName + ' VIN log' +
-            (rowIndexes.length > 1 ? ' (' + rowIndexes.length + ' deals)' : '') + '.', 'success');
+            (cardIdxs.length > 1 ? ' (' + cardIdxs.length + ' deals)' : '') + '.', 'success');
           refreshVinLogStatus_();
         })
         .withFailureHandler(function(e) {
@@ -1547,7 +1555,7 @@
           vinBtn.textContent = '✓ Add to VIN Log';
           setRunStatus('VIN log error: ' + e.message, 'error');
         })
-        .commitRunRows(lastDealerKey, rowIndexes);
+        .ledgerCommitRuns(cardIdxs.map(runLedgerRef_));
     }
 
     // ── Run handler ───────────────────────────────────────────────────────────

@@ -11,6 +11,80 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Added
+- **Run ledger, step 3 of 4: finalize + the Pipedrive deal-ID write** (2026-11-13,
+  `feat/run-ledger`). The ledger now owns every RUN_LOG write. After this step,
+  `RunLedger.gs` is the only code that appends a run row, sets col D or sets col W.
+  - **Finalize is idempotent.** `finalizeRun` (Test, and the inner step of New Deal /
+    Existing) writes its row through `ledgerFinalizeRun_` under the ledger lock.
+    - A retry for the same output doc and billing group returns the existing row
+      (`reused: true`) instead of appending a duplicate.
+    - ORDER_STATS and ORDER_TYPE_STATS rows (now `writeRunStats_`) are written only when
+      the row is new.
+    - A retry under a different deal ID is refused ("Delete that row on the VIN Logs
+      page to finalize it again").
+    - A deleted row doesn't block finalizing again.
+  - **New Deal gets a second anchor.** If the `pd_new_<doc|group>` token cache is gone
+    but the run log already holds the row with a numeric deal ID, `finalizeRunNewDeal`
+    adopts that deal instead of creating a second one. Product attach was already
+    skip-if-present.
+  - **Col D through the ledger.** `pushRunToPipedrive` writes the deal ID via
+    `ledgerSetDealId_`, which re-checks under the lock that the row is still that run
+    (dealer, output doc and group).
+    - The write is re-attempted on every pass, so a retry whose ID came from the push
+      state still records it.
+    - Refused, checked before any deal is created or linked: repointing a run that
+      already holds a real (numeric) deal to a different one, and changing the deal ID
+      of a committed run (its VIN-log batch is filed under that ID).
+    - `pushRunToPipedrive` reads its row through the codec (`rlDecodeRow_`), not raw
+      indices.
+  - Server-only wrappers `ledgerFinalizeRun_`, `ledgerSetDealId_` and
+    `ledgerFinalizedRunFor_`: the trailing `_` keeps them off `google.script.run`.
+  - Harness: new suite `run ledger finalize` (19), including `pushRunToPipedrive` with
+    Pipedrive stubbed. 222/222. Mutation-checked: 8 deliberate breaks, all caught.
+- **Run ledger, step 2 of 4: guarded commit / rollback / delete / manual entry**
+  (2026-11-12, `feat/run-ledger`). These now live in `RunLedger.gs` and run inside one
+  script lock: `ledgerCommitRuns(refs)`, `ledgerRollbackRun(ref)`, `ledgerDeleteRun(ref)`
+  and `ledgerManualEntry(dealerKey, orderId, vins)`.
+  - **Views send only a run reference.** VIN Logs sends a fingerprint
+    `{rowIndex, dealerKey, timestamp, dealId}`. Run Order's Add to VIN Log sends
+    `{dealerKey, outputDocId, note}`. The server reads the VINs, deal id and order date
+    from the RUN_LOG row. A row that no longer matches its fingerprint is refused with
+    "reload and try again".
+  - **SF_VIN_LOGS col E `run_ref`** is written on every new batch: the run time, plus
+    `|<GROUP>` on split halves, or `manual` for manual entries. The header is added the
+    first time a tab is written; the Add Dealer wizard now creates new tabs with all 5
+    headers (`VL_HEADERS`).
+  - Double commit is a no-op. Committing the same run twice in one call commits it once.
+    A half-finished commit (batch written but status not) only finishes the status.
+  - **Removed** from `Code.gs` (no longer callable): `commitRunToVINLog`, `commitLatestRun`,
+    `commitRunRows`, `rollbackRunFromVINLog`, `getCommittedAt`, `deleteRun` and
+    `manualCommitToVINLog`. VIN Logs and Run Order switched to the ledger endpoints in the
+    same change. The harness checks that every `ledger*` call in those two views names an
+    existing function, and that none of the old names remain.
+  - Harness: new suite `run ledger operations` (26), run against the strict fake store.
+    Total 203/203. The screenshot harness mocks are renamed to the new endpoints.
+- **Run ledger, step 1 of 4: codec + store seam** (2026-11-12, `feat/run-ledger`). New
+  `RunLedger.gs` will become the one owner of RUN_LOG rows and SF_VIN_LOGS batches
+  (closes debt C20 once steps 2–3 land). This step adds only the foundation; no live path
+  calls it yet, so app behavior is unchanged.
+  - **Codec (pure):** `RL_COL` / `RL_WIDTH` (RUN_LOG A–W) and `VL_COL` / `VL_WIDTH` /
+    `VL_HEADERS` (VIN log A–E; E = new `run_ref`, written starting in step 2).
+    `rlDecodeRow_` / `rlEncodeRecord_` round-trip the exact `writeRunLog_` layout.
+    Status vocabulary `RL_STATUS` (blank W = pending), `rlIsTestDealId_` (exact `test`,
+    any case), `rlSplitGroup_`, `rlParseVinsCsv_`, run fingerprint
+    (`rlFingerprintMatches_`: dealer + run time + deal id), and `rlRunRef_` (run time,
+    `|<GROUP>` on billing-split halves).
+  - **Store seam:** `rlSheetStore_()` is the real adapter (RUN_LOG via
+    `getActiveSpreadsheet`, VIN logs via `getVinLogsSS_`, a 10 s `LockService` script lock,
+    `flush()` before release, cols A–B written as `@` text, the `run_ref` header added
+    lazily, rows deleted in contiguous blocks bottom-up). Every write refuses to run
+    outside `withLock`. `test/ledger-fake-store.js` is the strict in-memory adapter.
+  - **Harness:** loads `RunLedger.gs` and gains a UTC-only `Utilities.formatDate` stub.
+    New suites `run ledger codec` (13) and `run ledger store seam` (6, including an
+    interface-parity check between the real and fake adapters). 177/177.
+  - **`GLOSSARY.md`** (new: the domain terms) and
+    **`docs/adr/0001-run-identity-and-vin-log-batches.md`** (new: why runs are identified
+    by row + fingerprint and VIN-log batches are tagged by run).
 - **`scripts/promote-eom-viewer.ps1`** (2026-10-21) — guarded, Nick-run PROD deploy for the
   standalone viewer, modeled on `promote-lot-scan.ps1` plus the Node harness gate (the
   harness now guards the viewer directly). Gates: main / clean tree / synced with
@@ -120,6 +194,30 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   to the brain backlog; `CLAUDE.md` line count refreshed.
 
 ### Fixed
+- **A finalize retry could log the same run twice** (2026-11-13, run ledger step 3). A
+  second `finalizeRun` for the same output doc appended a second RUN_LOG and ORDER_STATS
+  row, which happens with a double click, or a server that finished after the browser
+  gave up. That second row made the Run view's Add to VIN Log refuse with "has 2 rows in
+  the run log". Finalize is now keyed by output doc + billing group (see Added).
+- **VIN-log `run_ref` turned into a date** (2026-11-13, run ledger step 3; found in the DEV
+  click-through). Sheets parsed the run-time tag in col E as a date-time. Read back, it
+  depended on the VIN-log file's time zone, so a file set to another zone would have
+  made rollback find nothing. Col E is now written as `@` text. The DEV rows written
+  before the fix still decode correctly.
+- **Rollback could remove another run's VINs** (2026-11-12, run ledger step 2). The old
+  rollback looked up the *newest* `committed_at` for a deal id, so on a deal with two
+  committed runs, rolling back the older one deleted the newer run's batch and marked the
+  wrong row. On 2026-11-12, 7 live deals had 2+ committed runs. Rollback now matches the
+  batch by deal id + `run_ref`. An untagged (pre-change) batch is rolled back only when the
+  match is unambiguous: one untagged batch under the deal, and no other committed run on
+  it with an untagged batch. Otherwise it is refused with a "roll it back by hand" message.
+  A refused rollback also refuses Delete.
+- **VIN Logs Commit trusted the browser** (2026-11-12, run ledger step 2). The button sent
+  the row number, deal id, VIN list and date. The server wrote them with no lock, no
+  status check, no test check and no check that the row was still that run, so two clicks
+  committed twice. Rollback was likewise assembled client-side from two round trips. All of
+  this is now one locked, re-verifying server call. Manual entry also writes under the lock
+  and stores ids/VINs as `@` text.
 - **Run errors only flashed on screen, then vanished** (2026-10-27). `runDealer`'s catch
   trashed the failed run's artifacts and then `return null` — so `pasteVinsAndRun`
   resolved normally and the Run view's SUCCESS handler fired: it stopped polling
