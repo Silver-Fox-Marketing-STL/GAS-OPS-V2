@@ -8941,19 +8941,27 @@ function getVinSubmissions(filter) {
     var CAP = 1000;
     var data = sh.getDataRange().getValues();
     var out = [];
-    for (var i = 1; i < data.length && out.length < CAP; i++) {
+    // Two counts over the WHOLE sheet, so a capped list never under-reports:
+    // `matching` = rows that pass the filter; `queuedTotal` = rows runInboxOcr
+    // would OCR (same submitted + queued test it uses), for the Run OCR button.
+    var matching = 0, queuedTotal = 0;
+    // Newest-first, so when the cap bites it drops the OLDEST rows (the sheet is
+    // append-ordered); `out` is reversed afterwards to keep oldest-first card order.
+    for (var i = data.length - 1; i >= 1; i--) {
       var r = data[i];
       if (!r[LOT_SUB.ID]) continue;
       var status = String(r[LOT_SUB.STATUS] || 'submitted');
+      if (status === 'submitted' && String(r[LOT_SUB.OCR_STATE]) === 'queued') queuedTotal++;
       if (wantStatus) { if (status !== wantStatus) continue; }
       else if (status !== 'submitted') continue;   // default: sent work only
       if (wantDealer && String(r[LOT_SUB.DEALER_KEY]) !== wantDealer) continue;
-      var tsCell = r[LOT_SUB.TS];
-      var tsIsDate = tsCell instanceof Date;   // Sheets coerces the scanner's timestamp strings to Dates
+      matching++;
+      if (out.length >= CAP) continue;
+      var tsMs = lotSubTsMs_(r[LOT_SUB.TS]);
       out.push({
         id: String(r[LOT_SUB.ID]),
-        ts: tsIsDate ? Utilities.formatDate(tsCell, Session.getScriptTimeZone(), 'EEE MMM dd yyyy h:mm a') : String(tsCell || ''),
-        tsMs: tsIsDate ? tsCell.getTime() : 0,   // client sorts on this, not on parsing ts
+        ts: tsMs ? Utilities.formatDate(new Date(tsMs), Session.getScriptTimeZone(), 'EEE MMM dd yyyy h:mm a') : String(r[LOT_SUB.TS] || ''),
+        tsMs: tsMs,   // client sorts on this, not on parsing ts
         email: String(r[LOT_SUB.EMAIL] || ''),
         dealerKey: String(r[LOT_SUB.DEALER_KEY] || ''), dealerName: String(r[LOT_SUB.DEALER_NAME] || ''),
         photoFileId: String(r[LOT_SUB.PHOTO_ID] || ''), photoUrl: String(r[LOT_SUB.PHOTO_URL] || ''),
@@ -8966,11 +8974,24 @@ function getVinSubmissions(filter) {
         notes: String(r[LOT_SUB.NOTES] || '')
       });
     }
-    return { ok: true, configured: true, submissions: out };
+    out.reverse();
+    return { ok: true, configured: true, submissions: out,
+             queuedTotal: queuedTotal, total: matching, truncated: matching > out.length };
   } catch (e) {
     Logger.log('getVinSubmissions failed: ' + e.message);
     return { ok: false, configured: true, submissions: [], error: e.message };
   }
+}
+
+/** Submission timestamp cell → epoch ms (0 = unreadable). Sheets usually coerces
+ *  the scanner's 'yyyy-MM-dd HH:mm:ss' string to a Date, but a cell left as text
+ *  used to show raw and sort last — parse it in the script time zone instead. */
+function lotSubTsMs_(cell) {
+  if (cell instanceof Date) return cell.getTime();
+  var m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(String(cell || '').trim());
+  if (!m) return 0;
+  // new Date(parts) builds in the script time zone — the zone the scanner wrote in.
+  return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0)).getTime();
 }
 
 /**
