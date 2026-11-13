@@ -526,6 +526,7 @@
       if (!vinlogDealersLoaded) { pendingPreselectKey = key; return; }
       var sel = document.getElementById('vinlogDealerSelect');
       sel.value = key;
+      if (window.CustomSelect) CustomSelect.refresh(sel);   // sync the enhanced facade to the programmatic value (C1)
       sel.dispatchEvent(new Event('change'));
     }
 

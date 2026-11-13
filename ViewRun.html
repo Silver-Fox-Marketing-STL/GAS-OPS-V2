@@ -1236,27 +1236,36 @@
       });
     }
 
-    // Pending-commit check → Promise<boolean>. Finalized runs for this dealer
-    // that were never committed to the VIN log mean their VINs aren't in the
-    // log yet, so this order can't be checked against them. Reads the count
-    // fresh (same server call as the amber tag) and refreshes the tag with it.
-    // A failed read never blocks a run (fail-open).
-    function rvPendingCommitCheck_(dealerKey, dealerName) {
+    // Pending-commit check → Promise<boolean>. A finalized run that was never
+    // committed to the VIN log isn't in the log yet, so the log can't flag its
+    // cars as printed. Warns only when THIS order shares cars with such a run
+    // (RunLedger.gs rlPendingOverlap_) and names them; pending runs with no
+    // shared cars just keep the amber "N pending" tag, refreshed from the same
+    // call. A failed read never blocks a run (fail-open).
+    function rvPendingCommitCheck_(dealerKey, dealerName, vins) {
       return new Promise(function(resolve) {
         google.script.run
           .withSuccessHandler(function(result) {
-            var n = (result && result.pendingCount) || 0;
+            result = result || {};
+            var n = result.pendingCount || 0;
             var pend = document.getElementById('vinLogPendingSpan');
             if (pend) { pend.textContent = n + ' pending'; pend.style.display = n > 0 ? '' : 'none'; }
-            if (n === 0) return resolve(true);
-            appConfirm(dealerName + ' has ' + n + ' finalized run' + (n === 1 ? '' : 's') +
-                ' not yet committed to the VIN log. Those VINs are not in the log, so this order' +
-                ' cannot be checked against them.\n\nCommit or roll back the pending run' +
-                (n === 1 ? '' : 's') + ' first, or run anyway.',
-                { title: 'Uncommitted runs in the VIN log', okLabel: 'Run anyway', tone: 'warning' }).then(resolve);
+            var runs = result.runs || [];
+            if (!runs.length) return resolve(true);
+            var c = result.overlapCount || 0;
+            var lines = runs.map(function(r) {
+              var shown = r.vins.slice(0, 3).join(', ') + (r.vins.length > 3 ? ', +' + (r.vins.length - 3) + ' more' : '');
+              return '• Deal ' + r.dealId + (r.note && r.note.indexOf('SPLIT:') === 0 ? ' (' + r.note + ')' : '') +
+                     ', run ' + r.timestamp + ': ' + r.vins.length + ' car' + (r.vins.length === 1 ? '' : 's') + ' — ' + shown;
+            });
+            appConfirm(c + ' car' + (c === 1 ? ' in this order is' : 's in this order are') +
+                ' in a finalized ' + dealerName + ' run that is not yet committed to the VIN log,' +
+                ' so ' + (c === 1 ? 'it' : 'they') + ' may already be printed:\n\n' + lines.join('\n') +
+                '\n\nCommit or roll back ' + (runs.length === 1 ? 'that run' : 'those runs') + ' first, or run anyway.',
+                { title: 'Cars already in an uncommitted run', okLabel: 'Run anyway', tone: 'warning' }).then(resolve);
           })
           .withFailureHandler(function() { resolve(true); })
-          .getLatestOrderId(dealerKey);
+          .ledgerPendingOverlap(dealerKey, vins);
       });
     }
 
@@ -1624,7 +1633,7 @@
       rvImportFreshCheck_()
         .then(function(ok) {
           if (!ok) { setRunStatus('Run cancelled — import fresh data first.', 'info'); return false; }
-          return rvPendingCommitCheck_(key, name);
+          return rvPendingCommitCheck_(key, name, vins);
         })
         .then(function(ok) {
           if (!ok) { setRunStatus('Run cancelled — commit or roll back the pending runs in the VIN log first.', 'info'); return false; }

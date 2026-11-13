@@ -11,6 +11,15 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Added
+- **Run Order's uncommitted-runs warning now checks for shared cars** (2026-11-13,
+  `feat/pending-overlap`; debt C19). Before a run, the warning used to fire whenever the
+  dealer had any finalized-but-uncommitted run. Now it asks the run ledger which of
+  THIS order's VINs are already in such a run (`ledgerPendingOverlap` →
+  `rlPendingOverlap_`: same dealer, blank col W, not a test run, case-insensitive) and
+  warns only on a real overlap. The popup names each run (deal, run time, split group)
+  with its shared cars. Pending runs with no shared cars keep only the amber "N pending"
+  tag. Still fails open: if the check can't be read, the run is never blocked.
+  Harness 237/237.
 - **Run ledger, step 4 of 4: every RUN_LOG reader goes through the codec** (2026-11-13,
   `feat/run-ledger-step4`). Steps 1–3 are on PROD (promoted 2026-11-13).
   - `getRunsForDealer` (the VIN Logs list) moved into `RunLedger.gs` (`rlListRuns_` /
@@ -207,6 +216,10 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   to the brain backlog; `CLAUDE.md` line count refreshed.
 
 ### Fixed
+- **VIN Logs dealer dropdown showed the wrong name after a jump from another view**
+  (2026-11-13; debt C1). `vinlogPreselectDealer` set the select's value but never synced
+  the CustomSelect facade; it now calls `CustomSelect.refresh(sel)`, like
+  `runPrefillFromInbox`.
 - **Manual entry accepted "test" as an order number** (2026-11-13, run ledger step 4).
   Test runs never enter the VIN log, but a manual entry under `test` did, quietly
   marking real cars as already printed. `ledgerManualEntry` now refuses it (any case;

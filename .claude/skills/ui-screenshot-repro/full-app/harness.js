@@ -32,7 +32,10 @@
       if (!i.value) { i.value = 'Heated seats, Backup camera'; i.dispatchEvent(new Event('input', { bubbles: true })); }
     });
   }
-  function noPendingCommits() { window.MOCK.getLatestOrderId = { latestOrderId: '44872', pendingCount: 0 }; }
+  function noPendingCommits() {
+    window.MOCK.getLatestOrderId = { latestOrderId: '44872', pendingCount: 0 };
+    window.MOCK.ledgerPendingOverlap = { pendingCount: 0, overlapCount: 0, runs: [] };
+  }
 
   var S = {
     'home': async function () {
@@ -66,9 +69,16 @@
       await sleep(300);
     },
     'run-confirm-dialog': async function () {
-      await runWithVins(); fillAllFeatures();   // pendingCount 1 → "Uncommitted runs" confirm
+      await runWithVins(); fillAllFeatures();   // order shares 4 cars with pending run 44872 → overlap confirm
       runSelected();
       await sleep(300);
+    },
+    'run-overlap-confirm': async function () {
+      await runWithVins(); fillAllFeatures();
+      runSelected();
+      await sleep(300);
+      var ok = document.querySelector('#appConfirm button[data-ok="1"]'); if (ok) ok.click();   // past the stale-import confirm
+      await sleep(400);
     },
     'run-cao-popover': async function () {
       await runWithVins();

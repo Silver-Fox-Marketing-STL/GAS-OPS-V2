@@ -177,6 +177,11 @@
     ledgerRollbackRun: { removed: 11 },
     ledgerDeleteRun: { removed: 0 },
     ledgerManualEntry: { committed: 1 },
+    ledgerPendingOverlap: function (key, vins) {
+      if (key !== D) return { pendingCount: 0, overlapCount: 0, runs: [] };
+      var v = (vins || []).slice(0, 4).map(function (x) { return String(x).toUpperCase(); });
+      return { pendingCount: 1, overlapCount: v.length, runs: [{ rowIndex: 845, dealId: '44872', timestamp: '2026-09-23 09:14:02', note: '', vins: v }] };
+    },
 
     // ── VIN Inbox ───────────────────────────────────────────────────────────
     getVinSubmissions: { ok: true, configured: true, submissions: SUBS },
