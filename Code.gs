@@ -1664,13 +1664,13 @@ function checkVehicleUrls(items) {
   var out = {};
   try {
     var MAX = 200, CHUNK = 25;
-    var todo = [];
+    var todo = [], origUrl = {};
     (Array.isArray(items) ? items : []).forEach(function (it, i) {
       var vin = String((it && it.vin) || '').trim().toUpperCase();
       var url = String((it && it.url) || '').trim();
       if (!vin) return;
       out[vin] = 'unknown';
-      if (i < MAX && /^https?:\/\//i.test(url)) todo.push({ vin: vin, url: url });
+      if (i < MAX && /^https?:\/\//i.test(url)) { todo.push({ vin: vin, url: url }); origUrl[vin] = url; }
     });
     for (var hop = 0; hop < 2 && todo.length; hop++) {
       var next = [];
@@ -1690,17 +1690,47 @@ function checkVehicleUrls(items) {
       }
       todo = next;                                                  // leftovers after hop 2 stay 'unknown'
     }
+
+    // Second check: every 'gone' is re-fetched from its ORIGINAL url with
+    // redirects followed to the end. A live car whose page moved to a new
+    // address shows its VIN on the final page → 'alive'. Only a second clear
+    // 'gone' keeps the flag; anything ambiguous (failed fetch, bot wall, one
+    // VIN mention) withdraws it to 'unknown'.
+    var recheck = Object.keys(out).filter(function (v) { return out[v] === 'gone'; })
+      .map(function (v) { return { vin: v, url: origUrl[v] }; });
+    for (var r = 0; r < recheck.length; r += CHUNK) {
+      var rslice = recheck.slice(r, r + CHUNK);
+      vdpFetchSlice_(rslice, true).forEach(function (resp, i) {
+        var it = rslice[i];
+        var verdict = 'unknown';
+        try {
+          if (resp) verdict = vdpRecheckVerdict_(resp.getResponseCode(), resp.getContentText(), it.vin);
+        } catch (e) { /* stays 'unknown' */ }
+        out[it.vin] = verdict;
+      });
+    }
   } catch (e) { Logger.log('checkVehicleUrls failed: ' + e.message); }
   return vdpSiteChangeGuard_(out);
 }
 
+/**
+ * Pure: verdict of the second check (a fetch that FOLLOWED redirects to the end).
+ * Same rules as classifyVdpResponse_ on the final page, but a leftover redirect
+ * (too many hops) has nowhere to go → 'unknown'. Returns 'gone'|'alive'|'unknown'.
+ */
+function vdpRecheckVerdict_(code, body, vin) {
+  var state = classifyVdpResponse_(code, '', body, vin, '');
+  return state === 'follow' ? 'unknown' : state;
+}
+
 /** One parallel batch, index-aligned (null = that fetch failed). A thrown
- *  fetchAll falls back to per-URL fetch so one bad host can't blank the slice. */
-function vdpFetchSlice_(slice) {
-  var opts = { muteHttpExceptions: true, followRedirects: false };
+ *  fetchAll falls back to per-URL fetch so one bad host can't blank the slice.
+ *  follow=true lets UrlFetchApp follow redirects (the second check). */
+function vdpFetchSlice_(slice, follow) {
+  var opts = { muteHttpExceptions: true, followRedirects: !!follow };
   try {
     return UrlFetchApp.fetchAll(slice.map(function (it) {
-      return { url: it.url, muteHttpExceptions: true, followRedirects: false };
+      return { url: it.url, muteHttpExceptions: true, followRedirects: !!follow };
     }));
   } catch (e) {
     return slice.map(function (it) { try { return UrlFetchApp.fetch(it.url, opts); } catch (e2) { return null; } });

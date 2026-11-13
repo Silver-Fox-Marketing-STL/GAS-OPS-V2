@@ -1261,6 +1261,47 @@ t('checkVehicleUrls never throws and fails safe: bad input / non-http URLs → u
   assert.deepStrictEqual(r.statuses, { ABC: 'unknown' });
   assert.strictEqual(r.siteChange, false);
 });
+t('vdpRecheckVerdict_: final page VIN ≥2× → alive, 0× → gone, 404 → gone; 1×, 403, leftover 3xx → unknown', function () {
+  assert.strictEqual(vdpRecheckVerdict_(200, vdpBody_(3), VDP_VIN), 'alive');
+  assert.strictEqual(vdpRecheckVerdict_(200, vdpBody_(0), VDP_VIN), 'gone');
+  assert.strictEqual(vdpRecheckVerdict_(404, '', VDP_VIN), 'gone');
+  assert.strictEqual(vdpRecheckVerdict_(200, vdpBody_(1), VDP_VIN), 'unknown');
+  assert.strictEqual(vdpRecheckVerdict_(403, '', VDP_VIN), 'unknown');
+  assert.strictEqual(vdpRecheckVerdict_(301, '', VDP_VIN), 'unknown');
+});
+t('checkVehicleUrls second check: moved page → alive, sold → gone, failed recheck → unknown', function () {
+  var MOVED = 'MOVED00000000001', SOLD = 'SOLD000000000001', FLAKY = 'FLAKY00000000001', LIVE = 'LIVE000000000001';
+  var base = 'https://www.dealer.com/used/';
+  var echo = function (vin, n) { var s = ''; for (var i = 0; i < n; i++) s += ' ' + vin; return s; };
+  var resp = function (code, loc, body) {
+    return { getResponseCode: function () { return code; },
+             getAllHeaders: function () { return loc ? { Location: loc } : {}; },
+             getContentText: function () { return body || ''; } };
+  };
+  var answer = function (req) {
+    var vin = req.url.split('/').filter(Boolean).pop();
+    if (!req.followRedirects) {                                     // first check
+      if (vin === MOVED) return resp(301, 'https://www.dealer.com/used/2021-civic-ex/' + 'X/');   // new address
+      if (vin === SOLD)  return resp(301, 'https://www.dealer.com/used-inventory/');
+      if (vin === FLAKY) return resp(404);
+      return resp(200, '', echo(LIVE, 4));
+    }
+    if (vin === MOVED) return resp(200, '', echo(MOVED, 5));        // final page still shows the car
+    if (vin === SOLD)  return resp(200, '', '<html>listing</html>');
+    return resp(503);                                               // FLAKY: second check not clear
+  };
+  var saved = globalThis.UrlFetchApp, calls = [];
+  globalThis.UrlFetchApp = {
+    fetchAll: function (reqs) { calls.push(reqs.length); return reqs.map(answer); },
+    fetch: function (url, o) { return answer({ url: url, followRedirects: o.followRedirects }); }
+  };
+  try {
+    var r = checkVehicleUrls([MOVED, SOLD, FLAKY, LIVE].map(function (v) { return { vin: v, url: base + v + '/' }; }));
+    assert.deepStrictEqual(r.statuses, { MOVED00000000001: 'alive', SOLD000000000001: 'gone',
+                                         FLAKY00000000001: 'unknown', LIVE000000000001: 'alive' });
+    assert.deepStrictEqual(calls, [4, 3]);                          // only the 3 first-check "gone" are rechecked
+  } finally { globalThis.UrlFetchApp = saved; }
+});
 
 // ============================================================================
 // Suite: VIN-log history + Compare Lists — appendVinLogHistory_, resolveCompareIds_

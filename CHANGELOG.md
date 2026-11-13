@@ -31,7 +31,13 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   `UrlFetchApp.fetchAll` (`{muteHttpExceptions:true, followRedirects:false}`,
   per-URL fallback if the batch call itself throws), capped at 200 VINs per
   check; `checkVehicleUrls` never throws. New pure classifier
-  `classifyVdpResponse_` + harness suite "vdp liveness classifier" (7 tests).
+  `classifyVdpResponse_` + harness suite "vdp liveness classifier" (9 tests).
+  **Second check** (`vdpRecheckVerdict_`, pure): every first-pass `gone` is
+  re-fetched from its original URL with redirects followed to the end. A live
+  car whose page moved to a new address still shows its VIN on the final page
+  → `alive`; only a second clear `gone` keeps the flag, and anything ambiguous
+  (failed fetch, bot wall, one VIN mention) withdraws it to `unknown`. Only
+  flagged cars get the extra fetch. The site-change guard runs after it.
   **Site-change guard** (`vdpSiteChangeGuard_`, pure): when more than half of
   the definite answers (≥ 6 gone + alive) come back `gone`, the likely cause is
   the dealer's website (redesign, new URL scheme, VIN rendered by JavaScript),
