@@ -256,6 +256,18 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   to the brain backlog; `CLAUDE.md` line count refreshed.
 
 ### Fixed
+- **Run view: a lost finalize request no longer locks the card forever** (2026-11-16,
+  `fix/finalize-watchdog`). A Columbia Honda "Create deal & Finalize" click sent its
+  `google.script.run` call, but it never reached the server (no execution logged; the
+  Google session needed a re-sign-in), so neither handler fired and the card stayed
+  greyed out with no message. `finalizeCard` now starts a watchdog
+  (`RV_FINALIZE_WATCHDOG_MS` = 6.5 min, just past the server's 6-min execution cap):
+  if no answer has come back, the card returns to pending with a "request was probably
+  lost — try again" message and the button re-enables. Waiting past the cap means no
+  live execution can still be creating a deal, so a retry cannot race one into a
+  duplicate; the retry itself is already idempotent (the `pd_new_` token cache + run-log
+  anchor). Each click carries an attempt number — a late answer from a superseded attempt
+  is ignored, while a late answer before any retry is still accepted.
 - **VIN Inbox: three small fixes** (2026-11-13, `fix/vin-inbox-small`; backlog item from
   2026-07-09).
   - **OCR error mid-run now resyncs the cards.** When a "Run OCR" chunk failed (an error

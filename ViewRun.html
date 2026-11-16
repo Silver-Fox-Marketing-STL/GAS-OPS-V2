@@ -617,6 +617,10 @@
     var dealersByKey   = {};   // key → {key, name, splitDealLabel} from getActiveDealersForUI
     var cardStates     = [];   // per pendingRuns entry: {state, rowIndex, committed}
                                // state: pending → finalizing → finalized | pending → abandoning → abandoned
+                               // attempt/watchdog: finalizeCard's lost-request timer (see there)
+    // Just past the server's 6-min execution cap: once it passes, no finalize call can
+    // still be running server-side, so re-enabling the card can't race a live one.
+    var RV_FINALIZE_WATCHDOG_MS = 6.5 * 60 * 1000;
     var lastConfirmedDealer = ''; // for reverting the dealer select if a discard is cancelled
     var rvGuardAnswered = false;  // rvSwitchDealer_ already ran the un-finalized guard → change handler skips it
 
@@ -1347,9 +1351,36 @@
         : (method === 'new' ? 'Creating deal & finalizing…' : 'Finalizing & linking…');
       statusEl.className = 'finalize-card-status';
 
+      // Watchdog: a google.script.run call can be lost before it reaches the
+      // server (e.g. an expired Google sign-in) — then neither handler ever
+      // fires and the card stays busy forever. After the server's own 6-minute
+      // cap, no real execution can still be alive, so a retry cannot race one
+      // into a second deal; re-enable the card. A late answer to an attempt
+      // that was superseded by a retry is ignored (the retry adopts the same
+      // deal via the server's token cache / run-log anchor).
+      var attempt = (cardStates[i].attempt || 0) + 1;
+      cardStates[i].attempt = attempt;
+      function isCurrent() { return cardStates[i] && cardStates[i].attempt === attempt; }
+      clearTimeout(cardStates[i].watchdog);
+      cardStates[i].watchdog = setTimeout(function() {
+        if (!isCurrent() || cardStates[i].state !== 'finalizing') return;
+        cardStates[i].state = 'pending';
+        setCardBusy(i, false);
+        statusEl.textContent = 'No answer from the server after ' + (RV_FINALIZE_WATCHDOG_MS / 60000) +
+          ' minutes, so the request was probably lost. Click the button to try again — ' +
+          'a retry never makes a second deal.';
+        statusEl.className = 'finalize-card-status error';
+      }, RV_FINALIZE_WATCHDOG_MS);
+
       var runner = google.script.run
-        .withSuccessHandler(function(res) { onFinalizeResult_(i, method, existingDealId, res || {}); })
+        .withSuccessHandler(function(res) {
+          if (!isCurrent()) return;
+          clearTimeout(cardStates[i].watchdog);
+          onFinalizeResult_(i, method, existingDealId, res || {});
+        })
         .withFailureHandler(function(e) {
+          if (!isCurrent()) return;
+          clearTimeout(cardStates[i].watchdog);
           // A thrown error means nothing was written (e.g. bad existing id / test
           // throw) — revert to pending so the user can adjust the method/id.
           cardStates[i].state = 'pending';
