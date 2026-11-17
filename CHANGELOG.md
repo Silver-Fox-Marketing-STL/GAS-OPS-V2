@@ -256,6 +256,24 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   to the brain backlog; `CLAUDE.md` line count refreshed.
 
 ### Fixed
+- **App-wide: a lost server request no longer freezes a screen** (2026-11-16,
+  `fix/timed-server-calls`). A `google.script.run` request lost before it reaches the
+  server (e.g. an expired Google sign-in) fires neither handler, so the 2026-11-16
+  audit found screens that stayed busy for good. New `AppCall.run(fnName, args, opts)`
+  in `SharedUtils.html` wraps the call with a timer: no answer in time → the view's
+  own failure path runs with `err.lost = true` and a plain "probably lost, try again"
+  message. `READ_MS` = 90 s for reads (a retry is always safe); `WRITE_MS` = 6.5 min
+  for writes (past the 6-min execution cap, so a retry can't overlap a live call). A
+  late answer is dropped unless `lateOk`. Now timed: the `getAppBootstrap` load
+  (`AppData._loading` no longer sticks; `lateOk`), Run `pasteVinsAndRun` (the progress
+  poll and AppBusy 'run' stop on timeout), Run + VIN Logs `pushRunToPipedrive` and
+  `ledgerCommitRuns`, VIN Logs `ledgerManualEntry` (the one non-idempotent write — its
+  lost message says to check the list first), both Import `importScraperData` calls
+  (AppBusy 'import' clears), and the VIN Inbox load/refresh (`viRefreshing`),
+  discard/VIN save/batch discard (`viWritesInFlight`) and each `runInboxOcr` chunk.
+  Client-only; the finalize card keeps its own 3-min watchdog. New harness suite
+  "timed server calls" (8 tests: timer, late answers, `lateOk`, unknown fn, and a
+  guard that each audited spot goes through `AppCall`).
 - **Run view: finalize watchdog shortened to 3 min, with a server in-flight guard**
   (2026-11-16, `fix/finalize-watchdog-3min`). 6.5 min was too long to wait — a normal
   finalize answers in 1–2 min. 3 min is under the server's 6-min execution cap, so a

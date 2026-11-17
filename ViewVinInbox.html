@@ -117,12 +117,15 @@
       body.addEventListener('toggle', function (e) { if (e.target.open) viFillThumbs(); }, true);
     }
     body.innerHTML = '<p class="u-hint">Loading&hellip;</p>';
-    google.script.run
-      .withSuccessHandler(viRender)
-      .withFailureHandler(function (e) {
+    // Timed (READ_MS): a lost load used to leave "Loading…" up for good.
+    // No filter = submitted only (drafts stay field-owned until Send to office).
+    AppCall.run('getVinSubmissions', [], {
+      timeoutMs: AppCall.READ_MS,
+      onSuccess: viRender,
+      onFailure: function (e) {
         body.innerHTML = '<p class="vi-empty">Could not load submissions: ' + escHtml((e && e.message) || String(e)) + '</p>';
-      })
-      .getVinSubmissions();   // no filter = submitted only (drafts stay field-owned until Send to office)
+      }
+    });
   }
 
   var viSelectMode = false;   // select mode (Select/Cancel toggle) — also gates viRefresh
@@ -158,8 +161,11 @@
     if (!document.getElementById('viBody')) return;
     viRefreshing = true;
     var seq = viMutSeq;
-    google.script.run
-      .withSuccessHandler(function (res) {
+    // Timed (READ_MS): a lost refresh left viRefreshing stuck true, which blocked
+    // every later refresh (poll and OCR chunks). A late snapshot is dropped.
+    AppCall.run('getVinSubmissions', [], {
+      timeoutMs: AppCall.READ_MS,
+      onSuccess: function (res) {
         viRefreshing = false;
         if (viRefreshBlocked_() || seq !== viMutSeq) return;   // state changed mid-flight — drop this snapshot
         var openKeys = {};
@@ -170,9 +176,9 @@
         for (var j = 0; j < all.length; j++) {
           if (openKeys[all[j].getAttribute('data-key')]) all[j].setAttribute('open', '');
         }
-      })
-      .withFailureHandler(function () { viRefreshing = false; })   // silent — poll/next chunk retries soon
-      .getVinSubmissions();
+      },
+      onFailure: function () { viRefreshing = false; }   // silent — poll/next chunk retries soon
+    });
   }
 
   // Background poll: OCR run from ANOTHER session becomes visible without a
@@ -464,16 +470,18 @@
   function viDiscardIds(ids) {
     viRemoveRows(ids);
     viWritesInFlight++;   // block refreshes until the sheet actually says 'discarded'
-    google.script.run
-      .withSuccessHandler(function (res) {
+    // Timed (WRITE_MS): a lost write left viWritesInFlight above 0 forever, which
+    // blocked every refresh. A retry is safe (it sets the same status again).
+    AppCall.run('updateVinSubmissionStatuses', [ids, 'discarded'], {
+      onSuccess: function (res) {
         viWritesInFlight--;
         if (!res || !res.ok) { toast('Discard failed: ' + escHtml((res && res.error) || '?'), 'error'); viLoad(); return; }
         var msg = 'Discarded ' + res.updated + ' submission' + (res.updated === 1 ? '' : 's') + '.';
         if (res.photosFailed > 0) msg += ' (' + res.photosFailed + ' photo(s) couldn\'t be deleted)';
         toast(msg, 'success');
-      })
-      .withFailureHandler(function (e) { viWritesInFlight--; toast('Discard failed: ' + escHtml((e && e.message) || String(e)), 'error'); viLoad(); })
-      .updateVinSubmissionStatuses(ids, 'discarded');
+      },
+      onFailure: function (e) { viWritesInFlight--; toast('Discard failed: ' + escHtml((e && e.message) || String(e)), 'error'); viLoad(); }
+    });
   }
 
   // Pure-local check on every keystroke: validity via viValidVin, inventory via the
@@ -510,13 +518,14 @@
     if (!el) return;
     viMutSeq++;   // the edited VIN is local-only until this save lands — don't let a pre-edit snapshot revert it
     viWritesInFlight++;   // …and don't let a refresh STARTED after the edit but before the write commits revert it either
-    google.script.run
-      .withSuccessHandler(function (res) {
+    // Timed (WRITE_MS) — same stuck-counter reason as viDiscardIds.
+    AppCall.run('updateVinSubmissionStatus', [sid, 'submitted', el.value], {
+      onSuccess: function (res) {
         viWritesInFlight--;
         if (!res || !res.ok) toast('VIN save failed: ' + escHtml((res && res.error) || '?'), 'error');
-      })
-      .withFailureHandler(function (e) { viWritesInFlight--; toast('VIN save failed: ' + escHtml((e && e.message) || String(e)), 'error'); })
-      .updateVinSubmissionStatus(sid, 'submitted', el.value);
+      },
+      onFailure: function (e) { viWritesInFlight--; toast('VIN save failed: ' + escHtml((e && e.message) || String(e)), 'error'); }
+    });
   }
 
   function viCreateOrder(gi, evt) {
@@ -555,16 +564,17 @@
                { title: 'Discard batch?', okLabel: 'Discard', tone: 'danger' }).then(function(ok) {
       if (!ok) return;
       toast('Discarding ' + b.count + ' submissions…', 'info');
-      google.script.run
-        .withSuccessHandler(function (res) {
+      // Timed (WRITE_MS): a lost request now ends in a failure toast, not silence.
+      AppCall.run('updateVinSubmissionStatuses', [b.ids, 'discarded'], {
+        onSuccess: function (res) {
           if (!res || !res.ok) { toast('Batch discard failed: ' + escHtml((res && res.error) || '?'), 'error'); return; }
           var msg = 'Discarded ' + res.updated + ' submission' + (res.updated === 1 ? '' : 's') + '.';
           if (res.photosFailed > 0) msg += ' (' + res.photosFailed + ' photo(s) couldn\'t be deleted)';
           toast(msg, 'success');
           // No viLoad() here — VIEW_SHOWN['view-vin-inbox'] refreshes on next visit.
-        })
-        .withFailureHandler(function (e) { toast('Batch discard failed: ' + escHtml((e && e.message) || String(e)), 'error'); })
-        .updateVinSubmissionStatuses(b.ids, 'discarded');
+        },
+        onFailure: function (e) { toast('Batch discard failed: ' + escHtml((e && e.message) || String(e)), 'error'); }
+      });
     });
   }
 
@@ -602,8 +612,11 @@
   }
 
   function viOcrStep(doneSoFar) {
-    google.script.run
-      .withSuccessHandler(function (res) {
+    // Timed (WRITE_MS): a lost chunk left the OCR button disabled for good. The
+    // server saves after each chunk, so the failure path's resync shows what got
+    // done, and Run OCR picks up the rest.
+    AppCall.run('runInboxOcr', [10], {
+      onSuccess: function (res) {
         var btn = document.getElementById('viOcrBtn');
         if (!res || !res.ok) {
           toast('OCR failed: ' + escHtml((res && res.error) || '?'), 'error');
@@ -621,14 +634,14 @@
           toast('OCR finished — ' + total + ' processed.', 'success');
           viRefresh();          // inventory maps unchanged — no need for full viLoad
         }
-      })
-      .withFailureHandler(function (e) {
+      },
+      onFailure: function (e) {
         toast('OCR failed: ' + escHtml((e && e.message) || String(e)), 'error');
         var btn = document.getElementById('viOcrBtn');
         if (btn) btn.disabled = false;
         viRefresh();   // a timeout can land after rows were written — resync, same as the !ok branch
-      })
-      .runInboxOcr(10);
+      }
+    });
   }
 
   // ── Select mode — bulk discard across batches ──

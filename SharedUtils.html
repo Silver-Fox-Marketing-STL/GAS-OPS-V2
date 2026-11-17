@@ -608,6 +608,61 @@
     is:  function(key) { return !!this._flags[key]; }
   };
 
+  // ── Timed server calls ──────────────────────────────────────────────────────
+  // A google.script.run request can be LOST before it reaches the server (e.g. an
+  // expired Google sign-in): neither handler ever fires and no execution is
+  // logged, so a view waiting on it stays busy forever. AppCall.run wraps the call
+  // with a timer — no answer in time → onFailure(err) with err.lost = true and a
+  // plain "probably lost, try again" message, so the view's own failure path
+  // re-enables its controls.
+  //   READ_MS  — reads; a retry is always safe. 90 s leaves room for a slow day.
+  //   WRITE_MS — writes; past the server's 6-min execution cap, so when the user
+  //              retries, the first call can no longer be running (no race).
+  // An answer that lands after the timer is dropped (the view already showed the
+  // failure), unless opts.lateOk — then onSuccess still runs (idempotent reads).
+  // opts: { onSuccess, onFailure, timeoutMs, lateOk, lostMessage }
+  var AppCall = {
+    READ_MS:  90 * 1000,
+    WRITE_MS: 6.5 * 60 * 1000,
+    run: function(fnName, args, opts) {
+      opts = opts || {};
+      var ms = opts.timeoutMs || AppCall.WRITE_MS;
+      var settled = false;
+      var timer = null;
+      function settle() {           // true only for the FIRST outcome
+        if (settled) return false;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        return true;
+      }
+      function fail(e) { if (opts.onFailure) opts.onFailure(e); }
+      timer = setTimeout(function() {
+        if (!settle()) return;
+        var err = new Error(opts.lostMessage || AppCall.lostMessage(ms));
+        err.lost = true;
+        fail(err);
+      }, ms);
+      try {
+        var runner = google.script.run
+          .withSuccessHandler(function(res) {
+            if (settle() || opts.lateOk) { if (opts.onSuccess) opts.onSuccess(res); }
+          })
+          .withFailureHandler(function(e) { if (settle()) fail(e); });
+        if (typeof runner[fnName] !== 'function') throw new Error('Unknown server function: ' + fnName);
+        runner[fnName].apply(runner, args || []);
+      } catch (e) {
+        if (settle()) fail(e);
+      }
+    },
+    lostMessage: function(ms) {
+      var wait = ms < 120000 ? Math.round(ms / 1000) + ' seconds'
+                             : (Math.round(ms / 6000) / 10) + ' minutes';
+      return 'No answer from the server after ' + wait + '. The request was probably lost ' +
+             '(for example, an expired Google sign-in). Try again; if it fails again, ' +
+             'sign in again at script.google.com and reload the app.';
+    }
+  };
+
   // ── Shared bootstrap data (dealers + user profiles) ───────────────────────
   // Fetched ONCE per session via getAppBootstrap (the App prefetches at open;
   // Classic standalone views lazily trigger the same fetch on first use).
@@ -621,18 +676,23 @@
       if (this._loading || this._data) return;
       this._loading = true;
       var self = this;
-      google.script.run
-        .withSuccessHandler(function(d) {
-          self._data = d; self._loading = false;
+      // Timed: a lost bootstrap left _loading stuck true, so every later get()
+      // queued forever. lateOk — a slow-but-real answer after the timer still
+      // fills _data for the callers that queued since.
+      AppCall.run('getAppBootstrap', [], {
+        timeoutMs: AppCall.READ_MS,
+        lateOk: true,
+        onSuccess: function(d) {
+          self._data = d; self._loading = false; self._err = null;
           var cbs = self._cbs; self._cbs = [];
           cbs.forEach(function(cb) { cb(d, null); });
-        })
-        .withFailureHandler(function(e) {
+        },
+        onFailure: function(e) {
           self._err = e; self._loading = false;
           var cbs = self._cbs; self._cbs = [];
           cbs.forEach(function(cb) { cb(null, e); });
-        })
-        .getAppBootstrap();
+        }
+      });
     },
     get: function(cb) {
       if (this._data) { cb(this._data, null); return; }

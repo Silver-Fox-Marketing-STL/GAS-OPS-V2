@@ -760,8 +760,10 @@
       btn.disabled = true; btn.textContent = 'Pushing...';
       setVinlogStatus('Pushing run to Pipedrive...', 'info');
 
-      google.script.run
-        .withSuccessHandler(function(res) {
+      // Timed (WRITE_MS, past the 6-min cap): a retry after a lost request can't
+      // overlap a still-running push.
+      AppCall.run('pushRunToPipedrive', [dealerKey, selectedRun.rowIndex, mode, existingDealId || null], {
+        onSuccess: function(res) {
           res = res || {};
           btn.textContent = 'Push to Pipedrive';
           if (res.ok) {
@@ -784,13 +786,13 @@
             toast(res.message || 'Pipedrive push failed.', 'error');
             setVinlogStatus(msg, 'error');
           }
-        })
-        .withFailureHandler(function(e) {
+        },
+        onFailure: function(e) {
           btn.disabled = false; btn.textContent = 'Push to Pipedrive';
           toast('Pipedrive push error: ' + e.message, 'error');
           setVinlogStatus('Pipedrive push error: ' + e.message + ' — you can retry.', 'error');
-        })
-        .pushRunToPipedrive(dealerKey, selectedRun.rowIndex, mode, existingDealId || null);
+        }
+      });
     }
 
     function hideActionPanel() {
@@ -821,20 +823,21 @@
       btn.disabled = true; btn.textContent = 'Committing...';
       setVinlogStatus('Writing ' + selectedRun.vinCount + ' VINs to log...', 'info');
 
-      google.script.run
-        .withSuccessHandler(function(result) {
+      // Timed (WRITE_MS). A retry is safe: an already-committed run is skipped.
+      AppCall.run('ledgerCommitRuns', [[vinlogRunRef_(selectedRun, dealerKey)]], {
+        onSuccess: function(result) {
           setVinlogStatus(result.skippedCommitted
             ? 'This run was already committed — nothing new was written.'
             : 'Committed ' + result.committed + ' VINs to the ' + dealerName + ' VIN log.', 'success');
           btn.textContent = 'Commit to VIN Log';
           loadRuns(sel.value);                          // reload whatever view mode is showing
           if (sel.value) loadLatestOrderId(sel.value);  // latest-order row is dealer-mode only
-        })
-        .withFailureHandler(function(e) {
+        },
+        onFailure: function(e) {
           setVinlogStatus('Commit failed: ' + e.message, 'error');
           btn.disabled = false; btn.textContent = 'Commit to VIN Log';
-        })
-        .ledgerCommitRuns([vinlogRunRef_(selectedRun, dealerKey)]);
+        }
+      });
     }
 
     // Which run, by fingerprint — the server re-reads the VINs, deal id and date
@@ -949,8 +952,13 @@
       btn.disabled = true; btn.textContent = 'Adding ' + vins.length + ' VIN' + (vins.length === 1 ? '' : 's') + '...';
       setVinlogStatus('Writing to VIN log...', 'info');
 
-      google.script.run
-        .withSuccessHandler(function(result) {
+      // Timed (WRITE_MS). The ONE write here that is not idempotent — a second
+      // click after a saved-but-unanswered call appends the VINs twice — so the
+      // lost message sends the user to the list first.
+      AppCall.run('ledgerManualEntry', [dealerKey, orderId, vins], {
+        lostMessage: 'No answer from the server after 6.5 minutes. The VINs may or may not be saved. ' +
+                     'Reload the VIN log list and look for order ' + orderId + ' before you add them again.',
+        onSuccess: function(result) {
           setVinlogStatus('Added ' + result.committed + ' VIN' + (result.committed === 1 ? '' : 's') +
             ' to the VIN log under order ' + orderId + '.', 'success');
           btn.disabled = false; btn.textContent = 'Add to VIN Log';
@@ -959,12 +967,12 @@
           document.getElementById('vinlogVinCount').textContent = '0 VINs';
           loadLatestOrderId(dealerKey); // refresh latest order display
           loadRuns(document.getElementById('vinlogDealerSelect').value);   // the new entry shows in the list
-        })
-        .withFailureHandler(function(e) {
+        },
+        onFailure: function(e) {
           setVinlogStatus('Failed: ' + e.message, 'error');
           btn.disabled = false; btn.textContent = 'Add to VIN Log';
-        })
-        .ledgerManualEntry(dealerKey, orderId, vins);
+        }
+      });
     }
 
     function setVinlogStatus(msg, type) {

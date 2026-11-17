@@ -1472,8 +1472,10 @@
       if (btn) { btn.disabled = true; btn.textContent = 'Pushing...'; }
       setCardPushStatus(i, 'Pushing to Pipedrive...', '');
 
-      google.script.run
-        .withSuccessHandler(function(res) {
+      // Timed (WRITE_MS, past the 6-min cap): a retry after a lost request can't
+      // overlap a still-running push.
+      AppCall.run('pushRunToPipedrive', [lastDealerKey, cardStates[i].rowIndex, mode, existingDealId || null], {
+        onSuccess: function(res) {
           res = res || {};
           if (res.ok) {
             renderPushDone(i, res);
@@ -1489,13 +1491,13 @@
             setCardPushStatus(i, msg, 'error');
             if (res.retryable) renderPushRetry(i, mode, existingDealId);
           }
-        })
-        .withFailureHandler(function(e) {
+        },
+        onFailure: function(e) {
           if (btn) { btn.disabled = false; btn.textContent = 'Push to Pipedrive'; }
           setCardPushStatus(i, 'Push error: ' + e.message, 'error');
-          renderPushRetry(i, mode, existingDealId);   // network/transient — offer retry
-        })
-        .pushRunToPipedrive(lastDealerKey, cardStates[i].rowIndex, mode, existingDealId || null);
+          renderPushRetry(i, mode, existingDealId);   // network/transient/lost — offer retry
+        }
+      });
     }
 
     // Collapse the controls to a done state showing the deal the run landed on.
@@ -1631,8 +1633,9 @@
       vinBtn.textContent = 'Adding...';
       setRunStatus('', 'empty');
 
-      google.script.run
-        .withSuccessHandler(function(result) {
+      // Timed (WRITE_MS). A retry is safe: an already-committed run is skipped.
+      AppCall.run('ledgerCommitRuns', [cardIdxs.map(runLedgerRef_)], {
+        onSuccess: function(result) {
           cardStates.forEach(function(s) {
             if (s.state === 'finalized' && s.method !== 'test') s.committed = true;
           });
@@ -1642,13 +1645,13 @@
             lastRunResult.dealerName + ' VIN log' +
             (cardIdxs.length > 1 ? ' (' + cardIdxs.length + ' deals)' : '') + '.', 'success');
           refreshVinLogStatus_();
-        })
-        .withFailureHandler(function(e) {
+        },
+        onFailure: function(e) {
           vinBtn.disabled = false;
           vinBtn.textContent = '✓ Add to VIN Log';
           setRunStatus('VIN log error: ' + e.message, 'error');
-        })
-        .ledgerCommitRuns(cardIdxs.map(runLedgerRef_));
+        }
+      });
     }
 
     // ── Run handler ───────────────────────────────────────────────────────────
@@ -1742,8 +1745,11 @@
 
           var bypass = document.getElementById('bypassFilters').checked;
 
-          google.script.run
-            .withSuccessHandler(function(result) {
+          // Timed (WRITE_MS, past the 6-min cap — a real run can take almost that
+          // long). A lost request used to leave the progress poll and AppBusy 'run'
+          // on forever; the timeout runs the failure path below, which stops both.
+          AppCall.run('pasteVinsAndRun', [key, vins, '', runId, bypass, userKey, null, featuresMap, editsMap], {
+            onSuccess: function(result) {
               stopPolling();
               lastRunResult = result;
               updateProgressUI({ message: 'Complete!', percent: 100, done: true, error: null });
@@ -1759,15 +1765,15 @@
                 google.script.run.withSuccessHandler(rvRefreshDrafts).withFailureHandler(function() {})
                   .deleteRunDraft(lastDealerKey);
               } catch (e) {}
-            })
-            .withFailureHandler(function(e) {
+            },
+            onFailure: function(e) {
               stopPolling();
               updateProgressUI({ message: 'Error: ' + e.message, percent: 0, done: true, error: e.message });
               setRunStatus('Error: ' + e.message, 'error');
               runBtn.disabled = false;
               runBtn.textContent = 'Run Dealer';
-            })
-            .pasteVinsAndRun(key, vins, '', runId, bypass, userKey, null, featuresMap, editsMap);
+            }
+          });
         });
     }
 

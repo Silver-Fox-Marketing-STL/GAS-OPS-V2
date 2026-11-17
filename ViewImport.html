@@ -972,8 +972,10 @@
       btn.textContent = 'Importing...';
       setImportStatus('Sending ' + allRows.length.toLocaleString() + ' rows to Google Sheets...', 'info');
 
-      google.script.run
-        .withSuccessHandler(function(result) {
+      // Timed (WRITE_MS): a lost request left AppBusy 'import' set forever, which
+      // also blocked every run. The timeout runs the failure path below.
+      AppCall.run('importScraperData', [allRows, selectedMode, null, fileNames, null], {
+        onSuccess: function(result) {
           btn.textContent = 'Import Data';
           if (result && result.needsResolution) {
             // Stay "busy" through conflict resolution — the dataset is in a
@@ -983,14 +985,14 @@
             if (window.AppBusy) AppBusy.set('import', false);
             showReview(result);
           }
-        })
-        .withFailureHandler(function(e) {
+        },
+        onFailure: function(e) {
           if (window.AppBusy) AppBusy.set('import', false);
           setImportStatus('Error: ' + e.message, 'error');
           btn.disabled    = false;
           btn.textContent = 'Import Data';
-        })
-        .importScraperData(allRows, selectedMode, null, fileNames, null);
+        }
+      });
     }
 
     // ── Conflict resolution (phase 2) ─────────────────────────────────────────
@@ -1107,21 +1109,23 @@
       btn.textContent = 'Importing...';
       setConflictStatus('Applying choices and importing...', 'info');
 
-      google.script.run
-        .withSuccessHandler(function(result) {
+      // Timed (WRITE_MS). On a timeout the failure path keeps the conflict panel
+      // open with Apply & Import enabled, so the user can retry or cancel.
+      AppCall.run('importScraperData', [pendingPayload.rows, selectedMode,
+                                        conflictState.choices, pendingPayload.fileNames,
+                                        conflictState.token], {
+        onSuccess: function(result) {
           if (window.AppBusy) AppBusy.set('import', false);
           btn.textContent = 'Apply & Import';
           showReview(result);
-        })
-        .withFailureHandler(function(e) {
+        },
+        onFailure: function(e) {
           // Still in the conflict panel — keep the import marked busy.
           setConflictStatus('Error: ' + e.message, 'error');
           btn.disabled    = false;
           btn.textContent = 'Apply & Import';
-        })
-        .importScraperData(pendingPayload.rows, selectedMode,
-                           conflictState.choices, pendingPayload.fileNames,
-                           conflictState.token);
+        }
+      });
     }
 
     function cancelConflicts() {
