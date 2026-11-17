@@ -2535,6 +2535,118 @@ t('both client-callable finalize orchestrators go through the guard; watchdog is
   assert.ok(/var RV_FINALIZE_WATCHDOG_MS = 3 \* 60 \* 1000;/.test(view));
 });
 
+// ── Timed server calls (SharedUtils AppCall) ─────────────────────────────────
+suite('timed server calls');
+// Eval the AppCall block from SharedUtils.html against a fake google.script.run
+// and fake timers, so the timer/late-answer rules are checked without a browser.
+var suSource = fs.readFileSync(path.join(ROOT, 'SharedUtils.html'), 'utf8');
+var appCallSrc = (suSource.match(/  var AppCall = \{[\s\S]*?\r?\n  \};\r?\n/) || [''])[0];
+function makeAppCall_(serverFns) {
+  var timers = [];
+  var calls = [];
+  function builder() {
+    var b = { _ok: null, _err: null };
+    b.withSuccessHandler = function (fn) { b._ok = fn; return b; };
+    b.withFailureHandler = function (fn) { b._err = fn; return b; };
+    serverFns.forEach(function (name) {
+      b[name] = function () { calls.push({ name: name, args: [].slice.call(arguments), ok: b._ok, err: b._err }); };
+    });
+    return b;
+  }
+  var sandbox = {
+    google: { script: { get run() { return builder(); } } },
+    setTimeout: function (fn, ms) { var t = { fn: fn, ms: ms, cleared: false }; timers.push(t); return t; },
+    clearTimeout: function (t) { if (t) t.cleared = true; }
+  };
+  var AppCall = new Function('google', 'setTimeout', 'clearTimeout', appCallSrc + '\nreturn AppCall;')(
+    sandbox.google, sandbox.setTimeout, sandbox.clearTimeout);
+  return { AppCall: AppCall, timers: timers, calls: calls,
+           fire: function () { timers.forEach(function (x) { if (!x.cleared) { x.cleared = true; x.fn(); } }); } };
+}
+function track_() {
+  var log = { ok: [], err: [] };
+  log.opts = function (extra) {
+    var o = { onSuccess: function (r) { log.ok.push(r); }, onFailure: function (e) { log.err.push(e); } };
+    Object.keys(extra || {}).forEach(function (k) { o[k] = extra[k]; });
+    return o;
+  };
+  return log;
+}
+t('AppCall block found in SharedUtils; 90 s reads, 6.5 min writes', function () {
+  assert.ok(appCallSrc.length > 0, 'var AppCall block not found');
+  var h = makeAppCall_([]);
+  assert.strictEqual(h.AppCall.READ_MS, 90000);
+  assert.strictEqual(h.AppCall.WRITE_MS, 390000);
+});
+t('an answer before the timer → onSuccess once, timer cleared, args passed through', function () {
+  var h = makeAppCall_(['fnA']); var log = track_();
+  h.AppCall.run('fnA', [1, 'x'], log.opts());
+  assert.deepStrictEqual(h.calls[0].args, [1, 'x']);
+  assert.strictEqual(h.timers[0].ms, 390000);   // default = WRITE_MS
+  h.calls[0].ok('R');
+  h.fire();
+  assert.deepStrictEqual(log.ok, ['R']);
+  assert.strictEqual(log.err.length, 0);
+  assert.strictEqual(h.timers[0].cleared, true);
+});
+t('no answer → onFailure with err.lost and a plain message; a late answer is dropped', function () {
+  var h = makeAppCall_(['fnA']); var log = track_();
+  h.AppCall.run('fnA', [], log.opts({ timeoutMs: h.AppCall.READ_MS }));
+  h.fire();
+  assert.strictEqual(log.err.length, 1);
+  assert.strictEqual(log.err[0].lost, true);
+  assert.ok(/after 90 seconds/.test(log.err[0].message), log.err[0].message);
+  h.calls[0].ok('late');
+  h.calls[0].err(new Error('late err'));
+  assert.strictEqual(log.ok.length, 0);
+  assert.strictEqual(log.err.length, 1);
+});
+t('lateOk → a late answer still reaches onSuccess (after the failure)', function () {
+  var h = makeAppCall_(['fnA']); var log = track_();
+  h.AppCall.run('fnA', [], log.opts({ lateOk: true }));
+  h.fire();
+  h.calls[0].ok('late');
+  assert.strictEqual(log.err.length, 1);
+  assert.ok(/after 6\.5 minutes/.test(log.err[0].message), log.err[0].message);
+  assert.deepStrictEqual(log.ok, ['late']);
+});
+t('a server failure → onFailure once; the timer then does nothing', function () {
+  var h = makeAppCall_(['fnA']); var log = track_();
+  h.AppCall.run('fnA', [], log.opts());
+  h.calls[0].err(new Error('boom'));
+  h.fire();
+  assert.strictEqual(log.err.length, 1);
+  assert.strictEqual(log.err[0].message, 'boom');
+});
+t('an unknown server function fails at once instead of hanging', function () {
+  var h = makeAppCall_([]); var log = track_();
+  h.AppCall.run('noSuchFn', [], log.opts());
+  assert.strictEqual(log.err.length, 1);
+  assert.ok(/Unknown server function: noSuchFn/.test(log.err[0].message));
+  assert.strictEqual(h.timers[0].cleared, true);
+});
+t('a custom lostMessage replaces the default', function () {
+  var h = makeAppCall_(['fnA']); var log = track_();
+  h.AppCall.run('fnA', [], log.opts({ lostMessage: 'check the list' }));
+  h.fire();
+  assert.strictEqual(log.err[0].message, 'check the list');
+});
+t('the audited stuck spots go through AppCall, not a bare google.script.run', function () {
+  var spots = [
+    ['SharedUtils.html', 'getAppBootstrap'],
+    ['ViewRun.html', 'pasteVinsAndRun'], ['ViewRun.html', 'ledgerCommitRuns'], ['ViewRun.html', 'pushRunToPipedrive'],
+    ['ViewImport.html', 'importScraperData'],
+    ['ViewVinInbox.html', 'getVinSubmissions'], ['ViewVinInbox.html', 'updateVinSubmissionStatuses'],
+    ['ViewVinInbox.html', 'updateVinSubmissionStatus'], ['ViewVinInbox.html', 'runInboxOcr'],
+    ['ViewVinLog.html', 'pushRunToPipedrive'], ['ViewVinLog.html', 'ledgerCommitRuns'], ['ViewVinLog.html', 'ledgerManualEntry']
+  ];
+  spots.forEach(function (s) {
+    var src = fs.readFileSync(path.join(ROOT, s[0]), 'utf8');
+    assert.ok(src.indexOf("AppCall.run('" + s[1] + "'") >= 0, s[0] + ': ' + s[1] + ' is not timed');
+    assert.ok(!new RegExp('\\.' + s[1] + '\\(').test(src), s[0] + ': a bare .' + s[1] + '( call remains');
+  });
+});
+
 // ── Report ───────────────────────────────────────────────────────────────────
 function report_() {
   var totalPass = 0, totalFail = 0;
