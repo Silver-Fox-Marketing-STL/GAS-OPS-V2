@@ -2461,6 +2461,80 @@ t('Code.gs reads RUN_LOG only through the ledger (no raw row indexes, no own run
   assert.strictEqual(typeof ledgerLiveRuns_, 'function');
 });
 
+// ── Finalize in-flight guard (pdWithFinalizeGuard_) ─────────────────────────
+suite('finalize in-flight guard');
+function withGuardStubs_(opts, fn) {
+  opts = opts || {};
+  var saved = { cache: globalThis.CacheService, lock: globalThis.LockService };
+  var store = {}, puts = [];
+  globalThis.CacheService = { getScriptCache: function () { return {
+    get: function (k) { return Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null; },
+    put: function (k, v, ttl) { store[k] = v; puts.push({ k: k, ttl: ttl }); },
+    remove: function (k) { delete store[k]; }
+  }; } };
+  globalThis.LockService = { getScriptLock: function () { return {
+    waitLock: function () { if (opts.lockBusy) throw new Error('lock timeout'); },
+    releaseLock: function () {}
+  }; } };
+  try { return fn(store, puts); }
+  finally { globalThis.CacheService = saved.cache; globalThis.LockService = saved.lock; }
+}
+var GE_ = { outputDocId: 'DOC1', note: '' };
+t('runs the finalize and clears the marker after', function () {
+  withGuardStubs_({}, function (store, puts) {
+    var res = pdWithFinalizeGuard_(GE_, function () { return { ok: true, ran: 1 }; });
+    assert.deepStrictEqual(res, { ok: true, ran: 1 });
+    assert.strictEqual(puts[0].k, 'pd_fin_DOC1|PRIMARY');
+    assert.ok(puts[0].ttl > 360, 'marker TTL must outlive the 6-min execution cap');
+    assert.deepStrictEqual(store, {});
+  });
+});
+t('a second call for the same run while one is in flight is refused as busy (not run)', function () {
+  withGuardStubs_({}, function () {
+    var inner = null, innerRan = false;
+    pdWithFinalizeGuard_(GE_, function () {
+      inner = pdWithFinalizeGuard_({ outputDocId: 'DOC1', note: '' }, function () { innerRan = true; return { ok: true }; });
+      return { ok: true };
+    });
+    assert.strictEqual(innerRan, false);
+    assert.strictEqual(inner.ok, false);
+    assert.strictEqual(inner.stage, 'busy');
+    assert.strictEqual(inner.rowIndex, undefined, 'busy must carry no rowIndex so the card stays pending');
+  });
+});
+t('the other half of a billing split is a different run and is not blocked', function () {
+  withGuardStubs_({}, function () {
+    var innerRan = false;
+    pdWithFinalizeGuard_({ outputDocId: 'DOC1', note: 'SPLIT:PRIMARY' }, function () {
+      pdWithFinalizeGuard_({ outputDocId: 'DOC1', note: 'SPLIT:sprinter' }, function () { innerRan = true; return { ok: true }; });
+      return { ok: true };
+    });
+    assert.strictEqual(innerRan, true);
+  });
+});
+t('a throw still clears the marker, so the next click can run', function () {
+  withGuardStubs_({}, function (store) {
+    assert.throws(function () { pdWithFinalizeGuard_(GE_, function () { throw new Error('boom'); }); }, /boom/);
+    assert.deepStrictEqual(store, {});
+    var res = pdWithFinalizeGuard_(GE_, function () { return { ok: true }; });
+    assert.strictEqual(res.ok, true);
+  });
+});
+t('lock contention answers busy instead of running unguarded', function () {
+  withGuardStubs_({ lockBusy: true }, function () {
+    var ran = false;
+    var res = pdWithFinalizeGuard_(GE_, function () { ran = true; return { ok: true }; });
+    assert.strictEqual(ran, false);
+    assert.strictEqual(res.stage, 'busy');
+  });
+});
+t('both client-callable finalize orchestrators go through the guard; watchdog is 3 min', function () {
+  assert.ok(/function finalizeRunNewDeal\(dealerKey, entry\) \{\s*return pdWithFinalizeGuard_\(/.test(codeSource));
+  assert.ok(/function finalizeRunExisting\(dealerKey, entry, existingDealId\) \{\s*return pdWithFinalizeGuard_\(/.test(codeSource));
+  var view = fs.readFileSync(path.join(ROOT, 'ViewRun.html'), 'utf8');
+  assert.ok(/var RV_FINALIZE_WATCHDOG_MS = 3 \* 60 \* 1000;/.test(view));
+});
+
 // ── Report ───────────────────────────────────────────────────────────────────
 function report_() {
   var totalPass = 0, totalFail = 0;

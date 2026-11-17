@@ -256,6 +256,16 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   to the brain backlog; `CLAUDE.md` line count refreshed.
 
 ### Fixed
+- **Run view: finalize watchdog shortened to 3 min, with a server in-flight guard**
+  (2026-11-16, `fix/finalize-watchdog-3min`). 6.5 min was too long to wait — a normal
+  finalize answers in 1–2 min. 3 min is under the server's 6-min execution cap, so a
+  retry can now meet a call that is still running; two concurrent finalizes of one run
+  could both attach products. `finalizeRunNewDeal` / `finalizeRunExisting` now run
+  through `pdWithFinalizeGuard_`: one finalize per run (`outputDocId|group`) at a time,
+  marked in the script cache (`pd_fin_<token>`, 420 s TTL) under a short script lock. A
+  retry that meets a live call gets `stage:'busy'` ("an earlier click is still working —
+  wait a minute") and the card stays pending. Bodies moved to `finalizeRunNewDealCore_` /
+  `finalizeRunExistingCore_`. New harness suite "finalize in-flight guard" (6 tests).
 - **Run view: a lost finalize request no longer locks the card forever** (2026-11-16,
   `fix/finalize-watchdog`). A Columbia Honda "Create deal & Finalize" click sent its
   `google.script.run` call, but it never reached the server (no execution logged; the

@@ -618,9 +618,10 @@
     var cardStates     = [];   // per pendingRuns entry: {state, rowIndex, committed}
                                // state: pending → finalizing → finalized | pending → abandoning → abandoned
                                // attempt/watchdog: finalizeCard's lost-request timer (see there)
-    // Just past the server's 6-min execution cap: once it passes, no finalize call can
-    // still be running server-side, so re-enabling the card can't race a live one.
-    var RV_FINALIZE_WATCHDOG_MS = 6.5 * 60 * 1000;
+    // A normal finalize answers in 1–2 min. This fires before the server's 6-min cap, so a
+    // retry can meet a call that is still running — the server's in-flight guard
+    // (pdWithFinalizeGuard_) answers that retry with stage 'busy' instead of running twice.
+    var RV_FINALIZE_WATCHDOG_MS = 3 * 60 * 1000;
     var lastConfirmedDealer = ''; // for reverting the dealer select if a discard is cancelled
     var rvGuardAnswered = false;  // rvSwitchDealer_ already ran the un-finalized guard → change handler skips it
 
@@ -1352,12 +1353,12 @@
       statusEl.className = 'finalize-card-status';
 
       // Watchdog: a google.script.run call can be lost before it reaches the
-      // server (e.g. an expired Google sign-in) — then neither handler ever
-      // fires and the card stays busy forever. After the server's own 6-minute
-      // cap, no real execution can still be alive, so a retry cannot race one
-      // into a second deal; re-enable the card. A late answer to an attempt
-      // that was superseded by a retry is ignored (the retry adopts the same
-      // deal via the server's token cache / run-log anchor).
+      // server — then neither handler ever fires and the card stays busy forever.
+      // After RV_FINALIZE_WATCHDOG_MS, re-enable the card. If the first call is in
+      // fact still running, the server refuses the retry with stage 'busy' (no
+      // rowIndex → the card stays pending with that message). A late answer to an
+      // attempt that was superseded by a retry is ignored (the retry adopts the
+      // same deal via the server's token cache / run-log anchor).
       var attempt = (cardStates[i].attempt || 0) + 1;
       cardStates[i].attempt = attempt;
       function isCurrent() { return cardStates[i] && cardStates[i].attempt === attempt; }

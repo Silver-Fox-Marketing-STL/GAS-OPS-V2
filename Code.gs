@@ -8077,6 +8077,38 @@ function pdNewDealCacheClear_(token) {
   PropertiesService.getScriptProperties().deleteProperty('pd_new_' + token);
 }
 
+// Finalize in-flight guard. The Run view's watchdog (RV_FINALIZE_WATCHDOG_MS, 3 min)
+// re-enables a card BEFORE the server's 6-min execution cap, so a retry can arrive
+// while the first call is still running. Two concurrent finalizes of one run could
+// both attach products/fields (pdAttachProducts_ dedups only against what's already
+// on the deal). So one finalize per run token (outputDocId|group) at a time: a second
+// call while one is in flight returns stage 'busy' — nothing written, and with no
+// rowIndex the card stays pending. The marker TTL outlives the 6-min cap, so an
+// execution killed at the cap (its `finally` never runs) blocks retries only briefly.
+// A request lost before reaching the server never sets the marker, so its retry runs.
+var PD_FINALIZE_BUSY_TTL_S = 420;
+function pdFinalizeToken_(entry) {
+  entry = entry || {};
+  var note  = String(entry.note || '');
+  var group = (note.indexOf('SPLIT:') === 0) ? note.substring(6).toUpperCase() : 'PRIMARY';
+  return String(entry.outputDocId || '').trim() + '|' + group;
+}
+/** Runs fn() unless another finalize of the same run is in flight (→ the 'busy' shape). */
+function pdWithFinalizeGuard_(entry, fn) {
+  var key   = 'pd_fin_' + pdFinalizeToken_(entry);
+  var cache = CacheService.getScriptCache();
+  var lock  = LockService.getScriptLock();   // makes the check-and-set atomic; held only for it
+  var busy  = { ok: false, stage: 'busy', retryable: true,
+                message: 'An earlier click for this run is still working on the server. Wait a minute, then click again.' };
+  try { lock.waitLock(5000); } catch (e) { return busy; }
+  try {
+    if (cache.get(key)) return busy;
+    cache.put(key, '1', PD_FINALIZE_BUSY_TTL_S);
+  } finally { lock.releaseLock(); }
+  try { return fn(); }
+  finally { try { cache.remove(key); } catch (e) {} }
+}
+
 /**
  * Client-callable. Pushes a FINALIZED run (one RUN_LOG row) to Pipedrive:
  * create a new deal or link an existing one, attach per-type products, set
@@ -8378,8 +8410,12 @@ function pdApplyDealContents_(dealId, lineItems, pdCfg, currency, state, persist
  * via a token cache (pd_new_<outputDocId|group>): a created deal id is cached the
  * instant PD returns it, so a failure before/after finalize never makes a 2nd deal.
  * The deactivated-product preempt runs BEFORE any deal is created.
+ * One call per run at a time (pdWithFinalizeGuard_).
  */
 function finalizeRunNewDeal(dealerKey, entry) {
+  return pdWithFinalizeGuard_(entry, function() { return finalizeRunNewDealCore_(dealerKey, entry); });
+}
+function finalizeRunNewDealCore_(dealerKey, entry) {
   try {
     if (!entry || !entry.billing) return { ok: false, stage: 'gate', message: 'Invalid run entry payload.', retryable: false };
     if (!getPipedriveStatus().configured) {
@@ -8460,8 +8496,12 @@ function finalizeRunNewDeal(dealerKey, entry) {
  * (so no RUN_LOG row is written for a bad id), finalizes the run with it, then links
  * the run's products to that deal via pushRunToPipedrive('link'). Returns the push
  * result with rowIndex attached (so the card stays committable + retryable).
+ * One call per run at a time (pdWithFinalizeGuard_).
  */
 function finalizeRunExisting(dealerKey, entry, existingDealId) {
+  return pdWithFinalizeGuard_(entry, function() { return finalizeRunExistingCore_(dealerKey, entry, existingDealId); });
+}
+function finalizeRunExistingCore_(dealerKey, entry, existingDealId) {
   try {
     var id = String(existingDealId || '').trim();
     if (!id) return { ok: false, stage: 'gate', message: 'Enter the existing Deal ID to link.', retryable: false };
