@@ -985,17 +985,29 @@ function pasteVinsAndRun(dealerKey, vins, dealId, runId, bypassFilters, userKey,
   // have text. Runs BEFORE the ORDERS write and the template copy in runDealer —
   // a validation failure creates zero artifacts. Client mirrors this check for
   // UX; this is the authoritative gate.
+  // Same gate for the alt QR: every ordered VIN whose type resolves to a @QRALT
+  // schema must have a usable ALTURL. runDealer re-checks the matched rows (manual
+  // editor runs skip this function); this pre-write check means zero artifacts.
   var featMaps  = getCsvProductMaps_(config[CFG.KEY], getSourceSplit_(config));
-  var featTypes = featuresTypesForDealer_(buildTypeRulesFromProductMap_(featMaps.main), featMaps.main);
-  if (Object.keys(featTypes).length) {
+  var featRules = buildTypeRulesFromProductMap_(featMaps.main);
+  var featTypes = featuresTypesForDealer_(featRules, featMaps.main);
+  var altTypes  = altQrTypesForDealer_(featRules, featMaps.main);
+  if (Object.keys(featTypes).length || Object.keys(altTypes).length) {
     // ponytail: second scraper read per run (runDealer reads again at step 7);
     // thread the map through if it ever measurably matters.
-    var vinTypes = buildVinDataMap_(getDealerScraperData_(config[CFG.SCRAPER_LOCATION]) || []);
+    var invRows  = getDealerScraperData_(config[CFG.SCRAPER_LOCATION]) || [];
+    var vinTypes = buildVinDataMap_(invRows);
     var missingFeat = collectMissingFeatures_(vins, vinTypes, featTypes, featuresMap);
     if (missingFeat.length) {
       throw new Error('Missing Features text for ' + missingFeat.length + ' vehicle' +
         (missingFeat.length === 1 ? '' : 's') + ': ' + missingFeat.join(', ') +
         '. Enter Features for every required row before running.');
+    }
+    if (Object.keys(altTypes).length) {
+      // Same "required per-VIN value" rule as Features, with the ALTURL map as the values.
+      var altIdx     = getSchemaIndex_(ALTURL_FIELD_KEY);
+      var missingAlt = collectMissingFeatures_(vins, vinTypes, altTypes, buildAltUrlMap_(invRows, altIdx));
+      if (missingAlt.length) throw new Error(altUrlGateError_(missingAlt, altIdx));
     }
   }
 
@@ -1180,7 +1192,25 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     //     spill has settled (matchedRows read above), before buildCSVSheet_
     //     reads col W. Validated upstream by pasteVinsAndRun; blank entries are
     //     harmless (only schemas listing FEATURES emit the column).
-    writeFeatures_(outputDoc, matchedRows, featuresMap);
+    //     Row-addressed writers use omSlots (every spill row, sheet order), not
+    //     matchedRows (which skips blank-YEAR rows and so can misalign).
+    var omSlots = readOrderMatchSlots_(outputDoc);
+    writeFeatures_(outputDoc, omSlots, featuresMap);
+
+    // 9d. Alt QR (@QRALT): one ALTURL per matched row into ORDERMATCH col AB, ''
+    //     for rows whose type needs none. BLOCKS if an alt-QR row has no usable
+    //     ALTURL (a graphic missing its second QR is a misprint) — the catch
+    //     below trashes this run's artifacts. altUrls stays null for dealers
+    //     with no @QRALT schema, which skips all alt work downstream.
+    var altTypes = altQrTypesForDealer_(typeRules, csvProductMaps.main);
+    var altUrls  = null;
+    if (Object.keys(altTypes).length) {
+      var altIdx = getSchemaIndex_(ALTURL_FIELD_KEY);
+      var alt    = altUrlsForRows_(omSlots, buildAltUrlMap_(scraperData, altIdx), altTypes);
+      if (alt.missing.length) throw new Error(altUrlGateError_(alt.missing, altIdx));
+      altUrls = alt.urls;
+      writeAltUrls_(outputDoc, altUrls);
+    }
 
     // 10. Copy VIN log into LOG tab of output doc
     setProgress_(runId, 'Copying VIN log (' + matchedRows.length + ' matched)...', 50);
@@ -1190,10 +1220,15 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     //     schema actually emits a QR column. LINKBUILDER's sole consumer is QR
     //     generation, so a no-QR dealer skips the whole block (and its blank
     //     QR_FOLDER_ID / QR_PREFIX / UTM_BASE_URL config is never touched).
-    var links = [], qrFileIds = [], csvFileIds = [];
+    //     Links are SLOT-ALIGNED: links.main[i] / links.alt[i] belong to ORDERMATCH
+    //     row i+2, '' when that row has no link. A car's PNGs are numbered by its
+    //     row (<prefix>_QR_Code_<n>.PNG + _<n>_ALT.PNG) and its paths land on its
+    //     own row, so a blank link can never shift a later car's QR onto the
+    //     wrong row (it used to: blanks were dropped, then files numbered 1..N).
+    var qrFileIds = [], csvFileIds = [];
     if (runNeedsQR_(typeRules, csvProductMaps.main)) {
       setProgress_(runId, 'Building link formulas...', 56);
-      links = buildLinks_(outputDoc, config, typeRules);
+      var links = buildLinks_(outputDoc, config, typeRules, omSlots.length, altUrls);
       // Auto-clear the dealer's QR folder first: folders then only ever hold the
       // current run's PNGs (old ones go to Drive trash, 30-day recovery). Keeps
       // uploads fast, abandons cheap, and kills the duplicate-filename pileup.
@@ -1201,13 +1236,22 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
       var clearedOld = clearQRFolder_(config[CFG.QR_FOLDER_ID]);
       if (clearedOld > 0) Logger.log('Cleared ' + clearedOld + ' old QR PNGs before run.');
 
-      setProgress_(runId, 'Generating ' + links.length + ' QR code' + (links.length === 1 ? '' : 's') + ' (parallel)...', 64);
-      qrFileIds = generateQRCodesParallel_(links, config[CFG.QR_FOLDER_ID], config[CFG.QR_PREFIX]);
-      Logger.log('QR codes generated: ' + qrFileIds.length + ' of ' + links.length);
+      var qrWanted = countNonBlank_(links.main) + countNonBlank_(links.alt);
+      setProgress_(runId, 'Generating ' + qrWanted + ' QR code' + (qrWanted === 1 ? '' : 's') + ' (parallel)...', 64);
+      qrFileIds = generateQRCodesParallel_(links.main, config[CFG.QR_FOLDER_ID], config[CFG.QR_PREFIX], '');
+      if (altUrls) {
+        qrFileIds = qrFileIds.concat(
+          generateQRCodesParallel_(links.alt, config[CFG.QR_FOLDER_ID], config[CFG.QR_PREFIX], QR_ALT_SUFFIX));
+      }
+      Logger.log('QR codes generated: ' + qrFileIds.length + ' of ' + qrWanted);
 
-      // 12. Write QR paths into ORDERMATCH col J
-      setProgress_(runId, links.length + ' QR codes complete. Writing paths...', 82);
-      writeQRPaths_(outputDoc, config[CFG.QR_PREFIX], links.length, qrBasePath);
+      // 12. Write QR paths into ORDERMATCH col J (and the alt paths into @QRALT's col)
+      setProgress_(runId, qrWanted + ' QR codes complete. Writing paths...', 82);
+      writeQRPaths_(outputDoc, config[CFG.QR_PREFIX], links.main, qrBasePath, FIELD_TO_COL['@QR'], '');
+      if (altUrls) {
+        writeQRPaths_(outputDoc, config[CFG.QR_PREFIX], links.alt, qrBasePath,
+                      getFieldToCol_()['@QRALT'], QR_ALT_SUFFIX);
+      }
     } else {
       Logger.log('QR generation skipped — no resolved schema contains a QR field code.');
       setProgress_(runId, 'No QR codes for this dealer — skipping...', 82);
@@ -2008,50 +2052,84 @@ function readOrderMatchResults_(outputDoc) {
     .filter(function(row) { return String(row[0]).trim() !== ''; });
 }
 
+/**
+ * Every QUERY spill row in SHEET order (slot i ↔ row i+2) — for writers that
+ * address rows by position (Features, ALTURL, LINKBUILDER/QR slots).
+ * readOrderMatchResults_ drops blank-YEAR rows, so ITS index can't address a
+ * row: one blank year would shift every later car's value onto the wrong car.
+ */
+function readOrderMatchSlots_(outputDoc) {
+  var sheet   = outputDoc.getSheetByName('ORDERMATCH');
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  return trimToSpill_(sheet.getRange(2, 1, lastRow - 1, 9).getValues());   // A–I = the spill
+}
+
+// Pure: the contiguous run of rows from the top with a VIN (col E). Every
+// QUERY match has one; the first blank VIN is the end of the spill.
+function trimToSpill_(rows) {
+  var n = 0;
+  while (n < rows.length && String(rows[n][4] == null ? '' : rows[n][4]).trim() !== '') n++;
+  return rows.slice(0, n);
+}
+
 
 // ============================================================================
 // SECTION 8: LINK BUILDING
 // ============================================================================
 
-function buildLinks_(outputDoc, config, typeRules) {
-  // Capture matched row count before writing formulas so we can scale the sleep.
-  var omSheet = outputDoc.getSheetByName('ORDERMATCH');
-  var numRows = Math.max(0, omSheet.getLastRow() - 1);
-
-  writeLinkBuilderFormulas_(outputDoc, config, typeRules);
+/**
+ * Writes the LINKBUILDER formulas for the `slots` matched ORDERMATCH rows, waits
+ * for them, and returns SLOT-ALIGNED link lists: {main: [...], alt: [...]} where
+ * index i ↔ ORDERMATCH row i+2 and '' marks a row with no http link. `alt` is []
+ * when altUrls is null (no @QRALT schema in the run).
+ */
+function buildLinks_(outputDoc, config, typeRules, slots, altUrls) {
+  if (!slots) return { main: [], alt: [] };
+  writeLinkBuilderFormulas_(outputDoc, config, typeRules, slots, altUrls);
   SpreadsheetApp.flush();
+  var sheet   = outputDoc.getSheetByName('LINKBUILDER');
   var readCol = (config[CFG.LINKBUILDER_COL] === 'C') ? 3 : 2;
-  // Poll until the LAST link formula has produced a URL — exits early on fast
-  // recalcs. Cap matches the old fixed delay (30ms/row, 700ms floor, 2s cap);
-  // rows without a URL fall back to waiting the full cap, same as before.
-  waitForRecalc_(calcRecalcDelay_(numRows, 30, 700, 2000), function() {
-    if (numRows === 0) return true;
-    var v = String(outputDoc.getSheetByName('LINKBUILDER').getRange(numRows + 1, readCol).getValue());
-    return v.indexOf('http') === 0;
+  var lastAlt = -1;
+  (altUrls || []).forEach(function(u, i) { if (u) lastAlt = i; });
+  // Poll until the LAST link formula (and the last alt formula, if any) has
+  // produced a URL — exits early on fast recalcs. Cap matches the old fixed
+  // delay (30ms/row, 700ms floor, 2s cap); a last row without a URL falls back
+  // to waiting the full cap, same as before.
+  waitForRecalc_(calcRecalcDelay_(slots, 30, 700, 2000), function() {
+    if (String(sheet.getRange(slots + 1, readCol).getValue()).indexOf('http') !== 0) return false;
+    return lastAlt < 0 || String(sheet.getRange(lastAlt + 2, 5).getValue()).indexOf('http') === 0;
   });
 
-  var sheet   = outputDoc.getSheetByName('LINKBUILDER');
-  var lastRow = sheet.getLastRow();
-  if (lastRow < 2) return [];
-
-  return sheet.getRange(2, readCol, lastRow - 1, 1).getValues()
-    .map(function(r)    { return String(r[0]).trim(); })
-    .filter(function(v) { return v !== '' && v.indexOf('http') === 0; });
+  var vals = sheet.getRange(2, 1, slots, 5).getValues();   // A–E
+  function link_(v) { v = String(v == null ? '' : v).trim(); return v.indexOf('http') === 0 ? v : ''; }
+  return {
+    main: vals.map(function(r) { return link_(r[readCol - 1]); }),
+    alt:  altUrls ? vals.map(function(r) { return link_(r[4]); }) : []   // col E
+  };
 }
 
-function writeLinkBuilderFormulas_(outputDoc, config, typeRules) {
+function writeLinkBuilderFormulas_(outputDoc, config, typeRules, numRows, altUrls) {
   var lbSheet = outputDoc.getSheetByName('LINKBUILDER');
-  var omSheet = outputDoc.getSheetByName('ORDERMATCH');
-  var lastRow = omSheet.getLastRow();
-  if (lastRow < 2) return;
+  if (!numRows) return;
 
-  var numRows       = lastRow - 1;
   var baseOverride  = config[CFG.UTM_BASE_URL];
   var isSingleRule  = typeRules.length === 1;
+  // Alt links: D = the row's raw ALTURL (ORDERMATCH col AB), E = D + the SAME
+  // per-type UTM tag as the main link (same builder, so the two can't drift).
+  // The fixed-base override (utm_base_url) is a main-link rule only.
+  var altColLetter  = altUrls ? colNumberToLetter_(getFieldToCol_()['ALTURL']) : null;
 
-  if (lbSheet.getLastRow() > 1) lbSheet.getRange(2, 1, lbSheet.getLastRow() - 1, 3).clearContent();
+  if (lbSheet.getLastRow() > 1) lbSheet.getRange(2, 1, lbSheet.getLastRow() - 1, 5).clearContent();
 
-  var formulasA = [], formulasB = [];
+  function utmFormula_(linkRef, typeRef) {
+    if (isSingleRule) {
+      return '=IF(' + linkRef + '="","",' + linkRef + '&"?utm_source=SilverFox&utm_medium=' + typeRules[0].utm + '")';
+    }
+    return buildUtmFormula_(linkRef, typeRef, typeRules);
+  }
+
+  var formulasA = [], formulasB = [], formulasD = [], formulasE = [];
   for (var i = 0; i < numRows; i++) {
     var omRow   = i + 2;
     var linkRef = 'A' + (i + 2);
@@ -2061,16 +2139,20 @@ function writeLinkBuilderFormulas_(outputDoc, config, typeRules) {
 
     if (baseOverride && baseOverride !== '') {
       formulasB.push(['=IF(' + linkRef + '="","","' + baseOverride + '"&ORDERMATCH!E' + omRow + ')']);
-    } else if (isSingleRule) {
-      var utm = typeRules[0].utm;
-      formulasB.push(['=IF(' + linkRef + '="","",' + linkRef + '&"?utm_source=SilverFox&utm_medium=' + utm + '")']);
     } else {
-      formulasB.push([buildUtmFormula_(linkRef, typeRef, typeRules)]);
+      formulasB.push([utmFormula_(linkRef, typeRef)]);
+    }
+
+    if (altColLetter) {
+      formulasD.push(['=IFERROR(ORDERMATCH!' + altColLetter + omRow + ',"")']);
+      formulasE.push([utmFormula_('D' + omRow, typeRef)]);
     }
   }
 
   lbSheet.getRange(2, 1, numRows, 1).setFormulas(formulasA);
   lbSheet.getRange(2, 2, numRows, 1).setFormulas(formulasB);
+  if (altColLetter) lbSheet.getRange(2, 4, numRows, 2).setFormulas(
+    formulasD.map(function(d, i) { return [d[0], formulasE[i][0]]; }));
 }
 
 
@@ -2086,13 +2168,43 @@ function writeLinkBuilderFormulas_(outputDoc, config, typeRules) {
  * panel can abandon exactly this run's files by ID. Any upload that fails
  * falls back to a one-off DriveApp.createFile for that file.
  */
-function generateQRCodesParallel_(links, qrFolderId, qrPrefix) {
-  if (!links || links.length === 0) return [];
+/**
+ * Pure: the PNG name for ORDERMATCH slot n (1-based = row n+1). Main and alt QR
+ * of one car share n — `Prefix_QR_Code_5.PNG` + `Prefix_QR_Code_5_ALT.PNG`.
+ */
+function qrFileName_(qrPrefix, n, suffix) {
+  return qrPrefix + '_QR_Code_' + n + (suffix || '') + '.PNG';
+}
+
+/**
+ * Pure: slot-aligned links → one ORDERMATCH path cell per row; '' where the
+ * row has no link (no PNG is made for it, so no path may point at one).
+ */
+function buildQrPaths_(links, qrPrefix, basePath, suffix) {
+  return (links || []).map(function(url, i) {
+    return [url ? basePath + qrFileName_(qrPrefix, i + 1, suffix) : ''];
+  });
+}
+
+function countNonBlank_(arr) {
+  return (arr || []).filter(function(v) { return !!v; }).length;
+}
+
+/**
+ * `links` is SLOT-ALIGNED (index i ↔ ORDERMATCH row i+2, '' = no link): each
+ * PNG is named for its slot (qrFileName_), blanks are skipped without
+ * renumbering later slots. `suffix` is '' for the main QR, QR_ALT_SUFFIX for alt.
+ */
+function generateQRCodesParallel_(links, qrFolderId, qrPrefix, suffix) {
+  suffix = suffix || '';
+  var slots = [];   // download position → slot index
+  (links || []).forEach(function(url, i) { if (url) slots.push(i); });
+  if (slots.length === 0) return [];
 
   // 1. Download all QR PNGs in one parallel round (unchanged).
-  var dlRequests = links.map(function(url) {
+  var dlRequests = slots.map(function(i) {
     return {
-      url:                'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' + encodeURIComponent(url),
+      url:                'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' + encodeURIComponent(links[i]),
       method:             'GET',
       muteHttpExceptions: true
     };
@@ -2103,13 +2215,14 @@ function generateQRCodesParallel_(links, qrFolderId, qrPrefix) {
   var token    = ScriptApp.getOAuthToken();
   var boundary = 'sfx_qr_upload_boundary';
   var uploads  = [];
-  var qrIndex  = [];  // upload position → original QR index (for names/fallback)
-  responses.forEach(function(response, i) {
+  var qrIndex  = [];  // upload position → download position (for names/fallback)
+  responses.forEach(function(response, k) {
+    var i = slots[k];
     if (response.getResponseCode() !== 200) {
-      Logger.log('QR download failed for index ' + (i + 1) + ': HTTP ' + response.getResponseCode());
+      Logger.log('QR download failed for slot ' + (i + 1) + suffix + ': HTTP ' + response.getResponseCode());
       return;
     }
-    var fileName = qrPrefix + '_QR_Code_' + (i + 1) + '.PNG';
+    var fileName = qrFileName_(qrPrefix, i + 1, suffix);
     var body =
       '--' + boundary + '\r\n' +
       'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
@@ -2127,7 +2240,7 @@ function generateQRCodesParallel_(links, qrFolderId, qrPrefix) {
       payload:            body,
       muteHttpExceptions: true
     });
-    qrIndex.push(i);
+    qrIndex.push(k);
   });
 
   // 3. Fire uploads in parallel batches; collect file IDs in QR order.
@@ -2135,19 +2248,20 @@ function generateQRCodesParallel_(links, qrFolderId, qrPrefix) {
   for (var b = 0; b < uploads.length; b += 50) {
     var batch = UrlFetchApp.fetchAll(uploads.slice(b, b + 50));
     batch.forEach(function(r, j) {
-      var idx = qrIndex[b + j];
+      var k   = qrIndex[b + j];
+      var idx = slots[k];
       if (r.getResponseCode() < 300) {
         qrFileIds.push(JSON.parse(r.getContentText()).id);
       } else {
-        Logger.log('QR upload failed for index ' + (idx + 1) + ': HTTP ' +
+        Logger.log('QR upload failed for slot ' + (idx + 1) + suffix + ': HTTP ' +
                    r.getResponseCode() + ' — falling back to DriveApp.');
         try {
-          var fn = qrPrefix + '_QR_Code_' + (idx + 1) + '.PNG';
+          var fn = qrFileName_(qrPrefix, idx + 1, suffix);
           qrFileIds.push(DriveApp.getFolderById(qrFolderId)
-            .createFile(responses[idx].getBlob().setName(fn).setContentType('image/png'))
+            .createFile(responses[k].getBlob().setName(fn).setContentType('image/png'))
             .getId());
         } catch (e) {
-          Logger.log('QR fallback createFile failed for index ' + (idx + 1) + ': ' + e.message);
+          Logger.log('QR fallback createFile failed for slot ' + (idx + 1) + suffix + ': ' + e.message);
         }
       }
     });
@@ -2225,30 +2339,50 @@ function appEraseAllQRFolders() {
 // SECTION 10: QR PATH WRITING
 // ============================================================================
 
-function writeQRPaths_(outputDoc, qrPrefix, count, basePath) {
-  var sheet = outputDoc.getSheetByName('ORDERMATCH');
-  var paths = [];
-  for (var i = 1; i <= count; i++) {
-    paths.push([basePath + qrPrefix + '_QR_Code_' + i + '.PNG']);
-  }
-  if (paths.length > 0) {
-    var range = sheet.getRange(2, 10, paths.length, 1);
+// Writes one path per slot-aligned link into ORDERMATCH column `col` (J for
+// @QR, AC for @QRALT): row i+2 gets slot i's PNG path, or '' for no link.
+function writeQRPaths_(outputDoc, qrPrefix, links, basePath, col, suffix) {
+  var paths = buildQrPaths_(links, qrPrefix, basePath, suffix);
+  if (paths.length > 0 && col) {
+    var range = ensureSheetCols_(outputDoc.getSheetByName('ORDERMATCH'), col).getRange(2, col, paths.length, 1);
     range.setValues(paths);
     range.setNumberFormat('@');
   }
 }
 
 /**
- * Writes the per-row Features text into ORDERMATCH col W (FIELD_TO_COL.FEATURES),
- * keyed by VIN (col E). matchedRows[i] ↔ sheet row i+2 — the QUERY spill is
- * contiguous, so one batched setValues covers every row. Rows without an entry
- * get '' (only schemas listing FEATURES emit the column downstream).
+ * Writes the slot-aligned ALTURLs into ORDERMATCH's ALTURL column (AB) —
+ * LINKBUILDER col D reads them. Like writeFeatures_: script-written, so the
+ * template's AB2:AB must stay EMPTY.
  */
-function writeFeatures_(outputDoc, matchedRows, featuresMap) {
-  if (!featuresMap || !matchedRows || !matchedRows.length) return;
+function writeAltUrls_(outputDoc, altUrls) {
+  var col = getFieldToCol_()['ALTURL'];
+  if (!col || !altUrls || !altUrls.length) return;
+  var range = ensureSheetCols_(outputDoc.getSheetByName('ORDERMATCH'), col).getRange(2, col, altUrls.length, 1);
+  range.setValues(altUrls.map(function(u) { return [u]; }));
+  range.setNumberFormat('@');
+}
+
+// Widens `sheet` so 1-based column `col` exists (template copies differ in
+// width — the DEV template ORDERMATCH stops at Z). Returns the sheet.
+function ensureSheetCols_(sheet, col) {
+  var have = sheet.getMaxColumns();
+  if (have < col) sheet.insertColumnsAfter(have, col - have);
+  return sheet;
+}
+
+/**
+ * Writes the per-row Features text into ORDERMATCH col W (FIELD_TO_COL.FEATURES),
+ * keyed by VIN (col E). omSlots[i] ↔ sheet row i+2 (readOrderMatchSlots_ — NOT
+ * readOrderMatchResults_, which skips blank-YEAR rows), so one batched setValues
+ * covers every row. Rows without an entry get '' (only schemas listing FEATURES
+ * emit the column downstream).
+ */
+function writeFeatures_(outputDoc, omSlots, featuresMap) {
+  if (!featuresMap || !omSlots || !omSlots.length) return;
   var col = getFieldToCol_()['FEATURES'];
   if (!col) return;
-  var vals = matchedRows.map(function(r) {
+  var vals = omSlots.map(function(r) {
     var vin = String(r[4] == null ? '' : r[4]).trim().toUpperCase();  // col E
     var txt = featuresMap[vin];
     return [txt == null ? '' : String(txt)];
@@ -2320,8 +2454,17 @@ var FIELD_TO_COL = {
   'PRICE_TAGLINE':      21,
   // col V (22) is PRICE_MAINLINE — a template ARRAYFORMULA mapped via the
   // FIELD_CODES tab's ordermatch_col (NOT in this constant; live in both envs).
-  'FEATURES':           23   // col W — per-row manual text, written by writeFeatures_ (like QR paths in J)
+  'FEATURES':           23,  // col W — per-row manual text, written by writeFeatures_ (like QR paths in J)
+  // col X–Z (24–26) MODELTRIM/MV_PRICE/VINHALF and col AA (27) NEWCPOYEARMAKE are
+  // template ARRAYFORMULAs mapped via the FIELD_CODES overlay only.
+  'ALTURL':             28,  // col AB — raw SCRAPERDATA `alturl`, script-written by writeAltUrls_
+  '@QRALT':             29   // col AC — alt QR PNG path (<prefix>_QR_Code_<n>_ALT.PNG), written by writeQRPaths_
 };
+
+// The SCHEMA-tab field_key of the per-vehicle second URL (the @QRALT QR source),
+// and the file-name suffix that pairs an alt QR PNG with its car's main PNG.
+var ALTURL_FIELD_KEY = 'alturl';
+var QR_ALT_SUFFIX    = '_ALT';
 
 // Name of the optional config column (in the FIELD_CODES tab of SF_DEALER_CONFIG)
 // that maps a field code to its 1-based ORDERMATCH column. Matched case-insensitively.
@@ -2884,7 +3027,7 @@ function csvCellValue_(current, vin, code, edits) {
 
 // Field codes whose CSV value is a FILE PATH (QR PNGs) — never case-folded, so a
 // case-sensitive filesystem (macOS/Linux Illustrator stations) still resolves them.
-var CSV_UPPERCASE_SKIP_CODES = { '@QR': 1, '@QR2': 1 };
+var CSV_UPPERCASE_SKIP_CODES = { '@QR': 1, '@QR2': 1, '@QRALT': 1 };
 
 /**
  * Pure: the `csv_uppercase` transform for ONE CSV data cell. Strings are
@@ -2914,8 +3057,77 @@ function schemaCodesHaveFeatures_(codes) {
  */
 function schemaCodesHaveQR_(codes) {
   if (!codes) return false;
-  var QR = { '@QR': 1, '@QR2': 1, 'QRYEARMODEL': 1, 'QRSTOCK': 1 };
+  var QR = { '@QR': 1, '@QR2': 1, '@QRALT': 1, 'QRYEARMODEL': 1, 'QRSTOCK': 1 };
   return codes.some(function(c) { return QR[parseSchemaCell_(c).code] === 1; });
+}
+
+/**
+ * Pure: does a schema's field-code list emit the alt QR (@QRALT — a second QR
+ * made from the vehicle's ALTURL, not a copy of @QR)? Sees through CODE:HEADER.
+ */
+function schemaCodesHaveAltQR_(codes) {
+  return !!codes && codes.some(function(c) { return parseSchemaCell_(c).code === '@QRALT'; });
+}
+
+/**
+ * Returns {type: true} for types whose RESOLVED schema lists @QRALT — the
+ * vehicles that MUST have a usable ALTURL. Same exact-key resolution as
+ * featuresTypesForDealer_. Fail-safe: {} on no rules.
+ */
+function altQrTypesForDealer_(typeRules, productMap) {
+  var out = {};
+  (typeRules || []).forEach(function(rule) {
+    if (schemaCodesHaveAltQR_(getCsvSchema_(resolveRuleSchema_(rule, productMap)))) {
+      out[rule.match] = true;
+    }
+  });
+  return out;
+}
+
+/**
+ * Pure: SCRAPERDATA rows → {VIN_UPPER → alt URL} for rows whose `alturl` cell
+ * (schema index altIdx) is an http(s) link. Anything else is left out, so the
+ * run gate treats a blank or non-link ALTURL as missing (it would make no QR).
+ * altIdx < 0 (column not in the SCHEMA tab) → {}.
+ */
+function buildAltUrlMap_(rows, altIdx) {
+  var map = {};
+  if (altIdx == null || altIdx < 0) return map;
+  (rows || []).forEach(function(r) {
+    var vin = String(r[0] == null ? '' : r[0]).trim().toUpperCase();
+    var url = String(r[altIdx] == null ? '' : r[altIdx]).trim();
+    if (vin && vin !== '*' && /^https?:\/\//i.test(url)) map[vin] = url;
+  });
+  return map;
+}
+
+/**
+ * Pure: one ALTURL per ORDERMATCH row (omSlots[i] ↔ sheet row i+2, from
+ * readOrderMatchSlots_), '' for rows whose type needs no alt QR. `missing` lists
+ * the VINs of alt-QR rows with no usable ALTURL — the run blocks on any.
+ */
+function altUrlsForRows_(omSlots, altMap, altTypes) {
+  var urls = [], missing = [];
+  (omSlots || []).forEach(function(r) {
+    var vin  = String(r[4] == null ? '' : r[4]).trim();   // col E
+    var type = String(r[6] == null ? '' : r[6]).trim();   // col G
+    if (!altTypes[type]) { urls.push(''); return; }
+    var url = altMap[vin.toUpperCase()] || '';
+    if (!url) missing.push(vin);
+    urls.push(url);
+  });
+  return { urls: urls, missing: missing };
+}
+
+/** The run-blocking message for alt-QR vehicles without a usable ALTURL. */
+function altUrlGateError_(missingVins, altIdx) {
+  if (altIdx < 0) {
+    return 'This dealer\'s template needs an alt QR (@QRALT), but the SCHEMA tab has no "' +
+      ALTURL_FIELD_KEY + '" column. Add it, re-import, then run again.';
+  }
+  return 'No usable ALTURL (blank, or not an http link) for ' + missingVins.length + ' vehicle' +
+    (missingVins.length === 1 ? '' : 's') + ': ' + missingVins.join(', ') +
+    '. Their template prints an alt QR — fix the scraper data and re-import before running.';
 }
 
 /**
@@ -3627,7 +3839,7 @@ function abandonRun(dealerKey, outputDocId, qrFileIds, csvFileIds) {
     } else {
       var prefix  = String(config[CFG.QR_PREFIX] || '').trim();
       var pattern = new RegExp('^' + prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') +
-                               '_QR_Code_\\d+\\.png$', 'i');
+                               '_QR_Code_\\d+(' + QR_ALT_SUFFIX + ')?\\.png$', 'i');
       if (prefix && config[CFG.QR_FOLDER_ID]) {
         var ids = [];
         var qrFiles = DriveApp.getFolderById(config[CFG.QR_FOLDER_ID]).getFiles();
@@ -5307,6 +5519,15 @@ function getDataSchema_() {
 // Internal: canonical column count — the single source of truth for SCRAPERDATA
 // width. Equals 21 until a column is appended via addSchemaColumn. Cached.
 function getSchemaColCount_() { return getDataSchema_().length; }
+
+// Internal: 0-based SCRAPERDATA index of a canonical column by its field_key
+// (e.g. 'alturl'), or -1 when the SCHEMA tab doesn't list it. Appended columns
+// sit at different indices per environment history — look them up, never hard-code.
+function getSchemaIndex_(fieldKey) {
+  var cols = getDataSchema_();
+  for (var i = 0; i < cols.length; i++) if (cols[i].key === fieldKey) return i;
+  return -1;
+}
 
 // Internal: ensure the SCHEMA tab exists and lists the current canonical columns,
 // seeding it with today's set (the 21 fallback) the first time. Returns the sheet.

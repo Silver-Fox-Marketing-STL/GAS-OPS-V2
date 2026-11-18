@@ -114,7 +114,12 @@ previously-hit failure — don't relax without reading the matching Bridge secti
   the overlay — the constant is not the full picture; check both before claiming
   a column free); `buildCSVSheet_` reads 100 cols; `PRICE_TAGLINE` = col 21 (U);
   `FEATURES` = col 23 (W), script-written per-row manual text (like col J —
-  template W2:W must stay EMPTY). Template ARRAYFORMULAs `TYPESTOCK`/`TYPEVIN`
+  template W2:W must stay EMPTY). `NEWCPOYEARMAKE`=27/AA is overlay-only;
+  `ALTURL`=28/AB and `@QRALT`=29/AC are script-written (AB2:AC must stay EMPTY).
+  QR links/paths are SLOT-ALIGNED — slot i = ORDERMATCH row i+2 via
+  `readOrderMatchSlots_` (never `readOrderMatchResults_`' index, it drops
+  blank-YEAR rows); a car's PNGs are `<prefix>_QR_Code_<n>.PNG` + `_<n>_ALT.PNG`.
+  Template ARRAYFORMULAs `TYPESTOCK`/`TYPEVIN`
   (N2/R2) are exact-match — a custom type prints its own uppercased name, not "USED".
 - CSV_SCHEMAS cells may be `CODE:HEADER[:edit[N]]` (VersaWorks): the code maps
   the data column, the header prints, `edit` makes the column user-editable in

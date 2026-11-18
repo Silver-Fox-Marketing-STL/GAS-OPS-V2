@@ -74,7 +74,8 @@ var CSV_SCHEMAS_ROWS = [
   ['LOGO3', 'no features/qr',   'YEAR', 'YEARMODEL', 'MISC', ''],
   ['VDP1',  'versaworks vdp headers', 'YEAR:VDP_A', 'FEATURES:VDP_D', 'MISC:VDP_G', ''],
   ['VDP_EDIT', 'editable modeltrim',  'YEAR:VDP_A', 'MODELTRIM:VDP_B:edit18', 'MISC:VDP_G', ''],
-  ['VDP_FEAT_EDIT', 'FEATURES wrongly flagged editable', 'YEAR:VDP_A', 'FEATURES:VDP_D:edit', 'MODELTRIM:VDP_B:edit18', '']
+  ['VDP_FEAT_EDIT', 'FEATURES wrongly flagged editable', 'YEAR:VDP_A', 'FEATURES:VDP_D:edit', 'MODELTRIM:VDP_B:edit18', ''],
+  ['ALTQR', 'main + alt qr',  '@QR', '@QRALT:SecondQR', 'VIN', '']
 ];
 var fakeCsvSchemasSheet = {
   getDataRange: function () { return { getValues: function () { return CSV_SCHEMAS_ROWS; } }; }
@@ -759,6 +760,111 @@ t('collectMissingFeatures_: empty featuresTypes or empty VIN list reports nothin
   assert.deepStrictEqual(collectMissingFeatures_(['VINNEW1'], VIN_TYPE_MAP, {}, {}), []);
   assert.deepStrictEqual(collectMissingFeatures_([], VIN_TYPE_MAP, FEAT_TYPES, {}), []);
   assert.deepStrictEqual(collectMissingFeatures_(null, VIN_TYPE_MAP, FEAT_TYPES, {}), []);
+});
+
+// ============================================================================
+// Suite: alt QR (@QRALT) — a second, DIFFERENT QR per car made from ALTURL.
+// The invariant: a car's main + alt PNGs share its ORDERMATCH slot number and
+// land on its own row; a blank link never shifts a later car's QR.
+// ============================================================================
+suite('alt qr');
+var ALT_PM = {
+  'New': { product_id: 1, schema: 'ALTQR' },   // @QR + @QRALT
+  'PO':  { product_id: 2, schema: 'SCP' }      // @QR only
+};
+var ALT_RULES = buildTypeRulesFromProductMap_(ALT_PM);
+t('field codes: ALTURL=AB(28), @QRALT=AC(29), clear of the AA overlay column', function () {
+  assert.strictEqual(FIELD_TO_COL['ALTURL'], 28);
+  assert.strictEqual(FIELD_TO_COL['@QRALT'], 29);
+  assert.strictEqual(getFieldToCol_()['@QRALT'], 29);
+  assert.strictEqual(csvUppercaseCell_('C:/QR/x_QR_Code_1_ALT.PNG', '@QRALT'), 'C:/QR/x_QR_Code_1_ALT.PNG');
+});
+t('schemaCodesHaveAltQR_: only @QRALT counts (not @QR/@QR2); sees through CODE:HEADER', function () {
+  assert.strictEqual(schemaCodesHaveAltQR_(['@QR', '@QRALT:SecondQR']), true);
+  assert.strictEqual(schemaCodesHaveAltQR_(['@QR', '@QR2']), false);
+  assert.strictEqual(schemaCodesHaveAltQR_(null), false);
+  assert.strictEqual(schemaCodesHaveQR_(['@QRALT']), true);   // alt alone still opens the QR block
+});
+t('altQrTypesForDealer_: only types whose resolved schema lists @QRALT', function () {
+  assert.deepStrictEqual(altQrTypesForDealer_(ALT_RULES, ALT_PM), { 'New': true });
+  assert.deepStrictEqual(altQrTypesForDealer_(FEAT_RULES, FEAT_PM), {});
+  assert.deepStrictEqual(altQrTypesForDealer_(null, null), {});
+});
+t('getSchemaIndex_: base-21 fallback has no alturl (-1); known keys resolve', function () {
+  assert.strictEqual(getSchemaIndex_('alturl'), -1);
+  assert.strictEqual(getSchemaIndex_('vehicle_url'), 20);
+});
+t('buildAltUrlMap_: http(s) links only, upper-cased VIN keys; altIdx<0 → {}', function () {
+  var rows = [['vin1', '', '', '', 'https://a.com/1'], ['VIN2', '', '', '', '  '],
+              ['VIN3', '', '', '', 'www.no-scheme.com'], ['*', '', '', '', 'https://x'],
+              ['VIN4', '', '', '', 'HTTP://b.com/4']];
+  assert.deepStrictEqual(buildAltUrlMap_(rows, 4), { 'VIN1': 'https://a.com/1', 'VIN4': 'HTTP://b.com/4' });
+  assert.deepStrictEqual(buildAltUrlMap_(rows, -1), {});
+});
+t('alt gate (pre-run): reuses the required-value rule — missing or non-link ALTURL blocks', function () {
+  var vinTypes = { 'VINA': { type: 'New' }, 'VINB': { type: 'New' }, 'VINC': { type: 'PO' } };
+  var altMap = { 'VINA': 'https://a.com' };
+  assert.deepStrictEqual(collectMissingFeatures_(['VINA', 'vinb', 'VINC'], vinTypes, { 'New': true }, altMap), ['vinb']);
+});
+t('altUrlsForRows_: one slot per matched row; non-alt types blank; missing alt VINs reported', function () {
+  function om(vin, type) { var r = new Array(18).fill(''); r[4] = vin; r[6] = type; return r; }
+  var res = altUrlsForRows_([om('VINA', 'New'), om('VINC', 'PO'), om('VINB', 'New')],
+                            { 'VINA': 'https://a.com' }, { 'New': true });
+  assert.deepStrictEqual(res.urls, ['https://a.com', '', '']);
+  assert.deepStrictEqual(res.missing, ['VINB']);
+});
+t('trimToSpill_: keeps blank-YEAR rows in place, stops at the first blank VIN', function () {
+  function om(year, vin) { var r = new Array(9).fill(''); r[0] = year; r[4] = vin; return r; }
+  var spill = trimToSpill_([om('2024', 'V1'), om('', 'V2'), om('2025', 'V3'), om('', ''), om('', '')]);
+  assert.deepStrictEqual(spill.map(function (r) { return r[4]; }), ['V1', 'V2', 'V3']);   // V2 keeps slot 2
+  assert.deepStrictEqual(trimToSpill_([]), []);
+});
+t('ensureSheetCols_: widens a 26-col (DEV template) sheet to AC, no-op when wide enough', function () {
+  var calls = [];
+  var sh = { cols: 26, getMaxColumns: function () { return this.cols; },
+             insertColumnsAfter: function (a, n) { calls.push([a, n]); this.cols += n; } };
+  assert.strictEqual(ensureSheetCols_(sh, 29), sh);
+  assert.deepStrictEqual(calls, [[26, 3]]);
+  ensureSheetCols_(sh, 10);
+  assert.deepStrictEqual(calls, [[26, 3]]);
+});
+t('altUrlGateError_: names the missing SCHEMA column when alturl is absent', function () {
+  assert.ok(/no "alturl" column/.test(altUrlGateError_(['V1'], -1)));
+  assert.ok(/2 vehicles: V1, V2/.test(altUrlGateError_(['V1', 'V2'], 24)));
+});
+t('qrFileName_/buildQrPaths_: main + alt share the slot number; blanks keep their row', function () {
+  assert.strictEqual(qrFileName_('Pre', 5, ''), 'Pre_QR_Code_5.PNG');
+  assert.strictEqual(qrFileName_('Pre', 5, QR_ALT_SUFFIX), 'Pre_QR_Code_5_ALT.PNG');
+  assert.deepStrictEqual(buildQrPaths_(['http://1', '', 'http://3'], 'Pre', 'C:\\QRS\\', ''),
+    [['C:\\QRS\\Pre_QR_Code_1.PNG'], [''], ['C:\\QRS\\Pre_QR_Code_3.PNG']]);
+  assert.deepStrictEqual(buildQrPaths_(['', 'http://b'], 'Pre', '/q/', QR_ALT_SUFFIX),
+    [[''], ['/q/Pre_QR_Code_2_ALT.PNG']]);
+});
+t('generateQRCodesParallel_: names PNGs by slot, skips blanks without renumbering', function () {
+  var saved = { u: globalThis.UrlFetchApp, s: globalThis.ScriptApp.getOAuthToken, b: globalThis.Utilities.base64Encode };
+  var downloaded = [], uploadedNames = [];
+  globalThis.ScriptApp.getOAuthToken = function () { return 'tok'; };
+  globalThis.Utilities.base64Encode = function () { return 'AAAA'; };
+  globalThis.UrlFetchApp = { fetchAll: function (reqs) {
+    return reqs.map(function (q) {
+      if (q.method === 'GET') {
+        downloaded.push(decodeURIComponent(q.url.split('data=')[1]));
+        return { getResponseCode: function () { return 200; }, getBlob: function () { return { getBytes: function () { return []; } }; } };
+      }
+      uploadedNames.push(JSON.parse(q.payload.split('\r\n')[3]).name);
+      var id = 'F' + uploadedNames.length;
+      return { getResponseCode: function () { return 200; }, getContentText: function () { return '{"id":"' + id + '"}'; } };
+    });
+  } };
+  try {
+    var ids = generateQRCodesParallel_(['', 'https://alt/2', '', 'https://alt/4'], 'folder', 'Pre', QR_ALT_SUFFIX);
+    assert.deepStrictEqual(downloaded, ['https://alt/2', 'https://alt/4']);
+    assert.deepStrictEqual(uploadedNames, ['Pre_QR_Code_2_ALT.PNG', 'Pre_QR_Code_4_ALT.PNG']);
+    assert.deepStrictEqual(ids, ['F1', 'F2']);
+    assert.deepStrictEqual(generateQRCodesParallel_(['', ''], 'folder', 'Pre', ''), []);
+  } finally {
+    globalThis.UrlFetchApp = saved.u; globalThis.ScriptApp.getOAuthToken = saved.s; globalThis.Utilities.base64Encode = saved.b;
+  }
 });
 
 // ============================================================================

@@ -11,6 +11,24 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Added
+- **Alt QR (`@QRALT`): a second, different QR per car from a new `ALTURL`
+  column.** The default import schema gains an appended `alturl` / `ALTURL`
+  column (SCHEMA tab row + SCRAPERDATA header, set by hand per environment;
+  code finds it by key via `getSchemaIndex_`, never by index). A schema that
+  lists the new `@QRALT` field code gets, per car, `<prefix>_QR_Code_<n>_ALT.PNG`
+  beside its unchanged `<prefix>_QR_Code_<n>.PNG` — both share the car's
+  ORDERMATCH slot number, and both paths sit on the car's own CSV row. Flow:
+  `runDealer` writes each alt-QR row's ALTURL into ORDERMATCH col AB
+  (`writeAltUrls_`, new `ALTURL` field code = 28), LINKBUILDER cols D–E build
+  the UTM-tagged alt link with the same formula builder as col B, a second
+  parallel QR round makes the `_ALT` PNGs, and `writeQRPaths_` writes their
+  paths into col AC (`@QRALT` = 29; AA is the overlay-only NEWCPOYEARMAKE).
+  Alt files join `qrFileIds`, so Abandon and failed-run cleanup trash them.
+  **Blocks the run** when a vehicle whose type's schema lists `@QRALT` has no
+  usable ALTURL (blank or not http): `pasteVinsAndRun` checks before any write
+  (reusing `collectMissingFeatures_`), `runDealer` re-checks the matched rows.
+  `@QR2` is unchanged (same file as `@QR`). Dealers without `@QRALT` skip all
+  alt work. `@QRALT` is in the QR gate and the CSV-uppercase skip list.
 - **VIN Inbox: click-to-zoom on photos.** In the open photo panel, a click on the
   photo shows it at full size (at least 2× the fit size, so small photos still
   enlarge), centred on the clicked spot; a second click fits it again. While
@@ -265,6 +283,18 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   to the brain backlog; `CLAUDE.md` line count refreshed.
 
 ### Fixed
+- **Run: a car with no link can no longer shift later cars' QR codes or
+  Features text onto the wrong row.** `buildLinks_` used to drop blank links
+  and `generateQRCodesParallel_`/`writeQRPaths_` then numbered files and paths
+  1..N down the rows, so one car without a URL gave every later car the next
+  car's QR (and the last car none). Links are now SLOT-ALIGNED (one entry per
+  ORDERMATCH row, `''` = no link): each PNG is named for its own row and a
+  blank row gets a blank path. Row-addressed writers (`writeFeatures_`, the new
+  ALTURL/QR writers) now index by `readOrderMatchSlots_` (every spill row in
+  sheet order) instead of `readOrderMatchResults_`, which drops blank-YEAR rows.
+- **Import: the file card's column count used a fixed 21** ("x/21 columns
+  matched"), wrong since the schema grew to 24; it now uses the live SCHEMA
+  column count (`ViewImport.html`).
 - **App-wide: a lost server request no longer freezes a screen** (2026-11-16,
   `fix/timed-server-calls`). A `google.script.run` request lost before it reaches the
   server (e.g. an expired Google sign-in) fires neither handler, so the 2026-11-16
