@@ -11,6 +11,15 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Added
+- **VIN Inbox: click-to-zoom on photos.** In the open photo panel, a click on the
+  photo shows it at full size (at least 2× the fit size, so small photos still
+  enlarge), centred on the clicked spot; a second click fits it again. While
+  zoomed, drag (mouse) or scroll/swipe pans inside the panel, which stays capped
+  at 70vh so the VIN input beside it stays in view. A press that moves more than
+  5px counts as a drag, not a click. Client-only (`ViewVinInbox.html`:
+  `.vi-zoom` box + `viZoom*_` handlers delegated on `#viBody`); no server change —
+  `getVinPhotoDataUrl` already sends the full-resolution file (Lot Scanner saves
+  up to 3000px). A re-render resets a zoomed photo to fit.
 - **Run Order: URL liveness check (dead-VDP detection).** Scrapers run once each
   morning, so a vehicle can be pulled from the dealer's website before the order
   prints — SCRAPERDATA has no signal for this, so CAO pre-fill and pasted VIN
