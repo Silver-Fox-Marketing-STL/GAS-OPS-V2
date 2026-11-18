@@ -64,7 +64,13 @@
   #view-vin-inbox .vi-card.vi-open .vi-actions { max-width: 480px; }
   #view-vin-inbox .vi-photo { flex-basis: 100%; display: flex; flex-direction: column; align-items: center; gap: var(--space-2); padding-top: var(--space-2); }
   #view-vin-inbox .vi-photo[hidden] { display: none; }
-  #view-vin-inbox .vi-photo img { max-width: 100%; max-height: 70vh; object-fit: contain; border-radius: var(--radius-sm); }
+  /* Zoom box: photo fits by default; .zoomed shows it full size and the box scrolls (drag/wheel to pan). */
+  /* contain: a full-size photo must not widen the card (grid items grow to fit their content). */
+  #view-vin-inbox .vi-zoom { width: 100%; max-height: 70vh; overflow: hidden; contain: inline-size; }
+  #view-vin-inbox .vi-zoom.zoomed { overflow: auto; cursor: grab; }
+  #view-vin-inbox .vi-zoom.dragging { cursor: grabbing; }
+  #view-vin-inbox .vi-zoom img { display: block; margin: 0 auto; max-width: 100%; max-height: 70vh; object-fit: contain; border-radius: var(--radius-sm); cursor: zoom-in; user-select: none; }
+  #view-vin-inbox .vi-zoom.zoomed img { max-width: none; max-height: none; height: auto; margin: 0; border-radius: 0; cursor: inherit; }
   #view-vin-inbox .vi-info { flex: 1; min-width: 0; }
   #view-vin-inbox .vi-tags { display: flex; gap: var(--space-2); margin: var(--space-1) 0; flex-wrap: wrap; }
   #view-vin-inbox .vi-veh { font-size: var(--fs-sm); color: var(--text-2); }
@@ -115,6 +121,10 @@
       body.dataset.thumbHook = '1';
       // <details> 'toggle' doesn't bubble — capture it. Opening a batch loads its thumbnails.
       body.addEventListener('toggle', function (e) { if (e.target.open) viFillThumbs(); }, true);
+      // Photo zoom: press on the photo here; move/release are tracked page-wide so a drag can leave the box.
+      body.addEventListener('mousedown', viZoomDown_);
+      document.addEventListener('mousemove', viZoomMove_);
+      document.addEventListener('mouseup', viZoomUp_);
     }
     body.innerHTML = '<p class="u-hint">Loading&hellip;</p>';
     // Timed (READ_MS): a lost load used to leave "Loading…" up for good.
@@ -387,7 +397,10 @@
     box.hidden = false;
     document.getElementById('vicard_' + sid).classList.add('vi-open');
     var drive = s.photoUrl ? '<a href="' + escHtml(s.photoUrl) + '" target="_blank" rel="noopener">Open in Drive</a>' : '';
-    if (viOpenPhotos[sid]) { box.innerHTML = '<img src="' + viOpenPhotos[sid] + '" alt="VIN photo">' + drive; return; }
+    if (viOpenPhotos[sid]) {
+      box.innerHTML = '<div class="vi-zoom"><img src="' + viOpenPhotos[sid] + '" alt="VIN photo" title="Click to zoom" draggable="false"></div>' + drive;
+      return;
+    }
     box.innerHTML = '<span class="u-hint">Loading photo&hellip;</span> ' + drive;
     google.script.run
       .withSuccessHandler(function (res) {
@@ -399,6 +412,49 @@
         if (sid in viOpenPhotos) box.innerHTML = '<span class="u-hint">Could not load photo: ' + escHtml((e && e.message) || String(e)) + '.</span> ' + drive;
       })
       .getVinPhotoDataUrl(s.photoFileId);
+  }
+
+  // ── Photo zoom ── click the photo for full size (at least 2× the fit size), centred
+  // on the clicked spot; click again to fit. While zoomed, drag or scroll to pan.
+  // A press that moves more than 5px is a drag, not a click. Touch needs none of
+  // this: a tap arrives as mousedown/mouseup, and a swipe scrolls the box natively.
+  var viDrag = null;
+  function viZoomDown_(e) {
+    var box = e.button === 0 && e.target.closest && e.target.closest('.vi-zoom');
+    if (!box) return;
+    e.preventDefault();   // no text selection while dragging
+    viDrag = { box: box, x: e.clientX, y: e.clientY, sl: box.scrollLeft, st: box.scrollTop, moved: false };
+  }
+  function viZoomMove_(e) {
+    var d = viDrag;
+    if (!d || !d.box.classList.contains('zoomed')) return;
+    var dx = e.clientX - d.x, dy = e.clientY - d.y;
+    if (!d.moved && Math.abs(dx) + Math.abs(dy) < 5) return;
+    d.moved = true;
+    d.box.classList.add('dragging');
+    d.box.scrollLeft = d.sl - dx;
+    d.box.scrollTop = d.st - dy;
+  }
+  function viZoomUp_(e) {
+    var d = viDrag;
+    viDrag = null;
+    if (!d) return;
+    d.box.classList.remove('dragging');
+    if (!d.moved) viZoomToggle_(d.box, e);
+  }
+  function viZoomToggle_(box, e) {
+    var img = box.querySelector('img');
+    if (!img) return;
+    if (box.classList.contains('zoomed')) { box.classList.remove('zoomed'); img.style.width = ''; return; }
+    var r = img.getBoundingClientRect();
+    var fx = (e.clientX - r.left) / r.width, fy = (e.clientY - r.top) / r.height;
+    if (!r.width || fx < 0 || fx > 1 || fy < 0 || fy > 1) return;   // clicked beside the photo
+    var w = Math.max(img.naturalWidth, r.width * 2);
+    box.classList.add('zoomed');
+    img.style.width = w + 'px';
+    var b = box.getBoundingClientRect();
+    box.scrollLeft = fx * w - (e.clientX - b.left);
+    box.scrollTop = fy * (w * r.height / r.width) - (e.clientY - b.top);
   }
 
   // Tags + vehicle line — shared by the initial render and every live re-check.
