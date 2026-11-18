@@ -773,10 +773,10 @@ var ALT_PM = {
   'PO':  { product_id: 2, schema: 'SCP' }      // @QR only
 };
 var ALT_RULES = buildTypeRulesFromProductMap_(ALT_PM);
-t('field codes: ALTURL=AB(28), @QRALT=AC(29), clear of the AA overlay column', function () {
-  assert.strictEqual(FIELD_TO_COL['ALTURL'], 28);
-  assert.strictEqual(FIELD_TO_COL['@QRALT'], 29);
-  assert.strictEqual(getFieldToCol_()['@QRALT'], 29);
+t('field codes: @QRALT=AB(28), clear of the AA overlay column; no raw ALTURL code', function () {
+  assert.strictEqual(FIELD_TO_COL['@QRALT'], 28);
+  assert.strictEqual(getFieldToCol_()['@QRALT'], 28);
+  assert.strictEqual(FIELD_TO_COL.hasOwnProperty('ALTURL'), false);
   assert.strictEqual(csvUppercaseCell_('C:/QR/x_QR_Code_1_ALT.PNG', '@QRALT'), 'C:/QR/x_QR_Code_1_ALT.PNG');
 });
 t('schemaCodesHaveAltQR_: only @QRALT counts (not @QR/@QR2); sees through CODE:HEADER', function () {
@@ -819,14 +819,14 @@ t('trimToSpill_: keeps blank-YEAR rows in place, stops at the first blank VIN', 
   assert.deepStrictEqual(spill.map(function (r) { return r[4]; }), ['V1', 'V2', 'V3']);   // V2 keeps slot 2
   assert.deepStrictEqual(trimToSpill_([]), []);
 });
-t('ensureSheetCols_: widens a 26-col (DEV template) sheet to AC, no-op when wide enough', function () {
+t('ensureSheetCols_: widens a 26-col (DEV template) sheet to AB, no-op when wide enough', function () {
   var calls = [];
   var sh = { cols: 26, getMaxColumns: function () { return this.cols; },
              insertColumnsAfter: function (a, n) { calls.push([a, n]); this.cols += n; } };
-  assert.strictEqual(ensureSheetCols_(sh, 29), sh);
-  assert.deepStrictEqual(calls, [[26, 3]]);
+  assert.strictEqual(ensureSheetCols_(sh, 28), sh);
+  assert.deepStrictEqual(calls, [[26, 2]]);
   ensureSheetCols_(sh, 10);
-  assert.deepStrictEqual(calls, [[26, 3]]);
+  assert.deepStrictEqual(calls, [[26, 2]]);
 });
 t('altUrlGateError_: names the missing SCHEMA column when alturl is absent', function () {
   assert.ok(/no "alturl" column/.test(altUrlGateError_(['V1'], -1)));

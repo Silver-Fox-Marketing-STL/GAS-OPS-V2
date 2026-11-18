@@ -18,11 +18,12 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   lists the new `@QRALT` field code gets, per car, `<prefix>_QR_Code_<n>_ALT.PNG`
   beside its unchanged `<prefix>_QR_Code_<n>.PNG` — both share the car's
   ORDERMATCH slot number, and both paths sit on the car's own CSV row. Flow:
-  `runDealer` writes each alt-QR row's ALTURL into ORDERMATCH col AB
-  (`writeAltUrls_`, new `ALTURL` field code = 28), LINKBUILDER cols D–E build
-  the UTM-tagged alt link with the same formula builder as col B, a second
+  `runDealer` writes each alt-QR row's ALTURL straight into LINKBUILDER col D
+  (a value; no ORDERMATCH column and no raw-URL field code), col E builds the
+  UTM-tagged alt link with the same formula builder as col B, a second
   parallel QR round makes the `_ALT` PNGs, and `writeQRPaths_` writes their
-  paths into col AC (`@QRALT` = 29; AA is the overlay-only NEWCPOYEARMAKE).
+  paths into ORDERMATCH col AB (`@QRALT` = 28; AA is the overlay-only
+  NEWCPOYEARMAKE).
   Alt files join `qrFileIds`, so Abandon and failed-run cleanup trash them.
   **Blocks the run** when a vehicle whose type's schema lists `@QRALT` has no
   usable ALTURL (blank or not http): `pasteVinsAndRun` checks before any write

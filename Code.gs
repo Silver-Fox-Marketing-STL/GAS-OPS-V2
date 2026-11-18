@@ -1197,11 +1197,11 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
     var omSlots = readOrderMatchSlots_(outputDoc);
     writeFeatures_(outputDoc, omSlots, featuresMap);
 
-    // 9d. Alt QR (@QRALT): one ALTURL per matched row into ORDERMATCH col AB, ''
-    //     for rows whose type needs none. BLOCKS if an alt-QR row has no usable
-    //     ALTURL (a graphic missing its second QR is a misprint) — the catch
-    //     below trashes this run's artifacts. altUrls stays null for dealers
-    //     with no @QRALT schema, which skips all alt work downstream.
+    // 9d. Alt QR (@QRALT): one ALTURL per spill row ('' for rows whose type
+    //     needs none), handed to the QR block (LINKBUILDER col D). BLOCKS if an
+    //     alt-QR row has no usable ALTURL (a graphic missing its second QR is a
+    //     misprint) — the catch below trashes this run's artifacts. altUrls stays
+    //     null for dealers with no @QRALT schema, which skips all alt work.
     var altTypes = altQrTypesForDealer_(typeRules, csvProductMaps.main);
     var altUrls  = null;
     if (Object.keys(altTypes).length) {
@@ -1209,7 +1209,6 @@ function runDealer(dealerKey, dealId, runId, bypassFilters, qrBasePath, preloade
       var alt    = altUrlsForRows_(omSlots, buildAltUrlMap_(scraperData, altIdx), altTypes);
       if (alt.missing.length) throw new Error(altUrlGateError_(alt.missing, altIdx));
       altUrls = alt.urls;
-      writeAltUrls_(outputDoc, altUrls);
     }
 
     // 10. Copy VIN log into LOG tab of output doc
@@ -2115,10 +2114,10 @@ function writeLinkBuilderFormulas_(outputDoc, config, typeRules, numRows, altUrl
 
   var baseOverride  = config[CFG.UTM_BASE_URL];
   var isSingleRule  = typeRules.length === 1;
-  // Alt links: D = the row's raw ALTURL (ORDERMATCH col AB), E = D + the SAME
-  // per-type UTM tag as the main link (same builder, so the two can't drift).
-  // The fixed-base override (utm_base_url) is a main-link rule only.
-  var altColLetter  = altUrls ? colNumberToLetter_(getFieldToCol_()['ALTURL']) : null;
+  // Alt links: D = the row's raw ALTURL (a VALUE, slot-aligned altUrls[i]),
+  // E = D + the SAME per-type UTM tag as the main link (same builder, so the
+  // two can't drift). The fixed-base override (utm_base_url) is main-link only.
+  var hasAlt = !!(altUrls && altUrls.length);
 
   if (lbSheet.getLastRow() > 1) lbSheet.getRange(2, 1, lbSheet.getLastRow() - 1, 5).clearContent();
 
@@ -2129,7 +2128,7 @@ function writeLinkBuilderFormulas_(outputDoc, config, typeRules, numRows, altUrl
     return buildUtmFormula_(linkRef, typeRef, typeRules);
   }
 
-  var formulasA = [], formulasB = [], formulasD = [], formulasE = [];
+  var formulasA = [], formulasB = [], altCells = [];   // altCells = col E formulas
   for (var i = 0; i < numRows; i++) {
     var omRow   = i + 2;
     var linkRef = 'A' + (i + 2);
@@ -2143,16 +2142,17 @@ function writeLinkBuilderFormulas_(outputDoc, config, typeRules, numRows, altUrl
       formulasB.push([utmFormula_(linkRef, typeRef)]);
     }
 
-    if (altColLetter) {
-      formulasD.push(['=IFERROR(ORDERMATCH!' + altColLetter + omRow + ',"")']);
-      formulasE.push([utmFormula_('D' + omRow, typeRef)]);
-    }
+    if (hasAlt) altCells.push([utmFormula_('D' + omRow, typeRef)]);
   }
 
   lbSheet.getRange(2, 1, numRows, 1).setFormulas(formulasA);
   lbSheet.getRange(2, 2, numRows, 1).setFormulas(formulasB);
-  if (altColLetter) lbSheet.getRange(2, 4, numRows, 2).setFormulas(
-    formulasD.map(function(d, i) { return [d[0], formulasE[i][0]]; }));
+  if (hasAlt) {
+    var dRange = lbSheet.getRange(2, 4, numRows, 1);
+    dRange.setNumberFormat('@');
+    dRange.setValues(altUrls.slice(0, numRows).map(function(u) { return [u || '']; }));
+    lbSheet.getRange(2, 5, numRows, 1).setFormulas(altCells);
+  }
 }
 
 
@@ -2340,7 +2340,7 @@ function appEraseAllQRFolders() {
 // ============================================================================
 
 // Writes one path per slot-aligned link into ORDERMATCH column `col` (J for
-// @QR, AC for @QRALT): row i+2 gets slot i's PNG path, or '' for no link.
+// @QR, AB for @QRALT): row i+2 gets slot i's PNG path, or '' for no link.
 function writeQRPaths_(outputDoc, qrPrefix, links, basePath, col, suffix) {
   var paths = buildQrPaths_(links, qrPrefix, basePath, suffix);
   if (paths.length > 0 && col) {
@@ -2348,19 +2348,6 @@ function writeQRPaths_(outputDoc, qrPrefix, links, basePath, col, suffix) {
     range.setValues(paths);
     range.setNumberFormat('@');
   }
-}
-
-/**
- * Writes the slot-aligned ALTURLs into ORDERMATCH's ALTURL column (AB) —
- * LINKBUILDER col D reads them. Like writeFeatures_: script-written, so the
- * template's AB2:AB must stay EMPTY.
- */
-function writeAltUrls_(outputDoc, altUrls) {
-  var col = getFieldToCol_()['ALTURL'];
-  if (!col || !altUrls || !altUrls.length) return;
-  var range = ensureSheetCols_(outputDoc.getSheetByName('ORDERMATCH'), col).getRange(2, col, altUrls.length, 1);
-  range.setValues(altUrls.map(function(u) { return [u]; }));
-  range.setNumberFormat('@');
 }
 
 // Widens `sheet` so 1-based column `col` exists (template copies differ in
@@ -2457,8 +2444,8 @@ var FIELD_TO_COL = {
   'FEATURES':           23,  // col W — per-row manual text, written by writeFeatures_ (like QR paths in J)
   // col X–Z (24–26) MODELTRIM/MV_PRICE/VINHALF and col AA (27) NEWCPOYEARMAKE are
   // template ARRAYFORMULAs mapped via the FIELD_CODES overlay only.
-  'ALTURL':             28,  // col AB — raw SCRAPERDATA `alturl`, script-written by writeAltUrls_
-  '@QRALT':             29   // col AC — alt QR PNG path (<prefix>_QR_Code_<n>_ALT.PNG), written by writeQRPaths_
+  '@QRALT':             28   // col AB — alt QR PNG path (<prefix>_QR_Code_<n>_ALT.PNG), written by writeQRPaths_
+                             // (the raw ALTURL goes straight into LINKBUILDER col D — no ORDERMATCH column)
 };
 
 // The SCHEMA-tab field_key of the per-vehicle second URL (the @QRALT QR source),
