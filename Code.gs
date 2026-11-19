@@ -2123,7 +2123,7 @@ function writeLinkBuilderFormulas_(outputDoc, config, typeRules, numRows, altUrl
 
   function utmFormula_(linkRef, typeRef) {
     if (isSingleRule) {
-      return '=IF(' + linkRef + '="","",' + linkRef + '&"?utm_source=SilverFox&utm_medium=' + typeRules[0].utm + '")';
+      return '=IF(' + linkRef + '="","",' + utmTaggedExpr_(linkRef, typeRules[0].utm) + ')';
     }
     return buildUtmFormula_(linkRef, typeRef, typeRules);
   }
@@ -2393,19 +2393,26 @@ function matchRule_(vehicleType, rules) {
   return rules[rules.length - 1];
 }
 
+/**
+ * Pure: the formula expression for one link + one type's UTM value. A BLANK utm
+ * (product_map entries may omit it — the Pipedrive settings UI deletes an empty
+ * one) means NO tag: the plain link. Before Nov 2026 a blank utm still appended
+ * "?utm_source=SilverFox&utm_medium=" with an empty medium.
+ */
+function utmTaggedExpr_(linkRef, utm) {
+  utm = String(utm == null ? '' : utm).trim();
+  return utm ? linkRef + '&"?utm_source=SilverFox&utm_medium=' + utm + '"' : linkRef;
+}
+
+/** Pure: the LINKBUILDER formula for one row — '' when the link is blank. */
 function buildUtmFormula_(linkRef, typeRef, rules) {
-  var base = '?utm_source=SilverFox&utm_medium=';
-
   var defaultRule = rules[rules.length - 1];
-  var defaultExpr = linkRef + '&"' + base + defaultRule.utm + '"';
-
-  var inner = defaultExpr;
+  var inner = utmTaggedExpr_(linkRef, defaultRule.utm);
   for (var i = rules.length - 2; i >= 0; i--) {
     var rule = rules[i];
     if (rule.match === '*') continue;
     var condition = 'ISNUMBER(SEARCH("' + rule.match + '",' + typeRef + '))';
-    var trueExpr  = linkRef + '&"' + base + rule.utm + '"';
-    inner = 'IF(' + condition + ',' + trueExpr + ',' + inner + ')';
+    inner = 'IF(' + condition + ',' + utmTaggedExpr_(linkRef, rule.utm) + ',' + inner + ')';
   }
 
   return '=IF(' + linkRef + '="","",'+  inner + ')';

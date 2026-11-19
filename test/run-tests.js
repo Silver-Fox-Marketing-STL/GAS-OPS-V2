@@ -828,6 +828,17 @@ t('ensureSheetCols_: widens a 26-col (DEV template) sheet to AB, no-op when wide
   ensureSheetCols_(sh, 10);
   assert.deepStrictEqual(calls, [[26, 2]]);
 });
+t('utm: a set UTM keeps the exact pre-Nov-2026 formula; a blank UTM gives the plain link', function () {
+  assert.strictEqual(utmTaggedExpr_('A2', 'VDP_ShortCut'), 'A2&"?utm_source=SilverFox&utm_medium=VDP_ShortCut"');
+  assert.strictEqual(utmTaggedExpr_('A2', ''), 'A2');
+  assert.strictEqual(utmTaggedExpr_('D2', undefined), 'D2');
+  var rules = [{ match: 'CPO', utm: 'U_CPO' }, { match: 'New', utm: '' }];
+  assert.strictEqual(buildUtmFormula_('A2', 'ORDERMATCH!G2', rules),
+    '=IF(A2="","",IF(ISNUMBER(SEARCH("CPO",ORDERMATCH!G2)),A2&"?utm_source=SilverFox&utm_medium=U_CPO",A2))');
+  var all = [{ match: 'CPO', utm: 'U1' }, { match: 'PO', utm: 'U2' }];
+  assert.strictEqual(buildUtmFormula_('A2', 'T', all),   // byte-identical to the old builder
+    '=IF(A2="","",IF(ISNUMBER(SEARCH("CPO",T)),A2&"?utm_source=SilverFox&utm_medium=U1",A2&"?utm_source=SilverFox&utm_medium=U2"))');
+});
 t('altUrlGateError_: names the missing SCHEMA column when alturl is absent', function () {
   assert.ok(/no "alturl" column/.test(altUrlGateError_(['V1'], -1)));
   assert.ok(/2 vehicles: V1, V2/.test(altUrlGateError_(['V1', 'V2'], 24)));

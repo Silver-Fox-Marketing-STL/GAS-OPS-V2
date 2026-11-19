@@ -12,8 +12,9 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 
 ### Added
 - **Alt QR (`@QRALT`): a second, different QR per car from a new `ALTURL`
-  column.** The default import schema gains an appended `alturl` / `ALTURL`
-  column (SCHEMA tab row + SCRAPERDATA header, set by hand per environment;
+  column.** The default import schema gains an appended column, key `alturl`,
+  label `Alt Link 1` = the feed's real header (SCHEMA tab row + SCRAPERDATA
+  header, set by hand per environment — the label must match the feed;
   code finds it by key via `getSchemaIndex_`, never by index). A schema that
   lists the new `@QRALT` field code gets, per car, `<prefix>_QR_Code_<n>_ALT.PNG`
   beside its unchanged `<prefix>_QR_Code_<n>.PNG` — both share the car's
@@ -293,6 +294,14 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   blank row gets a blank path. Row-addressed writers (`writeFeatures_`, the new
   ALTURL/QR writers) now index by `readOrderMatchSlots_` (every spill row in
   sheet order) instead of `readOrderMatchResults_`, which drops blank-YEAR rows.
+- **QR links: a type with no UTM no longer gets an empty UTM tag.** The link
+  formula always appended `?utm_source=SilverFox&utm_medium=` + the type's
+  UTM, so a product-map type with a blank UTM (allowed since the product map
+  became the per-type config) got `…&utm_medium=` with nothing after it. Now a
+  blank UTM gives the plain URL (`utmTaggedExpr_`, used by the single- and
+  multi-rule builders, main and alt links). Types with a UTM produce the exact
+  same formula as before. In PROD this touched only Bommarito Toyota (New,
+  SCP) — active, no runs in RUN_LOG yet.
 - **Import: the file card's column count used a fixed 21** ("x/21 columns
   matched"), wrong since the schema grew to 24; it now uses the live SCHEMA
   column count (`ViewImport.html`).

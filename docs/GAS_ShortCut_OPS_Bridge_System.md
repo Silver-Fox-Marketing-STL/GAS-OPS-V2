@@ -809,7 +809,7 @@ Copied at runtime for each dealer order. The copy becomes the output document.
 
 A product whose template carries a second QR with a DIFFERENT link per car (unlike `@QR2`, which repeats `@QR`).
 
-- **Data:** the default import schema has an appended column `alturl` / header `ALTURL` (SCHEMA tab row, SCRAPERDATA col Y on PROD). Code finds it by key (`getSchemaIndex_('alturl')`), never by index. The output doc's SCRAPERDATA stays base-21; the run reads ALTURL from the master rows it already holds.
+- **Data:** the default import schema has an appended column, field_key `alturl` (SCHEMA tab row 26, SCRAPERDATA col Y). Its `header_label` must be the feed's real header — **`Alt Link 1`** — because the import matches files by label; a label of `ALTURL` silently ignored the feed's column and left every value `*` (DEV test, Nov 2026). Code finds the column by key (`getSchemaIndex_('alturl')`), never by index or label. One alt link per car today; an "Alt Link 2" would need its own SCHEMA row and code. The output doc's SCRAPERDATA stays base-21; the run reads ALTURL from the master rows it already holds.
 - **Gate:** `altQrTypesForDealer_` = types whose resolved schema lists `@QRALT` (exact product-map keys, like Features). `pasteVinsAndRun` blocks BEFORE any write when an ordered VIN of such a type has no usable ALTURL (`buildAltUrlMap_` keeps http(s) values only), and `runDealer` re-checks the matched rows (covers manual editor runs; its catch trashes the artifacts). A missing `alturl` SCHEMA column gives its own message.
 - **Links:** LINKBUILDER col D = the row's raw ALTURL, written as a value by `writeLinkBuilderFormulas_` (no ORDERMATCH column, no raw-URL field code — nothing prints it), col E = D + the same per-type UTM tag as col B (same formula builder; the `utm_base_url` override is main-link only).
 - **Slot alignment (also fixes the main QR):** `buildLinks_` returns `{main, alt}` with one entry per spill row, `''` for no link. `generateQRCodesParallel_` names each PNG by its slot (`qrFileName_`) and skips blanks WITHOUT renumbering; `writeQRPaths_` writes `''` on rows with no link. Before Nov 2026 blanks were filtered out and files numbered 1..N, so one car with no URL shifted every later car's QR onto the wrong row.
@@ -1056,7 +1056,7 @@ Bound to SF_SYSTEM_MASTER.
 | `getConfigSS_` | `()` | Returns the SF_DEALER_CONFIG Spreadsheet object, opening it only on the first call per script execution. All config reads use this instead of direct `openById` calls. |
 | `getDealerConfig_` | `(dealerKey)` | Reads dealer row from SF_DEALER_CONFIG DEALERS tab via `getConfigSS_()`. |
 | `matchRule_` | `(vehicleType, rules)` | Returns first matching type rule for a vehicle type string. |
-| `buildUtmFormula_` | `(linkRef, typeRef, rules)` | Generates nested IF formula for multi-rule UTM in LINKBUILDER. |
+| `buildUtmFormula_` | `(linkRef, typeRef, rules)` | Generates nested IF formula for multi-rule UTM in LINKBUILDER. Each branch is `utmTaggedExpr_(linkRef, utm)`: `link&"?utm_source=SilverFox&utm_medium=<utm>"`, or the **plain link when the type's `utm` is blank** (Nov 2026 — it used to append the prefix with an empty medium). |
 | `getCsvSchema_` | `(schemaKey)` | Reads field code array from CSV_SCHEMAS tab via `getConfigSS_()`. |
 | `getOrderVINs_` | `(colLetter)` | Reads VINs from ORDERS sheet. Uses `getActiveSpreadsheet()`. |
 | `getDealerScraperData_` | `(locationName)` | Two-pass read: col T only first, then contiguous range of matching rows. Avoids 120k+ cell reads. |
