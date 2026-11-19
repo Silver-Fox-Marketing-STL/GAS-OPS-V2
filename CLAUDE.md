@@ -150,7 +150,8 @@ previously-hit failure — don't relax without reading the matching Bridge secti
 
 **Run pipeline / config**
 - The Pipedrive product map is the sole per-type config: each `product_map[type]` =
-  `{product_id, variation_id?, schema?, utm?}`. `runDealer` builds synthetic type
+  `{product_id, variation_id?, schema?, utm?, utm_alt?}` (`utm_alt` = the @QRALT
+  link's own tag; blank utm/utm_alt = an untagged link). `runDealer` builds synthetic type
   rules from it (`buildTypeRulesFromProductMap_`, CPO-EL before CPO); a matched type
   missing a `product_id` OR `schema` makes the run THROW (`validateProductMapForRun_`).
   No col-O fallback, no `*` catch-all. col O `type_rules` is dormant (legacy record;

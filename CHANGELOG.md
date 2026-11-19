@@ -31,6 +31,12 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   (reusing `collectMissingFeatures_`), `runDealer` re-checks the matched rows.
   `@QR2` is unchanged (same file as `@QR`). Dealers without `@QRALT` skip all
   alt work. `@QRALT` is in the QR gate and the CSV-uppercase skip list.
+  **Per-link UTM:** each product-map type gains an optional `utm_alt` — the alt
+  QR's own `utm_medium` (LINKBUILDER col E builds from it; blank = untagged alt
+  link, never a copy of `utm`). Dealer Rules → Pipedrive shows an "Alt QR UTM"
+  input under the UTM input only for types whose schema lists `@QRALT`
+  (`getRulesEditorBootstrap` now returns `altQrSchemas`); the value is saved
+  only while the schema prints the alt QR.
 - **VIN Inbox: click-to-zoom on photos.** In the open photo panel, a click on the
   photo shows it at full size (at least 2× the fit size, so small photos still
   enlarge), centred on the clicked spot; a second click fits it again. While

@@ -216,12 +216,13 @@ t('full order is deterministic (length desc, then alpha)', function () {
   assert.deepStrictEqual(rules.map(function (r) { return r.match; }),
     ['CPO-EL', 'CPO', 'New', 'PO']);
 });
-t('rules carry schema + utm as strings', function () {
-  assert.deepStrictEqual(rules[0], { match: 'CPO-EL', csv_schema: 'SCP_EL', utm: 'VDP_EL' });
+t('rules carry schema + utm (+ utm_alt) as strings', function () {
+  assert.deepStrictEqual(rules[0], { match: 'CPO-EL', csv_schema: 'SCP_EL', utm: 'VDP_EL', utm_alt: '' });
+  assert.strictEqual(buildTypeRulesFromProductMap_({ New: { utm: 'A', utm_alt: 'B' } })[0].utm_alt, 'B');
 });
 t('missing schema/utm become empty strings; null/empty map is []', function () {
   assert.deepStrictEqual(buildTypeRulesFromProductMap_({ X: {} })[0],
-    { match: 'X', csv_schema: '', utm: '' });
+    { match: 'X', csv_schema: '', utm: '', utm_alt: '' });
   assert.deepStrictEqual(buildTypeRulesFromProductMap_(null), []);
 });
 t('a CPO-EL vehicle matches CPO-EL, never CPO', function () {
@@ -838,6 +839,44 @@ t('utm: a set UTM keeps the exact pre-Nov-2026 formula; a blank UTM gives the pl
   var all = [{ match: 'CPO', utm: 'U1' }, { match: 'PO', utm: 'U2' }];
   assert.strictEqual(buildUtmFormula_('A2', 'T', all),   // byte-identical to the old builder
     '=IF(A2="","",IF(ISNUMBER(SEARCH("CPO",T)),A2&"?utm_source=SilverFox&utm_medium=U1",A2&"?utm_source=SilverFox&utm_medium=U2"))');
+});
+t('writeLinkBuilderFormulas_: main link uses utm, alt link uses its OWN utm_alt (blank = plain)', function () {
+  function fakeDoc() {
+    var writes = {};
+    var sheet = {
+      getLastRow: function () { return 1; },
+      getRange: function (r, c, n, w) {
+        return {
+          clearContent: function () {},
+          setNumberFormat: function () {},
+          setFormulas: function (v) { writes['f' + c] = v; },
+          setValues: function (v) { writes['v' + c] = v; }
+        };
+      }
+    };
+    return { writes: writes, getSheetByName: function () { return sheet; } };
+  }
+  var cfg = []; cfg[CFG.UTM_BASE_URL] = '';
+  // Single rule: main UTM set, alt UTM set.
+  var d1 = fakeDoc();
+  writeLinkBuilderFormulas_(d1, cfg, [{ match: 'New', utm: 'MAIN', utm_alt: 'ALT' }], 2, ['https://alt/1', '']);
+  assert.strictEqual(d1.writes.f2[0][0], '=IF(A2="","",A2&"?utm_source=SilverFox&utm_medium=MAIN")');
+  assert.strictEqual(d1.writes.f5[0][0], '=IF(D2="","",D2&"?utm_source=SilverFox&utm_medium=ALT")');
+  assert.deepStrictEqual(d1.writes.v4, [['https://alt/1'], ['']]);
+  // Blank utm_alt → plain alt link even though the main link is tagged.
+  var d2 = fakeDoc();
+  writeLinkBuilderFormulas_(d2, cfg, [{ match: 'New', utm: 'MAIN', utm_alt: '' }], 1, ['https://alt/1']);
+  assert.strictEqual(d2.writes.f5[0][0], '=IF(D2="","",D2)');
+  // Multi rule: each type's alt tag; no alt work when altUrls is null.
+  var d3 = fakeDoc();
+  var multi = [{ match: 'CPO', utm: 'M1', utm_alt: 'A1' }, { match: 'New', utm: 'M2', utm_alt: '' }];
+  writeLinkBuilderFormulas_(d3, cfg, multi, 1, ['https://alt/1']);
+  assert.strictEqual(d3.writes.f5[0][0],
+    '=IF(D2="","",IF(ISNUMBER(SEARCH("CPO",ORDERMATCH!G2)),D2&"?utm_source=SilverFox&utm_medium=A1",D2))');
+  var d4 = fakeDoc();
+  writeLinkBuilderFormulas_(d4, cfg, multi, 1, null);
+  assert.strictEqual(d4.writes.f5, undefined);
+  assert.strictEqual(d4.writes.v4, undefined);
 });
 t('altUrlGateError_: names the missing SCHEMA column when alturl is absent', function () {
   assert.ok(/no "alturl" column/.test(altUrlGateError_(['V1'], -1)));

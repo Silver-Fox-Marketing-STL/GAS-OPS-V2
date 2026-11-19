@@ -2115,17 +2115,19 @@ function writeLinkBuilderFormulas_(outputDoc, config, typeRules, numRows, altUrl
   var baseOverride  = config[CFG.UTM_BASE_URL];
   var isSingleRule  = typeRules.length === 1;
   // Alt links: D = the row's raw ALTURL (a VALUE, slot-aligned altUrls[i]),
-  // E = D + the SAME per-type UTM tag as the main link (same builder, so the
-  // two can't drift). The fixed-base override (utm_base_url) is main-link only.
-  var hasAlt = !!(altUrls && altUrls.length);
+  // E = D + that type's OWN alt tag (product_map utm_alt; blank = plain link),
+  // through the same builder as the main link. The fixed-base override
+  // (utm_base_url) is main-link only.
+  var hasAlt   = !!(altUrls && altUrls.length);
+  var altRules = typeRules.map(function(r) { return { match: r.match, utm: r.utm_alt }; });
 
   if (lbSheet.getLastRow() > 1) lbSheet.getRange(2, 1, lbSheet.getLastRow() - 1, 5).clearContent();
 
-  function utmFormula_(linkRef, typeRef) {
+  function utmFormula_(linkRef, typeRef, rules) {
     if (isSingleRule) {
-      return '=IF(' + linkRef + '="","",' + utmTaggedExpr_(linkRef, typeRules[0].utm) + ')';
+      return '=IF(' + linkRef + '="","",' + utmTaggedExpr_(linkRef, rules[0].utm) + ')';
     }
-    return buildUtmFormula_(linkRef, typeRef, typeRules);
+    return buildUtmFormula_(linkRef, typeRef, rules);
   }
 
   var formulasA = [], formulasB = [], altCells = [];   // altCells = col E formulas
@@ -2139,10 +2141,10 @@ function writeLinkBuilderFormulas_(outputDoc, config, typeRules, numRows, altUrl
     if (baseOverride && baseOverride !== '') {
       formulasB.push(['=IF(' + linkRef + '="","","' + baseOverride + '"&ORDERMATCH!E' + omRow + ')']);
     } else {
-      formulasB.push([utmFormula_(linkRef, typeRef)]);
+      formulasB.push([utmFormula_(linkRef, typeRef, typeRules)]);
     }
 
-    if (hasAlt) altCells.push([utmFormula_('D' + omRow, typeRef)]);
+    if (hasAlt) altCells.push([utmFormula_('D' + omRow, typeRef, altRules)]);
   }
 
   lbSheet.getRange(2, 1, numRows, 1).setFormulas(formulasA);
@@ -2723,7 +2725,10 @@ function buildTypeRulesFromProductMap_(productMap) {
   });
   return keys.map(function(t) {
     var e = productMap[t] || {};
-    return { match: t, csv_schema: String(e.schema || ''), utm: String(e.utm || '') };
+    // utm_alt = the alt QR's own tag (only meaningful when the schema lists @QRALT);
+    // blank = the plain alt link, NOT a copy of utm.
+    return { match: t, csv_schema: String(e.schema || ''), utm: String(e.utm || ''),
+             utm_alt: String(e.utm_alt || '') };
   });
 }
 
@@ -5377,10 +5382,16 @@ function getRulesEditorBootstrap() {
   dealers.sort(function(a, b) { return String(a.name).localeCompare(String(b.name)); });
 
   var schemaData = configSS.getSheetByName('CSV_SCHEMAS').getDataRange().getValues();
-  var schemas = [];
+  var schemas = [], altQrSchemas = [];
   for (var j = 1; j < schemaData.length; j++) {
     var key = String(schemaData[j][0]).trim();
-    if (key !== '') schemas.push(key);
+    if (key === '') continue;
+    schemas.push(key);
+    // Schemas that print the alt QR — the Pipedrive product grid shows an Alt UTM
+    // input only for types mapped to one of these. Cells from col C are field codes.
+    var codes = schemaData[j].slice(2).map(function(c) { return String(c || '').trim(); })
+                             .filter(function(c) { return c !== ''; });
+    if (schemaCodesHaveAltQR_(codes)) altQrSchemas.push(key);
   }
 
   // Targeting-condition metadata. Field list is the full data SCHEMA (key+label)
@@ -5388,6 +5399,7 @@ function getRulesEditorBootstrap() {
   return {
     dealers: dealers,
     schemas: schemas,
+    altQrSchemas:        altQrSchemas,                  // schema keys whose codes include @QRALT
     vehicleTypes:        getCanonicalVehicleTypes_(),   // built-ins + user-added — drives the type pills + seasoning
     filterFields:        getDataSchema_().map(function(c) { return { key: c.key, label: c.label }; }),
     filterOps:           FILTER_OPS,
