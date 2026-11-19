@@ -114,7 +114,13 @@ previously-hit failure — don't relax without reading the matching Bridge secti
   the overlay — the constant is not the full picture; check both before claiming
   a column free); `buildCSVSheet_` reads 100 cols; `PRICE_TAGLINE` = col 21 (U);
   `FEATURES` = col 23 (W), script-written per-row manual text (like col J —
-  template W2:W must stay EMPTY). Template ARRAYFORMULAs `TYPESTOCK`/`TYPEVIN`
+  template W2:W must stay EMPTY). `NEWCPOYEARMAKE`=27/AA is overlay-only;
+  `@QRALT`=28/AB is script-written (AB2:AB must stay EMPTY; the raw ALTURL goes
+  straight into LINKBUILDER col D — it is not a field code).
+  QR links/paths are SLOT-ALIGNED — slot i = ORDERMATCH row i+2 via
+  `readOrderMatchSlots_` (never `readOrderMatchResults_`' index, it drops
+  blank-YEAR rows); a car's PNGs are `<prefix>_QR_Code_<n>.PNG` + `_<n>_ALT.PNG`.
+  Template ARRAYFORMULAs `TYPESTOCK`/`TYPEVIN`
   (N2/R2) are exact-match — a custom type prints its own uppercased name, not "USED".
 - CSV_SCHEMAS cells may be `CODE:HEADER[:edit[N]]` (VersaWorks): the code maps
   the data column, the header prints, `edit` makes the column user-editable in
@@ -144,7 +150,8 @@ previously-hit failure — don't relax without reading the matching Bridge secti
 
 **Run pipeline / config**
 - The Pipedrive product map is the sole per-type config: each `product_map[type]` =
-  `{product_id, variation_id?, schema?, utm?}`. `runDealer` builds synthetic type
+  `{product_id, variation_id?, schema?, utm?, utm_alt?}` (`utm_alt` = the @QRALT
+  link's own tag; blank utm/utm_alt = an untagged link). `runDealer` builds synthetic type
   rules from it (`buildTypeRulesFromProductMap_`, CPO-EL before CPO); a matched type
   missing a `product_id` OR `schema` makes the run THROW (`validateProductMapForRun_`).
   No col-O fallback, no `*` catch-all. col O `type_rules` is dormant (legacy record;

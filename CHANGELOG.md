@@ -11,6 +11,32 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 ## [Unreleased]
 
 ### Added
+- **Alt QR (`@QRALT`): a second, different QR per car from a new `ALTURL`
+  column.** The default import schema gains an appended column, key `alturl`,
+  label `Alt Link 1` = the feed's real header (SCHEMA tab row + SCRAPERDATA
+  header, set by hand per environment — the label must match the feed;
+  code finds it by key via `getSchemaIndex_`, never by index). A schema that
+  lists the new `@QRALT` field code gets, per car, `<prefix>_QR_Code_<n>_ALT.PNG`
+  beside its unchanged `<prefix>_QR_Code_<n>.PNG` — both share the car's
+  ORDERMATCH slot number, and both paths sit on the car's own CSV row. Flow:
+  `runDealer` writes each alt-QR row's ALTURL straight into LINKBUILDER col D
+  (a value; no ORDERMATCH column and no raw-URL field code), col E builds the
+  UTM-tagged alt link with the same formula builder as col B, a second
+  parallel QR round makes the `_ALT` PNGs, and `writeQRPaths_` writes their
+  paths into ORDERMATCH col AB (`@QRALT` = 28; AA is the overlay-only
+  NEWCPOYEARMAKE).
+  Alt files join `qrFileIds`, so Abandon and failed-run cleanup trash them.
+  **Blocks the run** when a vehicle whose type's schema lists `@QRALT` has no
+  usable ALTURL (blank or not http): `pasteVinsAndRun` checks before any write
+  (reusing `collectMissingFeatures_`), `runDealer` re-checks the matched rows.
+  `@QR2` is unchanged (same file as `@QR`). Dealers without `@QRALT` skip all
+  alt work. `@QRALT` is in the QR gate and the CSV-uppercase skip list.
+  **Per-link UTM:** each product-map type gains an optional `utm_alt` — the alt
+  QR's own `utm_medium` (LINKBUILDER col E builds from it; blank = untagged alt
+  link, never a copy of `utm`). Dealer Rules → Pipedrive shows an "Alt QR UTM"
+  input under the UTM input only for types whose schema lists `@QRALT`
+  (`getRulesEditorBootstrap` now returns `altQrSchemas`); the value is saved
+  only while the schema prints the alt QR.
 - **VIN Inbox: click-to-zoom on photos.** In the open photo panel, a click on the
   photo shows it at full size (at least 2× the fit size, so small photos still
   enlarge), centred on the clicked spot; a second click fits it again. While
@@ -265,6 +291,26 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
   to the brain backlog; `CLAUDE.md` line count refreshed.
 
 ### Fixed
+- **Run: a car with no link can no longer shift later cars' QR codes or
+  Features text onto the wrong row.** `buildLinks_` used to drop blank links
+  and `generateQRCodesParallel_`/`writeQRPaths_` then numbered files and paths
+  1..N down the rows, so one car without a URL gave every later car the next
+  car's QR (and the last car none). Links are now SLOT-ALIGNED (one entry per
+  ORDERMATCH row, `''` = no link): each PNG is named for its own row and a
+  blank row gets a blank path. Row-addressed writers (`writeFeatures_`, the new
+  ALTURL/QR writers) now index by `readOrderMatchSlots_` (every spill row in
+  sheet order) instead of `readOrderMatchResults_`, which drops blank-YEAR rows.
+- **QR links: a type with no UTM no longer gets an empty UTM tag.** The link
+  formula always appended `?utm_source=SilverFox&utm_medium=` + the type's
+  UTM, so a product-map type with a blank UTM (allowed since the product map
+  became the per-type config) got `…&utm_medium=` with nothing after it. Now a
+  blank UTM gives the plain URL (`utmTaggedExpr_`, used by the single- and
+  multi-rule builders, main and alt links). Types with a UTM produce the exact
+  same formula as before. In PROD this touched only Bommarito Toyota (New,
+  SCP) — active, no runs in RUN_LOG yet.
+- **Import: the file card's column count used a fixed 21** ("x/21 columns
+  matched"), wrong since the schema grew to 24; it now uses the live SCHEMA
+  column count (`ViewImport.html`).
 - **App-wide: a lost server request no longer freezes a screen** (2026-11-16,
   `fix/timed-server-calls`). A `google.script.run` request lost before it reaches the
   server (e.g. an expired Google sign-in) fires neither handler, so the 2026-11-16

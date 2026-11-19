@@ -815,7 +815,8 @@
       }
     }
 
-    // Parses one file's text into canonical 21-column rows with its own
+    // Parses one file's text into canonical-width rows (one cell per
+    // EXPECTED_HEADERS entry, from the SCHEMA tab) with its own
     // header mapping. Strips the UTF-8 BOM (a BOM'd header reads as
     // "﻿VIN" and silently fails the match) and drops any stray header
     // row hiding mid-file (VIN cell equal to the literal "vin").
@@ -901,7 +902,7 @@
         html += '<div class="file-card-header"><span>' + escHtml(f.name) + '</span>';
         if (f.valid) {
           html += '<span class="file-meta">' + f.rowCount.toLocaleString() + ' rows · ' +
-                  f.matchedCount + '/21 columns matched</span>';
+                  f.matchedCount + '/' + EXPECTED_HEADERS.length + ' columns matched</span>';
         }
         html += '</div>';
         html += '<div class="file-card-body">';
@@ -912,7 +913,7 @@
             html += '<div class="missing-line">Missing (will be blank): ' +
                     f.missing.map(escHtml).join(', ') + '</div>';
           } else {
-            html += '<div class="match">✓ All 21 columns matched</div>';
+            html += '<div class="match">✓ All ' + EXPECTED_HEADERS.length + ' columns matched</div>';
           }
           if (f.ignored.length > 0) {
             html += '<div class="ignored-line">Ignored: ' + f.ignored.map(escHtml).join(', ') + '</div>';

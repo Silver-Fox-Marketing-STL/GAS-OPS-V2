@@ -509,7 +509,7 @@ A **`PIPEDRIVE` tab**, **one row per `(dealer_key, group)`** (per-dealer org, pr
 | B | `group` | `PRIMARY` or a `billing_split` group name (e.g. `SPRINTER`). |
 | C | `org_id` | Pipedrive organization ID the deal is created on. |
 | D | `org_name` | Cached org display name. |
-| E | `product_map` | JSON `{type: {product_id, variation_id?, schema?, utm?}}` — per-type Pipedrive product (`New`/`PO`/`CPO`/`CPO-EL`), optionally a specific variation, the **`schema`** (CSV-schema key — sets that product's CSV layout/grouping) and the **`utm`** (QR `utm_medium`). **This is now the SOLE per-type config — the run reads schema + UTM from here, not from `type_rules` (col O); a matched type missing a `product_id` or `schema` blocks the run.** A bare `{type: product_id}` is still tolerated. *(`schema`+`utm` added in v2.12; `buildLineItems_` ignores both. See *Type Rules System*.)* |
+| E | `product_map` | JSON `{type: {product_id, variation_id?, schema?, utm?, utm_alt?}}` — per-type Pipedrive product (`New`/`PO`/`CPO`/`CPO-EL`), optionally a specific variation, the **`schema`** (CSV-schema key — sets that product's CSV layout/grouping), the **`utm`** (QR `utm_medium`; blank = untagged link) and **`utm_alt`** (Nov 2026 — the alt QR's own `utm_medium`, only saved/used when the schema lists `@QRALT`; blank = untagged alt link, never a copy of `utm`). **This is now the SOLE per-type config — the run reads schema + UTM from here, not from `type_rules` (col O); a matched type missing a `product_id` or `schema` blocks the run.** A bare `{type: product_id}` is still tolerated. *(`schema`+`utm` added in v2.12; `buildLineItems_` ignores both. See *Type Rules System*.)* |
 | F | `deal_title_template` | Optional template (`{dealer_name} {date} {group} {count}`). |
 | G | `pipeline_id` | Optional override of the default pipeline. |
 | H | `stage_id` | Optional override of the default stage. |
@@ -734,7 +734,8 @@ The `FIELD_TO_COL` constant in Code.gs maps field code names to 1-based ORDERMAT
 | `TYPE` | 7 | Normalized type |
 | `PRICE_RAW` | 8 | Raw numeric price |
 | `@QR` | 10 | Local QR PNG file path |
-| `@QR2` | 10 | Same as @QR (two-frame templates) |
+| `@QR2` | 10 | Same as @QR (two-frame templates) — the SAME file/link as `@QR` |
+| `@QRALT` | 28 | **Alt QR path** (Nov 2026) — a second, DIFFERENT QR made from the vehicle's `ALTURL`: `<prefix>_QR_Code_<n>_ALT.PNG`, where `<n>` is the car's ORDERMATCH slot (same `<n>` as its main QR). Script-written by `writeQRPaths_` into col AB. A type whose schema lists `@QRALT` **blocks the run** when a vehicle has no usable ALTURL (blank or not http). The raw ALTURL is deliberately NOT a field code. See "Alt QR (ALTURL)" below |
 | `YEARMAKE` | 11 | `"2024 HONDA"` |
 | `YEARMODEL` / `QRYEARMODEL` | 12 | `"2024 CR-V"` |
 | `MAKE_MODEL_COMBINED` | 13 | `"HONDA CR-V"` |
@@ -796,8 +797,24 @@ Copied at runtime for each dealer order. The copy becomes the output document.
 | W | 23 | FEATURES | Script-written by `writeFeatures_` (July 2026) — per-row manual text typed in the Run Order table, VIN-aligned to the QUERY spill. **No formula; W2:W must stay empty in the template.** Blank unless the run supplied a `featuresMap` |
 | X | 24 | MODELTRIM | `=ARRAYFORMULA(IF(ISBLANK(A2:A),"",UPPER(C2:C&" "&D2:D)))` *(July 2026, VersaWorks dealers)* |
 | Y | 25 | MV_PRICE | `=ARRAYFORMULA(IF(ISBLANK(A2:A),"",IF(H2:H="*","*","Market Value Price: $"&TEXT(H2:H+2000,"#,##0"))))` *(July 2026, Bommarito West County)* |
+| Z | 26 | VINHALF | `=ARRAYFORMULA(IF(ISBLANK(A2:A),"",RIGHT(E2:E,8)))` *(FIELD_CODES overlay only)* |
+| AA | 27 | NEWCPOYEARMAKE | `=ARRAYFORMULA(IF(ISBLANK(A2:A),"",IFS(ISNUMBER(SEARCH("New",G2:G)),"NEW ",ISNUMBER(SEARCH("CPO",G2:G)),"CERTIFIED ",TRUE,"")&UPPER(A2:A&" "&B2:B)))` *(FIELD_CODES overlay only)* |
+| AB | 28 | @QRALT path | Script-written by `writeQRPaths_` (Nov 2026) — `<basePath><prefix>_QR_Code_<n>_ALT.PNG`, blank for rows with no alt link. **AB2:AB must stay empty in the template.** Not present in the DEV template (stops at Z) — `ensureSheetCols_` widens the order copy |
 
-**Cols A–I are the QUERY spill zone.** Nothing should be written there in the template. Cols J (QR paths) and W (Features) are the script-written value columns. Cols K–V and X–Y are ARRAYFORMULAs that auto-expand with QUERY output.
+**Cols A–I are the QUERY spill zone.** Nothing should be written there in the template. Cols J (QR paths), W (Features) and AB (alt QR paths) are the script-written value columns. Cols K–V, X–AA are ARRAYFORMULAs that auto-expand with QUERY output.
+
+**Row-addressed writers use `readOrderMatchSlots_`** (Nov 2026): every QUERY spill row in sheet order, slot i ↔ row i+2, ended by the first blank VIN. `readOrderMatchResults_` drops blank-YEAR rows, so its index must never address a row (`writeFeatures_` used it until Nov 2026 — one blank year shifted every later car's Features text).
+
+### Alt QR (ALTURL) — Nov 2026
+
+A product whose template carries a second QR with a DIFFERENT link per car (unlike `@QR2`, which repeats `@QR`).
+
+- **Data:** the default import schema has an appended column, field_key `alturl` (SCHEMA tab row 26, SCRAPERDATA col Y). Its `header_label` must be the feed's real header — **`Alt Link 1`** — because the import matches files by label; a label of `ALTURL` silently ignored the feed's column and left every value `*` (DEV test, Nov 2026). Code finds the column by key (`getSchemaIndex_('alturl')`), never by index or label. One alt link per car today; an "Alt Link 2" would need its own SCHEMA row and code. The output doc's SCRAPERDATA stays base-21; the run reads ALTURL from the master rows it already holds.
+- **Gate:** `altQrTypesForDealer_` = types whose resolved schema lists `@QRALT` (exact product-map keys, like Features). `pasteVinsAndRun` blocks BEFORE any write when an ordered VIN of such a type has no usable ALTURL (`buildAltUrlMap_` keeps http(s) values only), and `runDealer` re-checks the matched rows (covers manual editor runs; its catch trashes the artifacts). A missing `alturl` SCHEMA column gives its own message.
+- **Links:** LINKBUILDER col D = the row's raw ALTURL, written as a value by `writeLinkBuilderFormulas_` (no ORDERMATCH column, no raw-URL field code — nothing prints it), col E = D + the type's OWN alt tag `product_map[type].utm_alt` (same formula builder as col B; blank = plain alt link; the `utm_base_url` override is main-link only). The Pipedrive product grid (Dealer Rules) shows an **Alt QR UTM** input under the UTM input only for types whose schema is in the bootstrap's `altQrSchemas` list.
+- **Slot alignment (also fixes the main QR):** `buildLinks_` returns `{main, alt}` with one entry per spill row, `''` for no link. `generateQRCodesParallel_` names each PNG by its slot (`qrFileName_`) and skips blanks WITHOUT renumbering; `writeQRPaths_` writes `''` on rows with no link. Before Nov 2026 blanks were filtered out and files numbered 1..N, so one car with no URL shifted every later car's QR onto the wrong row.
+- **Files:** main `<prefix>_QR_Code_<n>.PNG` unchanged; alt `<prefix>_QR_Code_<n>_ALT.PNG`. Both go into `qrFileIds` (abandon/failed-run cleanup); the legacy name-pattern fallback matches both.
+- **Cost:** alt-QR dealers get a second parallel download+upload round; every other dealer skips all alt work (`altUrls` null).
 
 ### Other Tabs
 
@@ -805,7 +822,7 @@ Copied at runtime for each dealer order. The copy becomes the output document.
 
 **SCRAPERDATA** — Full dealer inventory (21 cols A–U). Written by script.
 
-**LINKBUILDER** — Col A: source URL, Col B: UTM-tagged URL, Col C: alt URL (BMW of Columbia).
+**LINKBUILDER** — Col A: source URL, Col B: UTM-tagged URL, Col C: alt URL column (BMW of Columbia — `linkbuilder_col` C; unrelated to ALTURL). Cols D–E (Nov 2026, alt-QR runs only): D = the row's raw ALTURL (script-written value), E = D + UTM tag.
 
 **CSV / CSV_`<SCHEMA>` / etc.** — Final export sheets built from ORDERMATCH, grouped by the schema resolved from the Pipedrive product map (one schema → `CSV`, else `CSV_<SCHEMA>`). Headers are auto-suffixed when a schema contains duplicate field codes (`YEARMODELSTOCK`, `YEARMODELSTOCK2`, etc.).
 
@@ -1039,15 +1056,17 @@ Bound to SF_SYSTEM_MASTER.
 | `getConfigSS_` | `()` | Returns the SF_DEALER_CONFIG Spreadsheet object, opening it only on the first call per script execution. All config reads use this instead of direct `openById` calls. |
 | `getDealerConfig_` | `(dealerKey)` | Reads dealer row from SF_DEALER_CONFIG DEALERS tab via `getConfigSS_()`. |
 | `matchRule_` | `(vehicleType, rules)` | Returns first matching type rule for a vehicle type string. |
-| `buildUtmFormula_` | `(linkRef, typeRef, rules)` | Generates nested IF formula for multi-rule UTM in LINKBUILDER. |
+| `buildUtmFormula_` | `(linkRef, typeRef, rules)` | Generates nested IF formula for multi-rule UTM in LINKBUILDER. Each branch is `utmTaggedExpr_(linkRef, utm)`: `link&"?utm_source=SilverFox&utm_medium=<utm>"`, or the **plain link when the type's `utm` is blank** (Nov 2026 — it used to append the prefix with an empty medium). |
 | `getCsvSchema_` | `(schemaKey)` | Reads field code array from CSV_SCHEMAS tab via `getConfigSS_()`. |
 | `getOrderVINs_` | `(colLetter)` | Reads VINs from ORDERS sheet. Uses `getActiveSpreadsheet()`. |
 | `getDealerScraperData_` | `(locationName)` | Two-pass read: col T only first, then contiguous range of matching rows. Avoids 120k+ cell reads. |
 | `writeOrderMatchFormula_` | `(outputDoc, vins)` | Writes QUERY formula to ORDERMATCH A2 (always matches on VIN, col A). |
-| `buildLinks_` | `(outputDoc, config, typeRules)` | Captures ORDERMATCH row count, writes LINKBUILDER formulas, waits via `calcRecalcDelay_`, reads resulting URLs. |
+| `buildLinks_` | `(outputDoc, config, typeRules, slots, altUrls)` | Writes LINKBUILDER formulas for the `slots` spill rows (cols A–B, plus D–E when `altUrls` is set), polls via `calcRecalcDelay_`, returns SLOT-ALIGNED `{main, alt}` link lists (`''` = no http link). |
 | `calcRecalcDelay_` | `(rowCount, msPerRow, minMs, maxMs)` | Returns scaled sleep duration in ms. Used after ORDERMATCH and LINKBUILDER formula writes to replace fixed sleeps. |
 | `generateQRCodesParallel_` | `(links, qrFolder, qrPrefix)` | Parallel QR generation via `UrlFetchApp.fetchAll()`. One batch call regardless of count. |
-| `writeQRPaths_` | `(outputDoc, qrPrefix, count, basePath)` | Writes local QR file paths to ORDERMATCH col J using the per-user `basePath`. |
+| `writeQRPaths_` | `(outputDoc, qrPrefix, links, basePath, col, suffix)` | Writes one local QR path per slot-aligned link into ORDERMATCH `col` (J for `@QR`, AB for `@QRALT`) using the per-user `basePath`; `''` on rows with no link (`buildQrPaths_` is the pure core, `qrFileName_` the name). |
+| `readOrderMatchSlots_` / `trimToSpill_` | `(outputDoc)` / `(rows)` | Every QUERY spill row in sheet order (slot i ↔ row i+2), ended by the first blank VIN — the row index for Features/ALTURL/QR writers. |
+| `altQrTypesForDealer_` / `buildAltUrlMap_` / `altUrlsForRows_` | — | **(pure)** Alt-QR gate pieces: types needing `@QRALT`; `{VIN→http alt URL}`; per-slot alt URLs + missing VINs. |
 | `buildCSVSheet_` | `(outputDoc, typeRules)` | Builds CSV output sheet(s) from ORDERMATCH. Calls `dedupFieldCodeHeaders_()` to auto-suffix duplicate field code names in the header row. |
 | `dedupFieldCodeHeaders_` | `(fieldCodes)` | Takes a field code array and returns a header-safe version where duplicate codes are suffixed: first occurrence unchanged, subsequent occurrences get `2`, `3`, etc. Data rows are unaffected. |
 | `copyVINLogToOutput_` | `(outputDoc, dealerKey)` | Copies dealer's SF_VIN_LOGS tab into output doc LOG sheet. |

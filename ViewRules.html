@@ -803,6 +803,13 @@
     }
     #view-rules .pd-product-table select:focus,
     #view-rules .pd-product-table input[type="text"]:focus { outline: none; border-color: var(--accent); }
+    /* Alt QR UTM (types whose schema prints @QRALT): a small caption + input
+       stacked under the main UTM input in the same cell. */
+    #view-rules .pd-utm-alt {
+      display: block; margin-top: 4px; font-size: 10px; font-weight: bold;
+      text-transform: uppercase; letter-spacing: 0.3px; color: var(--text-muted);
+    }
+    #view-rules .pd-utm-alt input[type="text"] { margin-top: 2px; text-transform: none; font-weight: normal; letter-spacing: 0; }
     #view-rules .pd-type-badge {
       display: inline-block; padding: 2px 9px; border-radius: 10px;
       font-size: 11px; font-weight: bold; color: var(--on-type);
@@ -1006,6 +1013,7 @@
 <script>
     var currentDealerKey = null;
     var availableSchemas = [];
+    var altQrSchemaSet   = {};   // {schemaKey: true} for schemas that print the alt QR (@QRALT)
     var availableTypes = ['New', 'PO', 'CPO', 'CPO-EL'];   // vehicle-type registry (built-ins + user-added), from bootstrap
     var BUILTIN_TYPES  = ['New', 'PO', 'CPO', 'CPO-EL'];   // protected — never get a remove (×) control
     var availableFilterFields  = [];
@@ -1024,7 +1032,9 @@
           // (pdProductSchemaSelect_) — keep it loaded even though the Type Rules
           // editor that formerly also consumed it is gone.
           availableSchemas       = data.schemas;
-          availableTypes         = (data.vehicleTypes && data.vehicleTypes.length) ? data.vehicleTypes : availableTypes;
+          altQrSchemaSet         = {};
+          (data.altQrSchemas || []).forEach(function(k) { altQrSchemaSet[k] = true; });
+          availableTypes        = (data.vehicleTypes && data.vehicleTypes.length) ? data.vehicleTypes : availableTypes;
           availableFilterFields  = data.filterFields || [];
           availableFilterOps     = data.filterOps || [];
           availableFilterActions = data.filterActions || ['drop_on_import', 'exclude_cao', 'exclude_order'];
@@ -1916,6 +1926,7 @@
           if (v.variation_id != null && v.variation_id !== '') out[type].variation_id = v.variation_id;
           if (v.schema != null && v.schema !== '') out[type].schema = v.schema;
           if (v.utm != null && v.utm !== '') out[type].utm = v.utm;
+          if (v.utm_alt != null && v.utm_alt !== '') out[type].utm_alt = v.utm_alt;
         } else {
           out[type] = { product_id: v };   // bare id → object form
         }
@@ -2113,7 +2124,8 @@
     function pdSchemaHint_() {
       return '<div class="pill-hint" style="margin-bottom:6px;">' +
         'Schema = the CSV layout (required — a run won\'t proceed without it); ' +
-        'UTM = the QR tracking tag. Both come from the product now.' +
+        'UTM = the QR tracking tag. Both come from the product now. ' +
+        'A schema with an alt QR (@QRALT) adds an Alt QR UTM for the second code; blank = no tag.' +
         '</div>';
     }
 
@@ -2132,7 +2144,9 @@
           '<td data-label="Product">' + pdProductSelect_(group, t, cell.product_id, mapKey) + '</td>' +
           '<td data-label="Variation">' + pdVariationSelect_(group, t, cell.product_id, cell.variation_id, mapKey) + '</td>' +
           '<td data-label="Schema">' + pdProductSchemaSelect_(group, t, mapKey, cell.schema) + '</td>' +
-          '<td data-label="UTM">' + pdProductUtmInput_(group, t, mapKey, cell.utm) + '</td>' +
+          '<td data-label="UTM">' + pdProductUtmInput_(group, t, mapKey, cell.utm) +
+            (altQrSchemaSet[cell.schema] ? pdProductUtmAltInput_(group, t, mapKey, cell.utm_alt) : '') +
+          '</td>' +
         '</tr>';
       }).join('');
     }
@@ -2248,6 +2262,18 @@
       var val = (savedUtm != null) ? String(savedUtm) : '';
       return '<input type="text" placeholder="e.g. VDP_ShortCut" value="' + escAttr_(val) + '" ' +
         'onchange="pdSetProductUtm(\'' + group + '\', \'' + escAttr_(type) + '\', this.value, \'' + escAttr_(mapKey) + '\')" />';
+    }
+
+    // Alt-QR UTM input — rendered under the main UTM input ONLY when the type's
+    // schema prints the alt QR (@QRALT). Writes the cell's `utm_alt`; blank = the
+    // alt QR opens the plain alt link (it does NOT copy the main UTM).
+    function pdProductUtmAltInput_(group, type, mapKey, savedUtmAlt) {
+      mapKey = mapKey || '';
+      var val = (savedUtmAlt != null) ? String(savedUtmAlt) : '';
+      return '<label class="pd-utm-alt">Alt QR UTM' +
+        '<input type="text" placeholder="blank = no tag" value="' + escAttr_(val) + '" ' +
+        'onchange="pdSetProductUtmAlt(\'' + group + '\', \'' + escAttr_(type) + '\', this.value, \'' + escAttr_(mapKey) + '\')" />' +
+        '</label>';
     }
 
     // DOM-id-safe type token (e.g. CPO-EL → CPO_EL).
@@ -2466,9 +2492,13 @@
       var g = pdEnsureGroup_(group);
       var cell = pdGetMap_(g, mapKey || '')[type];
       if (!cell || cell.product_id == null) return;   // no product → no schema to set
+      var wasAlt = !!altQrSchemaSet[cell.schema];
       if (val === '' || val == null) { delete cell.schema; }
       else { cell.schema = val; }
-      markPipedriveDirty();   // no re-render — keep the schema select focused
+      markPipedriveDirty();
+      // Re-render only when the Alt QR UTM input must appear/disappear; otherwise
+      // keep the schema select focused.
+      if (wasAlt !== !!altQrSchemaSet[cell.schema]) renderPipedriveDealer();
     }
     // UTM change → set/clear the product-map cell's `utm` (the QR tracking tag for
     // this product; blank = fall back to the type rule's utm on the server).
@@ -2481,6 +2511,16 @@
       if (val === '') { delete cell.utm; }
       else { cell.utm = val; }
       markPipedriveDirty();   // no re-render — keep the utm input focused
+    }
+    // Alt-QR UTM change → set/clear the cell's `utm_alt` (mirrors pdSetProductUtm).
+    function pdSetProductUtmAlt(group, type, val, mapKey) {
+      var g = pdEnsureGroup_(group);
+      var cell = pdGetMap_(g, mapKey || '')[type];
+      if (!cell || cell.product_id == null) return;
+      val = (val == null) ? '' : String(val).trim();
+      if (val === '') { delete cell.utm_alt; }
+      else { cell.utm_alt = val; }
+      markPipedriveDirty();
     }
     // Per-group "Show all products" — a view-only toggle that bypasses the org
     // scope filter for this group's product dropdowns. NOT persisted (it doesn't
@@ -2607,6 +2647,11 @@
         }
         if (cell.utm != null && cell.utm !== '') {
           out[type].utm = cell.utm;
+        }
+        // The alt QR's own tag — saved only while the schema prints the alt QR, so
+        // switching a type off an @QRALT schema can't leave a hidden stale value.
+        if (cell.utm_alt != null && cell.utm_alt !== '' && altQrSchemaSet[cell.schema]) {
+          out[type].utm_alt = cell.utm_alt;
         }
       });
       return out;
